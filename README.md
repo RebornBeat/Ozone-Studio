@@ -1,4 +1,4 @@
-# OZONE STUDIO
+# OZONE STUDIO ( Omnidirectional Zero-shot Operational Neural Engine )
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75.0%2B-orange.svg)](https://www.rust-lang.org)
