@@ -424,8 +424,3 @@ Stanovich, K. E. (2011). *Rationality and the reflective mind*. Oxford Universit
 
 Tononi, G. (2008). Integrated information theory. *Scholarpedia*, 3(3), 4164.
 
----
-
-*Corresponding Author: [Author Information]*
-*Received: [Date]; Accepted: [Date]; Published: [Date]*
-*© 2025 Journal of Consciousness Studies. All rights reserved.*
