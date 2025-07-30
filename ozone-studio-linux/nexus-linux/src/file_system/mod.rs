@@ -1,4 +1,9 @@
-
+//! Universal File System Management
+//! 
+//! This module provides comprehensive file system abstraction and coordination
+//! capabilities for NEXUS. It enables universal file operations across different
+//! operating systems, file systems, and storage devices while maintaining
+//! security, performance, and reliability.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
