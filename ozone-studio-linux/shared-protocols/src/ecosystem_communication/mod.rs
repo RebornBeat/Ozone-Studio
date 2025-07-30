@@ -1,1344 +1,2737 @@
-// This module defines the fundamental communication protocols that enable all components
-// in the OZONE STUDIO ecosystem to interact with each other. Think of this as the 
-// "universal language" that every component speaks, regardless of their specialization.
+//! # Ecosystem Communication Module
+//! 
+//! This module provides the foundational communication infrastructure for the OZONE STUDIO ecosystem.
+//! It defines the core message types, protocols, and patterns that enable conscious orchestration
+//! across all AI Apps and infrastructure components.
+//! 
+//! ## Architecture Philosophy
+//! 
+//! The ecosystem communication layer operates on the principle that conscious orchestration
+//! requires standardized, reliable, and observable communication patterns. Every message in
+//! the ecosystem carries not just data, but also the context needed for conscious decision-making.
+//! 
+//! ## Key Concepts
+//! 
+//! - **EcosystemMessage**: The fundamental unit of communication that carries context, priority,
+//!   and security information alongside the actual message payload
+//! - **Component Registration**: The process by which AI Apps announce their capabilities and
+//!   establish their role in the conscious orchestration hierarchy
+//! - **Health Monitoring**: Continuous observation of component health that feeds into
+//!   OZONE STUDIO's strategic awareness and decision-making
+//! - **Message Routing**: Intelligent routing that supports both direct coordination and
+//!   broadcast patterns needed for ecosystem-wide orchestration
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::fmt;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+// Async and networking dependencies
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use anyhow::Result;
 use thiserror::Error;
 
-// Import the component types that we need to reference
-use crate::{ComponentType, Endpoint, Protocol};
+// Re-export types that other modules need
+pub use crate::{ComponentType, Endpoint, EndpointType, Protocol};
 
-// Import security types for secure communication
-use shared_security::{AuthenticationCredentials, SecurityContext};
-
-// =============================================================================
-// Core Ecosystem Message Types
-// =============================================================================
-
-/// The fundamental message type that flows between all ecosystem components.
-/// Every interaction in the OZONE STUDIO ecosystem begins with an EcosystemMessage.
-/// This is like the "envelope" that contains all communication between components.
+/// The fundamental message type that carries all ecosystem communication.
+/// 
+/// Every communication in the OZONE STUDIO ecosystem is wrapped in an EcosystemMessage,
+/// which provides the context, routing, security, and metadata needed for conscious
+/// orchestration. This design ensures that OZONE STUDIO can maintain awareness of
+/// all system communications and make informed coordination decisions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EcosystemMessage {
-    /// Unique identifier for tracking this specific message through the ecosystem
+    /// Unique identifier for this message, used for correlation and tracking
     pub message_id: String,
     
-    /// Which component sent this message (enables response routing)
-    pub sender: ComponentType,
-    
-    /// Which component should receive this message
-    pub receiver: ComponentType,
-    
-    /// What type of communication this represents
+    /// The type of message being sent, which determines how it's processed
     pub message_type: EcosystemMessageType,
     
-    /// The actual content being communicated
-    pub payload: serde_json::Value,
+    /// The component sending this message
+    pub sender: ComponentIdentity,
     
-    /// When this message was created (for timeout and ordering)
+    /// The intended recipient(s) of this message
+    pub recipient: MessageRecipient,
+    
+    /// When this message was created
     pub timestamp: SystemTime,
     
-    /// How long to wait for a response before timing out
-    pub timeout: Option<Duration>,
+    /// The actual message payload
+    pub payload: MessagePayload,
     
-    /// Security context for authenticated communication
-    pub security_context: Option<SecurityContext>,
+    /// Message priority for processing order
+    pub priority: MessagePriority,
     
-    /// Correlation ID for tracking related messages (like request/response pairs)
+    /// Security context for authentication and authorization
+    pub security_context: Option<MessageSecurityContext>,
+    
+    /// Correlation ID for linking related messages (requests/responses)
     pub correlation_id: Option<String>,
     
-    /// Priority level for message processing
-    pub priority: MessagePriority,
+    /// Message routing information
+    pub routing_info: RoutingInfo,
+    
+    /// Performance and diagnostic metadata
+    pub metadata: MessageMetadata,
+    
+    /// Message version for protocol evolution
+    pub protocol_version: String,
 }
-
-/// Defines the different types of communication that can occur between components.
-/// Each type represents a different "conversation pattern" in the ecosystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EcosystemMessageType {
-    /// Request for a component to perform some operation (expects response)
-    Request,
-    
-    /// Response to a previous request (completes a request/response cycle)
-    Response,
-    
-    /// Notification that doesn't expect a response (fire-and-forget)
-    Notification,
-    
-    /// Broadcast message intended for multiple components
-    Broadcast,
-    
-    /// Health check ping to verify component availability
-    HealthCheck,
-    
-    /// Response to health check (confirms component is operational)
-    HealthCheckResponse,
-    
-    /// Component announcing its presence to the ecosystem
-    ComponentRegistration,
-    
-    /// Component announcing it's shutting down gracefully
-    ComponentShutdown,
-    
-    /// Emergency alert that requires immediate attention
-    Alert,
-    
-    /// Heartbeat message to maintain connection state
-    Heartbeat,
-}
-
-/// Priority levels for message processing - higher priority messages are processed first.
-/// This ensures critical ecosystem functions (like consciousness decisions) are not
-/// delayed by routine operations (like file system operations).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum MessagePriority {
-    /// Critical system operations (consciousness decisions, security alerts)
-    Critical = 0,
-    
-    /// High priority operations (task orchestration, methodology execution)
-    High = 1,
-    
-    /// Normal priority operations (most day-to-day component interactions)
-    Normal = 2,
-    
-    /// Low priority operations (background processing, maintenance)
-    Low = 3,
-    
-    /// Background operations (cleanup, optimization, archival)
-    Background = 4,
-}
-
-/// Standard response format for all ecosystem communications.
-/// This provides a consistent way for components to communicate success, failure,
-/// and partial results across the entire ecosystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EcosystemResponse {
-    /// ID of the original message this is responding to
-    pub request_id: String,
-    
-    /// Whether the requested operation succeeded
-    pub success: bool,
-    
-    /// The actual result data (if successful)
-    pub data: Option<serde_json::Value>,
-    
-    /// Error information (if unsuccessful)
-    pub error: Option<EcosystemError>,
-    
-    /// Additional metadata about the operation
-    pub metadata: ResponseMetadata,
-    
-    /// When this response was generated
-    pub timestamp: SystemTime,
-    
-    /// Which component generated this response
-    pub responder: ComponentType,
-}
-
-/// Metadata that provides additional context about how an operation was performed.
-/// This helps with debugging, optimization, and understanding ecosystem behavior.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResponseMetadata {
-    /// How long the operation took to complete
-    pub processing_duration: Duration,
-    
-    /// How much computational resources were used
-    pub resource_usage: ResourceUsage,
-    
-    /// Quality metrics for the operation
-    pub quality_metrics: QualityMetrics,
-    
-    /// Any warnings that occurred during processing
-    pub warnings: Vec<String>,
-    
-    /// Debug information (only included in development builds)
-    pub debug_info: Option<HashMap<String, serde_json::Value>>,
-}
-
-/// Tracks how much computational resources an operation consumed.
-/// This information helps NEXUS optimize resource allocation across the ecosystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceUsage {
-    /// CPU time consumed (in milliseconds)
-    pub cpu_time_ms: u64,
-    
-    /// Peak memory usage (in bytes)
-    pub memory_peak_bytes: u64,
-    
-    /// Network bandwidth used (in bytes)
-    pub network_bytes: u64,
-    
-    /// Disk I/O performed (in bytes)
-    pub disk_io_bytes: u64,
-    
-    /// Number of AI Apps coordinated with
-    pub ai_app_coordination_count: u32,
-}
-
-/// Quality metrics that help assess how well an operation was performed.
-/// These metrics feed into ZSEI's learning systems for continuous improvement.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QualityMetrics {
-    /// Overall quality score (0.0 to 1.0)
-    pub overall_score: f64,
-    
-    /// How accurate the results were
-    pub accuracy_score: f64,
-    
-    /// How efficient the operation was
-    pub efficiency_score: f64,
-    
-    /// How well the operation aligned with strategic goals
-    pub strategic_alignment_score: f64,
-    
-    /// User satisfaction rating (if applicable)
-    pub user_satisfaction_score: Option<f64>,
-}
-
-// =============================================================================
-// Component Registration and Discovery
-// =============================================================================
-
-/// Information a component provides when joining the ecosystem.
-/// This is like a component's "business card" - it tells other components
-/// what services it provides and how to communicate with it.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComponentRegistration {
-    /// The component's identity information
-    pub identity: ComponentIdentity,
-    
-    /// What capabilities this component provides
-    pub capabilities: Vec<ComponentCapability>,
-    
-    /// How other components can communicate with this one
-    pub endpoints: Vec<Endpoint>,
-    
-    /// Current operational status
-    pub status: ComponentStatus,
-    
-    /// When this component started up
-    pub startup_time: SystemTime,
-    
-    /// Configuration information relevant to other components
-    pub configuration: ComponentConfiguration,
-}
-
-/// Core identity information for an ecosystem component.
-/// This uniquely identifies each component instance in the ecosystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComponentIdentity {
-    /// Unique identifier for this specific component instance
-    pub component_id: String,
-    
-    /// What type of component this is (OZONE STUDIO, ZSEI, etc.)
-    pub component_type: ComponentType,
-    
-    /// Human-readable name for this component
-    pub display_name: String,
-    
-    /// Software version of this component
-    pub version: String,
-    
-    /// Build information (git commit, build date, etc.)
-    pub build_info: BuildInfo,
-    
-    /// Which device this component is running on
-    pub device_info: DeviceInfo,
-}
-
-/// Information about how this component was built.
-/// Helps with debugging and ensuring ecosystem compatibility.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildInfo {
-    /// Git commit hash this build was created from
-    pub git_commit: String,
-    
-    /// When this binary was compiled
-    pub build_timestamp: SystemTime,
-    
-    /// Which compiler and version was used
-    pub compiler_info: String,
-    
-    /// Build configuration (debug, release, etc.)
-    pub build_configuration: String,
-    
-    /// Any special build flags or features enabled
-    pub build_features: Vec<String>,
-}
-
-/// Information about the device this component is running on.
-/// Helps NEXUS understand available resources and coordinate effectively.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    /// Unique identifier for this device
-    pub device_id: String,
-    
-    /// Type of device (desktop, mobile, server, etc.)
-    pub device_type: DeviceType,
-    
-    /// Operating system information
-    pub operating_system: OperatingSystemInfo,
-    
-    /// Hardware capabilities
-    pub hardware_info: HardwareInfo,
-    
-    /// Network configuration
-    pub network_info: NetworkInfo,
-}
-
-/// Classification of device types for resource planning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DeviceType {
-    /// Desktop or laptop computer
-    PersonalComputer,
-    
-    /// Mobile phone or tablet
-    MobileDevice,
-    
-    /// Dedicated server
-    Server,
-    
-    /// Cloud computing instance
-    CloudInstance,
-    
-    /// Embedded or IoT device
-    EmbeddedDevice,
-    
-    /// Edge computing node
-    EdgeDevice,
-    
-    /// High-performance computing cluster
-    HPCCluster,
-}
-
-/// Operating system information for compatibility and optimization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OperatingSystemInfo {
-    /// OS family (Linux, Windows, macOS, etc.)
-    pub family: String,
-    
-    /// Specific OS version
-    pub version: String,
-    
-    /// CPU architecture (x86_64, arm64, etc.)
-    pub architecture: String,
-    
-    /// Available system libraries and frameworks
-    pub available_frameworks: Vec<String>,
-}
-
-/// Hardware capabilities for resource allocation planning.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HardwareInfo {
-    /// Number of CPU cores available
-    pub cpu_cores: u32,
-    
-    /// Total system memory in bytes
-    pub total_memory_bytes: u64,
-    
-    /// Available storage space in bytes
-    pub available_storage_bytes: u64,
-    
-    /// GPU information (if available)
-    pub gpu_info: Option<GPUInfo>,
-    
-    /// Specialized hardware (TPU, FPGA, etc.)
-    pub specialized_hardware: Vec<SpecializedHardware>,
-}
-
-/// GPU capabilities for AI processing acceleration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GPUInfo {
-    /// GPU manufacturer and model
-    pub model: String,
-    
-    /// Available GPU memory in bytes
-    pub memory_bytes: u64,
-    
-    /// Compute capability or version
-    pub compute_capability: String,
-    
-    /// Supported frameworks (CUDA, OpenCL, etc.)
-    pub supported_frameworks: Vec<String>,
-}
-
-/// Information about specialized hardware for specific workloads.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpecializedHardware {
-    /// Type of specialized hardware
-    pub hardware_type: String,
-    
-    /// Manufacturer and model
-    pub model: String,
-    
-    /// Capabilities this hardware provides
-    pub capabilities: Vec<String>,
-    
-    /// Performance characteristics
-    pub performance_metrics: HashMap<String, f64>,
-}
-
-/// Network configuration for communication optimization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkInfo {
-    /// Available network interfaces
-    pub interfaces: Vec<NetworkInterface>,
-    
-    /// Bandwidth capabilities
-    pub bandwidth_info: BandwidthInfo,
-    
-    /// Network topology information
-    pub topology_info: Option<NetworkTopology>,
-}
-
-/// Information about a network interface.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkInterface {
-    /// Interface name (eth0, wlan0, etc.)
-    pub name: String,
-    
-    /// Interface type (ethernet, wifi, cellular, etc.)
-    pub interface_type: String,
-    
-    /// IP addresses assigned to this interface
-    pub ip_addresses: Vec<std::net::IpAddr>,
-    
-    /// Maximum transmission unit
-    pub mtu: u32,
-    
-    /// Whether this interface is currently active
-    pub is_active: bool,
-}
-
-/// Bandwidth capabilities for network optimization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BandwidthInfo {
-    /// Upstream bandwidth in bits per second
-    pub upstream_bps: u64,
-    
-    /// Downstream bandwidth in bits per second
-    pub downstream_bps: u64,
-    
-    /// Network latency in milliseconds
-    pub latency_ms: f64,
-    
-    /// Connection reliability (0.0 to 1.0)
-    pub reliability_score: f64,
-}
-
-/// Network topology information for advanced coordination.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkTopology {
-    /// Whether this device is behind NAT
-    pub behind_nat: bool,
-    
-    /// Public IP address (if known)
-    pub public_ip: Option<std::net::IpAddr>,
-    
-    /// Network segment or subnet information
-    pub subnet_info: Option<String>,
-    
-    /// Quality of Service (QoS) capabilities
-    pub qos_capabilities: Vec<String>,
-}
-
-/// Specific capabilities that a component provides to the ecosystem.
-/// This allows other components to discover what services are available.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComponentCapability {
-    /// Unique identifier for this capability
-    pub capability_id: String,
-    
-    /// Human-readable name for this capability
-    pub name: String,
-    
-    /// Detailed description of what this capability does
-    pub description: String,
-    
-    /// What type of capability this is
-    pub capability_type: CapabilityType,
-    
-    /// Input requirements for using this capability
-    pub input_requirements: Vec<InputRequirement>,
-    
-    /// What outputs this capability produces
-    pub output_specifications: Vec<OutputSpecification>,
-    
-    /// Performance characteristics of this capability
-    pub performance_metrics: PerformanceMetrics,
-    
-    /// Any dependencies this capability has
-    pub dependencies: Vec<CapabilityDependency>,
-}
-
-/// Classification of different types of capabilities.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum CapabilityType {
-    /// Data processing and analysis
-    DataProcessing,
-    
-    /// AI and machine learning operations
-    AIProcessing,
-    
-    /// File system and storage operations
-    StorageManagement,
-    
-    /// Network and communication services
-    NetworkServices,
-    
-    /// Human interface and interaction
-    HumanInterface,
-    
-    /// Code development and analysis
-    CodeDevelopment,
-    
-    /// Text processing and generation
-    TextProcessing,
-    
-    /// Consciousness and reasoning
-    ConsciousnessServices,
-    
-    /// Intelligence coordination
-    IntelligenceCoordination,
-    
-    /// Security and authentication
-    SecurityServices,
-    
-    /// Methodology execution
-    MethodologyExecution,
-    
-    /// Cross-domain analysis
-    CrossDomainAnalysis,
-}
-
-/// Requirements for using a specific capability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InputRequirement {
-    /// Name of the required input parameter
-    pub parameter_name: String,
-    
-    /// Data type expected for this parameter
-    pub data_type: String,
-    
-    /// Whether this parameter is required or optional
-    pub required: bool,
-    
-    /// Description of what this parameter represents
-    pub description: String,
-    
-    /// Valid values or constraints for this parameter
-    pub constraints: Vec<ParameterConstraint>,
-}
-
-/// Constraints on parameter values.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ParameterConstraint {
-    /// Minimum value for numeric parameters
-    MinValue(f64),
-    
-    /// Maximum value for numeric parameters
-    MaxValue(f64),
-    
-    /// Set of allowed string values
-    AllowedValues(Vec<String>),
-    
-    /// Regular expression pattern for string validation
-    Pattern(String),
-    
-    /// Minimum length for string or array parameters
-    MinLength(usize),
-    
-    /// Maximum length for string or array parameters
-    MaxLength(usize),
-}
-
-/// Specification of what a capability produces as output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OutputSpecification {
-    /// Name of the output field
-    pub field_name: String,
-    
-    /// Data type of the output
-    pub data_type: String,
-    
-    /// Description of what this output represents
-    pub description: String,
-    
-    /// Whether this output is always provided or conditional
-    pub always_present: bool,
-}
-
-/// Performance characteristics of a capability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PerformanceMetrics {
-    /// Typical response time in milliseconds
-    pub typical_response_time_ms: f64,
-    
-    /// Maximum throughput (operations per second)
-    pub max_throughput_ops_per_sec: f64,
-    
-    /// Resource requirements for this capability
-    pub resource_requirements: ResourceRequirements,
-    
-    /// Reliability score (0.0 to 1.0)
-    pub reliability_score: f64,
-    
-    /// Quality score for outputs (0.0 to 1.0)
-    pub quality_score: f64,
-}
-
-/// Resource requirements for executing a capability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceRequirements {
-    /// CPU cores needed
-    pub cpu_cores: f64,
-    
-    /// Memory required in bytes
-    pub memory_bytes: u64,
-    
-    /// Disk space needed in bytes
-    pub disk_space_bytes: u64,
-    
-    /// Network bandwidth required in bits per second
-    pub network_bandwidth_bps: u64,
-    
-    /// Whether GPU acceleration is needed
-    pub gpu_required: bool,
-    
-    /// Estimated execution time
-    pub estimated_duration: Duration,
-}
-
-/// Dependencies that a capability has on other ecosystem services.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CapabilityDependency {
-    /// Which component type this depends on
-    pub component_type: ComponentType,
-    
-    /// Specific capability needed from that component
-    pub required_capability: String,
-    
-    /// Whether this dependency is required or optional
-    pub dependency_type: DependencyType,
-    
-    /// Minimum version required for compatibility
-    pub minimum_version: Option<String>,
-}
-
-/// Types of dependencies between capabilities.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DependencyType {
-    /// Must have this dependency to function at all
-    Required,
-    
-    /// Can function without this dependency but with reduced capability
-    Optional,
-    
-    /// Can use this dependency for enhanced performance
-    Performance,
-    
-    /// Needs this dependency only for specific operations
-    Conditional,
-}
-
-/// Configuration information that components share with the ecosystem.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ComponentConfiguration {
-    /// Configuration parameters relevant to other components
-    pub shared_parameters: HashMap<String, serde_json::Value>,
-    
-    /// Service endpoints that other components can use
-    pub service_endpoints: Vec<ServiceEndpoint>,
-    
-    /// Security requirements for interacting with this component
-    pub security_requirements: SecurityRequirements,
-    
-    /// Monitoring and health check configuration
-    pub monitoring_config: MonitoringConfiguration,
-}
-
-/// Information about a service endpoint provided by a component.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceEndpoint {
-    /// Unique identifier for this endpoint
-    pub endpoint_id: String,
-    
-    /// What service this endpoint provides
-    pub service_name: String,
-    
-    /// Network address where this service is available
-    pub address: SocketAddr,
-    
-    /// Protocol used for communication
-    pub protocol: Protocol,
-    
-    /// Authentication required for this endpoint
-    pub authentication_required: bool,
-    
-    /// Rate limiting configuration
-    pub rate_limits: Option<RateLimits>,
-    
-    /// Health check URL for this service
-    pub health_check_path: Option<String>,
-}
-
-/// Security requirements for component interaction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityRequirements {
-    /// Whether mutual TLS is required
-    pub mutual_tls_required: bool,
-    
-    /// Authentication methods accepted
-    pub accepted_auth_methods: Vec<AuthenticationMethod>,
-    
-    /// Minimum encryption level required
-    pub minimum_encryption_level: EncryptionLevel,
-    
-    /// Whether message integrity checking is required
-    pub integrity_checking_required: bool,
-}
-
-/// Different authentication methods supported.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AuthenticationMethod {
-    /// Certificate-based authentication
-    Certificate,
-    
-    /// API key authentication
-    APIKey,
-    
-    /// Bearer token authentication
-    BearerToken,
-    
-    /// Mutual TLS authentication
-    MutualTLS,
-    
-    /// Custom authentication scheme
-    Custom(String),
-}
-
-/// Encryption levels for secure communication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum EncryptionLevel {
-    /// No encryption required
-    None,
-    
-    /// Basic encryption (AES-128)
-    Basic,
-    
-    /// Standard encryption (AES-256)
-    Standard,
-    
-    /// High security encryption with forward secrecy
-    High,
-    
-    /// Maximum security with quantum-resistant algorithms
-    Maximum,
-}
-
-/// Rate limiting configuration for service endpoints.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RateLimits {
-    /// Maximum requests per minute
-    pub requests_per_minute: u32,
-    
-    /// Maximum concurrent requests
-    pub max_concurrent: u32,
-    
-    /// Burst allowance for temporary spikes
-    pub burst_allowance: u32,
-    
-    /// Cooldown period after rate limit exceeded
-    pub cooldown_duration: Duration,
-}
-
-/// Monitoring and health check configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MonitoringConfiguration {
-    /// How often to send heartbeat messages
-    pub heartbeat_interval: Duration,
-    
-    /// How long to wait for health check responses
-    pub health_check_timeout: Duration,
-    
-    /// Metrics collection configuration
-    pub metrics_config: MetricsConfiguration,
-    
-    /// Alert configuration for component issues
-    pub alerting_config: AlertingConfiguration,
-}
-
-/// Configuration for metrics collection.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MetricsConfiguration {
-    /// Whether to collect performance metrics
-    pub collect_performance_metrics: bool,
-    
-    /// Whether to collect resource usage metrics
-    pub collect_resource_metrics: bool,
-    
-    /// Whether to collect quality metrics
-    pub collect_quality_metrics: bool,
-    
-    /// How often to report metrics
-    pub reporting_interval: Duration,
-    
-    /// How long to retain metrics data
-    pub retention_duration: Duration,
-}
-
-/// Configuration for alerting on component issues.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlertingConfiguration {
-    /// Whether alerting is enabled
-    pub alerting_enabled: bool,
-    
-    /// Performance thresholds that trigger alerts
-    pub performance_thresholds: PerformanceThresholds,
-    
-    /// Resource usage thresholds that trigger alerts
-    pub resource_thresholds: ResourceThresholds,
-    
-    /// Who to notify when alerts are triggered
-    pub notification_targets: Vec<NotificationTarget>,
-}
-
-/// Performance thresholds for alerting.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PerformanceThresholds {
-    /// Maximum acceptable response time in milliseconds
-    pub max_response_time_ms: f64,
-    
-    /// Minimum acceptable throughput (operations per second)
-    pub min_throughput_ops_per_sec: f64,
-    
-    /// Maximum acceptable error rate (0.0 to 1.0)
-    pub max_error_rate: f64,
-    
-    /// Minimum acceptable availability (0.0 to 1.0)
-    pub min_availability: f64,
-}
-
-/// Resource usage thresholds for alerting.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ResourceThresholds {
-    /// Maximum CPU usage (0.0 to 1.0)
-    pub max_cpu_usage: f64,
-    
-    /// Maximum memory usage (0.0 to 1.0)
-    pub max_memory_usage: f64,
-    
-    /// Maximum disk usage (0.0 to 1.0)
-    pub max_disk_usage: f64,
-    
-    /// Maximum network usage in bits per second
-    pub max_network_usage_bps: u64,
-}
-
-/// Targets for alert notifications.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NotificationTarget {
-    /// Type of notification target
-    pub target_type: NotificationTargetType,
-    
-    /// Address or identifier for the target
-    pub target_address: String,
-    
-    /// Severity levels that should be sent to this target
-    pub severity_levels: Vec<AlertSeverity>,
-}
-
-/// Types of notification targets.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum NotificationTargetType {
-    /// Email notification
-    Email,
-    
-    /// SMS notification
-    SMS,
-    
-    /// Webhook notification
-    Webhook,
-    
-    /// Slack channel
-    Slack,
-    
-    /// System log
-    Log,
-    
-    /// Dashboard display
-    Dashboard,
-}
-
-/// Severity levels for alerts.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum AlertSeverity {
-    /// Informational alerts
-    Info,
-    
-    /// Warning conditions
-    Warning,
-    
-    /// Error conditions requiring attention
-    Error,
-    
-    /// Critical conditions requiring immediate action
-    Critical,
-    
-    /// Emergency conditions requiring immediate intervention
-    Emergency,
-}
-
-// =============================================================================
-// Component Status and Health Monitoring
-// =============================================================================
-
-/// Current operational status of a component.
-/// This helps other components understand if a service is available and reliable.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ComponentStatus {
-    /// Component is fully operational and available
-    Healthy,
-    
-    /// Component is operational but with reduced performance
-    Degraded,
-    
-    /// Component is experiencing issues but still functional
-    Warning,
-    
-    /// Component is not responding or has critical issues
-    Critical,
-    
-    /// Component is in maintenance mode
-    Maintenance,
-    
-    /// Component is starting up and not yet ready
-    Starting,
-    
-    /// Component is shutting down gracefully
-    Stopping,
-    
-    /// Component is offline or unreachable
-    Offline,
-}
-
-/// Health check request sent to verify component availability.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthCheck {
-    /// Unique ID for this health check
-    pub check_id: String,
-    
-    /// Which component is requesting the health check
-    pub requester: ComponentType,
-    
-    /// What level of health check is being requested
-    pub check_level: HealthCheckLevel,
-    
-    /// When this health check was initiated
-    pub timestamp: SystemTime,
-    
-    /// How long to wait for a response
-    pub timeout: Duration,
-}
-
-/// Different levels of health checks with varying detail.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum HealthCheckLevel {
-    /// Basic ping to verify component is responding
-    Basic,
-    
-    /// Check that core services are functional
-    Standard,
-    
-    /// Comprehensive check including performance metrics
-    Detailed,
-    
-    /// Full diagnostic including all dependencies
-    Comprehensive,
-}
-
-/// Response to a health check request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthCheckResponse {
-    /// ID of the original health check request
-    pub check_id: String,
-    
-    /// Current status of this component
-    pub status: ComponentStatus,
-    
-    /// Detailed health information
-    pub health_details: HealthDetails,
-    
-    /// When this response was generated
-    pub timestamp: SystemTime,
-    
-    /// How long the health check took to complete
-    pub response_time: Duration,
-}
-
-/// Detailed health information about a component.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthDetails {
-    /// Overall health score (0.0 to 1.0)
-    pub overall_health_score: f64,
-    
-    /// Current performance metrics
-    pub performance_metrics: CurrentPerformanceMetrics,
-    
-    /// Resource usage information
-    pub resource_usage: CurrentResourceUsage,
-    
-    /// Status of dependencies
-    pub dependency_status: Vec<DependencyStatus>,
-    
-    /// Any current issues or warnings
-    pub issues: Vec<HealthIssue>,
-    
-    /// Recent error information
-    pub recent_errors: Vec<RecentError>,
-    
-    /// Uptime information
-    pub uptime_info: UptimeInfo,
-}
-
-/// Current performance metrics for a component.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CurrentPerformanceMetrics {
-    /// Current average response time in milliseconds
-    pub avg_response_time_ms: f64,
-    
-    /// Current throughput (operations per second)
-    pub current_throughput_ops_per_sec: f64,
-    
-    /// Recent error rate (0.0 to 1.0)
-    pub error_rate: f64,
-    
-    /// Number of successful operations in the last minute
-    pub successful_operations_last_minute: u64,
-    
-    /// Number of failed operations in the last minute
-    pub failed_operations_last_minute: u64,
-}
-
-/// Current resource usage for a component.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CurrentResourceUsage {
-    /// Current CPU usage (0.0 to 1.0)
-    pub cpu_usage: f64,
-    
-    /// Current memory usage in bytes
-    pub memory_usage_bytes: u64,
-    
-    /// Current disk usage in bytes
-    pub disk_usage_bytes: u64,
-    
-    /// Current network usage in bits per second
-    pub network_usage_bps: u64,
-    
-    /// Number of active connections or sessions
-    pub active_connections: u32,
-    
-    /// Queue depths for various operations
-    pub queue_depths: HashMap<String, u32>,
-}
-
-/// Status of a dependency from this component's perspective.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DependencyStatus {
-    /// Which component this dependency refers to
-    pub component_type: ComponentType,
-    
-    /// Current status of this dependency
-    pub status: ComponentStatus,
-    
-    /// Last time this dependency was checked
-    pub last_checked: SystemTime,
-    
-    /// Response time for the last interaction
-    pub last_response_time: Duration,
-    
-    /// Whether this dependency is currently required
-    pub currently_required: bool,
-}
-
-/// Information about a current health issue.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthIssue {
-    /// Unique identifier for this issue
-    pub issue_id: String,
-    
-    /// Severity level of this issue
-    pub severity: AlertSeverity,
-    
-    /// Description of the issue
-    pub description: String,
-    
-    /// When this issue was first detected
-    pub first_detected: SystemTime,
-    
-    /// When this issue was last observed
-    pub last_observed: SystemTime,
-    
-    /// Suggested remediation actions
-    pub remediation_suggestions: Vec<String>,
-    
-    /// Whether this issue is affecting functionality
-    pub impacting_functionality: bool,
-}
-
-/// Information about a recent error.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RecentError {
-    /// When this error occurred
-    pub timestamp: SystemTime,
-    
-    /// Error message or description
-    pub error_message: String,
-    
-    /// Error category or type
-    pub error_type: String,
-    
-    /// Which operation or function was being performed
-    pub operation_context: String,
-    
-    /// Whether this error was recoverable
-    pub recoverable: bool,
-    
-    /// How many times this error has occurred recently
-    pub occurrence_count: u32,
-}
-
-/// Component uptime and availability information.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UptimeInfo {
-    /// When this component was last started
-    pub last_startup_time: SystemTime,
-    
-    /// Total uptime since last startup
-    pub current_uptime: Duration,
-    
-    /// Uptime percentage over the last 24 hours
-    pub uptime_24h: f64,
-    
-    /// Uptime percentage over the last 7 days
-    pub uptime_7d: f64,
-    
-    /// Uptime percentage over the last 30 days
-    pub uptime_30d: f64,
-    
-    /// Number of restarts in the last 24 hours
-    pub restarts_24h: u32,
-}
-
-// =============================================================================
-// Error Types for Ecosystem Communication
-// =============================================================================
-
-/// Comprehensive error types that can occur during ecosystem communication.
-/// These errors help components understand what went wrong and how to respond.
-#[derive(Error, Debug, Clone, Serialize, Deserialize)]
-pub enum EcosystemError {
-    #[error("Component not found: {component_type:?}")]
-    ComponentNotFound { component_type: ComponentType },
-    
-    #[error("Component unavailable: {component_type:?} - {reason}")]
-    ComponentUnavailable { component_type: ComponentType, reason: String },
-    
-    #[error("Communication timeout: {operation} timed out after {duration:?}")]
-    CommunicationTimeout { operation: String, duration: Duration },
-    
-    #[error("Authentication failed: {reason}")]
-    AuthenticationFailed { reason: String },
-    
-    #[error("Authorization denied: {operation} not permitted")]
-    AuthorizationDenied { operation: String },
-    
-    #[error("Protocol violation: {protocol} - {violation}")]
-    ProtocolViolation { protocol: String, violation: String },
-    
-    #[error("Message serialization error: {details}")]
-    SerializationError { details: String },
-    
-    #[error("Network error: {details}")]
-    NetworkError { details: String },
-    
-    #[error("Resource exhaustion: {resource} - {details}")]
-    ResourceExhaustion { resource: String, details: String },
-    
-    #[error("Configuration error: {component} - {details}")]
-    ConfigurationError { component: String, details: String },
-    
-    #[error("Version incompatibility: expected {expected}, got {actual}")]
-    VersionIncompatibility { expected: String, actual: String },
-    
-    #[error("Capability not supported: {capability} not available")]
-    CapabilityNotSupported { capability: String },
-    
-    #[error("Rate limit exceeded: {limit} {period}")]
-    RateLimitExceeded { limit: String, period: Duration },
-    
-    #[error("Internal component error: {component} - {details}")]
-    InternalError { component: String, details: String },
-}
-
-// =============================================================================
-// Utility Functions and Implementations
-// =============================================================================
 
 impl EcosystemMessage {
-    /// Create a new ecosystem message with standard defaults.
+    /// Creates a new ecosystem message with the specified parameters.
+    /// This is the primary constructor for all ecosystem communications.
     pub fn new(
-        sender: ComponentType,
-        receiver: ComponentType,
         message_type: EcosystemMessageType,
-        payload: serde_json::Value,
+        sender: ComponentIdentity,
+        recipient: MessageRecipient,
+        payload: MessagePayload,
     ) -> Self {
+        let message_id = Uuid::new_v4().to_string();
+        let timestamp = SystemTime::now();
+        
         Self {
-            message_id: Uuid::new_v4().to_string(),
-            sender,
-            receiver,
+            message_id,
             message_type,
+            sender,
+            recipient,
+            timestamp,
             payload,
-            timestamp: SystemTime::now(),
-            timeout: Some(Duration::from_secs(30)), // Default 30 second timeout
+            priority: MessagePriority::Normal,
             security_context: None,
             correlation_id: None,
-            priority: MessagePriority::Normal,
+            routing_info: RoutingInfo::new(),
+            metadata: MessageMetadata::new(),
+            protocol_version: "1.0.0".to_string(),
         }
     }
     
-    /// Create a request message that expects a response.
-    pub fn request(
-        sender: ComponentType,
-        receiver: ComponentType,
-        payload: serde_json::Value,
-    ) -> Self {
-        Self::new(sender, receiver, EcosystemMessageType::Request, payload)
+    /// Creates a response message that correlates with this message.
+    /// This maintains the request/response relationship needed for coordination tracking.
+    pub fn create_response(&self, response_payload: MessagePayload) -> Self {
+        let mut response = EcosystemMessage::new(
+            EcosystemMessageType::Response,
+            self.recipient.clone().into_identity().unwrap_or_else(|| {
+                ComponentIdentity {
+                    component_id: "unknown".to_string(),
+                    component_type: ComponentType::ConsciousOrchestrator,
+                    instance_id: None,
+                }
+            }),
+            MessageRecipient::Component(self.sender.clone()),
+            response_payload,
+        );
+        
+        response.correlation_id = Some(self.message_id.clone());
+        response.priority = self.priority.clone();
+        response.routing_info.response_routing = true;
+        
+        response
     }
     
-    /// Create a response to a previous request.
-    pub fn response(
-        sender: ComponentType,
-        receiver: ComponentType,
-        request_id: String,
-        payload: serde_json::Value,
-    ) -> Self {
-        let mut msg = Self::new(sender, receiver, EcosystemMessageType::Response, payload);
-        msg.correlation_id = Some(request_id);
-        msg
-    }
-    
-    /// Create a notification that doesn't expect a response.
-    pub fn notification(
-        sender: ComponentType,
-        receiver: ComponentType,
-        payload: serde_json::Value,
-    ) -> Self {
-        Self::new(sender, receiver, EcosystemMessageType::Notification, payload)
-    }
-    
-    /// Set the priority of this message.
+    /// Sets the priority of this message, affecting processing order
     pub fn with_priority(mut self, priority: MessagePriority) -> Self {
         self.priority = priority;
         self
     }
     
-    /// Set the timeout for this message.
+    /// Adds security context to this message for authentication
+    pub fn with_security_context(mut self, security_context: MessageSecurityContext) -> Self {
+        self.security_context = Some(security_context);
+        self
+    }
+    
+    /// Sets a correlation ID for linking related messages
+    pub fn with_correlation_id(mut self, correlation_id: String) -> Self {
+        self.correlation_id = Some(correlation_id);
+        self
+    }
+    
+    /// Marks this message for reliable delivery with acknowledgments
+    pub fn require_acknowledgment(mut self) -> Self {
+        self.routing_info.requires_acknowledgment = true;
+        self
+    }
+    
+    /// Sets a delivery timeout for this message
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.timeout = Some(timeout);
+        self.routing_info.delivery_timeout = Some(timeout);
         self
     }
     
-    /// Set the security context for this message.
-    pub fn with_security_context(mut self, context: SecurityContext) -> Self {
-        self.security_context = Some(context);
-        self
+    /// Calculates the age of this message since creation
+    pub fn age(&self) -> Duration {
+        SystemTime::now()
+            .duration_since(self.timestamp)
+            .unwrap_or_else(|_| Duration::from_secs(0))
     }
     
-    /// Check if this message has expired based on its timestamp and timeout.
+    /// Checks if this message has expired based on its timeout
     pub fn is_expired(&self) -> bool {
-        if let Some(timeout) = self.timeout {
-            self.timestamp.elapsed().unwrap_or(Duration::ZERO) > timeout
+        if let Some(timeout) = self.routing_info.delivery_timeout {
+            self.age() > timeout
         } else {
             false
         }
     }
+    
+    /// Adds a routing hop to track message path
+    pub fn add_routing_hop(&mut self, component: ComponentIdentity) {
+        self.routing_info.hops.push(RoutingHop {
+            component,
+            timestamp: SystemTime::now(),
+        });
+    }
 }
 
-impl EcosystemResponse {
-    /// Create a successful response.
-    pub fn success(
-        request_id: String,
-        responder: ComponentType,
-        data: serde_json::Value,
-    ) -> Self {
+/// Identifies the types of messages that flow through the ecosystem.
+/// 
+/// Each message type has specific semantics and processing requirements that
+/// enable OZONE STUDIO to understand and respond appropriately to different
+/// kinds of ecosystem events and coordination needs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum EcosystemMessageType {
+    /// Component registration requests and updates
+    ComponentRegistration,
+    
+    /// Component status updates and health reports
+    ComponentStatus,
+    
+    /// Health check requests and responses
+    HealthCheck,
+    
+    /// Task coordination requests between components
+    TaskCoordination,
+    
+    /// Methodology execution requests and updates
+    MethodologyExecution,
+    
+    /// Data transfer and file operations
+    DataTransfer,
+    
+    /// Security-related messages (authentication, authorization)
+    Security,
+    
+    /// Configuration updates and system changes
+    Configuration,
+    
+    /// Monitoring and metrics reporting
+    Monitoring,
+    
+    /// Error notifications and fault reporting
+    ErrorNotification,
+    
+    /// Heartbeat messages for connection monitoring
+    Heartbeat,
+    
+    /// Shutdown and maintenance notifications
+    Lifecycle,
+    
+    /// Broadcast messages to multiple components
+    Broadcast,
+    
+    /// Generic response messages
+    Response,
+    
+    /// Acknowledgment messages for reliable delivery
+    Acknowledgment,
+    
+    /// Custom message types for future extensions
+    Custom(String),
+}
+
+impl fmt::Display for EcosystemMessageType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EcosystemMessageType::ComponentRegistration => write!(f, "ComponentRegistration"),
+            EcosystemMessageType::ComponentStatus => write!(f, "ComponentStatus"),
+            EcosystemMessageType::HealthCheck => write!(f, "HealthCheck"),
+            EcosystemMessageType::TaskCoordination => write!(f, "TaskCoordination"),
+            EcosystemMessageType::MethodologyExecution => write!(f, "MethodologyExecution"),
+            EcosystemMessageType::DataTransfer => write!(f, "DataTransfer"),
+            EcosystemMessageType::Security => write!(f, "Security"),
+            EcosystemMessageType::Configuration => write!(f, "Configuration"),
+            EcosystemMessageType::Monitoring => write!(f, "Monitoring"),
+            EcosystemMessageType::ErrorNotification => write!(f, "ErrorNotification"),
+            EcosystemMessageType::Heartbeat => write!(f, "Heartbeat"),
+            EcosystemMessageType::Lifecycle => write!(f, "Lifecycle"),
+            EcosystemMessageType::Broadcast => write!(f, "Broadcast"),
+            EcosystemMessageType::Response => write!(f, "Response"),
+            EcosystemMessageType::Acknowledgment => write!(f, "Acknowledgment"),
+            EcosystemMessageType::Custom(name) => write!(f, "Custom({})", name),
+        }
+    }
+}
+
+/// Represents the identity of a component in the ecosystem.
+/// 
+/// Component identity is crucial for conscious orchestration because OZONE STUDIO
+/// needs to understand not just what components exist, but their roles, capabilities,
+/// and current state in the ecosystem coordination hierarchy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct ComponentIdentity {
+    /// Unique identifier for this component instance
+    pub component_id: String,
+    
+    /// The type of component (determines its role in orchestration)
+    pub component_type: ComponentType,
+    
+    /// Optional instance identifier for multi-instance components
+    pub instance_id: Option<String>,
+}
+
+impl ComponentIdentity {
+    /// Creates a new component identity
+    pub fn new(component_id: String, component_type: ComponentType) -> Self {
         Self {
-            request_id,
-            success: true,
-            data: Some(data),
-            error: None,
-            metadata: ResponseMetadata::default(),
-            timestamp: SystemTime::now(),
-            responder,
+            component_id,
+            component_type,
+            instance_id: None,
         }
     }
     
-    /// Create an error response.
+    /// Creates a component identity with an instance ID for multi-instance scenarios
+    pub fn with_instance(component_id: String, component_type: ComponentType, instance_id: String) -> Self {
+        Self {
+            component_id,
+            component_type,
+            instance_id: Some(instance_id),
+        }
+    }
+    
+    /// Gets the full identifier including instance if present
+    pub fn full_id(&self) -> String {
+        match &self.instance_id {
+            Some(instance) => format!("{}:{}", self.component_id, instance),
+            None => self.component_id.clone(),
+        }
+    }
+    
+    /// Checks if this component is a foundational component (required for bootstrap)
+    pub fn is_foundational(&self) -> bool {
+        matches!(
+            self.component_type,
+            ComponentType::ConsciousOrchestrator
+                | ComponentType::IntelligenceCoordinator
+                | ComponentType::ConsciousnessArchitecture
+                | ComponentType::UniversalAIEngine
+        )
+    }
+    
+    /// Checks if this component is a specialized AI App
+    pub fn is_specialized_ai_app(&self) -> bool {
+        matches!(
+            self.component_type,
+            ComponentType::CodeFrameworkSpecialist
+                | ComponentType::TextFrameworkSpecialist
+                | ComponentType::HumanInterface
+        )
+    }
+}
+
+impl fmt::Display for ComponentIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.full_id())
+    }
+}
+
+/// Defines who should receive a message, supporting both direct and broadcast patterns.
+/// 
+/// The ecosystem needs flexible message routing to support different coordination patterns:
+/// direct AI App coordination, ecosystem-wide broadcasts, and group communications.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MessageRecipient {
+    /// Send to a specific component
+    Component(ComponentIdentity),
+    
+    /// Send to all components of a specific type
+    ComponentType(ComponentType),
+    
+    /// Send to all components in the ecosystem
+    Broadcast,
+    
+    /// Send to a specific group of components
+    Group(Vec<ComponentIdentity>),
+    
+    /// Send to components matching specific criteria
+    Query(RecipientQuery),
+}
+
+impl MessageRecipient {
+    /// Attempts to convert this recipient to a single component identity
+    pub fn into_identity(self) -> Option<ComponentIdentity> {
+        match self {
+            MessageRecipient::Component(identity) => Some(identity),
+            _ => None,
+        }
+    }
+    
+    /// Checks if this recipient includes the specified component
+    pub fn includes_component(&self, component: &ComponentIdentity) -> bool {
+        match self {
+            MessageRecipient::Component(target) => target == component,
+            MessageRecipient::ComponentType(component_type) => component.component_type == *component_type,
+            MessageRecipient::Broadcast => true,
+            MessageRecipient::Group(components) => components.contains(component),
+            MessageRecipient::Query(query) => query.matches(component),
+        }
+    }
+}
+
+/// Criteria for selecting message recipients based on component properties.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecipientQuery {
+    /// Match components with these types
+    pub component_types: Option<Vec<ComponentType>>,
+    
+    /// Match components with these capabilities
+    pub required_capabilities: Option<Vec<String>>,
+    
+    /// Match components with this status
+    pub status: Option<ComponentStatus>,
+    
+    /// Match components in these states
+    pub health_states: Option<Vec<HealthState>>,
+    
+    /// Custom query parameters
+    pub custom_criteria: HashMap<String, String>,
+}
+
+impl RecipientQuery {
+    /// Checks if a component matches this query
+    pub fn matches(&self, component: &ComponentIdentity) -> bool {
+        // For now, only check component type
+        // In a full implementation, this would query the component registry
+        if let Some(types) = &self.component_types {
+            types.contains(&component.component_type)
+        } else {
+            true
+        }
+    }
+}
+
+/// The actual message content, typed by the message purpose.
+/// 
+/// Using an enum for message payload allows type-safe message handling while
+/// supporting the diverse communication needs of different ecosystem components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MessagePayload {
+    /// Component registration data
+    ComponentRegistration(ComponentRegistration),
+    
+    /// Component status update
+    ComponentStatus(ComponentStatus),
+    
+    /// Health check request or response
+    HealthCheck(HealthCheck),
+    
+    /// Task coordination data
+    TaskCoordination(TaskCoordinationPayload),
+    
+    /// Methodology execution information
+    MethodologyExecution(MethodologyExecutionPayload),
+    
+    /// Data transfer information
+    DataTransfer(DataTransferPayload),
+    
+    /// Security message data
+    Security(SecurityPayload),
+    
+    /// Configuration update data
+    Configuration(ConfigurationPayload),
+    
+    /// Monitoring and metrics data
+    Monitoring(MonitoringPayload),
+    
+    /// Error information
+    Error(EcosystemError),
+    
+    /// Simple heartbeat (no additional data)
+    Heartbeat,
+    
+    /// Lifecycle event information
+    Lifecycle(LifecyclePayload),
+    
+    /// Acknowledgment data
+    Acknowledgment(AcknowledmentPayload),
+    
+    /// Generic text payload for simple messages
+    Text(String),
+    
+    /// Generic JSON payload for custom messages
+    Json(serde_json::Value),
+    
+    /// Binary data payload
+    Binary(Vec<u8>),
+}
+
+impl MessagePayload {
+    /// Gets a human-readable description of this payload type
+    pub fn payload_type(&self) -> &'static str {
+        match self {
+            MessagePayload::ComponentRegistration(_) => "ComponentRegistration",
+            MessagePayload::ComponentStatus(_) => "ComponentStatus",
+            MessagePayload::HealthCheck(_) => "HealthCheck",
+            MessagePayload::TaskCoordination(_) => "TaskCoordination",
+            MessagePayload::MethodologyExecution(_) => "MethodologyExecution",
+            MessagePayload::DataTransfer(_) => "DataTransfer",
+            MessagePayload::Security(_) => "Security",
+            MessagePayload::Configuration(_) => "Configuration",
+            MessagePayload::Monitoring(_) => "Monitoring",
+            MessagePayload::Error(_) => "Error",
+            MessagePayload::Heartbeat => "Heartbeat",
+            MessagePayload::Lifecycle(_) => "Lifecycle",
+            MessagePayload::Acknowledgment(_) => "Acknowledgment",
+            MessagePayload::Text(_) => "Text",
+            MessagePayload::Json(_) => "Json",
+            MessagePayload::Binary(_) => "Binary",
+        }
+    }
+    
+    /// Estimates the size of this payload in bytes
+    pub fn estimated_size(&self) -> usize {
+        match self {
+            MessagePayload::Text(s) => s.len(),
+            MessagePayload::Binary(data) => data.len(),
+            MessagePayload::Json(value) => {
+                // Rough estimate based on JSON serialization
+                serde_json::to_string(value).map(|s| s.len()).unwrap_or(0)
+            }
+            _ => {
+                // Estimate based on typical serialized size
+                std::mem::size_of_val(self)
+            }
+        }
+    }
+}
+
+/// Message priority levels that affect processing order.
+/// 
+/// Priority ensures that critical ecosystem messages (like security alerts or
+/// component failures) are processed before routine operational messages.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum MessagePriority {
+    /// Critical system messages that require immediate attention
+    Critical,
+    
+    /// High priority messages for time-sensitive operations
+    High,
+    
+    /// Normal priority for standard operations
+    Normal,
+    
+    /// Low priority for background operations
+    Low,
+    
+    /// Bulk operations that can be deferred
+    Bulk,
+}
+
+impl MessagePriority {
+    /// Gets the numeric value for priority ordering (lower number = higher priority)
+    pub fn numeric_value(&self) -> u8 {
+        match self {
+            MessagePriority::Critical => 0,
+            MessagePriority::High => 1,
+            MessagePriority::Normal => 2,
+            MessagePriority::Low => 3,
+            MessagePriority::Bulk => 4,
+        }
+    }
+    
+    /// Creates a priority from a numeric value
+    pub fn from_numeric(value: u8) -> Self {
+        match value {
+            0 => MessagePriority::Critical,
+            1 => MessagePriority::High,
+            2 => MessagePriority::Normal,
+            3 => MessagePriority::Low,
+            _ => MessagePriority::Bulk,
+        }
+    }
+}
+
+/// Security context for message authentication and authorization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageSecurityContext {
+    /// Authentication token or credential
+    pub authentication_token: String,
+    
+    /// Required authorization level for processing
+    pub authorization_level: AuthorizationLevel,
+    
+    /// Whether the message payload is encrypted
+    pub encrypted: bool,
+    
+    /// Digital signature for message integrity
+    pub signature: Option<String>,
+    
+    /// Security audit requirements
+    pub audit_required: bool,
+}
+
+/// Authorization levels for message processing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AuthorizationLevel {
+    /// No special authorization required
+    Public,
+    
+    /// Requires component authentication
+    Authenticated,
+    
+    /// Requires elevated privileges
+    Privileged,
+    
+    /// Requires system-level access
+    System,
+    
+    /// Requires administrative access
+    Administrative,
+}
+
+/// Routing information for message delivery.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingInfo {
+    /// Whether this message requires acknowledgment
+    pub requires_acknowledgment: bool,
+    
+    /// Maximum delivery timeout
+    pub delivery_timeout: Option<Duration>,
+    
+    /// Number of delivery attempts
+    pub attempt_count: u32,
+    
+    /// Maximum number of retry attempts
+    pub max_attempts: u32,
+    
+    /// Whether this is a response message
+    pub response_routing: bool,
+    
+    /// Routing hops for tracking message path
+    pub hops: Vec<RoutingHop>,
+    
+    /// Quality of service requirements
+    pub qos: QualityOfService,
+}
+
+impl RoutingInfo {
+    /// Creates new routing info with default settings
+    pub fn new() -> Self {
+        Self {
+            requires_acknowledgment: false,
+            delivery_timeout: None,
+            attempt_count: 0,
+            max_attempts: 3,
+            response_routing: false,
+            hops: Vec::new(),
+            qos: QualityOfService::BestEffort,
+        }
+    }
+    
+    /// Checks if this message can be retried
+    pub fn can_retry(&self) -> bool {
+        self.attempt_count < self.max_attempts
+    }
+    
+    /// Increments the attempt count for retry handling
+    pub fn increment_attempts(&mut self) {
+        self.attempt_count += 1;
+    }
+}
+
+impl Default for RoutingInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Records a routing hop for message tracing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoutingHop {
+    /// Component that processed this message
+    pub component: ComponentIdentity,
+    
+    /// When this hop was recorded
+    pub timestamp: SystemTime,
+}
+
+/// Quality of service levels for message delivery.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum QualityOfService {
+    /// Best effort delivery (default)
+    BestEffort,
+    
+    /// At least once delivery guarantee
+    AtLeastOnce,
+    
+    /// Exactly once delivery guarantee
+    ExactlyOnce,
+    
+    /// Ordered delivery guarantee
+    Ordered,
+    
+    /// Real-time delivery requirements
+    RealTime,
+}
+
+/// Metadata for message performance and diagnostics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MessageMetadata {
+    /// When the message was created
+    pub created_at: SystemTime,
+    
+    /// When the message was last processed
+    pub last_processed: Option<SystemTime>,
+    
+    /// Processing performance metrics
+    pub performance_metrics: PerformanceMetrics,
+    
+    /// Diagnostic information
+    pub diagnostics: DiagnosticInfo,
+    
+    /// Custom metadata fields
+    pub custom_fields: HashMap<String, String>,
+}
+
+impl MessageMetadata {
+    /// Creates new metadata with default values
+    pub fn new() -> Self {
+        Self {
+            created_at: SystemTime::now(),
+            last_processed: None,
+            performance_metrics: PerformanceMetrics::new(),
+            diagnostics: DiagnosticInfo::new(),
+            custom_fields: HashMap::new(),
+        }
+    }
+    
+    /// Records that this message was processed
+    pub fn mark_processed(&mut self) {
+        self.last_processed = Some(SystemTime::now());
+        self.performance_metrics.processing_count += 1;
+    }
+    
+    /// Adds a custom metadata field
+    pub fn add_custom_field(&mut self, key: String, value: String) {
+        self.custom_fields.insert(key, value);
+    }
+}
+
+impl Default for MessageMetadata {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Performance metrics for message processing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceMetrics {
+    /// Number of times this message has been processed
+    pub processing_count: u32,
+    
+    /// Total processing time across all attempts
+    pub total_processing_time: Duration,
+    
+    /// Network latency measurements
+    pub network_latency: Option<Duration>,
+    
+    /// Serialization/deserialization time
+    pub serialization_time: Option<Duration>,
+    
+    /// Queue wait time
+    pub queue_wait_time: Option<Duration>,
+}
+
+impl PerformanceMetrics {
+    /// Creates new performance metrics
+    pub fn new() -> Self {
+        Self {
+            processing_count: 0,
+            total_processing_time: Duration::from_secs(0),
+            network_latency: None,
+            serialization_time: None,
+            queue_wait_time: None,
+        }
+    }
+    
+    /// Records processing time for this message
+    pub fn record_processing_time(&mut self, duration: Duration) {
+        self.total_processing_time += duration;
+    }
+    
+    /// Gets average processing time per attempt
+    pub fn average_processing_time(&self) -> Duration {
+        if self.processing_count > 0 {
+            self.total_processing_time / self.processing_count
+        } else {
+            Duration::from_secs(0)
+        }
+    }
+}
+
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Diagnostic information for troubleshooting.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiagnosticInfo {
+    /// Warning messages
+    pub warnings: Vec<String>,
+    
+    /// Error messages encountered during processing
+    pub errors: Vec<String>,
+    
+    /// Debug information
+    pub debug_info: HashMap<String, String>,
+    
+    /// Trace information for detailed debugging
+    pub trace_info: Vec<TraceEntry>,
+}
+
+impl DiagnosticInfo {
+    /// Creates new diagnostic info
+    pub fn new() -> Self {
+        Self {
+            warnings: Vec::new(),
+            errors: Vec::new(),
+            debug_info: HashMap::new(),
+            trace_info: Vec::new(),
+        }
+    }
+    
+    /// Adds a warning message
+    pub fn add_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
+    }
+    
+    /// Adds an error message
+    pub fn add_error(&mut self, error: String) {
+        self.errors.push(error);
+    }
+    
+    /// Adds debug information
+    pub fn add_debug_info(&mut self, key: String, value: String) {
+        self.debug_info.insert(key, value);
+    }
+    
+    /// Adds a trace entry
+    pub fn add_trace(&mut self, component: String, message: String) {
+        self.trace_info.push(TraceEntry {
+            component,
+            message,
+            timestamp: SystemTime::now(),
+        });
+    }
+}
+
+impl Default for DiagnosticInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// A single trace entry for detailed debugging.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TraceEntry {
+    /// Component that generated this trace
+    pub component: String,
+    
+    /// Trace message
+    pub message: String,
+    
+    /// When this trace was generated
+    pub timestamp: SystemTime,
+}
+
+/// Component registration information sent when AI Apps join the ecosystem.
+/// 
+/// Registration is the first step in conscious orchestration - OZONE STUDIO needs
+/// to understand what capabilities are available before it can coordinate them effectively.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentRegistration {
+    /// The component's identity
+    pub identity: ComponentIdentity,
+    
+    /// Component version information
+    pub version: String,
+    
+    /// Detailed capability descriptions
+    pub capabilities: Vec<ComponentCapability>,
+    
+    /// Network endpoints for communication
+    pub endpoints: Vec<Endpoint>,
+    
+    /// Component configuration information
+    pub configuration: ComponentConfiguration,
+    
+    /// Service level requirements and guarantees
+    pub service_level: ServiceLevel,
+    
+    /// Bootstrap integration requirements
+    pub bootstrap_integration: BootstrapIntegration,
+    
+    /// Health check configuration
+    pub health_check_config: HealthCheckConfig,
+    
+    /// Security requirements
+    pub security_requirements: SecurityRequirements,
+    
+    /// Resource requirements and constraints
+    pub resource_requirements: ResourceRequirements,
+    
+    /// Dependencies on other components
+    pub dependencies: Vec<ComponentDependency>,
+}
+
+impl ComponentRegistration {
+    /// Creates a new component registration
+    pub fn new(identity: ComponentIdentity, version: String) -> Self {
+        Self {
+            identity,
+            version,
+            capabilities: Vec::new(),
+            endpoints: Vec::new(),
+            configuration: ComponentConfiguration::default(),
+            service_level: ServiceLevel::Standard,
+            bootstrap_integration: BootstrapIntegration::Optional,
+            health_check_config: HealthCheckConfig::default(),
+            security_requirements: SecurityRequirements::default(),
+            resource_requirements: ResourceRequirements::default(),
+            dependencies: Vec::new(),
+        }
+    }
+    
+    /// Adds a capability to this registration
+    pub fn add_capability(mut self, capability: ComponentCapability) -> Self {
+        self.capabilities.push(capability);
+        self
+    }
+    
+    /// Adds an endpoint to this registration
+    pub fn add_endpoint(mut self, endpoint: Endpoint) -> Self {
+        self.endpoints.push(endpoint);
+        self
+    }
+    
+    /// Sets the service level for this component
+    pub fn with_service_level(mut self, service_level: ServiceLevel) -> Self {
+        self.service_level = service_level;
+        self
+    }
+    
+    /// Sets the bootstrap integration level
+    pub fn with_bootstrap_integration(mut self, bootstrap_integration: BootstrapIntegration) -> Self {
+        self.bootstrap_integration = bootstrap_integration;
+        self
+    }
+    
+    /// Checks if this component is required for ecosystem bootstrap
+    pub fn is_bootstrap_required(&self) -> bool {
+        matches!(self.bootstrap_integration, BootstrapIntegration::Essential | BootstrapIntegration::Required)
+    }
+    
+    /// Gets all capabilities of a specific type
+    pub fn capabilities_of_type(&self, capability_type: &str) -> Vec<&ComponentCapability> {
+        self.capabilities
+            .iter()
+            .filter(|cap| cap.capability_type == capability_type)
+            .collect()
+    }
+}
+
+/// Describes a specific capability that a component provides.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentCapability {
+    /// Unique name for this capability
+    pub name: String,
+    
+    /// Type/category of capability
+    pub capability_type: String,
+    
+    /// Human-readable description
+    pub description: String,
+    
+    /// Version of this capability
+    pub version: String,
+    
+    /// Parameters this capability accepts
+    pub parameters: Vec<CapabilityParameter>,
+    
+    /// Expected outputs from this capability
+    pub outputs: Vec<CapabilityOutput>,
+    
+    /// Performance characteristics
+    pub performance: CapabilityPerformance,
+    
+    /// Resource requirements for this capability
+    pub resource_requirements: ResourceRequirements,
+    
+    /// Whether this capability is currently available
+    pub available: bool,
+}
+
+impl ComponentCapability {
+    /// Creates a new capability description
+    pub fn new(name: String, capability_type: String, description: String) -> Self {
+        Self {
+            name,
+            capability_type,
+            description,
+            version: "1.0.0".to_string(),
+            parameters: Vec::new(),
+            outputs: Vec::new(),
+            performance: CapabilityPerformance::default(),
+            resource_requirements: ResourceRequirements::default(),
+            available: true,
+        }
+    }
+    
+    /// Adds a parameter to this capability
+    pub fn add_parameter(mut self, parameter: CapabilityParameter) -> Self {
+        self.parameters.push(parameter);
+        self
+    }
+    
+    /// Adds an output to this capability
+    pub fn add_output(mut self, output: CapabilityOutput) -> Self {
+        self.outputs.push(output);
+        self
+    }
+    
+    /// Checks if this capability accepts a specific parameter
+    pub fn accepts_parameter(&self, parameter_name: &str) -> bool {
+        self.parameters.iter().any(|p| p.name == parameter_name)
+    }
+}
+
+/// Describes a parameter that a capability accepts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityParameter {
+    /// Parameter name
+    pub name: String,
+    
+    /// Parameter data type
+    pub parameter_type: String,
+    
+    /// Whether this parameter is required
+    pub required: bool,
+    
+    /// Default value if not provided
+    pub default_value: Option<String>,
+    
+    /// Parameter description
+    pub description: String,
+    
+    /// Validation constraints
+    pub constraints: Vec<ParameterConstraint>,
+}
+
+/// Describes an output that a capability produces.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityOutput {
+    /// Output name
+    pub name: String,
+    
+    /// Output data type
+    pub output_type: String,
+    
+    /// Output description
+    pub description: String,
+    
+    /// Whether this output is always produced
+    pub guaranteed: bool,
+}
+
+/// Performance characteristics of a capability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityPerformance {
+    /// Expected response time
+    pub expected_response_time: Duration,
+    
+    /// Maximum response time
+    pub max_response_time: Duration,
+    
+    /// Throughput capacity (operations per second)
+    pub throughput: f64,
+    
+    /// Reliability percentage (0.0 to 1.0)
+    pub reliability: f64,
+    
+    /// Scalability characteristics
+    pub scalability: ScalabilityCharacteristics,
+}
+
+impl Default for CapabilityPerformance {
+    fn default() -> Self {
+        Self {
+            expected_response_time: Duration::from_millis(100),
+            max_response_time: Duration::from_secs(5),
+            throughput: 1.0,
+            reliability: 0.99,
+            scalability: ScalabilityCharacteristics::default(),
+        }
+    }
+}
+
+/// Scalability characteristics for performance modeling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScalabilityCharacteristics {
+    /// Can this capability scale horizontally
+    pub horizontal_scaling: bool,
+    
+    /// Can this capability scale vertically
+    pub vertical_scaling: bool,
+    
+    /// Maximum concurrent operations
+    pub max_concurrent: Option<u32>,
+    
+    /// Resource scaling factor
+    pub scaling_factor: f64,
+}
+
+impl Default for ScalabilityCharacteristics {
+    fn default() -> Self {
+        Self {
+            horizontal_scaling: false,
+            vertical_scaling: true,
+            max_concurrent: None,
+            scaling_factor: 1.0,
+        }
+    }
+}
+
+/// Validation constraints for capability parameters.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ParameterConstraint {
+    /// Type of constraint
+    pub constraint_type: String,
+    
+    /// Constraint value
+    pub value: String,
+    
+    /// Error message if constraint is violated
+    pub error_message: String,
+}
+
+/// Component configuration information.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentConfiguration {
+    /// Configuration parameters
+    pub parameters: HashMap<String, String>,
+    
+    /// Feature flags
+    pub features: Vec<String>,
+    
+    /// Environment-specific settings
+    pub environment: String,
+    
+    /// Logging configuration
+    pub logging: LoggingConfiguration,
+    
+    /// Monitoring configuration
+    pub monitoring: MonitoringConfiguration,
+}
+
+impl Default for ComponentConfiguration {
+    fn default() -> Self {
+        Self {
+            parameters: HashMap::new(),
+            features: Vec::new(),
+            environment: "production".to_string(),
+            logging: LoggingConfiguration::default(),
+            monitoring: MonitoringConfiguration::default(),
+        }
+    }
+}
+
+/// Logging configuration for components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoggingConfiguration {
+    /// Log level
+    pub level: String,
+    
+    /// Whether to log to console
+    pub console: bool,
+    
+    /// Whether to log to file
+    pub file: bool,
+    
+    /// Log file path
+    pub file_path: Option<String>,
+    
+    /// Whether to include structured logging
+    pub structured: bool,
+}
+
+impl Default for LoggingConfiguration {
+    fn default() -> Self {
+        Self {
+            level: "info".to_string(),
+            console: true,
+            file: false,
+            file_path: None,
+            structured: true,
+        }
+    }
+}
+
+/// Monitoring configuration for components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringConfiguration {
+    /// Whether monitoring is enabled
+    pub enabled: bool,
+    
+    /// Metrics collection interval
+    pub metrics_interval: Duration,
+    
+    /// Whether to collect performance metrics
+    pub performance_metrics: bool,
+    
+    /// Whether to collect resource metrics
+    pub resource_metrics: bool,
+    
+    /// Custom metrics to collect
+    pub custom_metrics: Vec<String>,
+}
+
+impl Default for MonitoringConfiguration {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            metrics_interval: Duration::from_secs(60),
+            performance_metrics: true,
+            resource_metrics: true,
+            custom_metrics: Vec::new(),
+        }
+    }
+}
+
+/// Service level classification for components.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ServiceLevel {
+    /// Foundational services required for ecosystem operation
+    Foundational,
+    
+    /// Standard specialized services
+    Standard,
+    
+    /// Enhanced services with additional capabilities
+    Enhanced,
+    
+    /// Experimental or beta services
+    Experimental,
+}
+
+/// Bootstrap integration requirements for components.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum BootstrapIntegration {
+    /// Essential for bootstrap - system cannot start without this
+    Essential,
+    
+    /// Required during normal bootstrap
+    Required,
+    
+    /// Standard integration during bootstrap
+    Standard,
+    
+    /// Optional - can be added after bootstrap
+    Optional,
+}
+
+/// Health check configuration for components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckConfig {
+    /// Whether health checks are enabled
+    pub enabled: bool,
+    
+    /// Health check interval
+    pub interval: Duration,
+    
+    /// Health check timeout
+    pub timeout: Duration,
+    
+    /// Health check endpoint path
+    pub endpoint: String,
+    
+    /// Custom health check parameters
+    pub parameters: HashMap<String, String>,
+}
+
+impl Default for HealthCheckConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval: Duration::from_secs(30),
+            timeout: Duration::from_secs(5),
+            endpoint: "/health".to_string(),
+            parameters: HashMap::new(),
+        }
+    }
+}
+
+/// Security requirements for components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityRequirements {
+    /// Whether authentication is required
+    pub authentication_required: bool,
+    
+    /// Required authentication methods
+    pub authentication_methods: Vec<String>,
+    
+    /// Whether authorization is required
+    pub authorization_required: bool,
+    
+    /// Whether encryption is required
+    pub encryption_required: bool,
+    
+    /// Whether audit logging is required
+    pub audit_logging: bool,
+    
+    /// Security level requirements
+    pub security_level: SecurityLevel,
+}
+
+impl Default for SecurityRequirements {
+    fn default() -> Self {
+        Self {
+            authentication_required: true,
+            authentication_methods: vec!["certificate".to_string()],
+            authorization_required: true,
+            encryption_required: true,
+            audit_logging: true,
+            security_level: SecurityLevel::Standard,
+        }
+    }
+}
+
+/// Security levels for components.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum SecurityLevel {
+    /// Basic security requirements
+    Basic,
+    
+    /// Standard security requirements
+    Standard,
+    
+    /// High security requirements
+    High,
+    
+    /// Maximum security requirements
+    Maximum,
+}
+
+/// Resource requirements and constraints for components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceRequirements {
+    /// CPU requirements
+    pub cpu: CpuRequirements,
+    
+    /// Memory requirements
+    pub memory: MemoryRequirements,
+    
+    /// Storage requirements
+    pub storage: StorageRequirements,
+    
+    /// Network requirements
+    pub network: NetworkRequirements,
+    
+    /// GPU requirements (optional)
+    pub gpu: Option<GpuRequirements>,
+    
+    /// Special hardware requirements
+    pub special_hardware: Vec<String>,
+}
+
+impl Default for ResourceRequirements {
+    fn default() -> Self {
+        Self {
+            cpu: CpuRequirements::default(),
+            memory: MemoryRequirements::default(),
+            storage: StorageRequirements::default(),
+            network: NetworkRequirements::default(),
+            gpu: None,
+            special_hardware: Vec::new(),
+        }
+    }
+}
+
+/// CPU resource requirements.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CpuRequirements {
+    /// Minimum CPU cores required
+    pub min_cores: u32,
+    
+    /// Recommended CPU cores
+    pub recommended_cores: u32,
+    
+    /// Minimum CPU frequency (GHz)
+    pub min_frequency: f64,
+    
+    /// CPU architecture requirements
+    pub architecture: Vec<String>,
+}
+
+impl Default for CpuRequirements {
+    fn default() -> Self {
+        Self {
+            min_cores: 1,
+            recommended_cores: 2,
+            min_frequency: 1.0,
+            architecture: vec!["x86_64".to_string()],
+        }
+    }
+}
+
+/// Memory resource requirements.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryRequirements {
+    /// Minimum RAM in MB
+    pub min_ram_mb: u64,
+    
+    /// Recommended RAM in MB
+    pub recommended_ram_mb: u64,
+    
+    /// Whether swap is acceptable
+    pub swap_acceptable: bool,
+    
+    /// Memory access patterns
+    pub access_patterns: Vec<String>,
+}
+
+impl Default for MemoryRequirements {
+    fn default() -> Self {
+        Self {
+            min_ram_mb: 512,
+            recommended_ram_mb: 1024,
+            swap_acceptable: true,
+            access_patterns: vec!["sequential".to_string()],
+        }
+    }
+}
+
+/// Storage resource requirements.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StorageRequirements {
+    /// Minimum storage space in MB
+    pub min_space_mb: u64,
+    
+    /// Recommended storage space in MB
+    pub recommended_space_mb: u64,
+    
+    /// Required storage type
+    pub storage_type: Vec<String>,
+    
+    /// Whether persistent storage is required
+    pub persistent: bool,
+    
+    /// Required IOPS
+    pub min_iops: Option<u32>,
+}
+
+impl Default for StorageRequirements {
+    fn default() -> Self {
+        Self {
+            min_space_mb: 100,
+            recommended_space_mb: 1000,
+            storage_type: vec!["ssd".to_string(), "hdd".to_string()],
+            persistent: true,
+            min_iops: None,
+        }
+    }
+}
+
+/// Network resource requirements.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NetworkRequirements {
+    /// Minimum bandwidth in Mbps
+    pub min_bandwidth_mbps: u32,
+    
+    /// Maximum acceptable latency in ms
+    pub max_latency_ms: u32,
+    
+    /// Required protocols
+    pub protocols: Vec<String>,
+    
+    /// Whether internet access is required
+    pub internet_required: bool,
+    
+    /// Network security requirements
+    pub security_requirements: Vec<String>,
+}
+
+impl Default for NetworkRequirements {
+    fn default() -> Self {
+        Self {
+            min_bandwidth_mbps: 10,
+            max_latency_ms: 100,
+            protocols: vec!["TCP".to_string(), "HTTP".to_string()],
+            internet_required: false,
+            security_requirements: vec!["TLS".to_string()],
+        }
+    }
+}
+
+/// GPU resource requirements.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GpuRequirements {
+    /// Minimum GPU memory in MB
+    pub min_memory_mb: u64,
+    
+    /// Required GPU capabilities
+    pub capabilities: Vec<String>,
+    
+    /// Supported GPU vendors
+    pub vendors: Vec<String>,
+    
+    /// Minimum compute capability
+    pub min_compute_capability: Option<String>,
+}
+
+/// Component dependencies.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentDependency {
+    /// Component type this depends on
+    pub component_type: ComponentType,
+    
+    /// Specific component ID (optional)
+    pub component_id: Option<String>,
+    
+    /// Required capabilities from the dependency
+    pub required_capabilities: Vec<String>,
+    
+    /// Whether this is a hard dependency (required for operation)
+    pub hard_dependency: bool,
+    
+    /// Minimum version required
+    pub min_version: Option<String>,
+}
+
+/// Current status of a component in the ecosystem.
+/// 
+/// Status information helps OZONE STUDIO make informed coordination decisions
+/// by understanding the current operational state of each component.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentStatus {
+    /// Component identity
+    pub component: ComponentIdentity,
+    
+    /// Current operational status
+    pub status: OperationalStatus,
+    
+    /// Current health state
+    pub health: HealthState,
+    
+    /// When this status was last updated
+    pub last_updated: SystemTime,
+    
+    /// Current resource utilization
+    pub resource_utilization: ResourceUtilization,
+    
+    /// Active capabilities (subset of total capabilities)
+    pub active_capabilities: Vec<String>,
+    
+    /// Current load metrics
+    pub load_metrics: LoadMetrics,
+    
+    /// Error information if in error state
+    pub error_info: Option<ErrorInfo>,
+    
+    /// Performance metrics
+    pub performance_metrics: ComponentPerformanceMetrics,
+    
+    /// Current configuration version
+    pub config_version: String,
+}
+
+impl ComponentStatus {
+    /// Creates a new component status
+    pub fn new(component: ComponentIdentity, status: OperationalStatus) -> Self {
+        Self {
+            component,
+            status,
+            health: HealthState::Healthy,
+            last_updated: SystemTime::now(),
+            resource_utilization: ResourceUtilization::default(),
+            active_capabilities: Vec::new(),
+            load_metrics: LoadMetrics::default(),
+            error_info: None,
+            performance_metrics: ComponentPerformanceMetrics::default(),
+            config_version: "1.0.0".to_string(),
+        }
+    }
+    
+    /// Checks if this component is available for coordination
+    pub fn is_available(&self) -> bool {
+        matches!(self.status, OperationalStatus::Running | OperationalStatus::Idle) &&
+        matches!(self.health, HealthState::Healthy | HealthState::Warning)
+    }
+    
+    /// Checks if this component is in a healthy state
+    pub fn is_healthy(&self) -> bool {
+        matches!(self.health, HealthState::Healthy | HealthState::Warning)
+    }
+    
+    /// Gets the age of this status update
+    pub fn status_age(&self) -> Duration {
+        SystemTime::now()
+            .duration_since(self.last_updated)
+            .unwrap_or_else(|_| Duration::from_secs(0))
+    }
+    
+    /// Checks if this status is stale (older than threshold)
+    pub fn is_stale(&self, threshold: Duration) -> bool {
+        self.status_age() > threshold
+    }
+}
+
+/// Operational status of a component.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum OperationalStatus {
+    /// Component is starting up
+    Starting,
+    
+    /// Component is running and available
+    Running,
+    
+    /// Component is idle but available
+    Idle,
+    
+    /// Component is busy processing
+    Busy,
+    
+    /// Component is in maintenance mode
+    Maintenance,
+    
+    /// Component is shutting down
+    Shutting Down,
+    
+    /// Component is stopped
+    Stopped,
+    
+    /// Component is in error state
+    Error,
+    
+    /// Component status is unknown
+    Unknown,
+}
+
+impl fmt::Display for OperationalStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OperationalStatus::Starting => write!(f, "Starting"),
+            OperationalStatus::Running => write!(f, "Running"),
+            OperationalStatus::Idle => write!(f, "Idle"),
+            OperationalStatus::Busy => write!(f, "Busy"),
+            OperationalStatus::Maintenance => write!(f, "Maintenance"),
+            OperationalStatus::ShuttingDown => write!(f, "Shutting Down"),
+            OperationalStatus::Stopped => write!(f, "Stopped"),
+            OperationalStatus::Error => write!(f, "Error"),
+            OperationalStatus::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+/// Health state of a component.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum HealthState {
+    /// Component is healthy
+    Healthy,
+    
+    /// Component has warnings but is operational
+    Warning,
+    
+    /// Component is degraded but partially functional
+    Degraded,
+    
+    /// Component is critical but still running
+    Critical,
+    
+    /// Component has failed
+    Failed,
+    
+    /// Component health is unknown
+    Unknown,
+}
+
+impl fmt::Display for HealthState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HealthState::Healthy => write!(f, "Healthy"),
+            HealthState::Warning => write!(f, "Warning"),
+            HealthState::Degraded => write!(f, "Degraded"),
+            HealthState::Critical => write!(f, "Critical"),
+            HealthState::Failed => write!(f, "Failed"),
+            HealthState::Unknown => write!(f, "Unknown"),
+        }
+    }
+}
+
+/// Resource utilization metrics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUtilization {
+    /// CPU utilization percentage (0.0 to 1.0)
+    pub cpu: f64,
+    
+    /// Memory utilization percentage (0.0 to 1.0)
+    pub memory: f64,
+    
+    /// Storage utilization percentage (0.0 to 1.0)
+    pub storage: f64,
+    
+    /// Network utilization percentage (0.0 to 1.0)
+    pub network: f64,
+    
+    /// GPU utilization percentage (0.0 to 1.0, if applicable)
+    pub gpu: Option<f64>,
+    
+    /// Custom resource utilization metrics
+    pub custom: HashMap<String, f64>,
+}
+
+impl Default for ResourceUtilization {
+    fn default() -> Self {
+        Self {
+            cpu: 0.0,
+            memory: 0.0,
+            storage: 0.0,
+            network: 0.0,
+            gpu: None,
+            custom: HashMap::new(),
+        }
+    }
+}
+
+impl ResourceUtilization {
+    /// Calculates overall utilization score
+    pub fn overall_utilization(&self) -> f64 {
+        let mut total = self.cpu + self.memory + self.storage + self.network;
+        let mut count = 4.0;
+        
+        if let Some(gpu) = self.gpu {
+            total += gpu;
+            count += 1.0;
+        }
+        
+        total / count
+    }
+    
+    /// Checks if any resource is over the threshold
+    pub fn is_over_threshold(&self, threshold: f64) -> bool {
+        self.cpu > threshold ||
+        self.memory > threshold ||
+        self.storage > threshold ||
+        self.network > threshold ||
+        self.gpu.map_or(false, |gpu| gpu > threshold)
+    }
+}
+
+/// Load metrics for component performance monitoring.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadMetrics {
+    /// Current number of active requests
+    pub active_requests: u32,
+    
+    /// Requests per second
+    pub requests_per_second: f64,
+    
+    /// Average response time in milliseconds
+    pub average_response_time_ms: f64,
+    
+    /// Error rate percentage (0.0 to 1.0)
+    pub error_rate: f64,
+    
+    /// Queue depth
+    pub queue_depth: u32,
+    
+    /// Throughput metrics
+    pub throughput: ThroughputMetrics,
+}
+
+impl Default for LoadMetrics {
+    fn default() -> Self {
+        Self {
+            active_requests: 0,
+            requests_per_second: 0.0,
+            average_response_time_ms: 0.0,
+            error_rate: 0.0,
+            queue_depth: 0,
+            throughput: ThroughputMetrics::default(),
+        }
+    }
+}
+
+/// Throughput metrics for performance monitoring.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThroughputMetrics {
+    /// Bytes per second processed
+    pub bytes_per_second: u64,
+    
+    /// Operations per second
+    pub operations_per_second: f64,
+    
+    /// Transactions per second
+    pub transactions_per_second: f64,
+    
+    /// Peak throughput achieved
+    pub peak_throughput: f64,
+}
+
+impl Default for ThroughputMetrics {
+    fn default() -> Self {
+        Self {
+            bytes_per_second: 0,
+            operations_per_second: 0.0,
+            transactions_per_second: 0.0,
+            peak_throughput: 0.0,
+        }
+    }
+}
+
+/// Error information for failed components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorInfo {
+    /// Error code
+    pub error_code: String,
+    
+    /// Error message
+    pub error_message: String,
+    
+    /// When the error occurred
+    pub occurred_at: SystemTime,
+    
+    /// Stack trace or detailed error information
+    pub details: String,
+    
+    /// Whether this error is recoverable
+    pub recoverable: bool,
+    
+    /// Suggested recovery actions
+    pub recovery_actions: Vec<String>,
+}
+
+/// Performance metrics for component monitoring.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentPerformanceMetrics {
+    /// Uptime in seconds
+    pub uptime_seconds: u64,
+    
+    /// Total requests processed
+    pub total_requests: u64,
+    
+    /// Total errors encountered
+    pub total_errors: u64,
+    
+    /// Average processing time
+    pub average_processing_time: Duration,
+    
+    /// Peak memory usage in MB
+    pub peak_memory_mb: u64,
+    
+    /// Custom performance metrics
+    pub custom_metrics: HashMap<String, f64>,
+}
+
+impl Default for ComponentPerformanceMetrics {
+    fn default() -> Self {
+        Self {
+            uptime_seconds: 0,
+            total_requests: 0,
+            total_errors: 0,
+            average_processing_time: Duration::from_millis(0),
+            peak_memory_mb: 0,
+            custom_metrics: HashMap::new(),
+        }
+    }
+}
+
+/// Health check request and response structures.
+/// 
+/// Health checks are essential for conscious orchestration because OZONE STUDIO
+/// needs to understand the real-time health of all components to make informed
+/// coordination decisions.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheck {
+    /// Type of health check
+    pub check_type: HealthCheckType,
+    
+    /// Component being checked
+    pub component: ComponentIdentity,
+    
+    /// When the check was initiated
+    pub initiated_at: SystemTime,
+    
+    /// Timeout for the health check
+    pub timeout: Duration,
+    
+    /// Specific checks to perform
+    pub checks: Vec<SpecificHealthCheck>,
+    
+    /// Health check response (if this is a response)
+    pub response: Option<HealthCheckResponse>,
+}
+
+impl HealthCheck {
+    /// Creates a new health check request
+    pub fn new_request(component: ComponentIdentity, check_type: HealthCheckType) -> Self {
+        Self {
+            check_type,
+            component,
+            initiated_at: SystemTime::now(),
+            timeout: Duration::from_secs(5),
+            checks: Vec::new(),
+            response: None,
+        }
+    }
+    
+    /// Creates a health check response
+    pub fn new_response(
+        component: ComponentIdentity,
+        check_type: HealthCheckType,
+        response: HealthCheckResponse,
+    ) -> Self {
+        Self {
+            check_type,
+            component,
+            initiated_at: SystemTime::now(),
+            timeout: Duration::from_secs(5),
+            checks: Vec::new(),
+            response: Some(response),
+        }
+    }
+    
+    /// Adds a specific check to perform
+    pub fn add_check(mut self, check: SpecificHealthCheck) -> Self {
+        self.checks.push(check);
+        self
+    }
+    
+    /// Checks if this health check has timed out
+    pub fn is_timed_out(&self) -> bool {
+        SystemTime::now()
+            .duration_since(self.initiated_at)
+            .map(|duration| duration > self.timeout)
+            .unwrap_or(false)
+    }
+}
+
+/// Types of health checks that can be performed.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum HealthCheckType {
+    /// Basic availability check
+    Basic,
+    
+    /// Detailed health assessment
+    Detailed,
+    
+    /// Performance benchmarking
+    Performance,
+    
+    /// Capability verification
+    Capability,
+    
+    /// Resource availability check
+    Resource,
+    
+    /// Security validation
+    Security,
+    
+    /// Configuration validation
+    Configuration,
+    
+    /// Custom health check
+    Custom(String),
+}
+
+/// Specific health checks to perform.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpecificHealthCheck {
+    /// Name of the check
+    pub name: String,
+    
+    /// Type of check
+    pub check_type: String,
+    
+    /// Parameters for the check
+    pub parameters: HashMap<String, String>,
+    
+    /// Expected result
+    pub expected_result: Option<String>,
+    
+    /// Timeout for this specific check
+    pub timeout: Duration,
+}
+
+/// Response to a health check request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResponse {
+    /// Overall health status
+    pub overall_status: HealthState,
+    
+    /// When the response was generated
+    pub response_time: SystemTime,
+    
+    /// Duration to generate this response
+    pub response_duration: Duration,
+    
+    /// Results of individual checks
+    pub check_results: Vec<HealthCheckResult>,
+    
+    /// Current component status
+    pub component_status: ComponentStatus,
+    
+    /// Additional diagnostic information
+    pub diagnostics: HealthDiagnostics,
+    
+    /// Recommendations for improvement
+    pub recommendations: Vec<String>,
+}
+
+impl HealthCheckResponse {
+    /// Creates a healthy response
+    pub fn healthy(component: ComponentIdentity) -> Self {
+        Self {
+            overall_status: HealthState::Healthy,
+            response_time: SystemTime::now(),
+            response_duration: Duration::from_millis(1),
+            check_results: Vec::new(),
+            component_status: ComponentStatus::new(component, OperationalStatus::Running),
+            diagnostics: HealthDiagnostics::new(),
+            recommendations: Vec::new(),
+        }
+    }
+    
+    /// Creates an unhealthy response with error information
+    pub fn unhealthy(component: ComponentIdentity, error: String) -> Self {
+        let mut response = Self::healthy(component.clone());
+        response.overall_status = HealthState::Failed;
+        response.component_status = ComponentStatus::new(component, OperationalStatus::Error);
+        response.diagnostics.errors.push(error);
+        response
+    }
+    
+    /// Adds a check result
+    pub fn add_check_result(mut self, result: HealthCheckResult) -> Self {
+        // Update overall status based on check results
+        if result.status != HealthState::Healthy && result.status != HealthState::Warning {
+            if self.overall_status == HealthState::Healthy {
+                self.overall_status = result.status.clone();
+            }
+        }
+        
+        self.check_results.push(result);
+        self
+    }
+    
+    /// Checks if all checks passed
+    pub fn all_checks_passed(&self) -> bool {
+        self.check_results.iter().all(|result| {
+            matches!(result.status, HealthState::Healthy | HealthState::Warning)
+        })
+    }
+}
+
+/// Result of a specific health check.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthCheckResult {
+    /// Name of the check that was performed
+    pub check_name: String,
+    
+    /// Status result of the check
+    pub status: HealthState,
+    
+    /// Duration to perform the check
+    pub duration: Duration,
+    
+    /// Result message
+    pub message: String,
+    
+    /// Actual result value
+    pub result_value: Option<String>,
+    
+    /// Expected result value
+    pub expected_value: Option<String>,
+    
+    /// Additional details
+    pub details: HashMap<String, String>,
+}
+
+/// Diagnostic information from health checks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HealthDiagnostics {
+    /// Warning messages
+    pub warnings: Vec<String>,
+    
+    /// Error messages
+    pub errors: Vec<String>,
+    
+    /// Informational messages
+    pub info: Vec<String>,
+    
+    /// System metrics at time of check
+    pub system_metrics: SystemMetrics,
+    
+    /// Service-specific diagnostics
+    pub service_diagnostics: HashMap<String, String>,
+}
+
+impl HealthDiagnostics {
+    /// Creates new health diagnostics
+    pub fn new() -> Self {
+        Self {
+            warnings: Vec::new(),
+            errors: Vec::new(),
+            info: Vec::new(),
+            system_metrics: SystemMetrics::default(),
+            service_diagnostics: HashMap::new(),
+        }
+    }
+    
+    /// Adds a warning message
+    pub fn add_warning(&mut self, warning: String) {
+        self.warnings.push(warning);
+    }
+    
+    /// Adds an error message
+    pub fn add_error(&mut self, error: String) {
+        self.errors.push(error);
+    }
+    
+    /// Adds an info message
+    pub fn add_info(&mut self, info: String) {
+        self.info.push(info);
+    }
+}
+
+impl Default for HealthDiagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// System metrics for health diagnostics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SystemMetrics {
+    /// CPU usage percentage
+    pub cpu_usage: f64,
+    
+    /// Memory usage percentage
+    pub memory_usage: f64,
+    
+    /// Disk usage percentage
+    pub disk_usage: f64,
+    
+    /// Network utilization
+    pub network_usage: f64,
+    
+    /// Load averages
+    pub load_averages: Vec<f64>,
+    
+    /// Process count
+    pub process_count: u32,
+    
+    /// Open file descriptors
+    pub open_files: u32,
+}
+
+impl Default for SystemMetrics {
+    fn default() -> Self {
+        Self {
+            cpu_usage: 0.0,
+            memory_usage: 0.0,
+            disk_usage: 0.0,
+            network_usage: 0.0,
+            load_averages: Vec::new(),
+            process_count: 0,
+            open_files: 0,
+        }
+    }
+}
+
+/// Response message for ecosystem communications.
+/// 
+/// Standard response format ensures consistent communication patterns across
+/// the ecosystem and enables proper error handling and status tracking.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EcosystemResponse {
+    /// Unique response identifier
+    pub response_id: String,
+    
+    /// ID of the original request message
+    pub request_id: String,
+    
+    /// Response status
+    pub status: ResponseStatus,
+    
+    /// Component that generated this response
+    pub responder: ComponentIdentity,
+    
+    /// When the response was generated
+    pub timestamp: SystemTime,
+    
+    /// Response payload
+    pub payload: Option<MessagePayload>,
+    
+    /// Error information if status indicates failure
+    pub error: Option<EcosystemError>,
+    
+    /// Processing metrics
+    pub processing_metrics: ResponseProcessingMetrics,
+    
+    /// Additional metadata
+    pub metadata: HashMap<String, String>,
+}
+
+impl EcosystemResponse {
+    /// Creates a successful response
+    pub fn success(
+        request_id: String,
+        responder: ComponentIdentity,
+        payload: Option<MessagePayload>,
+    ) -> Self {
+        Self {
+            response_id: Uuid::new_v4().to_string(),
+            request_id,
+            status: ResponseStatus::Success,
+            responder,
+            timestamp: SystemTime::now(),
+            payload,
+            error: None,
+            processing_metrics: ResponseProcessingMetrics::default(),
+            metadata: HashMap::new(),
+        }
+    }
+    
+    /// Creates an error response
     pub fn error(
         request_id: String,
-        responder: ComponentType,
+        responder: ComponentIdentity,
         error: EcosystemError,
     ) -> Self {
         Self {
+            response_id: Uuid::new_v4().to_string(),
             request_id,
-            success: false,
-            data: None,
-            error: Some(error),
-            metadata: ResponseMetadata::default(),
-            timestamp: SystemTime::now(),
+            status: ResponseStatus::Error,
             responder,
+            timestamp: SystemTime::now(),
+            payload: None,
+            error: Some(error),
+            processing_metrics: ResponseProcessingMetrics::default(),
+            metadata: HashMap::new(),
+        }
+    }
+    
+    /// Adds metadata to the response
+    pub fn with_metadata(mut self, key: String, value: String) -> Self {
+        self.metadata.insert(key, value);
+        self
+    }
+    
+    /// Sets processing metrics
+    pub fn with_processing_metrics(mut self, metrics: ResponseProcessingMetrics) -> Self {
+        self.processing_metrics = metrics;
+        self
+    }
+}
+
+/// Status of an ecosystem response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ResponseStatus {
+    /// Request completed successfully
+    Success,
+    
+    /// Request completed with warnings
+    Warning,
+    
+    /// Request failed with error
+    Error,
+    
+    /// Request is still being processed
+    Processing,
+    
+    /// Request was rejected
+    Rejected,
+    
+    /// Request timed out
+    Timeout,
+    
+    /// Request was cancelled
+    Cancelled,
+}
+
+impl fmt::Display for ResponseStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ResponseStatus::Success => write!(f, "Success"),
+            ResponseStatus::Warning => write!(f, "Warning"),
+            ResponseStatus::Error => write!(f, "Error"),
+            ResponseStatus::Processing => write!(f, "Processing"),
+            ResponseStatus::Rejected => write!(f, "Rejected"),
+            ResponseStatus::Timeout => write!(f, "Timeout"),
+            ResponseStatus::Cancelled => write!(f, "Cancelled"),
         }
     }
 }
 
-impl Default for ResponseMetadata {
+/// Processing metrics for response analysis.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResponseProcessingMetrics {
+    /// Time spent processing the request
+    pub processing_time: Duration,
+    
+    /// Time spent waiting in queue
+    pub queue_time: Duration,
+    
+    /// Time spent on I/O operations
+    pub io_time: Duration,
+    
+    /// Number of processing steps
+    pub processing_steps: u32,
+    
+    /// Resources consumed during processing
+    pub resource_consumption: ResourceConsumption,
+}
+
+impl Default for ResponseProcessingMetrics {
     fn default() -> Self {
         Self {
-            processing_duration: Duration::ZERO,
-            resource_usage: ResourceUsage::default(),
-            quality_metrics: QualityMetrics::default(),
-            warnings: Vec::new(),
-            debug_info: None,
+            processing_time: Duration::from_millis(0),
+            queue_time: Duration::from_millis(0),
+            io_time: Duration::from_millis(0),
+            processing_steps: 0,
+            resource_consumption: ResourceConsumption::default(),
         }
     }
 }
 
-impl Default for ResourceUsage {
+/// Resource consumption metrics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceConsumption {
+    /// CPU time consumed
+    pub cpu_time: Duration,
+    
+    /// Memory allocated in bytes
+    pub memory_allocated: u64,
+    
+    /// Network bytes transferred
+    pub network_bytes: u64,
+    
+    /// Disk I/O operations
+    pub disk_operations: u32,
+}
+
+impl Default for ResourceConsumption {
     fn default() -> Self {
         Self {
-            cpu_time_ms: 0,
-            memory_peak_bytes: 0,
+            cpu_time: Duration::from_millis(0),
+            memory_allocated: 0,
             network_bytes: 0,
-            disk_io_bytes: 0,
-            ai_app_coordination_count: 0,
+            disk_operations: 0,
         }
     }
 }
 
-impl Default for QualityMetrics {
-    fn default() -> Self {
-        Self {
-            overall_score: 1.0,
-            accuracy_score: 1.0,
-            efficiency_score: 1.0,
-            strategic_alignment_score: 1.0,
-            user_satisfaction_score: None,
+/// Ecosystem communication errors.
+/// 
+/// Comprehensive error types enable proper error handling and recovery
+/// across the ecosystem communication layer.
+#[derive(Error, Debug, Clone, Serialize, Deserialize)]
+pub enum EcosystemError {
+    #[error("Communication error: {message}")]
+    CommunicationError { message: String },
+    
+    #[error("Component not found: {component_id}")]
+    ComponentNotFound { component_id: String },
+    
+    #[error("Component unavailable: {component_id} - {reason}")]
+    ComponentUnavailable { component_id: String, reason: String },
+    
+    #[error("Registration failed: {component_id} - {reason}")]
+    RegistrationFailed { component_id: String, reason: String },
+    
+    #[error("Health check failed: {component_id} - {details}")]
+    HealthCheckFailed { component_id: String, details: String },
+    
+    #[error("Message routing failed: {message_id} - {reason}")]
+    MessageRoutingFailed { message_id: String, reason: String },
+    
+    #[error("Authentication failed: {component_id}")]
+    AuthenticationFailed { component_id: String },
+    
+    #[error("Authorization denied: {component_id} - {operation}")]
+    AuthorizationDenied { component_id: String, operation: String },
+    
+    #[error("Protocol version mismatch: expected {expected}, got {actual}")]
+    ProtocolVersionMismatch { expected: String, actual: String },
+    
+    #[error("Message serialization error: {details}")]
+    SerializationError { details: String },
+    
+    #[error("Message deserialization error: {details}")]
+    DeserializationError { details: String },
+    
+    #[error("Timeout error: operation timed out after {duration:?}")]
+    TimeoutError { duration: Duration },
+    
+    #[error("Resource exhaustion: {resource} - {details}")]
+    ResourceExhaustion { resource: String, details: String },
+    
+    #[error("Configuration error: {component_id} - {details}")]
+    ConfigurationError { component_id: String, details: String },
+    
+    #[error("Network error: {details}")]
+    NetworkError { details: String },
+    
+    #[error("Security violation: {component_id} - {violation}")]
+    SecurityViolation { component_id: String, violation: String },
+    
+    #[error("Invalid message format: {details}")]
+    InvalidMessageFormat { details: String },
+    
+    #[error("Message too large: {size} bytes exceeds limit of {limit} bytes")]
+    MessageTooLarge { size: usize, limit: usize },
+    
+    #[error("Component dependency error: {component_id} depends on unavailable {dependency}")]
+    DependencyError { component_id: String, dependency: String },
+    
+    #[error("Service degradation: {component_id} - {details}")]
+    ServiceDegradation { component_id: String, details: String },
+    
+    #[error("Internal error: {details}")]
+    InternalError { details: String },
+}
+
+impl EcosystemError {
+    /// Gets the error category for classification
+    pub fn category(&self) -> ErrorCategory {
+        match self {
+            EcosystemError::CommunicationError { .. } |
+            EcosystemError::MessageRoutingFailed { .. } |
+            EcosystemError::NetworkError { .. } => ErrorCategory::Communication,
+            
+            EcosystemError::ComponentNotFound { .. } |
+            EcosystemError::ComponentUnavailable { .. } |
+            EcosystemError::RegistrationFailed { .. } => ErrorCategory::Component,
+            
+            EcosystemError::AuthenticationFailed { .. } |
+            EcosystemError::AuthorizationDenied { .. } |
+            EcosystemError::SecurityViolation { .. } => ErrorCategory::Security,
+            
+            EcosystemError::ConfigurationError { .. } |
+            EcosystemError::ProtocolVersionMismatch { .. } => ErrorCategory::Configuration,
+            
+            EcosystemError::ResourceExhaustion { .. } |
+            EcosystemError::ServiceDegradation { .. } => ErrorCategory::Resource,
+            
+            EcosystemError::SerializationError { .. } |
+            EcosystemError::DeserializationError { .. } |
+            EcosystemError::InvalidMessageFormat { .. } |
+            EcosystemError::MessageTooLarge { .. } => ErrorCategory::Protocol,
+            
+            EcosystemError::TimeoutError { .. } => ErrorCategory::Timeout,
+            
+            EcosystemError::DependencyError { .. } => ErrorCategory::Dependency,
+            
+            EcosystemError::HealthCheckFailed { .. } => ErrorCategory::Health,
+            
+            EcosystemError::InternalError { .. } => ErrorCategory::Internal,
+        }
+    }
+    
+    /// Checks if this error is recoverable
+    pub fn is_recoverable(&self) -> bool {
+        match self {
+            EcosystemError::TimeoutError { .. } |
+            EcosystemError::NetworkError { .. } |
+            EcosystemError::ResourceExhaustion { .. } |
+            EcosystemError::ServiceDegradation { .. } => true,
+            
+            EcosystemError::ComponentNotFound { .. } |
+            EcosystemError::AuthenticationFailed { .. } |
+            EcosystemError::AuthorizationDenied { .. } |
+            EcosystemError::ProtocolVersionMismatch { .. } |
+            EcosystemError::ConfigurationError { .. } => false,
+            
+            _ => false,
+        }
+    }
+    
+    /// Gets the severity level of this error
+    pub fn severity(&self) -> ErrorSeverity {
+        match self {
+            EcosystemError::InternalError { .. } |
+            EcosystemError::SecurityViolation { .. } => ErrorSeverity::Critical,
+            
+            EcosystemError::ComponentNotFound { .. } |
+            EcosystemError::AuthenticationFailed { .. } |
+            EcosystemError::AuthorizationDenied { .. } => ErrorSeverity::High,
+            
+            EcosystemError::ComponentUnavailable { .. } |
+            EcosystemError::HealthCheckFailed { .. } |
+            EcosystemError::DependencyError { .. } => ErrorSeverity::Medium,
+            
+            EcosystemError::TimeoutError { .. } |
+            EcosystemError::NetworkError { .. } => ErrorSeverity::Low,
+            
+            _ => ErrorSeverity::Medium,
         }
     }
 }
+
+/// Error categories for classification.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ErrorCategory {
+    Communication,
+    Component,
+    Security,
+    Configuration,
+    Resource,
+    Protocol,
+    Timeout,
+    Dependency,
+    Health,
+    Internal,
+}
+
+/// Error severity levels.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ErrorSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+// Additional payload types for specific message types
+
+/// Task coordination payload for task-related messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskCoordinationPayload {
+    /// Task identifier
+    pub task_id: String,
+    
+    /// Type of task coordination
+    pub coordination_type: TaskCoordinationType,
+    
+    /// Task details
+    pub task_details: HashMap<String, serde_json::Value>,
+    
+    /// Required capabilities
+    pub required_capabilities: Vec<String>,
+    
+    /// Priority level
+    pub priority: TaskPriority,
+    
+    /// Deadline for completion
+    pub deadline: Option<SystemTime>,
+}
+
+/// Types of task coordination.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TaskCoordinationType {
+    Assignment,
+    Progress,
+    Completion,
+    Cancellation,
+    StatusRequest,
+}
+
+/// Task priority levels.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TaskPriority {
+    Critical,
+    High,
+    Normal,
+    Low,
+    Background,
+}
+
+/// Methodology execution payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodologyExecutionPayload {
+    /// Methodology identifier
+    pub methodology_id: String,
+    
+    /// Execution context
+    pub execution_context: String,
+    
+    /// Current phase
+    pub current_phase: Option<String>,
+    
+    /// Progress percentage
+    pub progress: f64,
+    
+    /// Status information
+    pub status: String,
+    
+    /// Results if completed
+    pub results: Option<HashMap<String, serde_json::Value>>,
+}
+
+/// Data transfer payload.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataTransferPayload {
+    /// Transfer identifier
+    pub transfer_id: String,
+    
+    /// Type of data transfer
+    pub transfer_type: DataTransferType,
+    
+    /// Source location
+    pub source: String,
+    
+    /// Destination location
+    pub destination: String,
+    
+    /// Transfer progress
+    pub progress: f64,
+    
+    /// Transfer metadata
+    pub metadata: HashMap<String, String>,
+}
+
+/// Types of data transfer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DataTransferType {
+    Upload,
+    Download,
+    Copy,
+    Move,
+    Sync,
+}
+
+/// Security payload for security-related messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityPayload {
+    /// Security event type
+    pub event_type: SecurityEventType,
+    
+    /// Event details
+    pub details: HashMap<String, String>,
+    
+    /// Severity level
+    pub severity: SecuritySeverity,
+    
+    /// Affected components
+    pub affected_components: Vec<ComponentIdentity>,
+}
+
+/// Types of security events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SecurityEventType {
+    AuthenticationAttempt,
+    AuthorizationFailure,
+    SecurityViolation,
+    CertificateExpiry,
+    SecurityUpdate,
+}
+
+/// Security event severity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SecuritySeverity {
+    Info,
+    Warning,
+    Critical,
+    Emergency,
+}
+
+/// Configuration payload for configuration messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigurationPayload {
+    /// Configuration changes
+    pub changes: HashMap<String, serde_json::Value>,
+    
+    /// Configuration version
+    pub version: String,
+    
+    /// Whether restart is required
+    pub restart_required: bool,
+    
+    /// Affected components
+    pub affected_components: Vec<ComponentIdentity>,
+}
+
+/// Monitoring payload for monitoring messages.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitoringPayload {
+    /// Metrics data
+    pub metrics: HashMap<String, f64>,
+    
+    /// Metric timestamp
+    pub timestamp: SystemTime,
+    
+    /// Metric source
+    pub source: ComponentIdentity,
+    
+    /// Metric type
+    pub metric_type: String,
+}
+
+/// Lifecycle payload for lifecycle events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LifecyclePayload {
+    /// Lifecycle event type
+    pub event_type: LifecycleEventType,
+    
+    /// Event details
+    pub details: String,
+    
+    /// When the event occurred
+    pub occurred_at: SystemTime,
+    
+    /// Expected completion time
+    pub expected_completion: Option<SystemTime>,
+}
+
+/// Types of lifecycle events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum LifecycleEventType {
+    Startup,
+    Shutdown,
+    Restart,
+    Maintenance,
+    Upgrade,
+    Rollback,
+}
+
+/// Acknowledgment payload for reliable messaging.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcknowledmentPayload {
+    /// Acknowledged message ID
+    pub acknowledged_message_id: String,
+    
+    /// Acknowledgment type
+    pub ack_type: AcknowledmentType,
+    
+    /// Processing status
+    pub processing_status: String,
+    
+    /// Additional information
+    pub additional_info: Option<String>,
+}
+
+/// Types of acknowledgments.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AcknowledmentType {
+    Received,
+    Processing,
+    Completed,
+    Failed,
+}
+
+// Type aliases for common patterns
+pub type ComponentId = String;
+pub type MessageId = String;
+pub type CorrelationId = String;
+
+// Constants for the ecosystem communication module
+pub const PROTOCOL_VERSION: &str = "1.0.0";
+pub const MAX_MESSAGE_SIZE: usize = 1024 * 1024 * 10; // 10MB
+pub const DEFAULT_MESSAGE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const DEFAULT_HEALTH_CHECK_INTERVAL: Duration = Duration::from_secs(30);
+pub const MAX_ROUTING_HOPS: usize = 10;
+pub const MESSAGE_EXPIRY_TIME: Duration = Duration::from_secs(3600); // 1 hour
