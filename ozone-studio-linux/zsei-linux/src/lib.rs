@@ -210,36 +210,6 @@ pub use nexus_coordination::{
     WisdomStorageCoordination,        // How ZSEI organizes accumulated wisdom
 };
 
-// Component-specific security exports
-pub use security::{
-    ComponentAuthentication,    // How this AI App authenticates with ecosystem
-    OperationAuthorization,     // How this AI App authorizes its specific operations
-    SecureCommunication,        // How this AI App secures its communications
-    SecurityAuditing,           // How this AI App logs security events
-    ThreatDetection,           // How this AI App detects security threats
-    SecurityConfiguration,     // How this AI App configures its security
-};
-
-// Component-specific API exports
-pub use api::{
-    RestHandlers,              // This AI App's specific REST endpoints
-    WebSocketHandlers,         // This AI App's specific WebSocket endpoints
-    Middleware,                // This AI App's specific middleware stack
-    ApiConfiguration,          // This AI App's API configuration
-    EndpointRegistry,          // This AI App's available endpoints
-    RequestValidation,         // This AI App's input validation rules
-    ResponseFormatting,        // This AI App's response format standards
-};
-
-// Component-specific utility exports
-pub use utils::{
-    ComponentConfig,           // This AI App's configuration management
-    ComponentLogger,           // This AI App's logging system
-    ErrorHandler,              // This AI App's error handling
-    PerformanceMonitor,        // This AI App's performance monitoring
-    HealthChecker,             // This AI App's health checking
-};
-
 // Core ZSEI configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ZSEIConfig {
