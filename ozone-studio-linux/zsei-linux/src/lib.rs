@@ -69,6 +69,16 @@ pub use optimizer_generation::{
     QualityValidator,
     OptimizerGenerator,
     OptimizerDistribution,
+    OptimizerType,                    // What kind of optimizer (Coordination, Execution, etc.)
+    OptimizerPayload,                 // The actual optimizer content/instructions
+    OptimizerMetrics,                 // Performance metrics for optimizer effectiveness
+    GenerationRequest,                // Request for optimizer generation
+    GenerationResult,                 // Result of optimizer generation
+    OptimizationStrategy,             // How optimization should be performed
+    TargetComponent,                  // Which component the optimizer targets
+    IntelligenceLevel,                // Basic, Intermediate, Advanced, Expert, Master
+    AnalysisDepth,                    // Surface, Deep, Comprehensive, Exhaustive
+    ProcessingComplexity,             // Simple, Moderate, Complex, Transcendent
 };
 
 pub use methodology_framework::{
@@ -81,6 +91,15 @@ pub use methodology_framework::{
     MethodologyPattern,
     LearningOutcome,
     WisdomAccumulation,
+    PatternSimilarity,                // Measurement of how similar patterns are
+    PatternCategory,                  // Classification of different pattern types
+    PatternConfidence,                // Confidence level in pattern recognition
+    SuccessPattern,                   // Patterns that led to successful outcomes
+    FailurePattern,                   // Patterns that led to failures (for avoidance)
+    PatternEvolution,                 // How patterns change over time
+    LearningConfidence,               // Confidence in learned patterns
+    PatternStrength,                  // Strength of identified patterns
+    SuccessCorrelation,               // Correlation between pattern and success
 };
 
 pub use cross_domain::{
@@ -93,6 +112,17 @@ pub use cross_domain::{
     UniversalPrinciple,
     CrossDomainInsight,
     DomainMapping,
+    DomainKnowledge,                  // Knowledge specific to a domain
+    PrincipleType,                    // Type of universal principle discovered
+    InsightLevel,                     // Depth/quality of cross-domain insight
+    MappingConfidence,                // Confidence in domain-to-domain mappings
+    DomainRelationship,               // Relationship between different domains
+    BiologicalPrinciple,              // Specific biological insights
+    MathematicalPrinciple,            // Specific mathematical insights
+    PhysicalPrinciple,                // Specific physics insights
+    KnowledgeDomain,                  // Biology, Mathematics, Physics, Psychology, etc.
+    PrincipleApplicability,           // How broadly a principle applies
+    DomainExpertise,                  // Level of expertise in a domain
 };
 
 pub use intelligent_storage::{
@@ -105,6 +135,17 @@ pub use intelligent_storage::{
     IntelligentMetadata,
     RelationshipGraph,
     ContentAnalysis,
+    StorageStrategy,                  // How to organize intelligent storage
+    MetadataLevel,                    // Depth of metadata generation
+    RelationshipType,                 // Type of relationship (semantic, structural, etc.)
+    AnalysisResult,                   // Result of intelligence analysis
+    StorageRequest,                   // Request for intelligent storage creation
+    ContentClassification,            // How content is classified for storage
+    SemanticRelationship,             // Semantic connections between content
+    StructuralRelationship,           // Structural connections in content
+    MetadataQuality,                  // Quality of generated metadata
+    RelationshipStrength,             // Strength of identified relationships
+    AnalysisAccuracy,                 // Accuracy of intelligence analysis
 };
 
 pub use ecosystem_memory::{
@@ -117,6 +158,14 @@ pub use ecosystem_memory::{
     EcosystemExperience,
     MemoryStructure,
     WisdomRepository,
+    ExperienceType,                   // Type of ecosystem experience (success, failure, learning)
+    MemoryCategory,                   // Category of memory (short-term, long-term, core)
+    WisdomLevel,                      // Level of accumulated wisdom
+    RetentionPolicy,                  // How long different memories are kept
+    MemoryQuery,                      // Query for retrieving specific memories
+    ExperienceSignificance,           // How significant an experience was
+    MemoryConsolidation,              // Process of converting experiences to wisdom
+    CoreMemory,                       // Most important memories that define identity
 };
 
 pub use meta_framework::{
@@ -129,6 +178,14 @@ pub use meta_framework::{
     FrameworkEvolution,
     CapabilityGap,
     EnhancementOpportunity,
+    EvolutionType,                    // Type of framework evolution
+    GapCategory,                      // Category of capability gap
+    EnhancementType,                  // Type of enhancement opportunity
+    DiscoveryResult,                  // Result of methodology discovery
+    FrameworkState,                   // Current state of framework development
+    EvolutionDirection,               // Direction of framework evolution
+    CapabilityMaturity,               // Maturity level of current capabilities
+    AdaptationStrategy,               // How frameworks adapt to new requirements
 };
 
 // Interface exports
