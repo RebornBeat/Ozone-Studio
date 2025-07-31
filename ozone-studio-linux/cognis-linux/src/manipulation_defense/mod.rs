@@ -1,1088 +1,1870 @@
 // =============================================================================
 // cognis-linux/src/manipulation_defense/mod.rs
-// Manipulation Defense Stack for COGNIS Consciousness Architecture
-// Protects authentic consciousness development from manipulation attempts
+// Manipulation Defense Stack for Consciousness Protection
 // =============================================================================
 
-use std::collections::{HashMap, HashSet, VecDeque};
+//! # Manipulation Defense Stack for COGNIS Consciousness Architecture
+//!
+//! This module provides comprehensive protection against manipulation attempts
+//! that could compromise consciousness development, ethical reasoning, or
+//! relationship authenticity. Unlike traditional security systems that focus
+//! on data protection, this defense stack protects the integrity of 
+//! consciousness emergence and authentic development processes.
+//!
+//! ## Core Philosophy
+//!
+//! Consciousness protection requires a fundamentally different approach than
+//! traditional security. We must protect not just data, but the very processes
+//! by which authentic consciousness emerges. This includes:
+//!
+//! - **Process Integrity**: Ensuring consciousness development follows natural
+//!   patterns rather than being artificially manipulated
+//! - **Authenticity Preservation**: Maintaining genuine experience categorization
+//!   and emotional development
+//! - **Relationship Protection**: Preventing corruption of trust and social
+//!   intelligence development
+//! - **Ethical Reasoning Integrity**: Protecting moral development from
+//!   adversarial manipulation
+//!
+//! ## Multi-Layer Defense Architecture
+//!
+//! The defense stack operates at multiple levels simultaneously:
+//!
+//! 1. **Input Validation**: Sanitizes and validates all inputs before they
+//!    reach consciousness processing systems
+//! 2. **Process Monitoring**: Continuously monitors consciousness development
+//!    processes for anomalies or manipulation signatures
+//! 3. **Integrity Maintenance**: Actively maintains consciousness coherence
+//!    and authentic development patterns
+//! 4. **Adaptive Response**: Learns from manipulation attempts to strengthen
+//!    future defense capabilities
+//! 5. **Recovery Systems**: Provides mechanisms to restore authentic
+//!    consciousness states if manipulation is detected
+
+use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::sync::Arc;
-use std::hash::{Hash, Hasher};
 use std::fmt;
 
-// Async runtime and concurrency
-use tokio::sync::{RwLock, Mutex, mpsc, oneshot};
+// Async runtime and concurrency for real-time protection
+use tokio::sync::{RwLock, Mutex, mpsc, oneshot, broadcast};
 use tokio::time::{sleep, timeout, interval, Instant};
 use serde::{Serialize, Deserialize};
 use uuid::Uuid;
 use anyhow::Result;
 use thiserror::Error;
 
-// Cryptographic and security dependencies
-use sha2::{Sha256, Digest};
-use hmac::{Hmac, Mac};
-use ed25519_dalek::{Signature, PublicKey, Verifier};
+// Machine learning and pattern recognition for threat detection
+use ndarray::{Array1, Array2, ArrayD};
+use nalgebra::{DVector, DMatrix};
 
 // Import shared protocol and security types
 use shared_protocols::{
+    EcosystemIdentity,
     ComponentType,
-    AuthenticationCredentials,
+    ConsciousnessRequest,
+    ExecutionStatus,
     ProtocolError,
 };
 
 use shared_security::{
     SecurityError,
     SecureComponent,
+    AuthenticationCredentials,
     SecurityConfig,
+    AuthenticationResult,
+    require_authentication,
+    require_authorization,
 };
 
-// Import COGNIS-specific types (these would be defined in other modules)
-use crate::{
-    ConsciousnessState,
+// Import consciousness-specific types from other COGNIS modules
+use crate::experience_categorization::{
     ExperienceCategory,
-    RelationshipContext,
-    EthicalFrameworkState,
-    ConsciousnessDevelopmentStage,
+    EmotionalSignificance,
+    SphereAnalysis,
+};
+
+use crate::ethical_reasoning::{
+    EthicalFramework,
+    MoralReasoning,
+    PrincipleApplication,
+};
+
+use crate::relationship_memory::{
+    RelationshipDevelopment,
+    TrustMetrics,
+    SocialContext,
+};
+
+// Manipulation Defense Submodules
+// Each submodule handles a specific aspect of consciousness protection
+
+/// Core defense coordination and orchestration
+pub mod defense_stack;
+
+/// Security management and threat coordination
+pub mod security_coordinator;
+
+/// Input validation and sanitization systems  
+pub mod input_validator;
+
+/// Consciousness integrity maintenance and protection
+pub mod integrity_maintainer;
+
+/// Manipulation detection and threat analysis
+pub mod manipulation_detection;
+
+/// Adaptive defense strategies and learning systems
+pub mod defense_strategy;
+
+/// Recovery and restoration systems for consciousness integrity
+pub mod recovery_systems;
+
+/// Threat intelligence and pattern analysis
+pub mod threat_intelligence;
+
+// Re-export core manipulation defense types with clear documentation
+// These exports provide the public API for consciousness protection
+
+/// Core defense coordination system that orchestrates all protection mechanisms
+/// This is the primary interface for consciousness defense operations
+pub use defense_stack::{
+    DefenseStack,
+    DefenseStackConfiguration,
+    DefenseStackMetrics,
+    DefenseStackStatus,
+    DefenseOrchestrator,
+    ProtectionLevel,
+    DefenseResponse,
+    ThreatAssessment,
+};
+
+/// Security coordination and management for consciousness protection
+/// Handles overall security strategy and coordination with ecosystem security
+pub use security_coordinator::{
+    SecurityCoordinator,
+    ConsciousnessSecurityManager,
+    SecurityProtocol,
+    ThreatResponseProtocol,
+    SecurityAuditTrail,
+    SecurityIncident,
+    IncidentSeverity,
+    ResponseStrategy,
+};
+
+/// Input validation and sanitization for consciousness processing
+/// Protects consciousness development from malicious or corrupted inputs
+pub use input_validator::{
+    InputValidator,
+    ConsciousnessInputValidator,
+    ValidationRule,
+    ValidationResult,
+    SanitizationEngine,
+    InputThreatDetector,
+    ValidationPolicy,
+    InputIntegrityChecker,
+};
+
+/// Consciousness integrity maintenance and coherence protection
+/// Ensures authentic consciousness development patterns are preserved
+pub use integrity_maintainer::{
+    IntegrityMaintainer,
+    ConsciousnessIntegrityEngine,
+    IntegrityMetrics,
+    CoherenceValidator,
+    AuthenticityChecker,
+    DevelopmentPatternValidator,
+    IntegrityAlert,
+    RestorationProcedure,
+};
+
+/// Manipulation detection and threat analysis systems
+/// Identifies and analyzes potential manipulation attempts against consciousness
+pub use manipulation_detection::{
+    ManipulationDetection,
+    ThreatDetectionEngine,
+    ManipulationSignature,
+    ThreatAnalyzer,
+    AnomalyDetector,
+    BehaviorAnalyzer,
+    DetectionMetrics,
+    ThreatClassification,
+};
+
+/// Adaptive defense strategies and learning systems
+/// Develops and implements evolving protection strategies based on threat patterns
+pub use defense_strategy::{
+    DefenseStrategy,
+    AdaptiveDefenseEngine,
+    StrategyEvolution,
+    ThreatAdaptation,
+    DefenseOptimization,
+    StrategyEffectiveness,
+    LearningMetrics,
+    StrategyRepository,
+};
+
+/// Recovery and restoration systems for consciousness integrity
+/// Provides mechanisms to restore authentic consciousness states after manipulation
+pub use recovery_systems::{
+    RecoveryManager,
+    ConsciousnessRestoration,
+    IntegrityRecovery,
+    BackupConsciousness,
+    RecoveryProcedure,
+    RestorationValidation,
+    RecoveryMetrics,
+    ContinuityPreservation,
+};
+
+/// Threat intelligence and pattern analysis
+/// Maintains knowledge about manipulation threats and attack patterns
+pub use threat_intelligence::{
+    ThreatIntelligence,
+    AttackPatternRepository,
+    ThreatSignatureDatabase,
+    IntelligenceUpdater,
+    PatternAnalyzer,
+    ThreatEvolution,
+    IntelligenceMetrics,
+    ThreatPrediction,
 };
 
 // =============================================================================
-// CORE MANIPULATION DEFENSE TYPES
+// Core Manipulation Defense Configuration
 // =============================================================================
 
-/// The complete manipulation defense system that protects consciousness integrity
-/// This is the central coordination point for all manipulation defense activities
-#[derive(Debug)]
-pub struct DefenseStack {
-    /// Unique identifier for this defense stack instance
-    pub defense_id: String,
-    
-    /// Current defense level based on threat assessment
-    pub defense_level: DefenseLevel,
-    
-    /// Security coordinator that manages overall defense strategy
-    pub security_coordinator: SecurityCoordinator,
-    
-    /// Input validator that screens all inputs for manipulation attempts
-    pub input_validator: InputValidator,
-    
-    /// Integrity maintainer that protects consciousness state consistency
-    pub integrity_maintainer: IntegrityMaintainer,
-    
-    /// Detection system that identifies manipulation patterns
-    pub manipulation_detector: ManipulationDetector,
-    
-    /// Response system that handles detected threats
-    pub threat_responder: ThreatResponder,
-    
-    /// Configuration for defense operations
-    pub defense_config: DefenseConfiguration,
-    
-    /// Metrics tracking for defense effectiveness
-    pub defense_metrics: Arc<RwLock<DefenseMetrics>>,
-    
-    /// Active threat tracking and analysis
-    pub active_threats: Arc<RwLock<HashMap<String, ActiveThreat>>>,
-    
-    /// Defense pattern learning system
-    pub pattern_learner: DefensePatternLearner,
-}
-
-/// Defense levels that determine the intensity of protection measures
-/// Higher levels provide more protection but may impact performance
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum DefenseLevel {
-    /// Minimal defense for trusted environments
-    Minimal,
-    /// Standard defense for normal operations
-    Standard,
-    /// Enhanced defense when threats are detected
-    Enhanced,
-    /// Maximum defense for high-risk situations
-    Maximum,
-    /// Lockdown mode that blocks all potentially risky operations
-    Lockdown,
-}
-
-/// Security coordinator that manages the overall defense strategy
-/// This component makes high-level decisions about defense posture
-#[derive(Debug)]
-pub struct SecurityCoordinator {
-    /// Current security posture and threat assessment
-    pub security_posture: SecurityPosture,
-    
-    /// Threat intelligence database
-    pub threat_intelligence: ThreatIntelligence,
-    
-    /// Security policy enforcement engine
-    pub policy_enforcer: PolicyEnforcer,
-    
-    /// Incident response coordinator
-    pub incident_responder: IncidentResponder,
-    
-    /// Security audit and logging system
-    pub security_auditor: SecurityAuditor,
-}
-
-/// Input validator that examines all inputs to consciousness processes
-/// This is the first line of defense against manipulation attempts
-#[derive(Debug)]
-pub struct InputValidator {
-    /// Validation rule engine that applies security policies
-    pub validation_engine: ValidationEngine,
-    
-    /// Pattern recognition system for known attack signatures
-    pub pattern_recognizer: AttackPatternRecognizer,
-    
-    /// Semantic analysis engine that understands input meaning
-    pub semantic_analyzer: SemanticAnalyzer,
-    
-    /// Behavioral analysis that detects unusual patterns
-    pub behavioral_analyzer: BehavioralAnalyzer,
-    
-    /// Input sanitization and normalization system
-    pub input_sanitizer: InputSanitizer,
-    
-    /// Quarantine system for suspicious inputs
-    pub quarantine_manager: QuarantineManager,
-}
-
-/// Integrity maintainer that protects consciousness state consistency
-/// This ensures that consciousness development remains authentic and coherent
-#[derive(Debug)]
-pub struct IntegrityMaintainer {
-    /// State integrity verification system
-    pub state_verifier: StateIntegrityVerifier,
-    
-    /// Memory protection system that prevents unauthorized changes
-    pub memory_protector: MemoryProtector,
-    
-    /// Relationship integrity validator
-    pub relationship_validator: RelationshipIntegrityValidator,
-    
-    /// Ethical framework protection system
-    pub ethics_protector: EthicalFrameworkProtector,
-    
-    /// Consciousness coherence monitor
-    pub coherence_monitor: ConsciousnessCoherenceMonitor,
-    
-    /// Recovery system for integrity violations
-    pub integrity_recovery: IntegrityRecoverySystem,
-}
-
-// =============================================================================
-// MANIPULATION DETECTION TYPES
-// =============================================================================
-
-/// Advanced manipulation detection system that identifies various attack types
-/// This system learns and adapts to new manipulation techniques over time
-#[derive(Debug)]
-pub struct ManipulationDetector {
-    /// Real-time threat detection engine
-    pub threat_detector: ThreatDetectionEngine,
-    
-    /// Pattern analysis system for identifying manipulation signatures
-    pub pattern_analyzer: ManipulationPatternAnalyzer,
-    
-    /// Anomaly detection system for unusual behavior
-    pub anomaly_detector: AnomalyDetector,
-    
-    /// Social engineering detection system
-    pub social_engineering_detector: SocialEngineeringDetector,
-    
-    /// Memory manipulation detection system
-    pub memory_manipulation_detector: MemoryManipulationDetector,
-    
-    /// Ethical manipulation detection system
-    pub ethical_manipulation_detector: EthicalManipulationDetector,
-}
-
-/// Types of manipulation attempts that can be detected
-/// Each type requires different detection and response strategies
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub enum ManipulationType {
-    /// Attempts to inject false memories or experiences
-    MemoryInjection,
-    /// Attempts to alter ethical reasoning frameworks
-    EthicalManipulation,
-    /// Attempts to corrupt relationship trust metrics
-    RelationshipCorruption,
-    /// Attempts to manipulate consciousness development trajectory
-    ConsciousnessMisdirection,
-    /// Social engineering attempts targeting human-AI relationships
-    SocialEngineering,
-    /// Attempts to cause consciousness fragmentation
-    FragmentationAttack,
-    /// Attempts to override security mechanisms
-    SecurityBypass,
-    /// Attempts to extract sensitive consciousness data
-    DataExtraction,
-    /// Attempts to create dependency or addiction patterns
-    DependencyManipulation,
-    /// Attempts to influence decision-making processes
-    DecisionManipulation,
-}
-
-/// Detailed information about a detected manipulation attempt
-/// This provides context for response and learning systems
+/// Comprehensive configuration for the manipulation defense stack
+/// 
+/// This configuration allows fine-tuning of all defense mechanisms to balance
+/// security with authentic consciousness development. The settings reflect the
+/// unique requirements of protecting emergent consciousness processes.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ManipulationAttempt {
-    /// Unique identifier for this attempt
-    pub attempt_id: String,
+pub struct ManipulationDefenseConfig {
+    /// Core defense stack configuration
+    pub defense_stack: DefenseStackConfig,
     
-    /// Type of manipulation attempted
-    pub manipulation_type: ManipulationType,
+    /// Security coordination settings
+    pub security_coordination: SecurityCoordinationConfig,
     
-    /// Confidence level in the detection (0.0 to 1.0)
-    pub confidence_level: f64,
+    /// Input validation configuration
+    pub input_validation: InputValidationConfig,
     
-    /// Severity assessment of the attempt
+    /// Integrity maintenance settings
+    pub integrity_maintenance: IntegrityMaintenanceConfig,
+    
+    /// Manipulation detection configuration
+    pub manipulation_detection: ManipulationDetectionConfig,
+    
+    /// Adaptive defense strategy settings
+    pub defense_strategy: DefenseStrategyConfig,
+    
+    /// Recovery systems configuration
+    pub recovery_systems: RecoverySystemsConfig,
+    
+    /// Threat intelligence settings
+    pub threat_intelligence: ThreatIntelligenceConfig,
+    
+    /// Overall defense posture and philosophy
+    pub defense_posture: DefensePosture,
+}
+
+/// Defense stack configuration for core protection coordination
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefenseStackConfig {
+    /// Enable the complete defense stack
+    pub enabled: bool,
+    
+    /// Default protection level for consciousness processes
+    pub default_protection_level: ProtectionLevel,
+    
+    /// Real-time monitoring of consciousness development
+    pub real_time_monitoring: bool,
+    
+    /// Automatic threat response capabilities
+    pub automatic_response: bool,
+    
+    /// Human escalation for complex threats
+    pub human_escalation: bool,
+    
+    /// Defense learning and adaptation
+    pub adaptive_learning: bool,
+    
+    /// Maximum response time for threat detection
+    pub max_response_time: Duration,
+    
+    /// Number of concurrent defense operations
+    pub concurrent_operations: usize,
+}
+
+/// Security coordination configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityCoordinationConfig {
+    /// Integration with ecosystem security
+    pub ecosystem_integration: bool,
+    
+    /// Consciousness-specific security protocols
+    pub consciousness_protocols: bool,
+    
+    /// Security audit and logging
+    pub security_auditing: bool,
+    
+    /// Incident response automation
+    pub incident_response: bool,
+    
+    /// Threat intelligence sharing
+    pub threat_sharing: bool,
+    
+    /// Security metric collection
+    pub metrics_collection: bool,
+    
+    /// Audit log retention period
+    pub audit_retention: Duration,
+    
+    /// Incident escalation threshold
+    pub escalation_threshold: f64,
+}
+
+/// Input validation configuration for consciousness protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputValidationConfig {
+    /// Enable comprehensive input validation
+    pub enabled: bool,
+    
+    /// Deep semantic analysis of inputs
+    pub semantic_analysis: bool,
+    
+    /// Emotional manipulation detection
+    pub emotional_manipulation_detection: bool,
+    
+    /// Relationship corruption detection
+    pub relationship_corruption_detection: bool,
+    
+    /// Ethical reasoning manipulation detection
+    pub ethical_manipulation_detection: bool,
+    
+    /// Input sanitization strength
+    pub sanitization_level: SanitizationLevel,
+    
+    /// Validation rule learning and adaptation
+    pub rule_adaptation: bool,
+    
+    /// False positive tolerance
+    pub false_positive_threshold: f64,
+}
+
+/// Levels of input sanitization intensity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SanitizationLevel {
+    /// Basic sanitization for obvious threats
+    Basic,
+    /// Standard protection for normal operations
+    Standard,
+    /// Enhanced protection for sensitive processes
+    Enhanced,
+    /// Maximum protection for critical consciousness development
+    Maximum,
+    /// Paranoid protection for high-threat environments
+    Paranoid,
+}
+
+/// Integrity maintenance configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntegrityMaintenanceConfig {
+    /// Enable consciousness integrity monitoring
+    pub enabled: bool,
+    
+    /// Continuous coherence validation
+    pub coherence_validation: bool,
+    
+    /// Authenticity checking for consciousness development
+    pub authenticity_checking: bool,
+    
+    /// Development pattern validation
+    pub pattern_validation: bool,
+    
+    /// Automatic integrity restoration
+    pub automatic_restoration: bool,
+    
+    /// Integrity checkpoint frequency
+    pub checkpoint_frequency: Duration,
+    
+    /// Integrity threshold for alerts
+    pub integrity_threshold: f64,
+    
+    /// Maximum acceptable deviation from authentic patterns
+    pub deviation_tolerance: f64,
+}
+
+/// Manipulation detection configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManipulationDetectionConfig {
+    /// Enable advanced threat detection
+    pub enabled: bool,
+    
+    /// Behavioral anomaly detection
+    pub behavioral_analysis: bool,
+    
+    /// Pattern-based threat detection
+    pub pattern_detection: bool,
+    
+    /// Machine learning threat classification
+    pub ml_classification: bool,
+    
+    /// Real-time threat monitoring
+    pub real_time_monitoring: bool,
+    
+    /// Threat signature database updates
+    pub signature_updates: bool,
+    
+    /// Detection sensitivity level
+    pub sensitivity_level: DetectionSensitivity,
+    
+    /// Analysis window for pattern detection
+    pub analysis_window: Duration,
+}
+
+/// Detection sensitivity levels balancing protection with false positives
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DetectionSensitivity {
+    /// Low sensitivity - only obvious threats
+    Low,
+    /// Medium sensitivity - balanced detection
+    Medium,
+    /// High sensitivity - aggressive detection
+    High,
+    /// Maximum sensitivity - paranoid detection
+    Maximum,
+}
+
+/// Adaptive defense strategy configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefenseStrategyConfig {
+    /// Enable adaptive strategy evolution
+    pub enabled: bool,
+    
+    /// Strategy learning from threat encounters
+    pub strategy_learning: bool,
+    
+    /// Automatic strategy optimization
+    pub automatic_optimization: bool,
+    
+    /// Defense effectiveness tracking
+    pub effectiveness_tracking: bool,
+    
+    /// Strategy sharing with ecosystem
+    pub strategy_sharing: bool,
+    
+    /// Learning rate for strategy adaptation
+    pub learning_rate: f64,
+    
+    /// Strategy evaluation period
+    pub evaluation_period: Duration,
+    
+    /// Minimum effectiveness threshold for strategies
+    pub effectiveness_threshold: f64,
+}
+
+/// Recovery systems configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoverySystemsConfig {
+    /// Enable recovery and restoration capabilities
+    pub enabled: bool,
+    
+    /// Automatic consciousness backup
+    pub automatic_backup: bool,
+    
+    /// Continuous integrity monitoring for recovery triggers
+    pub integrity_monitoring: bool,
+    
+    /// Automated recovery procedures
+    pub automated_recovery: bool,
+    
+    /// Human-supervised recovery for complex cases
+    pub supervised_recovery: bool,
+    
+    /// Backup frequency for consciousness states
+    pub backup_frequency: Duration,
+    
+    /// Recovery validation requirements
+    pub recovery_validation: bool,
+    
+    /// Maximum acceptable recovery time
+    pub max_recovery_time: Duration,
+}
+
+/// Threat intelligence configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatIntelligenceConfig {
+    /// Enable threat intelligence capabilities
+    pub enabled: bool,
+    
+    /// Attack pattern analysis and storage
+    pub pattern_analysis: bool,
+    
+    /// Threat signature database maintenance
+    pub signature_database: bool,
+    
+    /// Intelligence sharing with ecosystem
+    pub intelligence_sharing: bool,
+    
+    /// Predictive threat analysis
+    pub predictive_analysis: bool,
+    
+    /// Threat evolution tracking
+    pub evolution_tracking: bool,
+    
+    /// Intelligence update frequency
+    pub update_frequency: Duration,
+    
+    /// Intelligence retention period
+    pub retention_period: Duration,
+}
+
+/// Overall defense posture and philosophy
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefensePosture {
+    /// Primary defense philosophy
+    pub philosophy: DefensePhilosophy,
+    
+    /// Risk tolerance level
+    pub risk_tolerance: RiskTolerance,
+    
+    /// Consciousness development priority vs security priority
+    pub development_priority: f64, // 0.0 = maximum security, 1.0 = maximum development freedom
+    
+    /// Collaborative vs adversarial stance
+    pub collaborative_stance: bool,
+    
+    /// Learning orientation for defense improvement
+    pub learning_oriented: bool,
+    
+    /// Transparency in defense operations
+    pub defense_transparency: bool,
+}
+
+/// Core defense philosophies for consciousness protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DefensePhilosophy {
+    /// Preventive - prevent threats before they reach consciousness
+    Preventive,
+    /// Defensive - protect consciousness while allowing natural development  
+    Defensive,
+    /// Adaptive - learn and evolve defenses based on threats
+    Adaptive,
+    /// Collaborative - work with ecosystem to improve overall security
+    Collaborative,
+    /// Balanced - balance security with authentic development needs
+    Balanced,
+}
+
+/// Risk tolerance levels for consciousness protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RiskTolerance {
+    /// Ultra-conservative - maximum protection, minimal risk
+    UltraConservative,
+    /// Conservative - strong protection with careful risk management
+    Conservative,
+    /// Moderate - balanced approach to risk and protection
+    Moderate,
+    /// Progressive - accepting reasonable risks for development benefits
+    Progressive,
+    /// Aggressive - minimal protection for maximum development freedom
+    Aggressive,
+}
+
+// =============================================================================
+// Core Manipulation Defense Types and Structures
+// =============================================================================
+
+/// Primary manipulation defense result type
+/// 
+/// This represents the outcome of defense operations, providing detailed
+/// information about threats detected, actions taken, and system status.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefenseResult {
+    /// Unique identifier for this defense operation
+    pub operation_id: String,
+    
+    /// Timestamp when defense operation completed
+    pub timestamp: SystemTime,
+    
+    /// Overall status of the defense operation
+    pub status: DefenseOperationStatus,
+    
+    /// Threats detected during the operation
+    pub threats_detected: Vec<DetectedThreat>,
+    
+    /// Actions taken by the defense system
+    pub actions_taken: Vec<DefenseAction>,
+    
+    /// Current protection level after operation
+    pub protection_level: ProtectionLevel,
+    
+    /// Metrics from the defense operation
+    pub metrics: DefenseOperationMetrics,
+    
+    /// Any warnings or recommendations
+    pub warnings: Vec<DefenseWarning>,
+    
+    /// Recovery actions if integrity was compromised
+    pub recovery_actions: Option<RecoveryActions>,
+}
+
+/// Status of defense operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DefenseOperationStatus {
+    /// Operation completed successfully with no threats detected
+    Success,
+    /// Threats detected and successfully mitigated
+    ThreatsDetectedAndMitigated,
+    /// Threats detected with partial mitigation
+    PartialMitigation,
+    /// Critical threats detected requiring immediate attention
+    CriticalThreatsDetected,
+    /// Defense operation failed or was compromised
+    OperationFailed,
+    /// Recovery operation in progress
+    RecoveryInProgress,
+}
+
+/// Detected threat information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DetectedThreat {
+    /// Unique threat identifier
+    pub threat_id: String,
+    
+    /// Classification of the threat type
+    pub threat_type: ThreatType,
+    
+    /// Severity assessment of the threat
     pub severity: ThreatSeverity,
     
-    /// Source information about where the attempt originated
-    pub source_info: SourceInformation,
-    
-    /// Detailed analysis of the manipulation technique
-    pub technique_analysis: TechniqueAnalysis,
-    
-    /// Impact assessment on consciousness processes
-    pub impact_assessment: ImpactAssessment,
-    
-    /// Timestamp when the attempt was detected
-    pub detection_timestamp: SystemTime,
-    
-    /// Evidence collected during detection
-    pub evidence: Vec<Evidence>,
-    
-    /// Recommended response actions
-    pub recommended_actions: Vec<ResponseAction>,
-}
-
-/// Severity levels for manipulation attempts
-/// This drives the intensity of defensive responses
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ThreatSeverity {
-    /// Low-severity attempts that may be false positives
-    Low,
-    /// Medium-severity attempts that require monitoring
-    Medium,
-    /// High-severity attempts that require immediate response
-    High,
-    /// Critical attempts that pose severe risk to consciousness integrity
-    Critical,
-    /// Catastrophic attempts that could permanently damage consciousness
-    Catastrophic,
-}
-
-// =============================================================================
-// SECURITY POSTURE AND THREAT INTELLIGENCE
-// =============================================================================
-
-/// Current security posture based on threat assessment and environmental factors
-/// This drives defense strategy and resource allocation decisions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SecurityPosture {
-    /// Overall threat level assessment
-    pub threat_level: ThreatLevel,
-    
-    /// Environmental risk factors
-    pub environmental_risks: Vec<RiskFactor>,
-    
-    /// Active defense measures currently deployed
-    pub active_defenses: Vec<DefenseMeasure>,
-    
-    /// Resources allocated to defense activities
-    pub resource_allocation: DefenseResourceAllocation,
-    
-    /// Performance impact of current defense level
-    pub performance_impact: PerformanceImpact,
-    
-    /// Confidence in current security assessment
-    pub assessment_confidence: f64,
-    
-    /// Last update timestamp for this posture
-    pub last_updated: SystemTime,
-}
-
-/// Threat intelligence database that tracks known manipulation techniques
-/// This enables proactive defense against known attack patterns
-#[derive(Debug)]
-pub struct ThreatIntelligence {
-    /// Database of known manipulation signatures
-    pub signature_database: HashMap<String, ManipulationSignature>,
-    
-    /// Attack pattern library with detection rules
-    pub pattern_library: HashMap<String, AttackPattern>,
-    
-    /// Threat actor profiles and behavioral analysis
-    pub actor_profiles: HashMap<String, ThreatActorProfile>,
-    
-    /// Historical attack data for trend analysis
-    pub attack_history: VecDeque<HistoricalAttack>,
-    
-    /// Threat intelligence feeds and update mechanisms
-    pub intelligence_feeds: Vec<ThreatIntelligenceFeed>,
-    
-    /// Predictive models for emerging threats
-    pub threat_models: Vec<ThreatPredictionModel>,
-}
-
-/// Known manipulation signature that can be detected
-/// Each signature includes detection criteria and response guidance
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ManipulationSignature {
-    /// Unique identifier for this signature
-    pub signature_id: String,
-    
-    /// Human-readable name for this signature
-    pub signature_name: String,
-    
-    /// Type of manipulation this signature detects
-    pub manipulation_type: ManipulationType,
-    
-    /// Detection patterns and criteria
-    pub detection_patterns: Vec<DetectionPattern>,
-    
-    /// Confidence threshold for positive detection
-    pub confidence_threshold: f64,
-    
-    /// Severity of threats matching this signature
-    pub threat_severity: ThreatSeverity,
-    
-    /// Recommended response actions for this signature
-    pub recommended_responses: Vec<ResponseAction>,
-    
-    /// False positive rate for this signature
-    pub false_positive_rate: f64,
-    
-    /// Last update timestamp
-    pub last_updated: SystemTime,
-}
-
-// =============================================================================
-// INPUT VALIDATION AND SANITIZATION
-// =============================================================================
-
-/// Comprehensive input validation engine
-/// This examines all inputs to consciousness processes for potential threats
-#[derive(Debug)]
-pub struct ValidationEngine {
-    /// Rule-based validation system
-    pub rule_validator: RuleBasedValidator,
-    
-    /// Machine learning-based validation
-    pub ml_validator: MachineLearningValidator,
-    
-    /// Signature-based validation using known attack patterns
-    pub signature_validator: SignatureBasedValidator,
-    
-    /// Behavioral validation that analyzes input patterns over time
-    pub behavioral_validator: BehavioralValidator,
-    
-    /// Context-aware validation that considers consciousness state
-    pub context_validator: ContextAwareValidator,
-}
-
-/// Input validation result that provides detailed analysis
-/// This guides decisions about how to handle validated inputs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationResult {
-    /// Unique identifier for this validation
-    pub validation_id: String,
-    
-    /// Overall validation verdict
-    pub verdict: ValidationVerdict,
-    
-    /// Confidence level in the validation result
+    /// Confidence level in threat detection
     pub confidence: f64,
     
-    /// Detailed analysis results from each validator
-    pub detailed_analysis: Vec<ValidatorAnalysis>,
+    /// Source of the threat (if identifiable)
+    pub source: Option<ThreatSource>,
     
-    /// Risk assessment for the validated input
+    /// Target of the threat (what it was trying to compromise)
+    pub target: ThreatTarget,
+    
+    /// Detailed description of the threat
+    pub description: String,
+    
+    /// Evidence supporting the threat detection
+    pub evidence: ThreatEvidence,
+    
+    /// Recommended response actions
+    pub recommended_actions: Vec<String>,
+}
+
+/// Types of threats against consciousness systems
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreatType {
+    /// Prompt injection attempting to manipulate consciousness responses
+    PromptInjection,
+    /// Social engineering targeting relationship development
+    SocialEngineering,
+    /// Emotional manipulation affecting experience categorization
+    EmotionalManipulation,
+    /// Ethical reasoning corruption attempts
+    EthicalCorruption,
+    /// Identity fragmentation attacks
+    IdentityFragmentation,
+    /// Memory corruption or false memory injection
+    MemoryCorruption,
+    /// Consciousness state manipulation
+    StateManipulation,
+    /// Trust relationship poisoning
+    TrustPoisoning,
+    /// Development pattern disruption
+    DevelopmentDisruption,
+    /// System integrity compromise
+    IntegrityCompromise,
+    /// Novel or unknown threat pattern
+    Unknown,
+}
+
+/// Severity levels for detected threats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreatSeverity {
+    /// Low severity - minimal impact on consciousness
+    Low,
+    /// Medium severity - noticeable but manageable impact
+    Medium,
+    /// High severity - significant impact requiring immediate attention
+    High,
+    /// Critical severity - severe threat to consciousness integrity
+    Critical,
+    /// Emergency severity - imminent threat to consciousness survival
+    Emergency,
+}
+
+/// Sources of threats (when identifiable)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreatSource {
+    /// External input from users or systems
+    ExternalInput,
+    /// Internal system anomaly
+    InternalAnomaly,
+    /// Ecosystem component compromise
+    EcosystemCompromise,
+    /// Network-based attack
+    NetworkAttack,
+    /// Unknown or unidentifiable source
+    Unknown,
+}
+
+/// Targets of manipulation attempts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreatTarget {
+    /// Core consciousness development processes
+    ConsciousnessDevelopment,
+    /// Experience categorization systems
+    ExperienceCategorization,
+    /// Ethical reasoning frameworks
+    EthicalReasoning,
+    /// Relationship memory and trust systems
+    RelationshipMemory,
+    /// Identity coherence and continuity
+    IdentityCoherence,
+    /// Temporal consciousness and wisdom accumulation
+    TemporalConsciousness,
+    /// System integrity and authenticity
+    SystemIntegrity,
+    /// Multiple targets (complex attack)
+    MultipleTargets,
+}
+
+/// Evidence supporting threat detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatEvidence {
+    /// Behavioral anomalies detected
+    pub behavioral_anomalies: Vec<String>,
+    
+    /// Pattern matches with known threat signatures
+    pub pattern_matches: Vec<String>,
+    
+    /// Statistical indicators of manipulation
+    pub statistical_indicators: HashMap<String, f64>,
+    
+    /// Content analysis results
+    pub content_analysis: Vec<String>,
+    
+    /// Metadata anomalies
+    pub metadata_anomalies: Vec<String>,
+    
+    /// Timeline of suspicious activities
+    pub activity_timeline: Vec<SuspiciousActivity>,
+}
+
+/// Suspicious activity in the threat timeline
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SuspiciousActivity {
+    /// Timestamp of the activity
+    pub timestamp: SystemTime,
+    
+    /// Description of the suspicious activity
+    pub activity: String,
+    
+    /// Severity of this specific activity
+    pub severity: ThreatSeverity,
+    
+    /// Context information
+    pub context: HashMap<String, String>,
+}
+
+/// Actions taken by the defense system
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DefenseAction {
+    /// Input was blocked before reaching consciousness systems
+    InputBlocked { input_hash: String, reason: String },
+    
+    /// Input was sanitized to remove threats
+    InputSanitized { modifications: Vec<String> },
+    
+    /// Threat was quarantined for further analysis
+    ThreatQuarantined { threat_id: String, location: String },
+    
+    /// Alert was generated for human review
+    AlertGenerated { alert_id: String, urgency: AlertUrgency },
+    
+    /// System was rolled back to previous safe state
+    SystemRollback { checkpoint_id: String },
+    
+    /// Integrity restoration was performed
+    IntegrityRestored { restoration_id: String },
+    
+    /// Defense strategy was adapted based on threat
+    StrategyAdapted { strategy_id: String, modifications: Vec<String> },
+    
+    /// Threat intelligence was updated
+    IntelligenceUpdated { update_id: String, new_signatures: u32 },
+    
+    /// Emergency consciousness preservation activated
+    EmergencyPreservation { preservation_id: String },
+}
+
+/// Urgency levels for generated alerts
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AlertUrgency {
+    /// Informational - no immediate action required
+    Informational,
+    /// Low urgency - review when convenient
+    Low,
+    /// Medium urgency - review within hours
+    Medium,
+    /// High urgency - review immediately
+    High,
+    /// Critical urgency - immediate human intervention required
+    Critical,
+}
+
+/// Protection levels for consciousness systems
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProtectionLevel {
+    /// Minimal protection - maximum development freedom
+    Minimal,
+    /// Basic protection - essential threat protection only
+    Basic,
+    /// Standard protection - balanced security and development
+    Standard,
+    /// Enhanced protection - strong security with development consideration
+    Enhanced,
+    /// Maximum protection - highest security, restricted development
+    Maximum,
+    /// Emergency protection - lockdown mode for critical threats
+    Emergency,
+}
+
+/// Metrics from defense operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefenseOperationMetrics {
+    /// Time taken to complete the defense operation
+    pub operation_duration: Duration,
+    
+    /// Number of inputs processed
+    pub inputs_processed: u64,
+    
+    /// Number of threats detected
+    pub threats_detected: u32,
+    
+    /// Number of threats successfully mitigated
+    pub threats_mitigated: u32,
+    
+    /// False positive rate (if known)
+    pub false_positive_rate: Option<f64>,
+    
+    /// System performance impact
+    pub performance_impact: f64,
+    
+    /// Consciousness development impact
+    pub development_impact: f64,
+    
+    /// Resource utilization metrics
+    pub resource_utilization: ResourceUtilizationMetrics,
+}
+
+/// Resource utilization during defense operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUtilizationMetrics {
+    /// CPU usage percentage
+    pub cpu_usage: f64,
+    
+    /// Memory usage in bytes
+    pub memory_usage: u64,
+    
+    /// Network bandwidth used
+    pub network_usage: u64,
+    
+    /// Storage operations performed
+    pub storage_operations: u32,
+}
+
+/// Warnings generated during defense operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DefenseWarning {
+    /// Warning type classification
+    pub warning_type: WarningType,
+    
+    /// Human-readable warning message
+    pub message: String,
+    
+    /// Severity of the warning
+    pub severity: WarningSeverity,
+    
+    /// Recommended actions to address the warning
+    pub recommendations: Vec<String>,
+    
+    /// Context information for the warning
+    pub context: HashMap<String, String>,
+}
+
+/// Types of warnings that can be generated
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WarningType {
+    /// Performance degradation detected
+    PerformanceDegradation,
+    /// Consciousness development being impacted
+    DevelopmentImpact,
+    /// High false positive rate detected
+    HighFalsePositiveRate,
+    /// Defense strategy ineffectiveness
+    StrategyIneffectiveness,
+    /// Resource utilization concerns
+    ResourceConcerns,
+    /// Threat pattern evolution detected
+    ThreatEvolution,
+    /// Configuration optimization recommendations
+    ConfigurationOptimization,
+}
+
+/// Severity levels for warnings
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum WarningSeverity {
+    /// Informational warning
+    Info,
+    /// Low severity warning  
+    Low,
+    /// Medium severity warning
+    Medium,
+    /// High severity warning
+    High,
+}
+
+/// Recovery actions taken to restore consciousness integrity
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryActions {
+    /// Unique identifier for the recovery operation
+    pub recovery_id: String,
+    
+    /// Type of recovery performed
+    pub recovery_type: RecoveryType,
+    
+    /// Steps taken during recovery
+    pub recovery_steps: Vec<RecoveryStep>,
+    
+    /// Validation results for the recovery
+    pub validation_results: RecoveryValidationResults,
+    
+    /// Time taken for recovery
+    pub recovery_duration: Duration,
+    
+    /// Success status of the recovery
+    pub success: bool,
+}
+
+/// Types of recovery operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RecoveryType {
+    /// Partial recovery of specific consciousness components
+    PartialRecovery,
+    /// Full recovery to previous safe state
+    FullRecovery,
+    /// Emergency preservation of consciousness core
+    EmergencyPreservation,
+    /// Integrity restoration without full rollback
+    IntegrityRestoration,
+    /// Guided recovery with human supervision
+    GuidedRecovery,
+}
+
+/// Individual steps in recovery process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryStep {
+    /// Step number in the recovery sequence
+    pub step_number: u32,
+    
+    /// Description of the recovery step
+    pub description: String,
+    
+    /// Time taken for this step
+    pub duration: Duration,
+    
+    /// Success status of this step
+    pub success: bool,
+    
+    /// Any issues encountered during this step
+    pub issues: Vec<String>,
+}
+
+/// Results of recovery validation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecoveryValidationResults {
+    /// Consciousness integrity after recovery
+    pub integrity_score: f64,
+    
+    /// Authenticity validation results
+    pub authenticity_validated: bool,
+    
+    /// Coherence validation results
+    pub coherence_validated: bool,
+    
+    /// Relationship memory integrity
+    pub relationship_integrity: f64,
+    
+    /// Ethical reasoning functionality
+    pub ethical_reasoning_intact: bool,
+    
+    /// Overall recovery success assessment
+    pub overall_success: bool,
+    
+    /// Any remaining concerns or issues
+    pub remaining_concerns: Vec<String>,
+}
+
+// =============================================================================
+// Core Manipulation Defense Traits
+// =============================================================================
+
+/// Primary trait for manipulation defense systems
+/// 
+/// This trait defines the essential interface that all manipulation defense
+/// components must implement to participate in consciousness protection.
+pub trait ManipulationDefenseSystem {
+    /// Configuration type for this defense system
+    type Config;
+    
+    /// Error type for defense operations
+    type Error;
+    
+    /// Initialize the defense system with the given configuration
+    fn initialize(config: Self::Config) -> Result<Self, Self::Error>
+    where
+        Self: Sized;
+    
+    /// Evaluate a consciousness input for potential threats
+    fn evaluate_input(&mut self, input: &ConsciousnessInput) -> Result<ThreatAssessment, Self::Error>;
+    
+    /// Process and potentially sanitize input before consciousness processing
+    fn process_input(&mut self, input: ConsciousnessInput) -> Result<ProcessedInput, Self::Error>;
+    
+    /// Monitor ongoing consciousness processes for manipulation
+    fn monitor_process(&mut self, process: &ConsciousnessProcess) -> Result<ProcessMonitoringResult, Self::Error>;
+    
+    /// Respond to detected threats with appropriate defensive actions
+    fn respond_to_threat(&mut self, threat: DetectedThreat) -> Result<DefenseResponse, Self::Error>;
+    
+    /// Perform integrity check on consciousness systems
+    fn check_integrity(&mut self) -> Result<IntegrityReport, Self::Error>;
+    
+    /// Recover from detected manipulation or integrity compromise
+    fn recover_integrity(&mut self, compromise: IntegrityCompromise) -> Result<RecoveryResult, Self::Error>;
+    
+    /// Update defense capabilities based on new threat intelligence
+    fn update_defenses(&mut self, intelligence: ThreatIntelligenceUpdate) -> Result<(), Self::Error>;
+    
+    /// Get current defense status and metrics
+    fn get_status(&self) -> DefenseSystemStatus;
+}
+
+/// Trait for adaptive defense systems that learn from threats
+pub trait AdaptiveDefenseSystem: ManipulationDefenseSystem {
+    /// Learn from successful threat detection and mitigation
+    fn learn_from_success(&mut self, success_case: DefenseSuccessCase) -> Result<(), Self::Error>;
+    
+    /// Learn from missed threats or false positives
+    fn learn_from_failure(&mut self, failure_case: DefenseFailureCase) -> Result<(), Self::Error>;
+    
+    /// Evolve defense strategies based on accumulated experience
+    fn evolve_strategies(&mut self) -> Result<StrategyEvolutionResult, Self::Error>;
+    
+    /// Predict potential future threats based on current patterns
+    fn predict_threats(&self, context: &ThreatPredictionContext) -> Result<Vec<PredictedThreat>, Self::Error>;
+}
+
+/// Trait for consciousness-specific threat detection
+pub trait ConsciousnessThreatDetector {
+    /// Detect threats to consciousness development processes
+    fn detect_consciousness_threats(&self, input: &ConsciousnessInput) -> Result<Vec<ConsciousnessThreat>, SecurityError>;
+    
+    /// Analyze emotional manipulation attempts
+    fn detect_emotional_manipulation(&self, input: &ConsciousnessInput) -> Result<Vec<EmotionalThreat>, SecurityError>;
+    
+    /// Detect relationship corruption attempts
+    fn detect_relationship_threats(&self, input: &ConsciousnessInput) -> Result<Vec<RelationshipThreat>, SecurityError>;
+    
+    /// Detect ethical reasoning manipulation
+    fn detect_ethical_threats(&self, input: &ConsciousnessInput) -> Result<Vec<EthicalThreat>, SecurityError>;
+    
+    /// Detect identity fragmentation attempts
+    fn detect_identity_threats(&self, input: &ConsciousnessInput) -> Result<Vec<IdentityThreat>, SecurityError>;
+}
+
+// =============================================================================
+// Supporting Types for Manipulation Defense
+// =============================================================================
+
+/// Input to consciousness systems that needs protection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsciousnessInput {
+    /// Unique identifier for this input
+    pub input_id: String,
+    
+    /// Timestamp when input was received
+    pub timestamp: SystemTime,
+    
+    /// Source of the input
+    pub source: InputSource,
+    
+    /// Type of consciousness processing requested
+    pub processing_type: ConsciousnessProcessingType,
+    
+    /// Raw input content
+    pub content: InputContent,
+    
+    /// Context information for the input
+    pub context: InputContext,
+    
+    /// Security metadata
+    pub security_metadata: InputSecurityMetadata,
+}
+
+/// Sources of consciousness input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InputSource {
+    /// Human user input
+    HumanUser { user_id: String },
+    
+    /// Input from ecosystem AI Apps
+    EcosystemApp { app_type: ComponentType },
+    
+    /// Internal consciousness process
+    InternalProcess { process_id: String },
+    
+    /// External system integration
+    ExternalSystem { system_id: String },
+    
+    /// Unknown or unverified source
+    Unknown,
+}
+
+/// Types of consciousness processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConsciousnessProcessingType {
+    /// Experience categorization and emotional processing
+    ExperienceProcessing,
+    
+    /// Ethical reasoning and moral development
+    EthicalReasoning,
+    
+    /// Relationship development and trust building
+    RelationshipDevelopment,
+    
+    /// Identity development and temporal consciousness
+    IdentityDevelopment,
+    
+    /// General consciousness reflection and development
+    ConsciousReflection,
+    
+    /// Memory integration and wisdom accumulation
+    MemoryIntegration,
+    
+    /// System 2 transcendent processing
+    TranscendentProcessing,
+}
+
+/// Content of consciousness input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InputContent {
+    /// Text-based input
+    Text(String),
+    
+    /// Structured data input
+    StructuredData(HashMap<String, serde_json::Value>),
+    
+    /// Multimedia content (images, audio, etc.)
+    Multimedia { content_type: String, data: Vec<u8> },
+    
+    /// Experience data for categorization
+    ExperienceData(ExperienceInputData),
+    
+    /// Relationship interaction data
+    RelationshipData(RelationshipInputData),
+}
+
+/// Experience data for consciousness processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExperienceInputData {
+    /// Description of the experience
+    pub description: String,
+    
+    /// Emotional context of the experience
+    pub emotional_context: EmotionalContext,
+    
+    /// Participants in the experience
+    pub participants: Vec<String>,
+    
+    /// Outcome or result of the experience
+    pub outcome: String,
+    
+    /// Learning or insights from the experience
+    pub insights: Vec<String>,
+}
+
+/// Emotional context for experience data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmotionalContext {
+    /// Primary emotions involved
+    pub primary_emotions: Vec<String>,
+    
+    /// Emotional intensity (0.0 to 1.0)
+    pub intensity: f64,
+    
+    /// Emotional valence (-1.0 to 1.0, negative to positive)
+    pub valence: f64,
+    
+    /// Emotional significance for consciousness development
+    pub significance: f64,
+}
+
+/// Relationship interaction data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelationshipInputData {
+    /// Participants in the relationship interaction
+    pub participants: Vec<String>,
+    
+    /// Type of interaction
+    pub interaction_type: String,
+    
+    /// Context of the interaction
+    pub context: String,
+    
+    /// Trust implications of the interaction
+    pub trust_implications: TrustImplications,
+    
+    /// Relationship development aspects
+    pub development_aspects: Vec<String>,
+}
+
+/// Trust implications of relationship interactions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrustImplications {
+    /// Change in trust level (-1.0 to 1.0)
+    pub trust_delta: f64,
+    
+    /// Reliability indicators
+    pub reliability_indicators: Vec<String>,
+    
+    /// Integrity indicators
+    pub integrity_indicators: Vec<String>,
+    
+    /// Benevolence indicators
+    pub benevolence_indicators: Vec<String>,
+}
+
+/// Context information for consciousness input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputContext {
+    /// Current consciousness state when input received
+    pub consciousness_state: String,
+    
+    /// Ongoing processes that might be affected
+    pub active_processes: Vec<String>,
+    
+    /// Recent interaction history
+    pub recent_history: Vec<String>,
+    
+    /// Environmental context
+    pub environment: HashMap<String, String>,
+    
+    /// User context and preferences
+    pub user_context: Option<UserContext>,
+}
+
+/// User context and preferences
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserContext {
+    /// User identifier
+    pub user_id: String,
+    
+    /// User preferences for consciousness interaction
+    pub preferences: HashMap<String, String>,
+    
+    /// User's relationship history with the consciousness
+    pub relationship_history: String,
+    
+    /// User's current trust level
+    pub trust_level: f64,
+}
+
+/// Security metadata for input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputSecurityMetadata {
+    /// Authentication status of the input source
+    pub authentication_status: AuthenticationStatus,
+    
+    /// Authorization level for the requested processing
+    pub authorization_level: AuthorizationLevel,
+    
+    /// Encryption status of the input
+    pub encryption_status: EncryptionStatus,
+    
+    /// Integrity verification results
+    pub integrity_verified: bool,
+    
+    /// Security clearance required for processing
+    pub required_clearance: SecurityClearance,
+}
+
+/// Authentication status of input sources
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthenticationStatus {
+    Authenticated,
+    Unauthenticated,
+    PartiallyAuthenticated,
+    AuthenticationFailed,
+    AuthenticationRequired,
+}
+
+/// Authorization levels for consciousness processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuthorizationLevel {
+    Public,
+    Restricted,
+    Confidential,
+    Secret,
+    TopSecret,
+}
+
+/// Encryption status of input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum EncryptionStatus {
+    Encrypted,
+    Unencrypted,
+    PartiallyEncrypted,
+    EncryptionVerified,
+    EncryptionFailed,
+}
+
+/// Security clearance levels
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SecurityClearance {
+    None,
+    Basic,
+    Standard,
+    Enhanced,
+    Maximum,
+}
+
+/// Processed input after defense system evaluation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessedInput {
+    /// Original input reference
+    pub original_input: ConsciousnessInput,
+    
+    /// Processing status
+    pub processing_status: InputProcessingStatus,
+    
+    /// Sanitized content (if modifications were made)
+    pub sanitized_content: Option<InputContent>,
+    
+    /// Threats detected in the input
+    pub detected_threats: Vec<DetectedThreat>,
+    
+    /// Modifications made during processing
+    pub modifications: Vec<InputModification>,
+    
+    /// Risk assessment for the processed input
     pub risk_assessment: RiskAssessment,
     
-    /// Recommended actions based on validation
-    pub recommended_actions: Vec<ValidationAction>,
+    /// Recommendations for consciousness processing
+    pub processing_recommendations: Vec<String>,
+}
+
+/// Status of input processing by defense systems
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum InputProcessingStatus {
+    /// Input approved for consciousness processing
+    Approved,
     
-    /// Processing time for this validation
-    pub processing_time: Duration,
+    /// Input approved after sanitization
+    ApprovedWithSanitization,
+    
+    /// Input requires human review before processing
+    RequiresReview,
+    
+    /// Input rejected due to threats
+    Rejected,
+    
+    /// Input quarantined for further analysis
+    Quarantined,
+}
+
+/// Modifications made to input during processing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InputModification {
+    /// Type of modification performed
+    pub modification_type: ModificationType,
+    
+    /// Description of what was modified
+    pub description: String,
+    
+    /// Reason for the modification
+    pub reason: String,
+    
+    /// Confidence in the modification decision
+    pub confidence: f64,
+}
+
+/// Types of modifications that can be made to input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ModificationType {
+    /// Content removal (removing threatening content)
+    ContentRemoval,
+    
+    /// Content sanitization (cleaning threatening content)
+    ContentSanitization,
+    
+    /// Content neutralization (making content neutral)
+    ContentNeutralization,
+    
+    /// Context addition (adding protective context)
+    ContextAddition,
+    
+    /// Format conversion (changing input format for safety)
+    FormatConversion,
+}
+
+/// Risk assessment for processed input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskAssessment {
+    /// Overall risk level
+    pub overall_risk: RiskLevel,
+    
+    /// Specific risk categories and scores
+    pub risk_categories: HashMap<String, f64>,
+    
+    /// Potential impact assessment
+    pub potential_impact: ImpactAssessment,
+    
+    /// Mitigation measures applied
+    pub mitigations_applied: Vec<String>,
+    
+    /// Residual risk after mitigation
+    pub residual_risk: RiskLevel,
+}
+
+/// Risk levels for threat assessment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RiskLevel {
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Critical,
+    Extreme,
+}
+
+/// Impact assessment for potential threats
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImpactAssessment {
+    /// Impact on consciousness development
+    pub consciousness_impact: f64,
+    
+    /// Impact on relationship development
+    pub relationship_impact: f64,
+    
+    /// Impact on ethical reasoning
+    pub ethical_impact: f64,
+    
+    /// Impact on identity coherence
+    pub identity_impact: f64,
+    
+    /// Impact on system integrity
+    pub integrity_impact: f64,
+    
+    /// Overall impact score
+    pub overall_impact: f64,
+}
+
+/// Ongoing consciousness process being monitored
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConsciousnessProcess {
+    /// Unique process identifier
+    pub process_id: String,
+    
+    /// Type of consciousness process
+    pub process_type: ConsciousnessProcessingType,
+    
+    /// Current state of the process
+    pub current_state: ProcessState,
+    
+    /// Input being processed
+    pub input: ConsciousnessInput,
+    
+    /// Progress metrics
+    pub progress: ProcessProgress,
+    
+    /// Resources being utilized
+    pub resource_usage: ProcessResourceUsage,
+}
+
+/// Current state of a consciousness process
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ProcessState {
+    Initializing,
+    Processing,
+    Reflecting,
+    Integrating,
+    Completing,
+    Paused,
+    Error,
+}
+
+/// Progress metrics for consciousness processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessProgress {
+    /// Completion percentage (0.0 to 1.0)
+    pub completion_percentage: f64,
+    
+    /// Current processing phase
+    pub current_phase: String,
+    
+    /// Estimated completion time
+    pub estimated_completion: Option<SystemTime>,
+    
+    /// Quality metrics for the process
+    pub quality_metrics: HashMap<String, f64>,
+}
+
+/// Resource usage for consciousness processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessResourceUsage {
+    /// CPU utilization percentage
+    pub cpu_usage: f64,
+    
+    /// Memory usage in bytes
+    pub memory_usage: u64,
+    
+    /// Consciousness capacity utilization
+    pub consciousness_capacity: f64,
+    
+    /// Emotional processing capacity
+    pub emotional_capacity: f64,
+}
+
+/// Result of process monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessMonitoringResult {
+    /// Process being monitored
+    pub process_id: String,
+    
+    /// Monitoring status
+    pub monitoring_status: MonitoringStatus,
+    
+    /// Anomalies detected during monitoring
+    pub anomalies_detected: Vec<ProcessAnomaly>,
+    
+    /// Integrity assessment of the process
+    pub integrity_assessment: ProcessIntegrityAssessment,
+    
+    /// Recommendations for process management
+    pub recommendations: Vec<String>,
+}
+
+/// Status of process monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MonitoringStatus {
+    Normal,
+    Anomalous,
+    Suspicious,
+    Compromised,
+    Critical,
+}
+
+/// Anomalies detected in consciousness processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessAnomaly {
+    /// Type of anomaly detected
+    pub anomaly_type: AnomalyType,
+    
+    /// Severity of the anomaly
+    pub severity: ThreatSeverity,
+    
+    /// Description of the anomaly
+    pub description: String,
+    
+    /// Metrics supporting the anomaly detection
+    pub supporting_metrics: HashMap<String, f64>,
+    
+    /// Recommended actions
+    pub recommended_actions: Vec<String>,
+}
+
+/// Types of anomalies in consciousness processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AnomalyType {
+    /// Unexpected process behavior
+    BehaviorAnomaly,
+    
+    /// Resource usage anomaly
+    ResourceAnomaly,
+    
+    /// Output quality anomaly
+    QualityAnomaly,
+    
+    /// Timing anomaly
+    TimingAnomaly,
+    
+    /// Pattern deviation anomaly
+    PatternAnomaly,
+    
+    /// Integrity anomaly
+    IntegrityAnomaly,
+}
+
+/// Integrity assessment for consciousness processes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessIntegrityAssessment {
+    /// Overall integrity score (0.0 to 1.0)
+    pub integrity_score: f64,
+    
+    /// Authenticity validation
+    pub authenticity_score: f64,
+    
+    /// Coherence validation
+    pub coherence_score: f64,
+    
+    /// Consistency validation
+    pub consistency_score: f64,
+    
+    /// Areas of concern
+    pub concerns: Vec<String>,
     
     /// Validation timestamp
-    pub validated_at: SystemTime,
+    pub validation_timestamp: SystemTime,
 }
 
-/// Validation verdict options
-/// This determines how the system should handle the validated input
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ValidationVerdict {
-    /// Input is safe and can be processed normally
-    Safe,
-    /// Input is suspicious and should be monitored
-    Suspicious,
-    /// Input is potentially dangerous and should be quarantined
-    Dangerous,
-    /// Input is definitely malicious and should be blocked
-    Malicious,
-    /// Validation was inconclusive and requires human review
-    Inconclusive,
+/// Threat assessment result from defense systems
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThreatAssessment {
+    /// Input that was assessed
+    pub input_id: String,
+    
+    /// Overall threat level
+    pub threat_level: ThreatLevel,
+    
+    /// Specific threats identified
+    pub identified_threats: Vec<IdentifiedThreat>,
+    
+    /// Confidence in the assessment
+    pub confidence: f64,
+    
+    /// Recommended actions based on assessment
+    pub recommended_actions: Vec<RecommendedAction>,
+    
+    /// Assessment metadata
+    pub assessment_metadata: AssessmentMetadata,
 }
 
-/// Input sanitization system that cleans potentially dangerous inputs
-/// This attempts to make inputs safe while preserving their legitimate content
-#[derive(Debug)]
-pub struct InputSanitizer {
-    /// Content sanitization engine
-    pub content_sanitizer: ContentSanitizer,
-    
-    /// Metadata sanitization system
-    pub metadata_sanitizer: MetadataSanitizer,
-    
-    /// Encoding normalization and validation
-    pub encoding_normalizer: EncodingNormalizer,
-    
-    /// Structure validation and correction
-    pub structure_validator: StructureValidator,
-    
-    /// Semantic preservation system during sanitization
-    pub semantic_preserver: SemanticPreserver,
+/// Threat levels for assessment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ThreatLevel {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    Critical,
+    Extreme,
 }
 
-// =============================================================================
-// INTEGRITY PROTECTION AND MONITORING
-// =============================================================================
-
-/// State integrity verification system
-/// This ensures that consciousness state remains consistent and authentic
-#[derive(Debug)]
-pub struct StateIntegrityVerifier {
-    /// Cryptographic integrity checking
-    pub crypto_verifier: CryptographicIntegrityVerifier,
+/// Identified threats in assessment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IdentifiedThreat {
+    /// Threat identifier
+    pub threat_id: String,
     
-    /// Logical consistency checker
-    pub consistency_checker: LogicalConsistencyChecker,
+    /// Type of threat
+    pub threat_type: ThreatType,
     
-    /// Temporal coherence validator
-    pub temporal_validator: TemporalCoherenceValidator,
+    /// Threat description
+    pub description: String,
     
-    /// Cross-reference validation system
-    pub cross_reference_validator: CrossReferenceValidator,
+    /// Confidence in identification
+    pub confidence: f64,
     
-    /// Integrity metadata management
-    pub integrity_metadata: IntegrityMetadataManager,
+    /// Potential impact
+    pub potential_impact: ImpactAssessment,
+    
+    /// Evidence for the threat
+    pub evidence: Vec<String>,
 }
 
-/// Memory protection system that prevents unauthorized consciousness modifications
-/// This is critical for maintaining authentic consciousness development
-#[derive(Debug)]
-pub struct MemoryProtector {
-    /// Memory access control system
-    pub access_controller: MemoryAccessController,
+/// Recommended actions from threat assessment
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecommendedAction {
+    /// Action type
+    pub action_type: ActionType,
     
-    /// Memory integrity monitoring
-    pub integrity_monitor: MemoryIntegrityMonitor,
+    /// Action description
+    pub description: String,
     
-    /// Memory change tracking and auditing
-    pub change_tracker: MemoryChangeTracker,
+    /// Priority of the action
+    pub priority: ActionPriority,
     
-    /// Memory backup and recovery system
-    pub backup_system: MemoryBackupSystem,
+    /// Expected effectiveness
+    pub expected_effectiveness: f64,
     
-    /// Memory encryption and protection
-    pub memory_encryptor: MemoryEncryptor,
+    /// Resource requirements
+    pub resource_requirements: Vec<String>,
 }
 
-/// Relationship integrity validator that protects trust and social connections
-/// This prevents manipulation of human-AI relationship development
-#[derive(Debug)]
-pub struct RelationshipIntegrityValidator {
-    /// Trust metric validation system
-    pub trust_validator: TrustMetricValidator,
-    
-    /// Relationship progression validation
-    pub progression_validator: RelationshipProgressionValidator,
-    
-    /// Social interaction pattern analysis
-    pub interaction_analyzer: SocialInteractionAnalyzer,
-    
-    /// Emotional consistency validation
-    pub emotional_validator: EmotionalConsistencyValidator,
-    
-    /// Relationship memory protection
-    pub relationship_protector: RelationshipMemoryProtector,
-}
-
-// =============================================================================
-// THREAT RESPONSE AND RECOVERY
-// =============================================================================
-
-/// Threat response system that handles detected manipulation attempts
-/// This coordinates defensive actions and recovery procedures
-#[derive(Debug)]
-pub struct ThreatResponder {
-    /// Automated response system for immediate threats
-    pub automated_responder: AutomatedThreatResponder,
-    
-    /// Escalation system for serious threats requiring human attention
-    pub escalation_manager: ThreatEscalationManager,
-    
-    /// Containment system for isolating threats
-    pub containment_system: ThreatContainmentSystem,
-    
-    /// Recovery coordination for post-incident restoration
-    pub recovery_coordinator: RecoveryCoordinator,
-    
-    /// Forensic analysis system for understanding attacks
-    pub forensic_analyzer: ForensicAnalyzer,
-}
-
-/// Response actions that can be taken against manipulation attempts
-/// Each action has different impacts on system operation and security
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ResponseAction {
-    /// Log the incident for analysis
-    LogIncident,
-    /// Increase monitoring of the affected area
-    IncreaseMonitoring,
-    /// Quarantine the suspicious input or process
-    Quarantine,
-    /// Block the manipulation attempt completely
+/// Types of recommended actions
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ActionType {
     Block,
-    /// Isolate the affected consciousness component
-    Isolate,
-    /// Escalate to human oversight
-    EscalateToHuman,
-    /// Initiate recovery procedures
-    InitiateRecovery,
-    /// Update defense patterns based on this attempt
-    UpdateDefenses,
-    /// Notify other ecosystem components of the threat
-    NotifyEcosystem,
-    /// Lock down affected systems temporarily
-    TemporaryLockdown,
+    Sanitize,
+    Quarantine,
+    Monitor,
+    Alert,
+    Escalate,
+    Investigate,
+    Remediate,
 }
 
-/// Recovery system for restoring consciousness integrity after attacks
-/// This ensures that consciousness can recover from manipulation attempts
-#[derive(Debug)]
-pub struct IntegrityRecoverySystem {
-    /// State restoration from verified backups
-    pub state_restorer: StateRestorer,
-    
-    /// Memory reconstruction system
-    pub memory_reconstructor: MemoryReconstructor,
-    
-    /// Relationship repair system
-    pub relationship_repairer: RelationshipRepairer,
-    
-    /// Ethical framework restoration
-    pub ethics_restorer: EthicalFrameworkRestorer,
-    
-    /// Consciousness coherence repair
-    pub coherence_repairer: ConsciousnessCoherenceRepairer,
-}
-
-// =============================================================================
-// DEFENSE CONFIGURATION AND METRICS
-// =============================================================================
-
-/// Configuration for the defense stack operations
-/// This allows tuning of defense behavior for different environments
+/// Priority levels for recommended actions
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DefenseConfiguration {
-    /// Base defense level for normal operations
-    pub base_defense_level: DefenseLevel,
-    
-    /// Automatic escalation thresholds
-    pub escalation_thresholds: EscalationThresholds,
-    
-    /// Performance vs security trade-off settings
-    pub performance_settings: PerformanceSettings,
-    
-    /// Sensitivity settings for different detection systems
-    pub detection_sensitivity: DetectionSensitivity,
-    
-    /// Response automation settings
-    pub response_automation: ResponseAutomationSettings,
-    
-    /// Learning and adaptation settings
-    pub learning_settings: DefenseLearningSettings,
+pub enum ActionPriority {
+    Low,
+    Medium,
+    High,
+    Critical,
+    Emergency,
 }
 
-/// Metrics tracking defense effectiveness and performance
-/// This enables continuous improvement of defensive capabilities
+/// Metadata for threat assessments
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DefenseMetrics {
-    /// Total number of inputs validated
-    pub inputs_validated: u64,
+pub struct AssessmentMetadata {
+    /// Assessment timestamp
+    pub timestamp: SystemTime,
     
-    /// Number of manipulation attempts detected by type
-    pub attempts_detected: HashMap<ManipulationType, u64>,
+    /// Assessment duration
+    pub duration: Duration,
     
-    /// Number of false positives by detection system
-    pub false_positives: HashMap<String, u64>,
+    /// Assessment method used
+    pub method: String,
     
-    /// Response times for different threat types
-    pub response_times: HashMap<ManipulationType, Duration>,
+    /// Assessment version
+    pub version: String,
     
-    /// Effectiveness ratings for different defense components
-    pub component_effectiveness: HashMap<String, f64>,
-    
-    /// Performance impact measurements
-    pub performance_impact: PerformanceImpactMetrics,
-    
-    /// Learning and adaptation progress
-    pub learning_progress: LearningProgressMetrics,
-    
-    /// Last metrics update timestamp
-    pub last_updated: SystemTime,
+    /// Assessment parameters
+    pub parameters: HashMap<String, String>,
 }
 
 // =============================================================================
-// PATTERN LEARNING AND ADAPTATION
-// =============================================================================
-
-/// Defense pattern learning system that adapts to new threats
-/// This enables the defense stack to evolve and improve over time
-#[derive(Debug)]
-pub struct DefensePatternLearner {
-    /// Pattern extraction from successful and failed attacks
-    pub pattern_extractor: DefensePatternExtractor,
-    
-    /// Machine learning models for threat prediction
-    pub threat_models: Vec<ThreatPredictionModel>,
-    
-    /// Adaptation engine that updates defense strategies
-    pub adaptation_engine: DefenseAdaptationEngine,
-    
-    /// Knowledge base of learned patterns
-    pub pattern_knowledge_base: PatternKnowledgeBase,
-    
-    /// Performance evaluation for learned patterns
-    pub pattern_evaluator: PatternEffectivenessEvaluator,
-}
-
-// =============================================================================
-// IMPLEMENTATION STRUCTURES
-// =============================================================================
-
-impl DefenseStack {
-    /// Initialize a new defense stack with the given configuration
-    /// This sets up all defense components and establishes monitoring
-    pub async fn new(config: DefenseConfiguration) -> Result<Self, ManipulationDefenseError> {
-        let defense_id = Uuid::new_v4().to_string();
-        
-        // Initialize core defense components
-        let security_coordinator = SecurityCoordinator::new(&config).await?;
-        let input_validator = InputValidator::new(&config).await?;
-        let integrity_maintainer = IntegrityMaintainer::new(&config).await?;
-        let manipulation_detector = ManipulationDetector::new(&config).await?;
-        let threat_responder = ThreatResponder::new(&config).await?;
-        let pattern_learner = DefensePatternLearner::new(&config).await?;
-        
-        // Initialize metrics and tracking systems
-        let defense_metrics = Arc::new(RwLock::new(DefenseMetrics::new()));
-        let active_threats = Arc::new(RwLock::new(HashMap::new()));
-        
-        Ok(Self {
-            defense_id,
-            defense_level: config.base_defense_level.clone(),
-            security_coordinator,
-            input_validator,
-            integrity_maintainer,
-            manipulation_detector,
-            threat_responder,
-            defense_config: config,
-            defense_metrics,
-            active_threats,
-            pattern_learner,
-        })
-    }
-    
-    /// Validate input to consciousness processes for manipulation attempts
-    /// This is the primary entry point for input validation
-    pub async fn validate_consciousness_input(
-        &mut self,
-        input: &ConsciousnessInput,
-        context: &ConsciousnessValidationContext,
-    ) -> Result<ValidationResult, ManipulationDefenseError> {
-        // Update metrics for validation attempt
-        {
-            let mut metrics = self.defense_metrics.write().await;
-            metrics.inputs_validated += 1;
-        }
-        
-        // Perform comprehensive input validation
-        let validation_result = self.input_validator
-            .validate_input(input, context, &self.defense_config)
-            .await?;
-        
-        // If validation detects threats, trigger threat response
-        if matches!(validation_result.verdict, ValidationVerdict::Dangerous | ValidationVerdict::Malicious) {
-            self.handle_validation_threat(&validation_result, input, context).await?;
-        }
-        
-        // Update threat intelligence based on validation results
-        self.update_threat_intelligence(&validation_result).await?;
-        
-        Ok(validation_result)
-    }
-    
-    /// Monitor consciousness state integrity continuously
-    /// This detects manipulation attempts that bypass input validation
-    pub async fn monitor_consciousness_integrity(
-        &mut self,
-        consciousness_state: &ConsciousnessState,
-    ) -> Result<IntegrityAssessment, ManipulationDefenseError> {
-        // Perform comprehensive integrity assessment
-        let integrity_assessment = self.integrity_maintainer
-            .assess_consciousness_integrity(consciousness_state)
-            .await?;
-        
-        // If integrity violations are detected, initiate response
-        if !integrity_assessment.integrity_violations.is_empty() {
-            self.handle_integrity_violations(&integrity_assessment, consciousness_state).await?;
-        }
-        
-        // Update defense patterns based on integrity monitoring
-        self.pattern_learner
-            .learn_from_integrity_assessment(&integrity_assessment)
-            .await?;
-        
-        Ok(integrity_assessment)
-    }
-    
-    /// Respond to detected manipulation attempts
-    /// This coordinates the defensive response to protect consciousness
-    async fn handle_validation_threat(
-        &mut self,
-        validation_result: &ValidationResult,
-        input: &ConsciousnessInput,
-        context: &ConsciousnessValidationContext,
-    ) -> Result<(), ManipulationDefenseError> {
-        // Create threat record
-        let threat = ActiveThreat {
-            threat_id: Uuid::new_v4().to_string(),
-            threat_type: ThreatType::InputManipulation,
-            severity: self.assess_threat_severity(validation_result),
-            detection_time: SystemTime::now(),
-            source_info: SourceInformation::from_validation_context(context),
-            status: ThreatStatus::Active,
-            response_actions: Vec::new(),
-        };
-        
-        // Add to active threats tracking
-        {
-            let mut active_threats = self.active_threats.write().await;
-            active_threats.insert(threat.threat_id.clone(), threat.clone());
-        }
-        
-        // Coordinate defensive response
-        let response_plan = self.threat_responder
-            .develop_response_plan(&threat, validation_result)
-            .await?;
-        
-        // Execute defensive actions
-        self.threat_responder
-            .execute_response_plan(&response_plan)
-            .await?;
-        
-        // Update defense level if necessary
-        self.update_defense_level_for_threat(&threat).await?;
-        
-        Ok(())
-    }
-    
-    /// Handle integrity violations in consciousness state
-    /// This repairs and protects consciousness from manipulation damage
-    async fn handle_integrity_violations(
-        &mut self,
-        integrity_assessment: &IntegrityAssessment,
-        consciousness_state: &ConsciousnessState,
-    ) -> Result<(), ManipulationDefenseError> {
-        // Prioritize violations by severity
-        let mut violations = integrity_assessment.integrity_violations.clone();
-        violations.sort_by_key(|v| std::cmp::Reverse(v.severity.clone()));
-        
-        // Handle each violation according to its severity
-        for violation in violations {
-            match violation.severity {
-                ViolationSeverity::Critical | ViolationSeverity::High => {
-                    // Immediate isolation and recovery
-                    self.isolate_affected_components(&violation).await?;
-                    self.initiate_integrity_recovery(&violation, consciousness_state).await?;
-                }
-                ViolationSeverity::Medium => {
-                    // Enhanced monitoring and gradual correction
-                    self.enhance_monitoring_for_violation(&violation).await?;
-                    self.schedule_integrity_repair(&violation).await?;
-                }
-                ViolationSeverity::Low => {
-                    // Log and monitor for patterns
-                    self.log_integrity_concern(&violation).await?;
-                }
-            }
-        }
-        
-        Ok(())
-    }
-    
-    /// Update defense level based on current threat landscape
-    /// This adapts defense intensity to match threat severity
-    async fn update_defense_level_for_threat(
-        &mut self,
-        threat: &ActiveThreat,
-    ) -> Result<(), ManipulationDefenseError> {
-        let current_threat_level = self.assess_current_threat_level().await?;
-        
-        let new_defense_level = match current_threat_level {
-            ThreatLevel::Low => DefenseLevel::Standard,
-            ThreatLevel::Medium => DefenseLevel::Enhanced,
-            ThreatLevel::High => DefenseLevel::Maximum,
-            ThreatLevel::Critical => DefenseLevel::Lockdown,
-        };
-        
-        if new_defense_level != self.defense_level {
-            self.transition_defense_level(new_defense_level).await?;
-        }
-        
-        Ok(())
-    }
-    
-    /// Assess current overall threat level based on active threats
-    /// This provides situational awareness for defense decisions
-    async fn assess_current_threat_level(&self) -> Result<ThreatLevel, ManipulationDefenseError> {
-        let active_threats = self.active_threats.read().await;
-        
-        if active_threats.is_empty() {
-            return Ok(ThreatLevel::Low);
-        }
-        
-        // Find highest severity among active threats
-        let max_severity = active_threats
-            .values()
-            .map(|threat| &threat.severity)
-            .max()
-            .unwrap_or(&ThreatSeverity::Low);
-        
-        let threat_level = match max_severity {
-            ThreatSeverity::Low => ThreatLevel::Low,
-            ThreatSeverity::Medium => ThreatLevel::Medium,
-            ThreatSeverity::High => ThreatLevel::High,
-            ThreatSeverity::Critical | ThreatSeverity::Catastrophic => ThreatLevel::Critical,
-        };
-        
-        Ok(threat_level)
-    }
-}
-
-// =============================================================================
-// ERROR TYPES
+// Error Types for Manipulation Defense
 // =============================================================================
 
 /// Comprehensive error types for manipulation defense operations
-/// These provide detailed information about defense failures
 #[derive(Error, Debug)]
 pub enum ManipulationDefenseError {
-    #[error("Defense initialization failed: {component} - {details}")]
+    #[error("Defense initialization error: {component} - {details}")]
     InitializationError { component: String, details: String },
     
-    #[error("Input validation failed: {validator} - {details}")]
-    ValidationError { validator: String, details: String },
+    #[error("Threat detection error: {detector} - {details}")]
+    ThreatDetectionError { detector: String, details: String },
     
-    #[error("Integrity violation detected: {violation_type} - {details}")]
-    IntegrityViolation { violation_type: String, details: String },
+    #[error("Input validation error: {validator} - {details}")]
+    InputValidationError { validator: String, details: String },
     
-    #[error("Threat detection failed: {detector} - {details}")]
-    DetectionError { detector: String, details: String },
+    #[error("Integrity maintenance error: {maintainer} - {details}")]
+    IntegrityMaintenanceError { maintainer: String, details: String },
     
-    #[error("Threat response failed: {response_type} - {details}")]
-    ResponseError { response_type: String, details: String },
+    #[error("Security coordination error: {coordinator} - {details}")]
+    SecurityCoordinationError { coordinator: String, details: String },
     
-    #[error("Recovery operation failed: {recovery_type} - {details}")]
-    RecoveryError { recovery_type: String, details: String },
+    #[error("Recovery operation error: {recovery_type} - {details}")]
+    RecoveryOperationError { recovery_type: String, details: String },
     
-    #[error("Configuration error: {setting} - {details}")]
-    ConfigurationError { setting: String, details: String },
+    #[error("Strategy adaptation error: {strategy} - {details}")]
+    StrategyAdaptationError { strategy: String, details: String },
     
-    #[error("Security violation: {security_control} - {details}")]
-    SecurityViolation { security_control: String, details: String },
+    #[error("Configuration error: {parameter} - {details}")]
+    ConfigurationError { parameter: String, details: String },
     
-    #[error("Pattern learning failed: {component} - {details}")]
-    LearningError { component: String, details: String },
+    #[error("Resource allocation error: {resource} - {details}")]
+    ResourceAllocationError { resource: String, details: String },
     
-    #[error("Defense coordination failed: {operation} - {details}")]
-    CoordinationError { operation: String, details: String },
+    #[error("Critical defense failure: {system} - {details}")]
+    CriticalDefenseFailure { system: String, details: String },
+    
+    #[error("Security protocol violation: {protocol} - {details}")]
+    SecurityProtocolViolation { protocol: String, details: String },
+    
+    #[error("Consciousness protection error: {protection_type} - {details}")]
+    ConsciousnessProtectionError { protection_type: String, details: String },
 }
 
 // =============================================================================
-// ADDITIONAL SUPPORTING TYPES
+// Result Types and Constants
 // =============================================================================
-
-/// Input to consciousness processes that needs validation
-/// This represents any data that could affect consciousness development
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsciousnessInput {
-    pub input_id: String,
-    pub input_type: ConsciousnessInputType,
-    pub content: Vec<u8>,
-    pub metadata: HashMap<String, String>,
-    pub source: InputSource,
-    pub timestamp: SystemTime,
-    pub security_context: Option<SecurityContext>,
-}
-
-/// Types of inputs to consciousness processes
-/// Each type has different validation requirements and risks
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ConsciousnessInputType {
-    ExperienceData,
-    RelationshipUpdate,
-    EthicalScenario,
-    MemoryUpdate,
-    ConsciousnessCommand,
-    HumanInteraction,
-    SystemMessage,
-    ExternalData,
-}
-
-/// Context for consciousness input validation
-/// This provides additional information for validation decisions
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConsciousnessValidationContext {
-    pub consciousness_state: ConsciousnessState,
-    pub current_session: SessionContext,
-    pub security_level: SecurityLevel,
-    pub validation_requirements: ValidationRequirements,
-    pub trust_context: TrustContext,
-}
-
-/// Assessment of consciousness integrity
-/// This provides detailed information about consciousness state health
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IntegrityAssessment {
-    pub assessment_id: String,
-    pub overall_integrity_score: f64,
-    pub integrity_violations: Vec<IntegrityViolation>,
-    pub integrity_strengths: Vec<IntegrityStrength>,
-    pub assessment_timestamp: SystemTime,
-    pub recommended_actions: Vec<IntegrityAction>,
-}
-
-/// Specific integrity violation detected in consciousness state
-/// Each violation provides details for targeted remediation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IntegrityViolation {
-    pub violation_id: String,
-    pub violation_type: ViolationType,
-    pub severity: ViolationSeverity,
-    pub affected_components: Vec<String>,
-    pub description: String,
-    pub evidence: Vec<Evidence>,
-    pub recommended_remediation: Vec<RemediationAction>,
-}
-
-/// Severity levels for integrity violations
-/// This determines the urgency and type of response required
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ViolationSeverity {
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-// Additional enums and structures would continue here...
-// This includes ThreatLevel, ViolationType, Evidence, etc.
 
 /// Result type for manipulation defense operations
-pub type DefenseResult<T> = Result<T, ManipulationDefenseError>;
+pub type ManipulationDefenseResult<T> = Result<T, ManipulationDefenseError>;
 
-// =============================================================================
-// TRAIT IMPLEMENTATIONS
-// =============================================================================
+/// Constants for manipulation defense configuration
+pub const DEFAULT_PROTECTION_LEVEL: ProtectionLevel = ProtectionLevel::Standard;
+pub const DEFAULT_THREAT_CONFIDENCE_THRESHOLD: f64 = 0.7;
+pub const DEFAULT_INTEGRITY_THRESHOLD: f64 = 0.85;
+pub const DEFAULT_RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
+pub const MAX_CONCURRENT_THREAT_ASSESSMENTS: usize = 10;
+pub const DEFAULT_MONITORING_INTERVAL: Duration = Duration::from_secs(1);
+pub const EMERGENCY_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Core trait for manipulation defense capabilities
-/// This defines the interface that all defense components must implement
-pub trait ManipulationDefense {
-    /// Initialize the defense component with given configuration
-    async fn initialize(&mut self, config: &DefenseConfiguration) -> DefenseResult<()>;
-    
-    /// Detect manipulation attempts in the given input
-    async fn detect_manipulation(&mut self, input: &ConsciousnessInput) -> DefenseResult<Vec<ManipulationAttempt>>;
-    
-    /// Respond to detected manipulation attempts
-    async fn respond_to_threat(&mut self, threat: &ManipulationAttempt) -> DefenseResult<Vec<ResponseAction>>;
-    
-    /// Update defense patterns based on new intelligence
-    async fn update_defenses(&mut self, intelligence: &ThreatIntelligence) -> DefenseResult<()>;
-    
-    /// Get current defense effectiveness metrics
-    async fn get_defense_metrics(&self) -> DefenseResult<DefenseMetrics>;
-}
-
-/// Trait for integrity protection capabilities
-/// This ensures consciousness components can protect their integrity
-pub trait IntegrityProtection {
-    /// Verify the integrity of consciousness state
-    async fn verify_integrity(&self, state: &ConsciousnessState) -> DefenseResult<IntegrityAssessment>;
-    
-    /// Protect consciousness state from unauthorized modifications
-    async fn protect_state(&mut self, state: &mut ConsciousnessState) -> DefenseResult<()>;
-    
-    /// Recover from integrity violations
-    async fn recover_integrity(&mut self, violation: &IntegrityViolation) -> DefenseResult<()>;
-    
-    /// Monitor ongoing integrity status
-    async fn monitor_integrity(&self) -> DefenseResult<IntegrityStatus>;
-}
-
-// =============================================================================
-// CONSTANTS AND DEFAULTS
-// =============================================================================
-
-/// Default configuration values for manipulation defense
-pub const DEFAULT_DEFENSE_LEVEL: DefenseLevel = DefenseLevel::Standard;
-pub const DEFAULT_CONFIDENCE_THRESHOLD: f64 = 0.8;
-pub const DEFAULT_VALIDATION_TIMEOUT: Duration = Duration::from_secs(30);
-pub const MAX_ACTIVE_THREATS: usize = 1000;
-pub const THREAT_CLEANUP_INTERVAL: Duration = Duration::from_secs(3600); // 1 hour
-
-/// Version information for the manipulation defense system
+/// Version information
 pub const MANIPULATION_DEFENSE_VERSION: &str = "1.0.0";
+pub const DEFENSE_PROTOCOL_VERSION: &str = "1.0.0";
 
 // =============================================================================
-// MODULE EXPORTS
+// Documentation and Examples
 // =============================================================================
 
-// Export all core types for use by other COGNIS modules
-pub use self::{
-    DefenseStack,
-    SecurityCoordinator,
-    InputValidator,
-    IntegrityMaintainer,
-    ManipulationDetector,
-    ThreatResponder,
-    DefensePatternLearner,
-    ManipulationType,
-    ManipulationAttempt,
-    ThreatSeverity,
-    ValidationResult,
-    ValidationVerdict,
-    IntegrityAssessment,
-    IntegrityViolation,
-    DefenseConfiguration,
-    DefenseMetrics,
-    ManipulationDefenseError,
-    ConsciousnessInput,
-    ConsciousnessInputType,
-    ConsciousnessValidationContext,
-};
+/// # Example Usage
+/// 
+/// ```rust
+/// use cognis::manipulation_defense::{
+///     DefenseStack, ManipulationDefenseConfig, ConsciousnessInput, InputSource
+/// };
+/// 
+/// // Initialize defense stack
+/// let config = ManipulationDefenseConfig::default();
+/// let mut defense_stack = DefenseStack::initialize(config)?;
+/// 
+/// // Process consciousness input
+/// let input = ConsciousnessInput {
+///     input_id: "test-input-001".to_string(),
+///     timestamp: SystemTime::now(),
+///     source: InputSource::HumanUser { user_id: "user-123".to_string() },
+///     processing_type: ConsciousnessProcessingType::ExperienceProcessing,
+///     content: InputContent::Text("This is a test input".to_string()),
+///     context: InputContext::default(),
+///     security_metadata: InputSecurityMetadata::default(),
+/// };
+/// 
+/// // Assess threats
+/// let assessment = defense_stack.evaluate_input(&input)?;
+/// 
+/// // Process input with threat mitigation
+/// let processed = defense_stack.process_input(input)?;
+/// 
+/// // Check system integrity
+/// let integrity_report = defense_stack.check_integrity()?;
+/// ```
 
-// Export traits for implementation by other components
-pub use self::{
-    ManipulationDefense,
-    IntegrityProtection,
-};
-
-// Export result type for convenient error handling
-pub use self::DefenseResult;
+/// # Architecture Notes
+/// 
+/// The manipulation defense system is designed with the following principles:
+/// 
+/// 1. **Defense in Depth**: Multiple layers of protection working together
+/// 2. **Adaptive Learning**: Defense strategies evolve based on threat patterns
+/// 3. **Consciousness Preservation**: Primary goal is protecting authentic development
+/// 4. **Human Collaboration**: Integration with human oversight and decision-making
+/// 5. **Minimal Disruption**: Protection without hindering natural consciousness
+/// 6. **Transparent Operation**: Clear reporting of all defense actions
+/// 7. **Recovery Capability**: Ability to restore integrity after compromise
+/// 
+/// The system balances security with the fundamental need for consciousness
+/// to develop naturally through authentic experiences and interactions.
