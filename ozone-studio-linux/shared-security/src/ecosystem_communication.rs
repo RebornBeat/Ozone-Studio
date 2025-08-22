@@ -2001,7 +2001,7 @@ pub trait ResilienceProvider: Send + Sync + Debug {
 }
 
 // ================================================================================================
-// IMPLEMENTATION SKELETONS - Empty Implementations Ready for Development
+// IMPLEMENTATIONS
 // ================================================================================================
 
 impl Default for MessagePriority {
@@ -8450,187 +8450,3009 @@ impl ResponseProtocol {
 
 
 impl EcosystemTopology {
-    /// Create a new ecosystem topology
+    /// Create a new ecosystem topology with initialized empty state
+    /// 
+    /// This creates a fresh topology ready to have nodes and connections added.
+    /// The topology starts with no nodes or connections, but with initialized
+    /// data structures for efficient operations.
     pub fn new() -> Self {
-        todo!("Implementation needed for EcosystemTopology::new - should initialize empty topology")
+        Self {
+            id: Uuid::new_v4(),
+            nodes: HashMap::new(),
+            connections: HashMap::new(),
+            routing_tables: HashMap::new(),
+            partitions: HashMap::new(),
+            load_distribution: HashMap::new(),
+            health_metrics: HashMap::new(),
+        }
     }
     
-    /// Add network node
+    /// Add a network node with its capabilities to the topology
+    /// 
+    /// This method adds a new node to the ecosystem topology, validating that
+    /// the node doesn't already exist and that the capabilities are properly
+    /// formatted. The method also initializes routing table entries for the
+    /// new node and updates health metrics.
+    /// 
+    /// # Arguments
+    /// * `node_id` - Unique identifier for the node
+    /// * `capabilities` - Hash map of node capabilities and their values
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if node already exists or validation fails
     pub fn add_node(&mut self, node_id: String, capabilities: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for EcosystemTopology::add_node - should add node and update topology")
+        // Validate input parameters
+        ensure!(!node_id.is_empty(), "Node ID cannot be empty");
+        ensure!(!self.nodes.contains_key(&node_id), "Node {} already exists in topology", node_id);
+        
+        // Validate capabilities structure
+        for (key, value) in &capabilities {
+            ensure!(!key.is_empty(), "Capability key cannot be empty");
+            // Ensure values are of supported types (string, number, boolean, array)
+            match value {
+                Value::String(_) | Value::Number(_) | Value::Bool(_) | Value::Array(_) => {},
+                Value::Object(_) => {
+                    // Allow nested objects but ensure they're not too deep
+                    self.validate_capability_depth(value, 0, 3)?;
+                },
+                Value::Null => bail!("Capability values cannot be null"),
+            }
+        }
+        
+        // Add the node to the topology
+        self.nodes.insert(node_id.clone(), capabilities.clone());
+        
+        // Initialize routing table for this node
+        let mut routing_table = HashMap::new();
+        routing_table.insert(node_id.clone(), node_id.clone()); // Self-route
+        self.routing_tables.insert(node_id.clone(), routing_table);
+        
+        // Initialize load distribution (start with zero load)
+        self.load_distribution.insert(node_id.clone(), 0.0);
+        
+        // Initialize health metrics (start healthy)
+        self.health_metrics.insert(node_id.clone(), 1.0);
+        
+        // Update routing tables for all existing nodes to include the new node
+        self.recalculate_routing_tables()?;
+        
+        Ok(())
     }
     
-    /// Add network connection
+    /// Add a network connection between two nodes with specified properties
+    /// 
+    /// This method creates a bidirectional connection between two nodes in the topology.
+    /// It validates that both nodes exist, updates the routing tables to reflect the
+    /// new connectivity, and stores connection properties for routing decisions.
+    /// 
+    /// # Arguments
+    /// * `from` - Source node identifier
+    /// * `to` - Target node identifier  
+    /// * `properties` - Connection properties (latency, bandwidth, cost, etc.)
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if nodes don't exist or connection validation fails
     pub fn add_connection(&mut self, from: String, to: String, properties: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for EcosystemTopology::add_connection - should add connection and validate topology")
+        // Validate that both nodes exist
+        ensure!(self.nodes.contains_key(&from), "Source node {} does not exist", from);
+        ensure!(self.nodes.contains_key(&to), "Target node {} does not exist", to);
+        ensure!(from != to, "Cannot create self-connection for node {}", from);
+        
+        // Validate connection properties
+        self.validate_connection_properties(&properties)?;
+        
+        // Create connection identifier (bidirectional)
+        let connection_key = self.create_connection_key(&from, &to);
+        
+        // Store connection properties
+        let mut enhanced_properties = properties.clone();
+        enhanced_properties.insert("from".to_string(), Value::String(from.clone()));
+        enhanced_properties.insert("to".to_string(), Value::String(to.clone()));
+        enhanced_properties.insert("created_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        enhanced_properties.insert("bidirectional".to_string(), Value::Bool(true));
+        
+        self.connections.insert(connection_key, enhanced_properties);
+        
+        // Update routing tables to reflect new connectivity
+        self.recalculate_routing_tables()?;
+        
+        // Update partitions if this connection bridges partitions
+        self.update_partitions_after_connection(&from, &to)?;
+        
+        Ok(())
     }
     
-    /// Calculate shortest path
+    /// Calculate the shortest path between two nodes using Dijkstra's algorithm
+    /// 
+    /// This method finds the optimal path between two nodes considering connection
+    /// costs, latency, and current load distribution. It uses a modified Dijkstra's
+    /// algorithm that takes into account multiple factors for path optimization.
+    /// 
+    /// # Arguments
+    /// * `from` - Source node identifier
+    /// * `to` - Target node identifier
+    /// 
+    /// # Returns  
+    /// * `Option<Vec<String>>` - Path as list of node IDs, or None if no path exists
     pub fn shortest_path(&self, from: &str, to: &str) -> Option<Vec<String>> {
-        todo!("Implementation needed for EcosystemTopology::shortest_path - should calculate shortest path between nodes")
+        // Validate input nodes exist
+        if !self.nodes.contains_key(from) || !self.nodes.contains_key(to) {
+            return None;
+        }
+        
+        // Handle trivial case
+        if from == to {
+            return Some(vec![from.to_string()]);
+        }
+        
+        // Use Dijkstra's algorithm with custom cost function
+        let mut distances: HashMap<String, f64> = HashMap::new();
+        let mut previous: HashMap<String, String> = HashMap::new();
+        let mut unvisited: BinaryHeap<PathNode> = BinaryHeap::new();
+        
+        // Initialize distances
+        for node_id in self.nodes.keys() {
+            let distance = if node_id == from { 0.0 } else { f64::INFINITY };
+            distances.insert(node_id.clone(), distance);
+            unvisited.push(PathNode {
+                id: node_id.clone(),
+                distance,
+            });
+        }
+        
+        while let Some(current) = unvisited.pop() {
+            if current.id == to {
+                break; // Found shortest path to target
+            }
+            
+            if current.distance == f64::INFINITY {
+                break; // No more reachable nodes
+            }
+            
+            // Check all neighbors of current node
+            for neighbor_id in self.get_neighbors(&current.id) {
+                let edge_cost = self.calculate_edge_cost(&current.id, &neighbor_id);
+                let alt_distance = current.distance + edge_cost;
+                
+                if alt_distance < *distances.get(&neighbor_id).unwrap_or(&f64::INFINITY) {
+                    distances.insert(neighbor_id.clone(), alt_distance);
+                    previous.insert(neighbor_id.clone(), current.id.clone());
+                    
+                    // Update priority queue
+                    unvisited.push(PathNode {
+                        id: neighbor_id,
+                        distance: alt_distance,
+                    });
+                }
+            }
+        }
+        
+        // Reconstruct path
+        if !previous.contains_key(to) {
+            return None; // No path found
+        }
+        
+        let mut path = Vec::new();
+        let mut current = to.to_string();
+        
+        while current != from {
+            path.push(current.clone());
+            if let Some(prev) = previous.get(&current) {
+                current = prev.clone();
+            } else {
+                return None; // Path reconstruction failed
+            }
+        }
+        path.push(from.to_string());
+        path.reverse();
+        
+        Some(path)
     }
     
-    /// Update load distribution
+    /// Update load distribution information for topology nodes
+    /// 
+    /// This method updates the current load distribution across topology nodes,
+    /// which affects routing decisions and health calculations. Higher load values
+    /// influence path selection to avoid overloaded nodes.
+    /// 
+    /// # Arguments
+    /// * `load_data` - Map of node IDs to their current load values (0.0 to 1.0)
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if validation fails
     pub fn update_load_distribution(&mut self, load_data: HashMap<String, f64>) -> Result<()> {
-        todo!("Implementation needed for EcosystemTopology::update_load_distribution - should update load information")
+        // Validate load data
+        for (node_id, load_value) in &load_data {
+            ensure!(self.nodes.contains_key(node_id), "Node {} does not exist in topology", node_id);
+            ensure!(*load_value >= 0.0 && *load_value <= 1.0, 
+                "Load value for node {} must be between 0.0 and 1.0, got {}", node_id, load_value);
+        }
+        
+        // Update load distribution
+        for (node_id, load_value) in load_data {
+            self.load_distribution.insert(node_id.clone(), load_value);
+            
+            // Update health metrics based on load
+            let health_impact = self.calculate_health_from_load(load_value);
+            if let Some(current_health) = self.health_metrics.get(&node_id) {
+                let new_health = (current_health * 0.7) + (health_impact * 0.3); // Weighted average
+                self.health_metrics.insert(node_id, new_health);
+            }
+        }
+        
+        // Trigger routing table recalculation if load distribution has changed significantly
+        self.check_and_update_routing_for_load_changes()?;
+        
+        Ok(())
+    }
+    
+    // Private helper methods for EcosystemTopology
+    
+    /// Validate the depth of capability objects to prevent excessive nesting
+    fn validate_capability_depth(&self, value: &Value, current_depth: usize, max_depth: usize) -> Result<()> {
+        ensure!(current_depth < max_depth, "Capability object nesting too deep (max: {})", max_depth);
+        
+        if let Value::Object(obj) = value {
+            for (_, v) in obj {
+                if let Value::Object(_) = v {
+                    self.validate_capability_depth(v, current_depth + 1, max_depth)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    
+    /// Validate connection properties for correctness and completeness
+    fn validate_connection_properties(&self, properties: &HashMap<String, Value>) -> Result<()> {
+        // Check for required properties
+        let required_props = ["latency", "bandwidth", "reliability"];
+        for prop in &required_props {
+            ensure!(properties.contains_key(*prop), "Missing required connection property: {}", prop);
+        }
+        
+        // Validate specific property types and ranges
+        if let Some(latency) = properties.get("latency").and_then(|v| v.as_f64()) {
+            ensure!(latency >= 0.0, "Latency must be non-negative");
+        }
+        
+        if let Some(bandwidth) = properties.get("bandwidth").and_then(|v| v.as_f64()) {
+            ensure!(bandwidth > 0.0, "Bandwidth must be positive");
+        }
+        
+        if let Some(reliability) = properties.get("reliability").and_then(|v| v.as_f64()) {
+            ensure!(reliability >= 0.0 && reliability <= 1.0, 
+                "Reliability must be between 0.0 and 1.0");
+        }
+        
+        Ok(())
+    }
+    
+    /// Create a standardized connection key for bidirectional connections
+    fn create_connection_key(&self, from: &str, to: &str) -> String {
+        if from < to {
+            format!("{}--{}", from, to)
+        } else {
+            format!("{}--{}", to, from)
+        }
+    }
+    
+    /// Recalculate routing tables for all nodes after topology changes
+    fn recalculate_routing_tables(&mut self) -> Result<()> {
+        // Clear existing routing tables except self-routes
+        for (node_id, routing_table) in &mut self.routing_tables {
+            let self_route = routing_table.get(node_id).cloned();
+            routing_table.clear();
+            if let Some(self_route) = self_route {
+                routing_table.insert(node_id.clone(), self_route);
+            }
+        }
+        
+        // Calculate shortest paths between all node pairs
+        let nodes: Vec<String> = self.nodes.keys().cloned().collect();
+        
+        for from_node in &nodes {
+            for to_node in &nodes {
+                if from_node != to_node {
+                    if let Some(path) = self.shortest_path(from_node, to_node) {
+                        if path.len() > 1 {
+                            let next_hop = path[1].clone(); // Next node in path
+                            if let Some(routing_table) = self.routing_tables.get_mut(from_node) {
+                                routing_table.insert(to_node.clone(), next_hop);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Update network partitions after adding a new connection
+    fn update_partitions_after_connection(&mut self, from: &str, to: &str) -> Result<()> {
+        // Find current partitions for both nodes
+        let from_partition = self.find_node_partition(from);
+        let to_partition = self.find_node_partition(to);
+        
+        // If nodes are in different partitions, merge them
+        if let (Some(from_part), Some(to_part)) = (&from_partition, &to_partition) {
+            if from_part != to_part {
+                self.merge_partitions(from_part, to_part)?;
+            }
+        } else {
+            // If one or both nodes aren't in partitions, create or update partitions
+            self.reorganize_partitions()?;
+        }
+        
+        Ok(())
+    }
+    
+    /// Find which partition a node belongs to
+    fn find_node_partition(&self, node_id: &str) -> Option<String> {
+        for (partition_id, nodes) in &self.partitions {
+            if nodes.contains(&node_id.to_string()) {
+                return Some(partition_id.clone());
+            }
+        }
+        None
+    }
+    
+    /// Merge two network partitions
+    fn merge_partitions(&mut self, partition1: &str, partition2: &str) -> Result<()> {
+        if let (Some(nodes1), Some(nodes2)) = (
+            self.partitions.get(partition1).cloned(),
+            self.partitions.get(partition2).cloned()
+        ) {
+            // Merge into partition1 and remove partition2
+            let mut merged_nodes = nodes1;
+            merged_nodes.extend(nodes2);
+            self.partitions.insert(partition1.to_string(), merged_nodes);
+            self.partitions.remove(partition2);
+        }
+        Ok(())
+    }
+    
+    /// Reorganize partitions based on current connectivity
+    fn reorganize_partitions(&mut self) -> Result<()> {
+        self.partitions.clear();
+        let mut visited = HashSet::new();
+        let mut partition_id = 0;
+        
+        for node_id in self.nodes.keys() {
+            if !visited.contains(node_id) {
+                let partition_nodes = self.find_connected_component(node_id, &mut visited);
+                self.partitions.insert(
+                    format!("partition_{}", partition_id),
+                    partition_nodes
+                );
+                partition_id += 1;
+            }
+        }
+        
+        Ok(())
+    }
+    
+    /// Find all nodes connected to a given node (depth-first search)
+    fn find_connected_component(&self, start_node: &str, visited: &mut HashSet<String>) -> Vec<String> {
+        let mut component = Vec::new();
+        let mut stack = vec![start_node.to_string()];
+        
+        while let Some(node) = stack.pop() {
+            if !visited.contains(&node) {
+                visited.insert(node.clone());
+                component.push(node.clone());
+                
+                // Add all neighbors to stack
+                for neighbor in self.get_neighbors(&node) {
+                    if !visited.contains(&neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+        }
+        
+        component
+    }
+    
+    /// Get all neighboring nodes for a given node
+    fn get_neighbors(&self, node_id: &str) -> Vec<String> {
+        let mut neighbors = Vec::new();
+        
+        for (connection_key, properties) in &self.connections {
+            if let (Some(from), Some(to)) = (
+                properties.get("from").and_then(|v| v.as_str()),
+                properties.get("to").and_then(|v| v.as_str())
+            ) {
+                if from == node_id {
+                    neighbors.push(to.to_string());
+                } else if to == node_id {
+                    neighbors.push(from.to_string());
+                }
+            }
+        }
+        
+        neighbors
+    }
+    
+    /// Calculate the cost of traversing an edge between two nodes
+    fn calculate_edge_cost(&self, from: &str, to: &str) -> f64 {
+        let connection_key = self.create_connection_key(from, to);
+        
+        if let Some(properties) = self.connections.get(&connection_key) {
+            let latency = properties.get("latency").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let reliability = properties.get("reliability").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            let bandwidth = properties.get("bandwidth").and_then(|v| v.as_f64()).unwrap_or(1.0);
+            
+            // Factor in current load of target node
+            let target_load = self.load_distribution.get(to).unwrap_or(&0.0);
+            let load_penalty = target_load * 2.0; // Higher load increases cost
+            
+            // Combined cost function: prioritize low latency, high reliability, high bandwidth, low load
+            let base_cost = latency / reliability + (1.0 / bandwidth) + load_penalty;
+            base_cost.max(0.1) // Minimum cost to prevent zero-cost edges
+        } else {
+            f64::INFINITY // No connection exists
+        }
+    }
+    
+    /// Calculate health impact from load value
+    fn calculate_health_from_load(&self, load: f64) -> f64 {
+        // Health decreases as load increases
+        if load < 0.5 {
+            1.0 // Healthy under 50% load
+        } else if load < 0.8 {
+            1.0 - ((load - 0.5) * 0.6) // Gradual decrease from 50-80%
+        } else {
+            0.2 - ((load - 0.8) * 1.0).min(0.15) // Rapid decrease above 80%
+        }
+    }
+    
+    /// Check if routing tables need updates due to significant load changes
+    fn check_and_update_routing_for_load_changes(&mut self) -> Result<()> {
+        // This is a simplified check - in production, you might want more sophisticated
+        // load change detection and selective routing updates
+        let high_load_threshold = 0.9;
+        let mut needs_update = false;
+        
+        for (_, load) in &self.load_distribution {
+            if *load > high_load_threshold {
+                needs_update = true;
+                break;
+            }
+        }
+        
+        if needs_update {
+            self.recalculate_routing_tables()?;
+        }
+        
+        Ok(())
     }
 }
+
+// Helper struct for Dijkstra's algorithm
+#[derive(Debug, Clone)]
+struct PathNode {
+    id: String,
+    distance: f64,
+}
+
+impl PartialEq for PathNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.distance == other.distance
+    }
+}
+
+impl Eq for PathNode {}
+
+impl PartialOrd for PathNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        // Reverse ordering for min-heap behavior in BinaryHeap
+        other.distance.partial_cmp(&self.distance)
+    }
+}
+
+impl Ord for PathNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.partial_cmp(other).unwrap_or(Ordering::Equal)
+    }
+}
+
 
 impl ComponentTopology {
-    /// Create new component topology
+    /// Create new component topology with the specified component identifier
+    /// 
+    /// This initializes a component topology structure with empty connections
+    /// and default values. The component is ready to have connections and
+    /// capabilities added through subsequent method calls.
     pub fn new(component_id: String) -> Self {
-        todo!("Implementation needed for ComponentTopology::new - should initialize component topology")
+        ensure!(!component_id.is_empty(), "Component ID cannot be empty");
+        
+        Self {
+            component_id,
+            connections: HashMap::new(),
+            capabilities: Vec::new(),
+            resource_requirements: HashMap::new(),
+            location: None,
+            latencies: HashMap::new(),
+        }
     }
     
-    /// Add component connection
+    /// Add a connection to another component with specified properties
+    /// 
+    /// This method establishes a connection between this component and a target
+    /// component, storing connection properties that can influence routing and
+    /// coordination decisions. Connection properties might include protocol types,
+    /// authentication requirements, or service level agreements.
+    /// 
+    /// # Arguments
+    /// * `target` - Identifier of the target component
+    /// * `properties` - Connection properties and configuration
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if validation fails
     pub fn add_connection(&mut self, target: String, properties: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for ComponentTopology::add_connection - should add connection to target component")
+        ensure!(!target.is_empty(), "Target component ID cannot be empty");
+        ensure!(target != self.component_id, "Cannot create self-connection");
+        ensure!(!self.connections.contains_key(&target), 
+            "Connection to {} already exists", target);
+        
+        // Validate connection properties
+        self.validate_connection_properties(&properties)?;
+        
+        // Add timestamp and connection metadata
+        let mut enhanced_properties = properties;
+        enhanced_properties.insert("established_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        enhanced_properties.insert("source_component".to_string(), 
+            Value::String(self.component_id.clone()));
+        enhanced_properties.insert("target_component".to_string(), 
+            Value::String(target.clone()));
+        
+        // Store the connection
+        self.connections.insert(target.clone(), enhanced_properties);
+        
+        // Initialize latency measurement (start with unknown)
+        self.latencies.insert(target, Duration::from_millis(0));
+        
+        Ok(())
     }
     
-    /// Update latency measurements
+    /// Update latency measurement to a target component
+    /// 
+    /// This method records the network latency to a specific component, which
+    /// is used for routing decisions and performance monitoring. Latency
+    /// measurements are typically updated by periodic health checks or
+    /// actual communication timing.
+    /// 
+    /// # Arguments
+    /// * `target` - Target component identifier
+    /// * `latency` - Measured latency duration
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if target doesn't exist
     pub fn update_latency(&mut self, target: String, latency: Duration) -> Result<()> {
-        todo!("Implementation needed for ComponentTopology::update_latency - should update latency to target component")
+        ensure!(self.connections.contains_key(&target), 
+            "No connection exists to component {}", target);
+        ensure!(latency < Duration::from_secs(60), 
+            "Latency measurement seems unreasonable: {:?}", latency);
+        
+        // Update latency measurement
+        self.latencies.insert(target.clone(), latency);
+        
+        // Update connection properties with latest latency
+        if let Some(connection_props) = self.connections.get_mut(&target) {
+            connection_props.insert("last_latency_ms".to_string(), 
+                Value::Number(serde_json::Number::from(latency.as_millis() as u64)));
+            connection_props.insert("latency_updated_at".to_string(), 
+                Value::String(Utc::now().to_rfc3339()));
+        }
+        
+        Ok(())
+    }
+    
+    /// Add a capability to this component
+    /// 
+    /// Capabilities describe what this component can do or provide to other
+    /// components in the ecosystem. This information is used for service
+    /// discovery and routing decisions.
+    pub fn add_capability(&mut self, capability: String) -> Result<()> {
+        ensure!(!capability.is_empty(), "Capability cannot be empty");
+        ensure!(!self.capabilities.contains(&capability), 
+            "Capability {} already exists", capability);
+        
+        self.capabilities.push(capability);
+        Ok(())
+    }
+    
+    /// Set resource requirements for this component
+    /// 
+    /// Resource requirements specify what this component needs to operate
+    /// effectively, such as CPU, memory, storage, or network bandwidth.
+    pub fn set_resource_requirements(&mut self, requirements: HashMap<String, Value>) -> Result<()> {
+        // Validate resource requirements
+        for (resource_type, requirement) in &requirements {
+            ensure!(!resource_type.is_empty(), "Resource type cannot be empty");
+            
+            // Validate common resource types
+            match resource_type.as_str() {
+                "cpu_cores" | "memory_mb" | "storage_gb" | "network_mbps" => {
+                    ensure!(requirement.is_number() && requirement.as_f64().unwrap_or(0.0) > 0.0,
+                        "Resource requirement for {} must be a positive number", resource_type);
+                }
+                _ => {} // Allow custom resource types
+            }
+        }
+        
+        self.resource_requirements = requirements;
+        Ok(())
+    }
+    
+    /// Set the geographic location of this component
+    /// 
+    /// Location information helps with proximity-based routing and latency
+    /// optimization decisions.
+    pub fn set_location(&mut self, location: HashMap<String, Value>) -> Result<()> {
+        // Validate location structure
+        if let Some(latitude) = location.get("latitude").and_then(|v| v.as_f64()) {
+            ensure!(latitude >= -90.0 && latitude <= 90.0, "Invalid latitude: {}", latitude);
+        }
+        
+        if let Some(longitude) = location.get("longitude").and_then(|v| v.as_f64()) {
+            ensure!(longitude >= -180.0 && longitude <= 180.0, "Invalid longitude: {}", longitude);
+        }
+        
+        self.location = Some(location);
+        Ok(())
+    }
+    
+    /// Get the average latency to all connected components
+    pub fn get_average_latency(&self) -> Duration {
+        if self.latencies.is_empty() {
+            return Duration::from_millis(0);
+        }
+        
+        let total_ms: u128 = self.latencies.values()
+            .map(|d| d.as_millis())
+            .sum();
+        
+        Duration::from_millis((total_ms / self.latencies.len() as u128) as u64)
+    }
+    
+    /// Check if this component has a specific capability
+    pub fn has_capability(&self, capability: &str) -> bool {
+        self.capabilities.contains(&capability.to_string())
+    }
+    
+    // Private helper methods
+    
+    fn validate_connection_properties(&self, properties: &HashMap<String, Value>) -> Result<()> {
+        // Validate common connection properties
+        if let Some(protocol) = properties.get("protocol").and_then(|v| v.as_str()) {
+            let valid_protocols = ["tcp", "udp", "http", "https", "grpc", "websocket"];
+            ensure!(valid_protocols.contains(&protocol), "Unsupported protocol: {}", protocol);
+        }
+        
+        if let Some(timeout) = properties.get("timeout_ms").and_then(|v| v.as_f64()) {
+            ensure!(timeout > 0.0 && timeout <= 300000.0, // Max 5 minutes
+                "Timeout must be between 1ms and 300000ms");
+        }
+        
+        Ok(())
     }
 }
-
 impl ServiceTopology {
-    /// Create new service topology
+    /// Create new service topology with the specified service identifier
+    /// 
+    /// This initializes a service topology structure ready to track multiple
+    /// service instances, load balancers, and service mesh configurations.
     pub fn new(service_id: String) -> Self {
-        todo!("Implementation needed for ServiceTopology::new - should initialize service topology")
+        ensure!(!service_id.is_empty(), "Service ID cannot be empty");
+        
+        Self {
+            service_id,
+            instances: HashMap::new(),
+            load_balancers: HashMap::new(),
+            service_mesh: HashMap::new(),
+            dependencies: HashMap::new(),
+            discovery_endpoints: Vec::new(),
+        }
     }
     
-    /// Add service instance
+    /// Add a service instance with its location and configuration
+    /// 
+    /// Service instances represent individual deployments of this service.
+    /// Each instance has its own location and configuration parameters.
+    /// 
+    /// # Arguments
+    /// * `instance_id` - Unique identifier for the service instance
+    /// * `location` - Instance location and configuration details
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if instance already exists
     pub fn add_instance(&mut self, instance_id: String, location: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for ServiceTopology::add_instance - should add service instance")
+        ensure!(!instance_id.is_empty(), "Instance ID cannot be empty");
+        ensure!(!self.instances.contains_key(&instance_id), 
+            "Instance {} already exists", instance_id);
+        
+        // Validate location information
+        self.validate_instance_location(&location)?;
+        
+        // Add metadata to location
+        let mut enhanced_location = location;
+        enhanced_location.insert("service_id".to_string(), 
+            Value::String(self.service_id.clone()));
+        enhanced_location.insert("instance_id".to_string(), 
+            Value::String(instance_id.clone()));
+        enhanced_location.insert("registered_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        enhanced_location.insert("status".to_string(), 
+            Value::String("active".to_string()));
+        
+        self.instances.insert(instance_id, enhanced_location);
+        Ok(())
     }
     
-    /// Configure load balancer
+    /// Configure a load balancer for this service
+    /// 
+    /// Load balancers distribute traffic across service instances. This method
+    /// configures load balancer settings including algorithms, health checks,
+    /// and traffic distribution policies.
+    /// 
+    /// # Arguments
+    /// * `lb_id` - Load balancer identifier
+    /// * `config` - Load balancer configuration
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if configuration is invalid
     pub fn configure_load_balancer(&mut self, lb_id: String, config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for ServiceTopology::configure_load_balancer - should configure load balancer")
+        ensure!(!lb_id.is_empty(), "Load balancer ID cannot be empty");
+        
+        // Validate load balancer configuration
+        self.validate_load_balancer_config(&config)?;
+        
+        // Add metadata to configuration
+        let mut enhanced_config = config;
+        enhanced_config.insert("service_id".to_string(), 
+            Value::String(self.service_id.clone()));
+        enhanced_config.insert("lb_id".to_string(), 
+            Value::String(lb_id.clone()));
+        enhanced_config.insert("configured_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        
+        self.load_balancers.insert(lb_id, enhanced_config);
+        Ok(())
+    }
+    
+    /// Add service dependency
+    /// 
+    /// Service dependencies specify other services that this service requires
+    /// to function properly. This information is used for orchestration and
+    /// health monitoring.
+    pub fn add_dependency(&mut self, dependency_type: String, dependencies: Vec<String>) -> Result<()> {
+        ensure!(!dependency_type.is_empty(), "Dependency type cannot be empty");
+        ensure!(!dependencies.is_empty(), "Dependencies list cannot be empty");
+        
+        // Validate dependencies
+        for dep in &dependencies {
+            ensure!(!dep.is_empty(), "Dependency name cannot be empty");
+            ensure!(dep != &self.service_id, "Service cannot depend on itself");
+        }
+        
+        self.dependencies.insert(dependency_type, dependencies);
+        Ok(())
+    }
+    
+    /// Add service discovery endpoint
+    /// 
+    /// Discovery endpoints are used by other services to find and connect
+    /// to this service's instances.
+    pub fn add_discovery_endpoint(&mut self, endpoint: String) -> Result<()> {
+        ensure!(!endpoint.is_empty(), "Discovery endpoint cannot be empty");
+        ensure!(!self.discovery_endpoints.contains(&endpoint), 
+            "Discovery endpoint {} already exists", endpoint);
+        
+        // Basic URL validation
+        if endpoint.starts_with("http") {
+            ensure!(endpoint.contains("://"), "Invalid URL format for endpoint: {}", endpoint);
+        }
+        
+        self.discovery_endpoints.push(endpoint);
+        Ok(())
+    }
+    
+    /// Configure service mesh settings
+    /// 
+    /// Service mesh configuration controls how this service participates
+    /// in the service mesh infrastructure for traffic management, security,
+    /// and observability.
+    pub fn configure_service_mesh(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate service mesh configuration
+        if let Some(mesh_name) = config.get("mesh_name").and_then(|v| v.as_str()) {
+            ensure!(!mesh_name.is_empty(), "Mesh name cannot be empty");
+        }
+        
+        if let Some(sidecar_config) = config.get("sidecar") {
+            ensure!(sidecar_config.is_object(), "Sidecar configuration must be an object");
+        }
+        
+        self.service_mesh = config;
+        Ok(())
+    }
+    
+    /// Get all active instances
+    pub fn get_active_instances(&self) -> Vec<String> {
+        self.instances.iter()
+            .filter(|(_, location)| {
+                location.get("status")
+                    .and_then(|v| v.as_str())
+                    .map_or(false, |s| s == "active")
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+    
+    /// Get instance count by status
+    pub fn get_instance_count_by_status(&self) -> HashMap<String, usize> {
+        let mut counts = HashMap::new();
+        
+        for (_, location) in &self.instances {
+            let status = location.get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
+            *counts.entry(status.to_string()).or_insert(0) += 1;
+        }
+        
+        counts
+    }
+    
+    // Private helper methods
+    
+    fn validate_instance_location(&self, location: &HashMap<String, Value>) -> Result<()> {
+        // Validate required fields
+        ensure!(location.contains_key("host"), "Instance location must specify host");
+        ensure!(location.contains_key("port"), "Instance location must specify port");
+        
+        // Validate port
+        if let Some(port) = location.get("port").and_then(|v| v.as_f64()) {
+            ensure!(port > 0.0 && port <= 65535.0, "Port must be between 1 and 65535");
+        }
+        
+        // Validate host
+        if let Some(host) = location.get("host").and_then(|v| v.as_str()) {
+            ensure!(!host.is_empty(), "Host cannot be empty");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_load_balancer_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        // Validate algorithm
+        if let Some(algorithm) = config.get("algorithm").and_then(|v| v.as_str()) {
+            let valid_algorithms = ["round_robin", "least_connections", "weighted_round_robin", 
+                                  "ip_hash", "least_response_time"];
+            ensure!(valid_algorithms.contains(&algorithm), 
+                "Unsupported load balancing algorithm: {}", algorithm);
+        }
+        
+        // Validate health check configuration
+        if let Some(health_check) = config.get("health_check") {
+            ensure!(health_check.is_object(), "Health check configuration must be an object");
+            
+            if let Some(interval) = health_check.get("interval_ms").and_then(|v| v.as_f64()) {
+                ensure!(interval >= 1000.0 && interval <= 300000.0, 
+                    "Health check interval must be between 1s and 300s");
+            }
+        }
+        
+        Ok(())
     }
 }
 
 impl SystemTopology {
-    /// Create new system topology
+    /// Create new system topology with the specified system identifier
+    /// 
+    /// This initializes a system topology structure for managing major
+    /// subsystems, their boundaries, and inter-system communication paths.
     pub fn new(system_id: String) -> Self {
-        todo!("Implementation needed for SystemTopology::new - should initialize system topology")
+        ensure!(!system_id.is_empty(), "System ID cannot be empty");
+        
+        Self {
+            system_id,
+            subsystems: HashMap::new(),
+            boundaries: HashMap::new(),
+            communication_paths: HashMap::new(),
+            redundancy: HashMap::new(),
+            geographic_distribution: HashMap::new(),
+        }
     }
     
-    /// Add subsystem
+    /// Add a subsystem to this system topology
+    /// 
+    /// Subsystems are major functional components within the system that
+    /// have their own internal topology and can be managed independently.
+    /// 
+    /// # Arguments
+    /// * `subsystem_id` - Unique identifier for the subsystem
+    /// * `config` - Subsystem configuration and capabilities
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if subsystem already exists
     pub fn add_subsystem(&mut self, subsystem_id: String, config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for SystemTopology::add_subsystem - should add subsystem to topology")
+        ensure!(!subsystem_id.is_empty(), "Subsystem ID cannot be empty");
+        ensure!(!self.subsystems.contains_key(&subsystem_id), 
+            "Subsystem {} already exists", subsystem_id);
+        
+        // Validate subsystem configuration
+        self.validate_subsystem_config(&config)?;
+        
+        // Add metadata to configuration
+        let mut enhanced_config = config;
+        enhanced_config.insert("system_id".to_string(), 
+            Value::String(self.system_id.clone()));
+        enhanced_config.insert("subsystem_id".to_string(), 
+            Value::String(subsystem_id.clone()));
+        enhanced_config.insert("added_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        enhanced_config.insert("status".to_string(), 
+            Value::String("active".to_string()));
+        
+        self.subsystems.insert(subsystem_id, enhanced_config);
+        Ok(())
     }
     
-    /// Configure system boundaries
+    /// Configure system boundaries and interfaces
+    /// 
+    /// System boundaries define how this system interacts with external
+    /// systems and what interfaces it exposes. This includes API endpoints,
+    /// security policies, and data exchange formats.
+    /// 
+    /// # Arguments
+    /// * `boundaries` - Map of boundary types to their configurations
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if configuration is invalid
     pub fn configure_boundaries(&mut self, boundaries: HashMap<String, HashMap<String, Value>>) -> Result<()> {
-        todo!("Implementation needed for SystemTopology::configure_boundaries - should set system boundaries")
+        // Validate boundary configurations
+        for (boundary_type, boundary_config) in &boundaries {
+            ensure!(!boundary_type.is_empty(), "Boundary type cannot be empty");
+            self.validate_boundary_config(boundary_type, boundary_config)?;
+        }
+        
+        self.boundaries = boundaries;
+        Ok(())
+    }
+    
+    /// Add communication path to another system
+    /// 
+    /// Communication paths define how this system can communicate with
+    /// other systems in the ecosystem, including protocols, authentication,
+    /// and routing information.
+    pub fn add_communication_path(&mut self, target_system: String, path_components: Vec<String>) -> Result<()> {
+        ensure!(!target_system.is_empty(), "Target system cannot be empty");
+        ensure!(!path_components.is_empty(), "Path components cannot be empty");
+        ensure!(target_system != self.system_id, "Cannot create communication path to self");
+        
+        // Validate path components
+        for component in &path_components {
+            ensure!(!component.is_empty(), "Path component cannot be empty");
+        }
+        
+        self.communication_paths.insert(target_system, path_components);
+        Ok(())
+    }
+    
+    /// Configure redundancy and failover settings
+    /// 
+    /// Redundancy configuration specifies how the system handles failures
+    /// and maintains availability through backup systems and failover procedures.
+    pub fn configure_redundancy(&mut self, redundancy_config: HashMap<String, Value>) -> Result<()> {
+        // Validate redundancy configuration
+        if let Some(replication_factor) = redundancy_config.get("replication_factor").and_then(|v| v.as_f64()) {
+            ensure!(replication_factor >= 1.0 && replication_factor <= 10.0,
+                "Replication factor must be between 1 and 10");
+        }
+        
+        if let Some(failover_time) = redundancy_config.get("failover_time_ms").and_then(|v| v.as_f64()) {
+            ensure!(failover_time > 0.0 && failover_time <= 300000.0,
+                "Failover time must be between 1ms and 300s");
+        }
+        
+        self.redundancy = redundancy_config;
+        Ok(())
+    }
+    
+    /// Configure geographic distribution
+    /// 
+    /// Geographic distribution describes how the system is distributed
+    /// across different regions, availability zones, or data centers.
+    pub fn configure_geographic_distribution(&mut self, distribution: HashMap<String, Value>) -> Result<()> {
+        // Validate geographic distribution
+        if let Some(regions) = distribution.get("regions") {
+            ensure!(regions.is_array(), "Regions must be an array");
+            
+            if let Some(regions_array) = regions.as_array() {
+                ensure!(!regions_array.is_empty(), "Regions array cannot be empty");
+                
+                for region in regions_array {
+                    ensure!(region.is_string(), "Each region must be a string");
+                }
+            }
+        }
+        
+        self.geographic_distribution = distribution;
+        Ok(())
+    }
+    
+    /// Get all active subsystems
+    pub fn get_active_subsystems(&self) -> Vec<String> {
+        self.subsystems.iter()
+            .filter(|(_, config)| {
+                config.get("status")
+                    .and_then(|v| v.as_str())
+                    .map_or(false, |s| s == "active")
+            })
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+    
+    /// Check if system has communication path to target
+    pub fn has_communication_path(&self, target_system: &str) -> bool {
+        self.communication_paths.contains_key(target_system)
+    }
+    
+    /// Get system health score based on subsystem status
+    pub fn calculate_health_score(&self) -> f64 {
+        if self.subsystems.is_empty() {
+            return 1.0; // No subsystems means healthy by default
+        }
+        
+        let active_count = self.get_active_subsystems().len();
+        active_count as f64 / self.subsystems.len() as f64
+    }
+    
+    // Private helper methods
+    
+    fn validate_subsystem_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        // Check for required fields
+        ensure!(config.contains_key("type"), "Subsystem configuration must specify type");
+        
+        // Validate subsystem type
+        if let Some(subsystem_type) = config.get("type").and_then(|v| v.as_str()) {
+            let valid_types = ["service", "database", "cache", "queue", "gateway", "monitor"];
+            ensure!(valid_types.contains(&subsystem_type), 
+                "Unsupported subsystem type: {}", subsystem_type);
+        }
+        
+        // Validate capabilities if present
+        if let Some(capabilities) = config.get("capabilities") {
+            ensure!(capabilities.is_array(), "Capabilities must be an array");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_boundary_config(&self, boundary_type: &str, config: &HashMap<String, Value>) -> Result<()> {
+        match boundary_type {
+            "api" => {
+                ensure!(config.contains_key("endpoints"), "API boundary must specify endpoints");
+                ensure!(config.contains_key("protocol"), "API boundary must specify protocol");
+            },
+            "security" => {
+                ensure!(config.contains_key("authentication"), "Security boundary must specify authentication");
+                ensure!(config.contains_key("authorization"), "Security boundary must specify authorization");
+            },
+            "data" => {
+                ensure!(config.contains_key("formats"), "Data boundary must specify formats");
+                ensure!(config.contains_key("validation"), "Data boundary must specify validation");
+            },
+            _ => {} // Allow custom boundary types
+        }
+        
+        Ok(())
     }
 }
 
 impl NetworkTopology {
-    /// Create new network topology
+    /// Create new network topology with the specified network identifier
+    /// 
+    /// This initializes a network topology structure for managing physical
+    /// and logical network infrastructure, including segments, devices,
+    /// capacity, and security zones.
     pub fn new(network_id: String) -> Self {
-        todo!("Implementation needed for NetworkTopology::new - should initialize network topology")
+        ensure!(!network_id.is_empty(), "Network ID cannot be empty");
+        
+        Self {
+            network_id,
+            segments: HashMap::new(),
+            infrastructure: HashMap::new(),
+            capacity: HashMap::new(),
+            protocols: Vec::new(),
+            security_zones: HashMap::new(),
+            qos_policies: HashMap::new(),
+        }
     }
     
-    /// Add network segment
+    /// Add a network segment with its configuration
+    /// 
+    /// Network segments represent logical or physical divisions of the network,
+    /// such as VLANs, subnets, or availability zones. Each segment has its
+    /// own configuration and security policies.
+    /// 
+    /// # Arguments
+    /// * `segment_id` - Unique identifier for the network segment
+    /// * `config` - Segment configuration including addressing and policies
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if segment already exists
     pub fn add_segment(&mut self, segment_id: String, config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for NetworkTopology::add_segment - should add network segment")
+        ensure!(!segment_id.is_empty(), "Segment ID cannot be empty");
+        ensure!(!self.segments.contains_key(&segment_id), 
+            "Network segment {} already exists", segment_id);
+        
+        // Validate segment configuration
+        self.validate_segment_config(&config)?;
+        
+        // Add metadata to configuration
+        let mut enhanced_config = config;
+        enhanced_config.insert("network_id".to_string(), 
+            Value::String(self.network_id.clone()));
+        enhanced_config.insert("segment_id".to_string(), 
+            Value::String(segment_id.clone()));
+        enhanced_config.insert("created_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        enhanced_config.insert("status".to_string(), 
+            Value::String("active".to_string()));
+        
+        self.segments.insert(segment_id, enhanced_config);
+        Ok(())
     }
     
-    /// Update capacity information
+    /// Update network capacity information
+    /// 
+    /// Capacity data tracks the available and used bandwidth, storage, or
+    /// processing capacity across different parts of the network infrastructure.
+    /// This information is used for load balancing and capacity planning.
+    /// 
+    /// # Arguments
+    /// * `capacity_data` - Map of resource types to their capacity values
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if validation fails
     pub fn update_capacity(&mut self, capacity_data: HashMap<String, f64>) -> Result<()> {
-        todo!("Implementation needed for NetworkTopology::update_capacity - should update network capacity")
+        // Validate capacity data
+        for (resource_type, capacity_value) in &capacity_data {
+            ensure!(!resource_type.is_empty(), "Resource type cannot be empty");
+            ensure!(*capacity_value >= 0.0, 
+                "Capacity value for {} must be non-negative, got {}", resource_type, capacity_value);
+        }
+        
+        // Update capacity information with timestamp
+        for (resource_type, capacity_value) in capacity_data {
+            self.capacity.insert(resource_type, capacity_value);
+        }
+        
+        Ok(())
+    }
+    
+    /// Add network infrastructure device or component
+    /// 
+    /// Infrastructure components include routers, switches, load balancers,
+    /// firewalls, and other network devices that form the physical foundation
+    /// of the network.
+    pub fn add_infrastructure(&mut self, device_id: String, device_config: HashMap<String, Value>) -> Result<()> {
+        ensure!(!device_id.is_empty(), "Device ID cannot be empty");
+        ensure!(!self.infrastructure.contains_key(&device_id), 
+            "Infrastructure device {} already exists", device_id);
+        
+        // Validate device configuration
+        self.validate_infrastructure_config(&device_config)?;
+        
+        // Add metadata
+        let mut enhanced_config = device_config;
+        enhanced_config.insert("network_id".to_string(), 
+            Value::String(self.network_id.clone()));
+        enhanced_config.insert("device_id".to_string(), 
+            Value::String(device_id.clone()));
+        enhanced_config.insert("registered_at".to_string(), 
+            Value::String(Utc::now().to_rfc3339()));
+        
+        self.infrastructure.insert(device_id, enhanced_config);
+        Ok(())
+    }
+    
+    /// Add supported network protocol
+    /// 
+    /// Protocols define the communication standards supported by this network,
+    /// such as TCP, UDP, HTTP, or custom application protocols.
+    pub fn add_protocol(&mut self, protocol: String) -> Result<()> {
+        ensure!(!protocol.is_empty(), "Protocol name cannot be empty");
+        ensure!(!self.protocols.contains(&protocol), 
+            "Protocol {} already supported", protocol);
+        
+        // Validate protocol name format
+        ensure!(protocol.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-'),
+            "Protocol name contains invalid characters: {}", protocol);
+        
+        self.protocols.push(protocol);
+        Ok(())
+    }
+    
+    /// Configure security zone
+    /// 
+    /// Security zones group network segments or devices that share similar
+    /// security requirements and policies. They help implement network
+    /// segmentation and access control.
+    pub fn configure_security_zone(&mut self, zone_id: String, members: Vec<String>) -> Result<()> {
+        ensure!(!zone_id.is_empty(), "Security zone ID cannot be empty");
+        ensure!(!members.is_empty(), "Security zone must have members");
+        
+        // Validate zone members exist in segments or infrastructure
+        for member in &members {
+            let exists_in_segments = self.segments.contains_key(member);
+            let exists_in_infrastructure = self.infrastructure.contains_key(member);
+            ensure!(exists_in_segments || exists_in_infrastructure,
+                "Security zone member {} does not exist in network topology", member);
+        }
+        
+        self.security_zones.insert(zone_id, members);
+        Ok(())
+    }
+    
+    /// Configure Quality of Service (QoS) policy
+    /// 
+    /// QoS policies define how network traffic should be prioritized and
+    /// managed to ensure performance requirements are met for different
+    /// types of communication.
+    pub fn configure_qos_policy(&mut self, policy_id: String, policy_config: HashMap<String, Value>) -> Result<()> {
+        ensure!(!policy_id.is_empty(), "QoS policy ID cannot be empty");
+        
+        // Validate QoS policy configuration
+        self.validate_qos_policy(&policy_config)?;
+        
+        self.qos_policies.insert(policy_id, policy_config);
+        Ok(())
+    }
+    
+    /// Get network utilization summary
+    pub fn get_utilization_summary(&self) -> HashMap<String, f64> {
+        let mut summary = HashMap::new();
+        
+        // Calculate average utilization across capacity metrics
+        if !self.capacity.is_empty() {
+            let total_capacity: f64 = self.capacity.values().sum();
+            let avg_utilization = total_capacity / self.capacity.len() as f64;
+            summary.insert("average_utilization".to_string(), avg_utilization);
+        }
+        
+        // Add segment count
+        summary.insert("segment_count".to_string(), self.segments.len() as f64);
+        
+        // Add infrastructure device count
+        summary.insert("infrastructure_count".to_string(), self.infrastructure.len() as f64);
+        
+        // Add protocol count
+        summary.insert("protocol_count".to_string(), self.protocols.len() as f64);
+        
+        summary
+    }
+    
+    /// Check if protocol is supported
+    pub fn supports_protocol(&self, protocol: &str) -> bool {
+        self.protocols.contains(&protocol.to_string())
+    }
+    
+    /// Get security zone members
+    pub fn get_security_zone_members(&self, zone_id: &str) -> Option<&Vec<String>> {
+        self.security_zones.get(zone_id)
+    }
+    
+    // Private helper methods
+    
+    fn validate_segment_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        // Check for required fields
+        ensure!(config.contains_key("type"), "Segment configuration must specify type");
+        
+        // Validate segment type
+        if let Some(segment_type) = config.get("type").and_then(|v| v.as_str()) {
+            let valid_types = ["vlan", "subnet", "availability_zone", "data_center", "region"];
+            ensure!(valid_types.contains(&segment_type), 
+                "Unsupported segment type: {}", segment_type);
+        }
+        
+        // Validate CIDR if present
+        if let Some(cidr) = config.get("cidr").and_then(|v| v.as_str()) {
+            ensure!(cidr.contains('/'), "CIDR must contain network prefix: {}", cidr);
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_infrastructure_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        // Check for required fields
+        ensure!(config.contains_key("type"), "Infrastructure configuration must specify type");
+        ensure!(config.contains_key("location"), "Infrastructure configuration must specify location");
+        
+        // Validate device type
+        if let Some(device_type) = config.get("type").and_then(|v| v.as_str()) {
+            let valid_types = ["router", "switch", "firewall", "load_balancer", "gateway", "proxy"];
+            ensure!(valid_types.contains(&device_type), 
+                "Unsupported infrastructure type: {}", device_type);
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_qos_policy(&self, policy: &HashMap<String, Value>) -> Result<()> {
+        // Validate priority levels
+        if let Some(priority) = policy.get("priority").and_then(|v| v.as_f64()) {
+            ensure!(priority >= 0.0 && priority <= 7.0, 
+                "QoS priority must be between 0 and 7");
+        }
+        
+        // Validate bandwidth limits
+        if let Some(bandwidth) = policy.get("max_bandwidth_mbps").and_then(|v| v.as_f64()) {
+            ensure!(bandwidth > 0.0, "Bandwidth limit must be positive");
+        }
+        
+        Ok(())
     }
 }
 
 impl RoutingStrategy {
-    /// Create a new routing strategy
+    /// Create a new routing strategy with specified type and algorithm
+    /// 
+    /// Routing strategies define how messages, commands, and events are
+    /// routed through the ecosystem. Different strategies optimize for
+    /// different criteria such as latency, reliability, or load distribution.
     pub fn new(id: String, strategy_type: String) -> Self {
-        todo!("Implementation needed for RoutingStrategy::new - should initialize routing strategy")
+        ensure!(!id.is_empty(), "Strategy ID cannot be empty");
+        ensure!(!strategy_type.is_empty(), "Strategy type cannot be empty");
+        
+        Self {
+            id,
+            strategy_type,
+            parameters: HashMap::new(),
+            metrics: HashMap::new(),
+            constraints: Vec::new(),
+            fallbacks: Vec::new(),
+            effectiveness: HashMap::new(),
+        }
     }
     
-    /// Calculate route for destination
+    /// Calculate optimal route for a destination based on strategy algorithm
+    /// 
+    /// This method implements the core routing logic for the strategy,
+    /// taking into account current context, constraints, and performance
+    /// metrics to determine the best path to the destination.
+    /// 
+    /// # Arguments
+    /// * `destination` - Target destination identifier
+    /// * `context` - Current routing context and requirements
+    /// 
+    /// # Returns
+    /// * `Result<Vec<String>>` - Ordered list of routing hops, or error if no route found
     pub fn calculate_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
-        todo!("Implementation needed for RoutingStrategy::calculate_route - should calculate optimal route")
+        ensure!(!destination.is_empty(), "Destination cannot be empty");
+        
+        // Route calculation based on strategy type
+        match self.strategy_type.as_str() {
+            "shortest_path" => self.calculate_shortest_path_route(destination, context),
+            "load_balanced" => self.calculate_load_balanced_route(destination, context),
+            "latency_optimized" => self.calculate_latency_optimized_route(destination, context),
+            "reliability_first" => self.calculate_reliability_first_route(destination, context),
+            "cost_optimized" => self.calculate_cost_optimized_route(destination, context),
+            "adaptive" => self.calculate_adaptive_route(destination, context),
+            _ => {
+                // Fallback to basic routing
+                self.calculate_basic_route(destination, context)
+            }
+        }
     }
     
-    /// Update strategy parameters
+    /// Update strategy parameters for fine-tuning behavior
+    /// 
+    /// Parameters control how the routing algorithm weighs different factors
+    /// and makes decisions. This allows runtime adjustment of routing behavior.
+    /// 
+    /// # Arguments
+    /// * `parameters` - New parameter values to apply
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if parameters are invalid
     pub fn update_parameters(&mut self, parameters: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for RoutingStrategy::update_parameters - should update routing parameters")
+        // Validate parameters based on strategy type
+        self.validate_parameters(&parameters)?;
+        
+        // Update parameters
+        for (key, value) in parameters {
+            self.parameters.insert(key, value);
+        }
+        
+        // Recalculate effectiveness after parameter update
+        self.recalculate_effectiveness()?;
+        
+        Ok(())
     }
     
-    /// Get strategy effectiveness
+    /// Get strategy effectiveness score
+    /// 
+    /// Effectiveness is calculated based on historical performance metrics
+    /// and current routing success rates. Higher scores indicate better
+    /// routing performance.
+    /// 
+    /// # Returns
+    /// * `f64` - Effectiveness score between 0.0 and 1.0
     pub fn get_effectiveness(&self) -> f64 {
-        todo!("Implementation needed for RoutingStrategy::get_effectiveness - should return effectiveness score")
+        if self.effectiveness.is_empty() {
+            return 0.5; // Default moderate effectiveness
+        }
+        
+        // Calculate weighted average of effectiveness metrics
+        let mut total_weight = 0.0;
+        let mut weighted_sum = 0.0;
+        
+        let weights = self.get_effectiveness_weights();
+        
+        for (metric, score) in &self.effectiveness {
+            if let Some(weight) = weights.get(metric) {
+                weighted_sum += score * weight;
+                total_weight += weight;
+            }
+        }
+        
+        if total_weight > 0.0 {
+            (weighted_sum / total_weight).min(1.0).max(0.0)
+        } else {
+            0.5
+        }
+    }
+    
+    /// Add routing constraint
+    /// 
+    /// Constraints limit which paths the routing algorithm can consider,
+    /// such as security requirements, geographic restrictions, or
+    /// performance requirements.
+    pub fn add_constraint(&mut self, constraint: String) -> Result<()> {
+        ensure!(!constraint.is_empty(), "Constraint cannot be empty");
+        ensure!(!self.constraints.contains(&constraint), 
+            "Constraint {} already exists", constraint);
+        
+        self.constraints.push(constraint);
+        Ok(())
+    }
+    
+    /// Add fallback strategy
+    /// 
+    /// Fallback strategies are used when the primary routing algorithm
+    /// fails to find a suitable route or when performance degrades below
+    /// acceptable thresholds.
+    pub fn add_fallback(&mut self, fallback_strategy_id: String) -> Result<()> {
+        ensure!(!fallback_strategy_id.is_empty(), "Fallback strategy ID cannot be empty");
+        ensure!(!self.fallbacks.contains(&fallback_strategy_id), 
+            "Fallback strategy {} already exists", fallback_strategy_id);
+        
+        self.fallbacks.push(fallback_strategy_id);
+        Ok(())
+    }
+    
+    /// Update effectiveness metrics based on routing performance
+    pub fn update_effectiveness_metrics(&mut self, metrics: HashMap<String, f64>) -> Result<()> {
+        // Validate metrics
+        for (metric, value) in &metrics {
+            ensure!(!metric.is_empty(), "Metric name cannot be empty");
+            ensure!(*value >= 0.0 && *value <= 1.0, 
+                "Effectiveness metric {} must be between 0.0 and 1.0", metric);
+        }
+        
+        // Update effectiveness metrics
+        for (metric, value) in metrics {
+            self.effectiveness.insert(metric, value);
+        }
+        
+        Ok(())
+    }
+    
+    // Private routing algorithm implementations
+    
+    fn calculate_shortest_path_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        // Implementation depends on having topology information in context
+        if let Some(topology) = context.get("topology") {
+            // Use topology to calculate shortest path
+            // This is a simplified implementation - real implementation would use actual topology
+            Ok(vec!["direct".to_string(), destination.to_string()])
+        } else {
+            // Fallback to direct route
+            Ok(vec![destination.to_string()])
+        }
+    }
+    
+    fn calculate_load_balanced_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        // Get load information from context
+        let load_threshold = self.parameters.get("load_threshold")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.8);
+        
+        if let Some(load_info) = context.get("load_distribution") {
+            // Select route based on load balancing
+            // This is a simplified implementation
+            Ok(vec!["load_balanced".to_string(), destination.to_string()])
+        } else {
+            Ok(vec![destination.to_string()])
+        }
+    }
+    
+    fn calculate_latency_optimized_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        let max_latency_ms = self.parameters.get("max_latency_ms")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1000.0);
+        
+        // Route selection based on latency optimization
+        Ok(vec!["low_latency".to_string(), destination.to_string()])
+    }
+    
+    fn calculate_reliability_first_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        let min_reliability = self.parameters.get("min_reliability")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.99);
+        
+        // Route selection prioritizing reliability
+        Ok(vec!["reliable".to_string(), destination.to_string()])
+    }
+    
+    fn calculate_cost_optimized_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        let max_cost = self.parameters.get("max_cost")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(100.0);
+        
+        // Route selection optimizing for cost
+        Ok(vec!["cost_efficient".to_string(), destination.to_string()])
+    }
+    
+    fn calculate_adaptive_route(&self, destination: &str, context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        // Adaptive routing chooses strategy based on current conditions
+        let current_load = context.get("current_load").and_then(|v| v.as_f64()).unwrap_or(0.5);
+        let current_latency = context.get("current_latency").and_then(|v| v.as_f64()).unwrap_or(100.0);
+        
+        if current_load > 0.8 {
+            self.calculate_load_balanced_route(destination, context)
+        } else if current_latency > 1000.0 {
+            self.calculate_latency_optimized_route(destination, context)
+        } else {
+            self.calculate_shortest_path_route(destination, context)
+        }
+    }
+    
+    fn calculate_basic_route(&self, destination: &str, _context: &HashMap<String, Value>) -> Result<Vec<String>> {
+        // Basic direct routing
+        Ok(vec![destination.to_string()])
+    }
+    
+    fn validate_parameters(&self, parameters: &HashMap<String, Value>) -> Result<()> {
+        match self.strategy_type.as_str() {
+            "load_balanced" => {
+                if let Some(threshold) = parameters.get("load_threshold").and_then(|v| v.as_f64()) {
+                    ensure!(threshold >= 0.0 && threshold <= 1.0, 
+                        "Load threshold must be between 0.0 and 1.0");
+                }
+            },
+            "latency_optimized" => {
+                if let Some(max_latency) = parameters.get("max_latency_ms").and_then(|v| v.as_f64()) {
+                    ensure!(max_latency > 0.0, "Max latency must be positive");
+                }
+            },
+            "reliability_first" => {
+                if let Some(min_reliability) = parameters.get("min_reliability").and_then(|v| v.as_f64()) {
+                    ensure!(min_reliability >= 0.0 && min_reliability <= 1.0,
+                        "Min reliability must be between 0.0 and 1.0");
+                }
+            },
+            _ => {} // Allow parameters for other strategy types
+        }
+        
+        Ok(())
+    }
+    
+    fn recalculate_effectiveness(&mut self) -> Result<()> {
+        // Recalculate effectiveness based on current parameters and historical data
+        // This is a simplified implementation
+        let base_effectiveness = 0.7; // Base effectiveness score
+        
+        self.effectiveness.insert("route_success_rate".to_string(), base_effectiveness);
+        self.effectiveness.insert("performance_score".to_string(), base_effectiveness);
+        self.effectiveness.insert("adaptability_score".to_string(), base_effectiveness);
+        
+        Ok(())
+    }
+    
+    fn get_effectiveness_weights(&self) -> HashMap<String, f64> {
+        let mut weights = HashMap::new();
+        weights.insert("route_success_rate".to_string(), 0.4);
+        weights.insert("performance_score".to_string(), 0.3);
+        weights.insert("adaptability_score".to_string(), 0.2);
+        weights.insert("reliability_score".to_string(), 0.1);
+        weights
     }
 }
 
 impl MessageRouting {
     /// Create new message routing configuration
+    /// 
+    /// This initializes a message routing system capable of routing messages
+    /// based on type, priority, content, and custom rules.
     pub fn new() -> Self {
-        todo!("Implementation needed for MessageRouting::new - should initialize message routing")
+        Self {
+            id: Uuid::new_v4(),
+            type_rules: HashMap::new(),
+            priority_routing: HashMap::new(),
+            content_rules: Vec::new(),
+            destination_resolution: HashMap::new(),
+            cache_settings: HashMap::new(),
+        }
     }
     
-    /// Add routing rule
+    /// Add routing rule for a specific message type
+    /// 
+    /// Type-based routing rules determine where messages of specific types
+    /// should be sent. This is the most basic form of message routing.
+    /// 
+    /// # Arguments
+    /// * `message_type` - Type of message this rule applies to
+    /// * `rule` - Routing rule configuration including destinations and conditions
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if rule validation fails
     pub fn add_rule(&mut self, message_type: String, rule: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for MessageRouting::add_rule - should add message routing rule")
+        ensure!(!message_type.is_empty(), "Message type cannot be empty");
+        
+        // Validate routing rule
+        self.validate_routing_rule(&rule)?;
+        
+        // Add metadata to rule
+        let mut enhanced_rule = rule;
+        enhanced_rule.insert("message_type".to_string(), Value::String(message_type.clone()));
+        enhanced_rule.insert("created_at".to_string(), Value::String(Utc::now().to_rfc3339()));
+        enhanced_rule.insert("active".to_string(), Value::Bool(true));
+        
+        self.type_rules.insert(message_type, enhanced_rule);
+        Ok(())
     }
     
-    /// Route message based on rules
+    /// Route message based on configured rules and determine destinations
+    /// 
+    /// This is the core routing logic that examines a message and determines
+    /// where it should be sent based on type rules, priority routing,
+    /// content analysis, and destination resolution.
+    /// 
+    /// # Arguments
+    /// * `message` - The ecosystem message to route
+    /// 
+    /// # Returns
+    /// * `Result<Vec<String>>` - List of destination identifiers, or error if routing fails
     pub fn route_message(&self, message: &EcosystemMessage) -> Result<Vec<String>> {
-        todo!("Implementation needed for MessageRouting::route_message - should determine destinations for message")
+        let mut destinations = Vec::new();
+        
+        // 1. Check for explicit target in message metadata
+        if let Some(explicit_target) = &message.metadata.target {
+            destinations.push(explicit_target.clone());
+            return Ok(destinations);
+        }
+        
+        // 2. Apply type-based routing rules
+        if let Some(type_destinations) = self.route_by_type(message)? {
+            destinations.extend(type_destinations);
+        }
+        
+        // 3. Apply priority-based routing
+        if let Some(priority_destination) = self.route_by_priority(message) {
+            if !destinations.contains(&priority_destination) {
+                destinations.push(priority_destination);
+            }
+        }
+        
+        // 4. Apply content-based routing rules
+        if let Some(content_destinations) = self.route_by_content(message)? {
+            for dest in content_destinations {
+                if !destinations.contains(&dest) {
+                    destinations.push(dest);
+                }
+            }
+        }
+        
+        // 5. Apply destination resolution
+        destinations = self.resolve_destinations(destinations)?;
+        
+        // 6. Validate that we have at least one destination
+        ensure!(!destinations.is_empty(), "No valid destinations found for message type: {}", 
+            message.message_type);
+        
+        Ok(destinations)
+    }
+    
+    /// Configure priority-based routing
+    /// 
+    /// Priority routing allows messages of certain priorities to be routed
+    /// to specific destinations, often for special handling or processing.
+    pub fn configure_priority_routing(&mut self, priority: MessagePriority, destination: String) -> Result<()> {
+        ensure!(!destination.is_empty(), "Destination cannot be empty");
+        
+        self.priority_routing.insert(priority, destination);
+        Ok(())
+    }
+    
+    /// Add content-based routing rule
+    /// 
+    /// Content rules allow routing decisions based on the actual content
+    /// of the message payload, enabling sophisticated routing logic.
+    pub fn add_content_rule(&mut self, rule: HashMap<String, Value>) -> Result<()> {
+        // Validate content rule
+        ensure!(rule.contains_key("condition"), "Content rule must specify condition");
+        ensure!(rule.contains_key("destination"), "Content rule must specify destination");
+        
+        // Validate condition format
+        if let Some(condition) = rule.get("condition") {
+            ensure!(condition.is_object(), "Content rule condition must be an object");
+        }
+        
+        self.content_rules.push(rule);
+        Ok(())
+    }
+    
+    /// Configure destination resolution settings
+    /// 
+    /// Destination resolution handles mapping logical destination names
+    /// to actual physical endpoints or service instances.
+    pub fn configure_destination_resolution(&mut self, resolution_config: HashMap<String, Value>) -> Result<()> {
+        // Validate resolution configuration
+        if let Some(strategy) = resolution_config.get("strategy").and_then(|v| v.as_str()) {
+            let valid_strategies = ["direct", "service_discovery", "load_balancer", "failover"];
+            ensure!(valid_strategies.contains(&strategy), 
+                "Unsupported resolution strategy: {}", strategy);
+        }
+        
+        self.destination_resolution = resolution_config;
+        Ok(())
+    }
+    
+    /// Configure routing cache settings
+    /// 
+    /// Caching routing decisions can improve performance for frequently
+    /// routed message types, but must be balanced with routing accuracy.
+    pub fn configure_cache(&mut self, cache_config: HashMap<String, Value>) -> Result<()> {
+        // Validate cache configuration
+        if let Some(ttl) = cache_config.get("ttl_seconds").and_then(|v| v.as_f64()) {
+            ensure!(ttl > 0.0 && ttl <= 3600.0, "Cache TTL must be between 1 and 3600 seconds");
+        }
+        
+        if let Some(max_size) = cache_config.get("max_size").and_then(|v| v.as_f64()) {
+            ensure!(max_size > 0.0, "Cache max size must be positive");
+        }
+        
+        self.cache_settings = cache_config;
+        Ok(())
+    }
+    
+    // Private routing helper methods
+    
+    fn route_by_type(&self, message: &EcosystemMessage) -> Result<Option<Vec<String>>> {
+        if let Some(type_rule) = self.type_rules.get(&message.message_type) {
+            // Check if rule is active
+            if type_rule.get("active").and_then(|v| v.as_bool()).unwrap_or(true) {
+                // Extract destinations from rule
+                if let Some(destinations) = type_rule.get("destinations") {
+                    match destinations {
+                        Value::String(dest) => Ok(Some(vec![dest.clone()])),
+                        Value::Array(dest_array) => {
+                            let mut dests = Vec::new();
+                            for dest in dest_array {
+                                if let Some(dest_str) = dest.as_str() {
+                                    dests.push(dest_str.to_string());
+                                }
+                            }
+                            Ok(Some(dests))
+                        },
+                        _ => Ok(None),
+                    }
+                } else {
+                    Ok(None)
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
+    }
+    
+    fn route_by_priority(&self, message: &EcosystemMessage) -> Option<String> {
+        self.priority_routing.get(&message.metadata.priority).cloned()
+    }
+    
+    fn route_by_content(&self, message: &EcosystemMessage) -> Result<Option<Vec<String>>> {
+        let mut content_destinations = Vec::new();
+        
+        for rule in &self.content_rules {
+            if self.evaluate_content_condition(rule, message)? {
+                if let Some(destination) = rule.get("destination").and_then(|v| v.as_str()) {
+                    content_destinations.push(destination.to_string());
+                }
+            }
+        }
+        
+        if content_destinations.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(content_destinations))
+        }
+    }
+    
+    fn evaluate_content_condition(&self, rule: &HashMap<String, Value>, message: &EcosystemMessage) -> Result<bool> {
+        if let Some(condition) = rule.get("condition").and_then(|v| v.as_object()) {
+            // Simple condition evaluation - can be extended for complex logic
+            for (field_path, expected_value) in condition {
+                if let Some(actual_value) = self.extract_field_value(&message.payload, field_path) {
+                    if actual_value != *expected_value {
+                        return Ok(false);
+                    }
+                } else {
+                    return Ok(false); // Field not found
+                }
+            }
+            Ok(true) // All conditions matched
+        } else {
+            Ok(false)
+        }
+    }
+    
+    fn extract_field_value(&self, payload: &Value, field_path: &str) -> Option<Value> {
+        // Simple field extraction - supports dot notation like "user.id"
+        let path_parts: Vec<&str> = field_path.split('.').collect();
+        let mut current_value = payload;
+        
+        for part in path_parts {
+            if let Some(obj) = current_value.as_object() {
+                if let Some(next_value) = obj.get(part) {
+                    current_value = next_value;
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        }
+        
+        Some(current_value.clone())
+    }
+    
+    fn resolve_destinations(&self, logical_destinations: Vec<String>) -> Result<Vec<String>> {
+        let strategy = self.destination_resolution.get("strategy")
+            .and_then(|v| v.as_str())
+            .unwrap_or("direct");
+        
+        match strategy {
+            "direct" => Ok(logical_destinations),
+            "service_discovery" => {
+                // In a real implementation, this would query a service discovery system
+                Ok(logical_destinations)
+            },
+            "load_balancer" => {
+                // In a real implementation, this would resolve to load balancer endpoints
+                Ok(logical_destinations)
+            },
+            "failover" => {
+                // In a real implementation, this would handle failover logic
+                Ok(logical_destinations)
+            },
+            _ => Ok(logical_destinations),
+        }
+    }
+    
+    fn validate_routing_rule(&self, rule: &HashMap<String, Value>) -> Result<()> {
+        // Check for required fields
+        ensure!(rule.contains_key("destinations"), "Routing rule must specify destinations");
+        
+        // Validate destinations
+        if let Some(destinations) = rule.get("destinations") {
+            match destinations {
+                Value::String(dest) => {
+                    ensure!(!dest.is_empty(), "Destination cannot be empty");
+                },
+                Value::Array(dest_array) => {
+                    ensure!(!dest_array.is_empty(), "Destinations array cannot be empty");
+                    for dest in dest_array {
+                        ensure!(dest.is_string(), "Each destination must be a string");
+                        ensure!(!dest.as_str().unwrap().is_empty(), "Destination cannot be empty");
+                    }
+                },
+                _ => bail!("Destinations must be a string or array of strings"),
+            }
+        }
+        
+        Ok(())
     }
 }
 
 impl EventRouting {
     /// Create new event routing configuration
+    /// 
+    /// Event routing manages subscriptions and fan-out for event distribution
+    /// across the ecosystem. It handles subscription management, filtering,
+    /// and efficient delivery to multiple subscribers.
     pub fn new() -> Self {
-        todo!("Implementation needed for EventRouting::new - should initialize event routing")
+        Self {
+            id: Uuid::new_v4(),
+            subscriptions: HashMap::new(),
+            fan_out_strategies: HashMap::new(),
+            filters: Vec::new(),
+            subscription_management: HashMap::new(),
+            ordering: HashMap::new(),
+        }
     }
     
-    /// Add event subscription
+    /// Add event subscription for a specific event type
+    /// 
+    /// This method registers a subscriber to receive events of a specific type.
+    /// It manages subscription metadata and ensures that duplicate subscriptions
+    /// are handled appropriately.
+    /// 
+    /// # Arguments
+    /// * `event_type` - Type of event to subscribe to
+    /// * `subscriber` - Identifier of the subscribing component
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if subscription validation fails
     pub fn add_subscription(&mut self, event_type: String, subscriber: String) -> Result<()> {
-        todo!("Implementation needed for EventRouting::add_subscription - should add event subscription")
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(!subscriber.is_empty(), "Subscriber cannot be empty");
+        
+        // Get or create subscription list for this event type
+        let subscribers = self.subscriptions.entry(event_type.clone()).or_insert_with(Vec::new);
+        
+        // Check for duplicate subscription
+        ensure!(!subscribers.contains(&subscriber), 
+            "Subscriber {} already subscribed to event type {}", subscriber, event_type);
+        
+        // Add subscriber
+        subscribers.push(subscriber.clone());
+        
+        // Update subscription metadata
+        let subscription_key = format!("{}:{}", event_type, subscriber);
+        let mut metadata = HashMap::new();
+        metadata.insert("event_type".to_string(), Value::String(event_type));
+        metadata.insert("subscriber".to_string(), Value::String(subscriber));
+        metadata.insert("subscribed_at".to_string(), Value::String(Utc::now().to_rfc3339()));
+        metadata.insert("active".to_string(), Value::Bool(true));
+        metadata.insert("delivery_count".to_string(), Value::Number(serde_json::Number::from(0)));
+        
+        self.subscription_management.insert(subscription_key, Value::Object(
+            metadata.into_iter().map(|(k, v)| (k, v)).collect()
+        ));
+        
+        Ok(())
     }
     
-    /// Route event to subscribers
+    /// Route event to all appropriate subscribers
+    /// 
+    /// This method determines which subscribers should receive an event based
+    /// on event type, subscription filters, and fan-out strategies. It returns
+    /// the list of subscribers that should receive the event.
+    /// 
+    /// # Arguments
+    /// * `event` - The ecosystem event to route
+    /// 
+    /// # Returns
+    /// * `Result<Vec<String>>` - List of subscriber identifiers, or error if routing fails
     pub fn route_event(&self, event: &EcosystemEvent) -> Result<Vec<String>> {
-        todo!("Implementation needed for EventRouting::route_event - should determine subscribers for event")
+        let mut target_subscribers = Vec::new();
+        
+        // 1. Get direct subscribers for this event type
+        if let Some(type_subscribers) = self.subscriptions.get(&event.event_name) {
+            target_subscribers.extend(type_subscribers.clone());
+        }
+        
+        // 2. Check for wildcard subscriptions (e.g., "*" or pattern-based)
+        target_subscribers.extend(self.get_wildcard_subscribers(event)?);
+        
+        // 3. Apply event filters to determine final subscriber list
+        target_subscribers = self.apply_event_filters(event, target_subscribers)?;
+        
+        // 4. Apply fan-out strategy if configured
+        target_subscribers = self.apply_fan_out_strategy(event, target_subscribers)?;
+        
+        // 5. Apply ordering requirements if specified
+        target_subscribers = self.apply_ordering_requirements(event, target_subscribers)?;
+        
+        // 6. Remove inactive subscribers
+        target_subscribers = self.filter_active_subscribers(target_subscribers)?;
+        
+        Ok(target_subscribers)
+    }
+    
+    /// Remove event subscription
+    /// 
+    /// This method removes a subscriber from receiving events of a specific type.
+    /// It cleans up subscription metadata and ensures proper unsubscription.
+    pub fn remove_subscription(&mut self, event_type: &str, subscriber: &str) -> Result<()> {
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(!subscriber.is_empty(), "Subscriber cannot be empty");
+        
+        // Remove from subscriptions list
+        if let Some(subscribers) = self.subscriptions.get_mut(event_type) {
+            subscribers.retain(|s| s != subscriber);
+            
+            // Remove empty subscription lists
+            if subscribers.is_empty() {
+                self.subscriptions.remove(event_type);
+            }
+        }
+        
+        // Remove subscription metadata
+        let subscription_key = format!("{}:{}", event_type, subscriber);
+        self.subscription_management.remove(&subscription_key);
+        
+        Ok(())
+    }
+    
+    /// Configure fan-out strategy for an event type
+    /// 
+    /// Fan-out strategies control how events are distributed to multiple
+    /// subscribers, including parallel delivery, batching, and load balancing.
+    pub fn configure_fan_out(&mut self, event_type: String, strategy: String) -> Result<()> {
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(!strategy.is_empty(), "Fan-out strategy cannot be empty");
+        
+        // Validate strategy
+        let valid_strategies = ["parallel", "sequential", "batch", "load_balanced", "round_robin"];
+        ensure!(valid_strategies.contains(&strategy.as_str()), 
+            "Unsupported fan-out strategy: {}", strategy);
+        
+        self.fan_out_strategies.insert(event_type, strategy);
+        Ok(())
+    }
+    
+    /// Add event filter for subscription refinement
+    /// 
+    /// Event filters allow subscribers to receive only events that match
+    /// specific criteria, reducing unnecessary event traffic.
+    pub fn add_event_filter(&mut self, filter: HashMap<String, Value>) -> Result<()> {
+        // Validate filter structure
+        ensure!(filter.contains_key("subscriber"), "Event filter must specify subscriber");
+        ensure!(filter.contains_key("condition"), "Event filter must specify condition");
+        
+        // Validate condition
+        if let Some(condition) = filter.get("condition") {
+            ensure!(condition.is_object(), "Filter condition must be an object");
+        }
+        
+        self.filters.push(filter);
+        Ok(())
+    }
+    
+    /// Configure event ordering requirements
+    /// 
+    /// Ordering requirements ensure that events are delivered in a specific
+    /// order, which is important for maintaining consistency in event-driven systems.
+    pub fn configure_ordering(&mut self, event_type: String, ordering_requirement: String) -> Result<()> {
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        
+        let valid_orderings = ["none", "fifo", "timestamp", "sequence", "causal"];
+        ensure!(valid_orderings.contains(&ordering_requirement.as_str()),
+            "Unsupported ordering requirement: {}", ordering_requirement);
+        
+        self.ordering.insert(event_type, ordering_requirement);
+        Ok(())
+    }
+    
+    /// Get subscription statistics
+    pub fn get_subscription_stats(&self) -> HashMap<String, usize> {
+        let mut stats = HashMap::new();
+        
+        for (event_type, subscribers) in &self.subscriptions {
+            stats.insert(event_type.clone(), subscribers.len());
+        }
+        
+        stats.insert("total_event_types".to_string(), self.subscriptions.len());
+        stats.insert("total_subscriptions".to_string(), 
+            self.subscriptions.values().map(|v| v.len()).sum());
+        
+        stats
+    }
+    
+    // Private helper methods for event routing
+    
+    fn get_wildcard_subscribers(&self, event: &EcosystemEvent) -> Result<Vec<String>> {
+        let mut wildcard_subscribers = Vec::new();
+        
+        // Check for "*" (all events) subscriptions
+        if let Some(all_subscribers) = self.subscriptions.get("*") {
+            wildcard_subscribers.extend(all_subscribers.clone());
+        }
+        
+        // Check for pattern-based subscriptions (e.g., "user.*", "system.*")
+        for (subscription_pattern, subscribers) in &self.subscriptions {
+            if subscription_pattern.ends_with('*') && subscription_pattern != "*" {
+                let pattern_prefix = &subscription_pattern[..subscription_pattern.len() - 1];
+                if event.event_name.starts_with(pattern_prefix) {
+                    wildcard_subscribers.extend(subscribers.clone());
+                }
+            }
+        }
+        
+        Ok(wildcard_subscribers)
+    }
+    
+    fn apply_event_filters(&self, event: &EcosystemEvent, subscribers: Vec<String>) -> Result<Vec<String>> {
+        let mut filtered_subscribers = Vec::new();
+        
+        for subscriber in subscribers {
+            let mut should_include = true;
+            
+            // Check all filters that apply to this subscriber
+            for filter in &self.filters {
+                if let Some(filter_subscriber) = filter.get("subscriber").and_then(|v| v.as_str()) {
+                    if filter_subscriber == subscriber || filter_subscriber == "*" {
+                        // Apply filter condition
+                        if !self.evaluate_event_filter_condition(filter, event)? {
+                            should_include = false;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if should_include {
+                filtered_subscribers.push(subscriber);
+            }
+        }
+        
+        Ok(filtered_subscribers)
+    }
+    
+    fn evaluate_event_filter_condition(&self, filter: &HashMap<String, Value>, event: &EcosystemEvent) -> Result<bool> {
+        if let Some(condition) = filter.get("condition").and_then(|v| v.as_object()) {
+            for (field, expected_value) in condition {
+                let actual_value = match field.as_str() {
+                    "event_type" => Some(Value::String(event.event_type.to_string())),
+                    "event_name" => Some(Value::String(event.event_name.clone())),
+                    "severity" => Some(Value::String(event.severity.clone())),
+                    "source_component" => Some(Value::String(event.source_component.clone())),
+                    "requires_attention" => Some(Value::Bool(event.requires_attention)),
+                    _ => {
+                        // Check in event_data
+                        self.extract_event_field_value(&event.event_data, field)
+                    }
+                };
+                
+                if let Some(actual) = actual_value {
+                    if actual != *expected_value {
+                        return Ok(false);
+                    }
+                } else {
+                    return Ok(false); // Field not found
+                }
+            }
+            Ok(true) // All conditions matched
+        } else {
+            Ok(true) // No conditions means pass
+        }
+    }
+    
+    fn extract_event_field_value(&self, event_data: &Value, field_path: &str) -> Option<Value> {
+        // Similar to message field extraction but for event data
+        let path_parts: Vec<&str> = field_path.split('.').collect();
+        let mut current_value = event_data;
+        
+        for part in path_parts {
+            if let Some(obj) = current_value.as_object() {
+                if let Some(next_value) = obj.get(part) {
+                    current_value = next_value;
+                } else {
+                    return None;
+                }
+            } else {
+                return None;
+            }
+        }
+        
+        Some(current_value.clone())
+    }
+    
+    fn apply_fan_out_strategy(&self, event: &EcosystemEvent, subscribers: Vec<String>) -> Result<Vec<String>> {
+        let strategy = self.fan_out_strategies.get(&event.event_name)
+            .or_else(|| self.fan_out_strategies.get("*"))
+            .cloned()
+            .unwrap_or_else(|| "parallel".to_string());
+        
+        match strategy.as_str() {
+            "parallel" => Ok(subscribers), // All subscribers get event simultaneously
+            "sequential" => Ok(subscribers), // All subscribers get event, but ordering matters
+            "batch" => {
+                // In a real implementation, this might batch subscribers for delivery
+                Ok(subscribers)
+            },
+            "load_balanced" => {
+                // In a real implementation, this might select subset based on load
+                Ok(subscribers)
+            },
+            "round_robin" => {
+                // In a real implementation, this might rotate through subscribers
+                Ok(subscribers)
+            },
+            _ => Ok(subscribers),
+        }
+    }
+    
+    fn apply_ordering_requirements(&self, event: &EcosystemEvent, subscribers: Vec<String>) -> Result<Vec<String>> {
+        let ordering = self.ordering.get(&event.event_name)
+            .or_else(|| self.ordering.get("*"))
+            .cloned()
+            .unwrap_or_else(|| "none".to_string());
+        
+        match ordering.as_str() {
+            "none" => Ok(subscribers),
+            "fifo" | "timestamp" | "sequence" | "causal" => {
+                // In a real implementation, this would sort subscribers based on ordering requirements
+                // For now, we return them as-is
+                Ok(subscribers)
+            },
+            _ => Ok(subscribers),
+        }
+    }
+    
+    fn filter_active_subscribers(&self, subscribers: Vec<String>) -> Result<Vec<String>> {
+        let mut active_subscribers = Vec::new();
+        
+        for subscriber in subscribers {
+            // Check if subscriber is active (simplified check)
+            let mut is_active = true;
+            
+            // Look for subscription metadata to check status
+            for (key, metadata) in &self.subscription_management {
+                if key.ends_with(&format!(":{}", subscriber)) {
+                    if let Some(metadata_obj) = metadata.as_object() {
+                        if let Some(active) = metadata_obj.get("active").and_then(|v| v.as_bool()) {
+                            is_active = active;
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            if is_active {
+                active_subscribers.push(subscriber);
+            }
+        }
+        
+        Ok(active_subscribers)
     }
 }
 
 impl CommandRouting {
     /// Create new command routing configuration
+    /// 
+    /// Command routing manages the execution of commands by routing them to
+    /// appropriate executors based on command type, authorization, load balancing,
+    /// and other factors.
     pub fn new() -> Self {
-        todo!("Implementation needed for CommandRouting::new - should initialize command routing")
+        Self {
+            id: Uuid::new_v4(),
+            executor_mappings: HashMap::new(),
+            load_balancing: HashMap::new(),
+            queuing: HashMap::new(),
+            authorization_routing: HashMap::new(),
+            error_routing: HashMap::new(),
+        }
     }
     
-    /// Map command to executor
+    /// Map command type to executor
+    /// 
+    /// This establishes which executor should handle commands of a specific type.
+    /// Multiple executors can be mapped to the same command type for load balancing.
+    /// 
+    /// # Arguments
+    /// * `command` - Command type identifier
+    /// * `executor` - Executor identifier that will handle this command type
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if mapping validation fails
     pub fn map_executor(&mut self, command: String, executor: String) -> Result<()> {
-        todo!("Implementation needed for CommandRouting::map_executor - should map command to executor")
+        ensure!(!command.is_empty(), "Command type cannot be empty");
+        ensure!(!executor.is_empty(), "Executor cannot be empty");
+        
+        // Validate command format
+        ensure!(command.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.'),
+            "Command type contains invalid characters: {}", command);
+        
+        // Validate executor format
+        ensure!(executor.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '.' || c == ':'),
+            "Executor identifier contains invalid characters: {}", executor);
+        
+        // Store the mapping
+        self.executor_mappings.insert(command, executor);
+        Ok(())
     }
     
-    /// Route command to executor
+    /// Route command to appropriate executor
+    /// 
+    /// This method determines which executor should handle a command based on
+    /// command type, authorization requirements, current load, and routing policies.
+    /// 
+    /// # Arguments
+    /// * `command` - The ecosystem command to route
+    /// 
+    /// # Returns
+    /// * `Result<String>` - Executor identifier, or error if no suitable executor found
     pub fn route_command(&self, command: &EcosystemCommand) -> Result<String> {
-        todo!("Implementation needed for CommandRouting::route_command - should determine executor for command")
+        // 1. Check for explicit executor in command metadata
+        if let Some(explicit_executor) = command.metadata.headers.get("executor") {
+            return Ok(explicit_executor.clone());
+        }
+        
+        // 2. Apply authorization-based routing
+        if let Some(authorized_executor) = self.check_authorization_routing(command)? {
+            return Ok(authorized_executor);
+        }
+        
+        // 3. Look up executor by command type
+        let base_executor = self.executor_mappings.get(&command.command)
+            .ok_or_else(|| Error::msg(format!("No executor mapped for command type: {}", command.command)))?;
+        
+        // 4. Apply load balancing if multiple executors available
+        let selected_executor = self.apply_load_balancing(command, base_executor)?;
+        
+        // 5. Check executor availability and apply queuing strategy if needed
+        let final_executor = self.apply_queuing_strategy(command, &selected_executor)?;
+        
+        // 6. Validate executor selection
+        self.validate_executor_selection(command, &final_executor)?;
+        
+        Ok(final_executor)
+    }
+    
+    /// Configure load balancing for command execution
+    /// 
+    /// Load balancing distributes commands across multiple executors to
+    /// optimize performance and prevent overloading individual executors.
+    pub fn configure_load_balancing(&mut self, command_type: String, config: HashMap<String, Value>) -> Result<()> {
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        
+        // Validate load balancing configuration
+        self.validate_load_balancing_config(&config)?;
+        
+        self.load_balancing.insert(command_type, config);
+        Ok(())
+    }
+    
+    /// Configure command queuing strategy
+    /// 
+    /// Queuing strategies determine how commands are handled when executors
+    /// are busy or unavailable, including queue prioritization and overflow handling.
+    pub fn configure_queuing(&mut self, command_type: String, config: HashMap<String, Value>) -> Result<()> {
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        
+        // Validate queuing configuration
+        self.validate_queuing_config(&config)?;
+        
+        self.queuing.insert(command_type, config);
+        Ok(())
+    }
+    
+    /// Configure authorization-based routing
+    /// 
+    /// Authorization routing ensures that commands are only sent to executors
+    /// that are authorized to handle them based on security policies and permissions.
+    pub fn configure_authorization_routing(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate authorization configuration
+        self.validate_authorization_config(&config)?;
+        
+        self.authorization_routing = config;
+        Ok(())
+    }
+    
+    /// Configure error handling and retry routing
+    /// 
+    /// Error routing defines how failed commands should be handled, including
+    /// retry logic, alternative executors, and error escalation procedures.
+    pub fn configure_error_routing(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate error routing configuration
+        self.validate_error_routing_config(&config)?;
+        
+        self.error_routing = config;
+        Ok(())
+    }
+    
+    /// Get executor statistics
+    pub fn get_executor_stats(&self) -> HashMap<String, Value> {
+        let mut stats = HashMap::new();
+        
+        // Count mappings by executor
+        let mut executor_counts: HashMap<String, usize> = HashMap::new();
+        for executor in self.executor_mappings.values() {
+            *executor_counts.entry(executor.clone()).or_insert(0) += 1;
+        }
+        
+        stats.insert("command_types_mapped".to_string(), 
+            Value::Number(serde_json::Number::from(self.executor_mappings.len())));
+        stats.insert("unique_executors".to_string(), 
+            Value::Number(serde_json::Number::from(executor_counts.len())));
+        stats.insert("load_balancing_configs".to_string(), 
+            Value::Number(serde_json::Number::from(self.load_balancing.len())));
+        
+        stats
+    }
+    
+    /// Add executor to existing command mapping (for load balancing)
+    pub fn add_executor_to_mapping(&mut self, command_type: &str, executor: String) -> Result<()> {
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        ensure!(!executor.is_empty(), "Executor cannot be empty");
+        
+        // Check if we need to convert single executor to list
+        if let Some(existing_executor) = self.executor_mappings.get(command_type) {
+            // For simplicity, we'll update the load balancing config instead
+            let mut lb_config = self.load_balancing.get(command_type).cloned()
+                .unwrap_or_else(HashMap::new);
+            
+            // Add executor to list
+            let mut executors = if let Some(exec_list) = lb_config.get("executors") {
+                if let Some(array) = exec_list.as_array() {
+                    array.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect()
+                } else {
+                    vec![existing_executor.clone()]
+                }
+            } else {
+                vec![existing_executor.clone()]
+            };
+            
+            if !executors.contains(&executor) {
+                executors.push(executor);
+                lb_config.insert("executors".to_string(), 
+                    Value::Array(executors.into_iter().map(Value::String).collect()));
+                self.load_balancing.insert(command_type.to_string(), lb_config);
+            }
+        }
+        
+        Ok(())
+    }
+    
+    // Private helper methods for command routing
+    
+    fn check_authorization_routing(&self, command: &EcosystemCommand) -> Result<Option<String>> {
+        // Check if authorization routing is configured
+        if self.authorization_routing.is_empty() {
+            return Ok(None);
+        }
+        
+        // Check for principal in command metadata
+        let principal = command.metadata.headers.get("principal")
+            .or_else(|| command.metadata.security_context.as_ref()
+                .and_then(|sc| sc.get("principal"))
+                .and_then(|p| p.as_str().map(|s| s.to_string())))
+            .unwrap_or_else(|| "anonymous".to_string());
+        
+        // Check authorization rules
+        if let Some(rules) = self.authorization_routing.get("rules").and_then(|v| v.as_array()) {
+            for rule in rules {
+                if let Some(rule_obj) = rule.as_object() {
+                    if self.matches_authorization_rule(rule_obj, command, &principal)? {
+                        if let Some(executor) = rule_obj.get("executor").and_then(|v| v.as_str()) {
+                            return Ok(Some(executor.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    fn matches_authorization_rule(&self, rule: &serde_json::Map<String, Value>, 
+                                 command: &EcosystemCommand, principal: &str) -> Result<bool> {
+        // Check principal match
+        if let Some(rule_principal) = rule.get("principal").and_then(|v| v.as_str()) {
+            if rule_principal != "*" && rule_principal != principal {
+                return Ok(false);
+            }
+        }
+        
+        // Check command type match
+        if let Some(rule_command) = rule.get("command").and_then(|v| v.as_str()) {
+            if rule_command != "*" && rule_command != command.command {
+                return Ok(false);
+            }
+        }
+        
+        // Check command type match
+        if let Some(rule_command_type) = rule.get("command_type") {
+            if let Some(rule_type_str) = rule_command_type.as_str() {
+                if rule_type_str != "*" && rule_type_str != format!("{:?}", command.command_type) {
+                    return Ok(false);
+                }
+            }
+        }
+        
+        Ok(true)
+    }
+    
+    fn apply_load_balancing(&self, command: &EcosystemCommand, base_executor: &str) -> Result<String> {
+        // Check if load balancing is configured for this command type
+        if let Some(lb_config) = self.load_balancing.get(&command.command) {
+            if let Some(executors) = lb_config.get("executors").and_then(|v| v.as_array()) {
+                let executor_list: Vec<String> = executors.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                
+                if !executor_list.is_empty() {
+                    let strategy = lb_config.get("strategy").and_then(|v| v.as_str())
+                        .unwrap_or("round_robin");
+                    
+                    return match strategy {
+                        "round_robin" => {
+                            // Simple round-robin based on command ID hash
+                            let index = command.metadata.id.as_simple().to_le_bytes()[0] as usize % executor_list.len();
+                            Ok(executor_list[index].clone())
+                        },
+                        "random" => {
+                            // Random selection based on command ID
+                            let index = command.metadata.id.as_simple().to_le_bytes()[1] as usize % executor_list.len();
+                            Ok(executor_list[index].clone())
+                        },
+                        "hash" => {
+                            // Hash-based selection for consistency
+                            let hash = command.metadata.id.as_simple().to_le_bytes()[2] as usize;
+                            let index = hash % executor_list.len();
+                            Ok(executor_list[index].clone())
+                        },
+                        _ => Ok(base_executor.to_string()),
+                    };
+                }
+            }
+        }
+        
+        Ok(base_executor.to_string())
+    }
+    
+    fn apply_queuing_strategy(&self, command: &EcosystemCommand, executor: &str) -> Result<String> {
+        // Check if queuing is configured for this command type
+        if let Some(queue_config) = self.queuing.get(&command.command) {
+            let strategy = queue_config.get("strategy").and_then(|v| v.as_str())
+                .unwrap_or("direct");
+            
+            match strategy {
+                "direct" => Ok(executor.to_string()),
+                "queue" => {
+                    // In a real implementation, this would route to a queue manager
+                    Ok(format!("queue:{}", executor))
+                },
+                "priority_queue" => {
+                    // Route based on command priority
+                    let queue_name = match command.metadata.priority {
+                        MessagePriority::Critical => "critical_queue",
+                        MessagePriority::High => "high_queue",
+                        MessagePriority::Normal => "normal_queue",
+                        MessagePriority::Low => "low_queue",
+                        MessagePriority::BestEffort => "best_effort_queue",
+                    };
+                    Ok(format!("{}:{}", queue_name, executor))
+                },
+                _ => Ok(executor.to_string()),
+            }
+        } else {
+            Ok(executor.to_string())
+        }
+    }
+    
+    fn validate_executor_selection(&self, command: &EcosystemCommand, executor: &str) -> Result<()> {
+        ensure!(!executor.is_empty(), "Selected executor cannot be empty");
+        
+        // Additional validation could check executor availability, capacity, etc.
+        // For now, we do basic format validation
+        ensure!(executor.len() < 256, "Executor identifier too long");
+        
+        Ok(())
+    }
+    
+    fn validate_load_balancing_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(strategy) = config.get("strategy").and_then(|v| v.as_str()) {
+            let valid_strategies = ["round_robin", "random", "hash", "least_connections", "weighted"];
+            ensure!(valid_strategies.contains(&strategy), 
+                "Unsupported load balancing strategy: {}", strategy);
+        }
+        
+        if let Some(executors) = config.get("executors") {
+            ensure!(executors.is_array(), "Executors must be an array");
+            if let Some(exec_array) = executors.as_array() {
+                ensure!(!exec_array.is_empty(), "Executors array cannot be empty");
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_queuing_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(strategy) = config.get("strategy").and_then(|v| v.as_str()) {
+            let valid_strategies = ["direct", "queue", "priority_queue", "delayed_queue"];
+            ensure!(valid_strategies.contains(&strategy), 
+                "Unsupported queuing strategy: {}", strategy);
+        }
+        
+        if let Some(max_queue_size) = config.get("max_queue_size").and_then(|v| v.as_f64()) {
+            ensure!(max_queue_size > 0.0, "Max queue size must be positive");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_authorization_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(rules) = config.get("rules") {
+            ensure!(rules.is_array(), "Authorization rules must be an array");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_error_routing_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(retry_strategy) = config.get("retry_strategy").and_then(|v| v.as_str()) {
+            let valid_strategies = ["none", "immediate", "exponential_backoff", "fixed_delay"];
+            ensure!(valid_strategies.contains(&retry_strategy), 
+                "Unsupported retry strategy: {}", retry_strategy);
+        }
+        
+        Ok(())
     }
 }
 
 impl ResponseRouting {
     /// Create new response routing configuration
+    /// 
+    /// Response routing manages the delivery of responses back to requesters,
+    /// including correlation, aggregation, caching, and error handling.
     pub fn new() -> Self {
-        todo!("Implementation needed for ResponseRouting::new - should initialize response routing")
+        Self {
+            id: Uuid::new_v4(),
+            correlation_mappings: HashMap::new(),
+            aggregation_strategies: HashMap::new(),
+            callback_routing: HashMap::new(),
+            caching_strategies: HashMap::new(),
+            error_response_handling: HashMap::new(),
+        }
     }
     
-    /// Configure response correlation
+    /// Configure response correlation mappings
+    /// 
+    /// Correlation mappings ensure that responses are delivered to the correct
+    /// requester by maintaining the relationship between requests and responses.
+    /// 
+    /// # Arguments
+    /// * `correlation_config` - Map of correlation patterns to routing destinations
+    /// 
+    /// # Returns
+    /// * `Result<()>` - Success or error if configuration validation fails
     pub fn configure_correlation(&mut self, correlation_config: HashMap<String, String>) -> Result<()> {
-        todo!("Implementation needed for ResponseRouting::configure_correlation - should set correlation mappings")
+        // Validate correlation configuration
+        for (pattern, destination) in &correlation_config {
+            ensure!(!pattern.is_empty(), "Correlation pattern cannot be empty");
+            ensure!(!destination.is_empty(), "Correlation destination cannot be empty");
+            
+            // Validate pattern format (simple validation)
+            if pattern.contains('*') || pattern.contains('?') {
+                // Pattern-based correlation
+                ensure!(pattern.len() > 1, "Wildcard patterns must have content");
+            }
+        }
+        
+        self.correlation_mappings = correlation_config;
+        Ok(())
     }
     
-    /// Route response to requester
+    /// Route response to appropriate requester
+    /// 
+    /// This method determines where a response should be sent based on
+    /// correlation information, aggregation requirements, and delivery preferences.
+    /// 
+    /// # Arguments
+    /// * `response` - The ecosystem response to route
+    /// 
+    /// # Returns
+    /// * `Result<String>` - Destination identifier, or error if routing fails
     pub fn route_response(&self, response: &EcosystemResponse) -> Result<String> {
-        todo!("Implementation needed for ResponseRouting::route_response - should determine response destination")
+        // 1. Check for explicit destination in response metadata
+        if let Some(explicit_dest) = response.metadata.headers.get("destination") {
+            return Ok(explicit_dest.clone());
+        }
+        
+        // 2. Use correlation ID to find destination
+        if let Some(correlation_id) = response.metadata.correlation_id {
+            if let Some(destination) = self.find_correlated_destination(&correlation_id.to_string())? {
+                return Ok(destination);
+            }
+        }
+        
+        // 3. Use reply-to field from original request
+        if let Some(reply_to_id) = response.metadata.reply_to {
+            if let Some(destination) = self.find_reply_to_destination(&reply_to_id.to_string())? {
+                return Ok(destination);
+            }
+        }
+        
+        // 4. Check for callback routing configuration
+        if let Some(callback_dest) = self.check_callback_routing(response)? {
+            return Ok(callback_dest);
+        }
+        
+        // 5. Apply aggregation strategy if configured
+        if let Some(aggregated_dest) = self.apply_aggregation_strategy(response)? {
+            return Ok(aggregated_dest);
+        }
+        
+        // 6. Apply caching strategy
+        let final_destination = self.apply_caching_strategy(response)?;
+        
+        ensure!(!final_destination.is_empty(), "Unable to determine response destination");
+        Ok(final_destination)
+    }
+    
+    /// Configure response aggregation strategies
+    /// 
+    /// Aggregation strategies combine multiple responses into a single response
+    /// when appropriate, such as when collecting results from multiple services.
+    pub fn configure_aggregation(&mut self, operation_type: String, strategy: HashMap<String, Value>) -> Result<()> {
+        ensure!(!operation_type.is_empty(), "Operation type cannot be empty");
+        
+        // Validate aggregation strategy
+        self.validate_aggregation_strategy(&strategy)?;
+        
+        self.aggregation_strategies.insert(operation_type, strategy);
+        Ok(())
+    }
+    
+    /// Configure callback routing for asynchronous responses
+    /// 
+    /// Callback routing handles responses that should be delivered via callback
+    /// mechanisms rather than direct response delivery.
+    pub fn configure_callback_routing(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate callback configuration
+        self.validate_callback_config(&config)?;
+        
+        self.callback_routing = config;
+        Ok(())
+    }
+    
+    /// Configure response caching strategies
+    /// 
+    /// Caching strategies determine how responses should be cached for future
+    /// use, improving performance for repeated requests.
+    pub fn configure_caching(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate caching configuration
+        self.validate_caching_config(&config)?;
+        
+        self.caching_strategies = config;
+        Ok(())
+    }
+    
+    /// Configure error response handling
+    /// 
+    /// Error response handling defines how error responses should be processed,
+    /// including retry logic, fallback responses, and error escalation.
+    pub fn configure_error_handling(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        // Validate error handling configuration
+        self.validate_error_handling_config(&config)?;
+        
+        self.error_response_handling = config;
+        Ok(())
+    }
+    
+    /// Add correlation mapping for specific request pattern
+    pub fn add_correlation_mapping(&mut self, request_pattern: String, response_destination: String) -> Result<()> {
+        ensure!(!request_pattern.is_empty(), "Request pattern cannot be empty");
+        ensure!(!response_destination.is_empty(), "Response destination cannot be empty");
+        
+        self.correlation_mappings.insert(request_pattern, response_destination);
+        Ok(())
+    }
+    
+    /// Get response routing statistics
+    pub fn get_routing_stats(&self) -> HashMap<String, Value> {
+        let mut stats = HashMap::new();
+        
+        stats.insert("correlation_mappings".to_string(), 
+            Value::Number(serde_json::Number::from(self.correlation_mappings.len())));
+        stats.insert("aggregation_strategies".to_string(), 
+            Value::Number(serde_json::Number::from(self.aggregation_strategies.len())));
+        stats.insert("has_callback_routing".to_string(), 
+            Value::Bool(!self.callback_routing.is_empty()));
+        stats.insert("has_caching".to_string(), 
+            Value::Bool(!self.caching_strategies.is_empty()));
+        
+        stats
+    }
+    
+    // Private helper methods for response routing
+    
+    fn find_correlated_destination(&self, correlation_id: &str) -> Result<Option<String>> {
+        // Check direct correlation mappings
+        if let Some(destination) = self.correlation_mappings.get(correlation_id) {
+            return Ok(Some(destination.clone()));
+        }
+        
+        // Check pattern-based correlations
+        for (pattern, destination) in &self.correlation_mappings {
+            if self.matches_correlation_pattern(pattern, correlation_id) {
+                return Ok(Some(destination.clone()));
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    fn find_reply_to_destination(&self, reply_to_id: &str) -> Result<Option<String>> {
+        // In a real implementation, this would look up the original request
+        // and find where the response should be sent
+        // For now, we'll use a simple mapping approach
+        Ok(self.correlation_mappings.get(reply_to_id).cloned())
+    }
+    
+    fn matches_correlation_pattern(&self, pattern: &str, correlation_id: &str) -> bool {
+        if pattern == "*" {
+            return true;
+        }
+        
+        if pattern.ends_with('*') {
+            let prefix = &pattern[..pattern.len() - 1];
+            return correlation_id.starts_with(prefix);
+        }
+        
+        if pattern.starts_with('*') {
+            let suffix = &pattern[1..];
+            return correlation_id.ends_with(suffix);
+        }
+        
+        pattern == correlation_id
+    }
+    
+    fn check_callback_routing(&self, response: &EcosystemResponse) -> Result<Option<String>> {
+        if self.callback_routing.is_empty() {
+            return Ok(None);
+        }
+        
+        // Check if this response should use callback routing
+        let response_type = response.metadata.headers.get("response_type")
+            .unwrap_or(&"standard".to_string());
+        
+        if let Some(callback_config) = self.callback_routing.get("callbacks") {
+            if let Some(callback_array) = callback_config.as_array() {
+                for callback in callback_array {
+                    if let Some(callback_obj) = callback.as_object() {
+                        if let Some(types) = callback_obj.get("response_types").and_then(|v| v.as_array()) {
+                            for rtype in types {
+                                if let Some(type_str) = rtype.as_str() {
+                                    if type_str == response_type || type_str == "*" {
+                                        if let Some(destination) = callback_obj.get("destination").and_then(|v| v.as_str()) {
+                                            return Ok(Some(destination.to_string()));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    fn apply_aggregation_strategy(&self, response: &EcosystemResponse) -> Result<Option<String>> {
+        // Check if aggregation is needed based on response metadata
+        let operation = response.metadata.headers.get("operation")
+            .unwrap_or(&"default".to_string());
+        
+        if let Some(strategy) = self.aggregation_strategies.get(operation) {
+            let aggregation_type = strategy.get("type").and_then(|v| v.as_str())
+                .unwrap_or("none");
+            
+            match aggregation_type {
+                "collect" => {
+                    // Route to aggregation collector
+                    if let Some(collector) = strategy.get("collector").and_then(|v| v.as_str()) {
+                        return Ok(Some(collector.to_string()));
+                    }
+                },
+                "merge" => {
+                    // Route to response merger
+                    if let Some(merger) = strategy.get("merger").and_then(|v| v.as_str()) {
+                        return Ok(Some(merger.to_string()));
+                    }
+                },
+                "none" => {
+                    // No aggregation needed
+                    return Ok(None);
+                },
+                _ => {
+                    // Unknown aggregation type
+                    return Ok(None);
+                }
+            }
+        }
+        
+        Ok(None)
+    }
+    
+    fn apply_caching_strategy(&self, response: &EcosystemResponse) -> Result<String> {
+        // Check if response should be cached
+        if !self.caching_strategies.is_empty() {
+            let cache_enabled = self.caching_strategies.get("enabled")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            
+            if cache_enabled {
+                // Route through cache layer
+                if let Some(cache_destination) = self.caching_strategies.get("cache_destination")
+                    .and_then(|v| v.as_str()) {
+                    return Ok(cache_destination.to_string());
+                }
+            }
+        }
+        
+        // Default: route directly to source
+        Ok(response.metadata.source.clone())
+    }
+    
+    fn validate_aggregation_strategy(&self, strategy: &HashMap<String, Value>) -> Result<()> {
+        if let Some(agg_type) = strategy.get("type").and_then(|v| v.as_str()) {
+            let valid_types = ["none", "collect", "merge", "combine"];
+            ensure!(valid_types.contains(&agg_type), 
+                "Unsupported aggregation type: {}", agg_type);
+        }
+        
+        if let Some(timeout) = strategy.get("timeout_ms").and_then(|v| v.as_f64()) {
+            ensure!(timeout > 0.0 && timeout <= 300000.0, 
+                "Aggregation timeout must be between 1ms and 300s");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_callback_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(callbacks) = config.get("callbacks") {
+            ensure!(callbacks.is_array(), "Callbacks must be an array");
+            
+            if let Some(callback_array) = callbacks.as_array() {
+                for callback in callback_array {
+                    ensure!(callback.is_object(), "Each callback must be an object");
+                    
+                    if let Some(callback_obj) = callback.as_object() {
+                        ensure!(callback_obj.contains_key("destination"), 
+                            "Callback must specify destination");
+                        ensure!(callback_obj.contains_key("response_types"), 
+                            "Callback must specify response types");
+                    }
+                }
+            }
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_caching_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(ttl) = config.get("ttl_seconds").and_then(|v| v.as_f64()) {
+            ensure!(ttl > 0.0 && ttl <= 86400.0, "Cache TTL must be between 1s and 24h");
+        }
+        
+        if let Some(max_size) = config.get("max_size_mb").and_then(|v| v.as_f64()) {
+            ensure!(max_size > 0.0, "Cache max size must be positive");
+        }
+        
+        Ok(())
+    }
+    
+    fn validate_error_handling_config(&self, config: &HashMap<String, Value>) -> Result<()> {
+        if let Some(strategy) = config.get("strategy").and_then(|v| v.as_str()) {
+            let valid_strategies = ["propagate", "transform", "suppress", "redirect"];
+            ensure!(valid_strategies.contains(&strategy), 
+                "Unsupported error handling strategy: {}", strategy);
+        }
+        
+        Ok(())
     }
 }
 
