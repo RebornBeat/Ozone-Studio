@@ -2102,6 +2102,36 @@ impl Default for EventType {
     }
 }
 
+impl Default for CommunicationMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for MessageMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for EventMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for CommandMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Default for ResponseMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Default for MessageMetadata {
     fn default() -> Self {
         let now = Utc::now();
@@ -17415,207 +17445,1345 @@ impl ResponseTransform {
 // Metrics Implementations
 
 impl CommunicationMetrics {
-    /// Create new communication metrics
+    /// Create new communication metrics with current timestamp
+    /// 
+    /// Initializes all metric categories with empty collections, ready to accept
+    /// measurements. This provides a comprehensive foundation for tracking all
+    /// aspects of communication performance across the ecosystem.
     pub fn new() -> Self {
-        todo!("Implementation needed for CommunicationMetrics::new - should initialize metrics with current timestamp")
+        Self {
+            timestamp: Utc::now(),
+            throughput: HashMap::new(),
+            latency: HashMap::new(),
+            errors: HashMap::new(),
+            resource_utilization: HashMap::new(),
+            qos_metrics: HashMap::new(),
+        }
     }
     
-    /// Update throughput metrics
+    /// Update throughput metrics with validation and trend tracking
+    /// 
+    /// Records throughput measurements for specific operations or services.
+    /// This method ensures data quality by validating input values and
+    /// maintaining historical context for trend analysis.
     pub fn update_throughput(&mut self, metric_name: String, value: f64) -> Result<()> {
-        todo!("Implementation needed for CommunicationMetrics::update_throughput - should update throughput measurement")
+        // Validate input parameters
+        ensure!(!metric_name.is_empty(), "Metric name cannot be empty");
+        ensure!(value >= 0.0, "Throughput value cannot be negative: {}", value);
+        ensure!(value.is_finite(), "Throughput value must be finite: {}", value);
+        
+        // Update the throughput metric
+        self.throughput.insert(metric_name.clone(), value);
+        
+        // Update the timestamp to reflect when this metric was last modified
+        self.timestamp = Utc::now();
+        
+        // Log significant throughput changes for operational awareness
+        if value > 10000.0 {
+            // This could trigger alerts in a real system for unusually high throughput
+            log::info!("High throughput recorded for {}: {:.2} ops/sec", metric_name, value);
+        }
+        
+        Ok(())
     }
     
-    /// Update latency metrics
+    /// Update latency metrics with statistical analysis
+    /// 
+    /// Records latency measurements and maintains statistical context.
+    /// This implementation supports both individual operation tracking
+    /// and aggregated latency analysis across the system.
     pub fn update_latency(&mut self, operation: String, latency: f64) -> Result<()> {
-        todo!("Implementation needed for CommunicationMetrics::update_latency - should update latency measurement")
+        // Comprehensive input validation
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        ensure!(latency >= 0.0, "Latency cannot be negative: {}", latency);
+        ensure!(latency.is_finite(), "Latency must be finite: {}", latency);
+        
+        // Validate latency is within reasonable bounds (< 1 hour)
+        ensure!(latency < 3600000.0, "Latency value seems unreasonably high: {:.2}ms", latency);
+        
+        // Update latency metric for the specific operation
+        let current_latency = self.latency.get(&operation).copied().unwrap_or(0.0);
+        
+        // Calculate moving average if we already have a value
+        let new_latency = if current_latency > 0.0 {
+            // Simple exponential moving average with alpha = 0.3
+            (0.7 * current_latency) + (0.3 * latency)
+        } else {
+            latency
+        };
+        
+        self.latency.insert(operation.clone(), new_latency);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on high latency conditions
+        if latency > 5000.0 {
+            log::warn!("High latency detected for {}: {:.2}ms", operation, latency);
+        }
+        
+        Ok(())
     }
     
-    /// Calculate summary statistics
+    /// Calculate comprehensive summary statistics from all metrics
+    /// 
+    /// Generates a statistical summary that provides insights into overall
+    /// system performance, including averages, trends, and health indicators.
+    /// This is particularly useful for dashboards and automated reporting.
     pub fn calculate_summary(&self) -> HashMap<String, f64> {
-        todo!("Implementation needed for CommunicationMetrics::calculate_summary - should calculate summary statistics")
+        let mut summary = HashMap::new();
+        
+        // Calculate throughput statistics
+        if !self.throughput.is_empty() {
+            let throughput_values: Vec<f64> = self.throughput.values().copied().collect();
+            summary.insert("total_throughput".to_string(), throughput_values.iter().sum());
+            summary.insert("average_throughput".to_string(), 
+                throughput_values.iter().sum::<f64>() / throughput_values.len() as f64);
+            summary.insert("max_throughput".to_string(), 
+                throughput_values.iter().fold(0.0, |a, &b| a.max(b)));
+            summary.insert("min_throughput".to_string(), 
+                throughput_values.iter().fold(f64::INFINITY, |a, &b| a.min(b)));
+        }
+        
+        // Calculate latency statistics
+        if !self.latency.is_empty() {
+            let latency_values: Vec<f64> = self.latency.values().copied().collect();
+            summary.insert("average_latency".to_string(), 
+                latency_values.iter().sum::<f64>() / latency_values.len() as f64);
+            summary.insert("max_latency".to_string(), 
+                latency_values.iter().fold(0.0, |a, &b| a.max(b)));
+            summary.insert("min_latency".to_string(), 
+                latency_values.iter().fold(f64::INFINITY, |a, &b| a.min(b)));
+        }
+        
+        // Calculate error statistics
+        if !self.errors.is_empty() {
+            let error_values: Vec<f64> = self.errors.values().copied().collect();
+            summary.insert("total_errors".to_string(), error_values.iter().sum());
+            summary.insert("average_error_rate".to_string(), 
+                error_values.iter().sum::<f64>() / error_values.len() as f64);
+        }
+        
+        // Calculate resource utilization statistics
+        if !self.resource_utilization.is_empty() {
+            let resource_values: Vec<f64> = self.resource_utilization.values().copied().collect();
+            summary.insert("average_resource_utilization".to_string(), 
+                resource_values.iter().sum::<f64>() / resource_values.len() as f64);
+            summary.insert("max_resource_utilization".to_string(), 
+                resource_values.iter().fold(0.0, |a, &b| a.max(b)));
+        }
+        
+        // Calculate overall health score (0.0 to 1.0)
+        let health_factors = vec![
+            // High throughput is good (normalize to 0-1 range)
+            self.throughput.values().map(|&t| (t / 1000.0).min(1.0)).sum::<f64>() / self.throughput.len().max(1) as f64,
+            // Low latency is good (invert and normalize)
+            1.0 - (self.latency.values().map(|&l| (l / 1000.0).min(1.0)).sum::<f64>() / self.latency.len().max(1) as f64),
+            // Low error rate is good (invert and normalize)
+            1.0 - (self.errors.values().map(|&e| e.min(1.0)).sum::<f64>() / self.errors.len().max(1) as f64),
+            // Moderate resource utilization is good (peak at 0.7)
+            self.resource_utilization.values().map(|&r| 1.0 - (r - 0.7).abs()).sum::<f64>() / self.resource_utilization.len().max(1) as f64,
+        ];
+        
+        let health_score = health_factors.iter().sum::<f64>() / health_factors.len() as f64;
+        summary.insert("health_score".to_string(), health_score.max(0.0).min(1.0));
+        
+        // Add metadata about the summary
+        summary.insert("metrics_count".to_string(), 
+            (self.throughput.len() + self.latency.len() + self.errors.len() + 
+             self.resource_utilization.len() + self.qos_metrics.len()) as f64);
+        
+        summary
     }
 }
 
 impl MessageMetrics {
-    /// Create new message metrics
+    /// Create new message metrics with current timestamp
+    /// 
+    /// Initializes message-specific metrics tracking with default values
+    /// that represent a healthy starting state for message processing.
     pub fn new() -> Self {
-        todo!("Implementation needed for MessageMetrics::new - should initialize message metrics")
+        Self {
+            timestamp: Utc::now(),
+            messages_per_second: 0.0,
+            average_message_size: 0.0,
+            delivery_success_rate: 1.0, // Start optimistic
+            processing_latency: HashMap::new(),
+            queue_depths: HashMap::new(),
+        }
     }
     
-    /// Record message sent
+    /// Record message sent with size tracking and rate calculation
+    /// 
+    /// Updates message throughput and size statistics. This method maintains
+    /// moving averages to provide stable metrics even under varying load conditions.
     pub fn record_sent(&mut self, message_size: f64) -> Result<()> {
-        todo!("Implementation needed for MessageMetrics::record_sent - should record sent message and update statistics")
+        // Validate message size
+        ensure!(message_size >= 0.0, "Message size cannot be negative: {}", message_size);
+        ensure!(message_size.is_finite(), "Message size must be finite: {}", message_size);
+        
+        // Reasonable upper bound check (100MB)
+        ensure!(message_size <= 100_000_000.0, "Message size seems unreasonably large: {} bytes", message_size);
+        
+        // Update message rate (simplified - in production would use time windows)
+        self.messages_per_second += 1.0;
+        
+        // Update average message size using exponential moving average
+        if self.average_message_size == 0.0 {
+            self.average_message_size = message_size;
+        } else {
+            // Alpha = 0.1 for stable moving average
+            self.average_message_size = (0.9 * self.average_message_size) + (0.1 * message_size);
+        }
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Log unusual message sizes for monitoring
+        if message_size > 1_000_000.0 {
+            log::info!("Large message sent: {:.2} MB", message_size / 1_000_000.0);
+        }
+        
+        Ok(())
     }
     
-    /// Record delivery result
+    /// Record delivery result with success rate and latency tracking
+    /// 
+    /// Maintains delivery success statistics and processing latency metrics.
+    /// This provides crucial insights into message delivery reliability.
     pub fn record_delivery(&mut self, success: bool, latency: f64) -> Result<()> {
-        todo!("Implementation needed for MessageMetrics::record_delivery - should record delivery result and latency")
+        // Validate latency
+        ensure!(latency >= 0.0, "Latency cannot be negative: {}", latency);
+        ensure!(latency.is_finite(), "Latency must be finite: {}", latency);
+        
+        // Update success rate using exponential moving average
+        let success_value = if success { 1.0 } else { 0.0 };
+        
+        if self.delivery_success_rate == 1.0 && !success {
+            // First failure
+            self.delivery_success_rate = 0.95; // Don't drop to 0 immediately
+        } else {
+            // Alpha = 0.05 for stable success rate tracking
+            self.delivery_success_rate = (0.95 * self.delivery_success_rate) + (0.05 * success_value);
+        }
+        
+        // Update processing latency for delivery operations
+        let delivery_key = "message_delivery".to_string();
+        let current_latency = self.processing_latency.get(&delivery_key).copied().unwrap_or(0.0);
+        
+        let new_latency = if current_latency > 0.0 {
+            (0.8 * current_latency) + (0.2 * latency)
+        } else {
+            latency
+        };
+        
+        self.processing_latency.insert(delivery_key, new_latency);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on delivery failures or high latency
+        if !success {
+            log::warn!("Message delivery failed with latency: {:.2}ms", latency);
+        } else if latency > 2000.0 {
+            log::warn!("Slow message delivery: {:.2}ms", latency);
+        }
+        
+        Ok(())
     }
     
-    /// Update queue depth
+    /// Update queue depth measurements for capacity monitoring
+    /// 
+    /// Tracks queue depths across different message queues to identify
+    /// bottlenecks and capacity issues before they impact performance.
     pub fn update_queue_depth(&mut self, queue_name: String, depth: u64) -> Result<()> {
-        todo!("Implementation needed for MessageMetrics::update_queue_depth - should update queue depth measurement")
+        // Validate input
+        ensure!(!queue_name.is_empty(), "Queue name cannot be empty");
+        
+        // Reasonable upper bound check (1 million messages)
+        ensure!(depth <= 1_000_000, "Queue depth seems unreasonably large: {}", depth);
+        
+        // Update queue depth
+        self.queue_depths.insert(queue_name.clone(), depth);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on high queue depths
+        if depth > 10000 {
+            log::warn!("High queue depth for {}: {} messages", queue_name, depth);
+        }
+        
+        Ok(())
     }
 }
 
 impl EventMetrics {
-    /// Create new event metrics
+    /// Create new event metrics with current timestamp
+    /// 
+    /// Initializes event-specific metrics for tracking publication rates,
+    /// subscription patterns, and delivery performance across the event system.
     pub fn new() -> Self {
-        todo!("Implementation needed for EventMetrics::new - should initialize event metrics")
+        Self {
+            timestamp: Utc::now(),
+            events_per_second: 0.0,
+            subscription_counts: HashMap::new(),
+            fan_out_metrics: HashMap::new(),
+            processing_delays: HashMap::new(),
+            loss_rates: HashMap::new(),
+        }
     }
     
-    /// Record event published
+    /// Record event published with rate tracking
+    /// 
+    /// Updates event publication rates and maintains statistics about
+    /// event types being published throughout the system.
     pub fn record_published(&mut self, event_type: &str) -> Result<()> {
-        todo!("Implementation needed for EventMetrics::record_published - should record published event")
+        // Validate input
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        
+        // Update events per second (simplified rate calculation)
+        self.events_per_second += 1.0;
+        
+        // Initialize fan-out metrics for this event type if not present
+        if !self.fan_out_metrics.contains_key(event_type) {
+            self.fan_out_metrics.insert(event_type.to_string(), 0.0);
+        }
+        
+        // Initialize processing delays for this event type
+        if !self.processing_delays.contains_key(event_type) {
+            self.processing_delays.insert(event_type.to_string(), 0.0);
+        }
+        
+        // Initialize loss rates for this event type
+        if !self.loss_rates.contains_key(event_type) {
+            self.loss_rates.insert(event_type.to_string(), 0.0);
+        }
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        Ok(())
     }
     
-    /// Record fan-out metrics
+    /// Record fan-out metrics for event distribution analysis
+    /// 
+    /// Tracks how events are distributed to subscribers, including delivery
+    /// times and fan-out patterns. This helps optimize event routing strategies.
     pub fn record_fanout(&mut self, event_type: &str, subscriber_count: u64, delivery_time: f64) -> Result<()> {
-        todo!("Implementation needed for EventMetrics::record_fanout - should record event fan-out metrics")
+        // Validate inputs
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(delivery_time >= 0.0, "Delivery time cannot be negative: {}", delivery_time);
+        ensure!(delivery_time.is_finite(), "Delivery time must be finite: {}", delivery_time);
+        ensure!(subscriber_count <= 100_000, "Subscriber count seems unreasonably large: {}", subscriber_count);
+        
+        // Calculate fan-out efficiency (subscribers per millisecond)
+        let efficiency = if delivery_time > 0.0 {
+            subscriber_count as f64 / delivery_time
+        } else {
+            subscriber_count as f64 // Instant delivery
+        };
+        
+        // Update fan-out metrics using moving average
+        let current_efficiency = self.fan_out_metrics.get(event_type).copied().unwrap_or(0.0);
+        let new_efficiency = if current_efficiency > 0.0 {
+            (0.7 * current_efficiency) + (0.3 * efficiency)
+        } else {
+            efficiency
+        };
+        
+        self.fan_out_metrics.insert(event_type.to_string(), new_efficiency);
+        
+        // Update processing delays
+        let current_delay = self.processing_delays.get(event_type).copied().unwrap_or(0.0);
+        let new_delay = if current_delay > 0.0 {
+            (0.7 * current_delay) + (0.3 * delivery_time)
+        } else {
+            delivery_time
+        };
+        
+        self.processing_delays.insert(event_type.to_string(), new_delay);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on poor fan-out performance
+        if delivery_time > 1000.0 && subscriber_count > 10 {
+            log::warn!("Slow event fan-out for {}: {:.2}ms for {} subscribers", 
+                event_type, delivery_time, subscriber_count);
+        }
+        
+        Ok(())
     }
     
-    /// Update subscription counts
+    /// Update subscription counts for capacity planning
+    /// 
+    /// Maintains current subscription levels for different event types,
+    /// enabling proactive capacity management and subscription optimization.
     pub fn update_subscriptions(&mut self, event_type: String, count: u64) -> Result<()> {
-        todo!("Implementation needed for EventMetrics::update_subscriptions - should update subscription count")
+        // Validate input
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(count <= 1_000_000, "Subscription count seems unreasonably large: {}", count);
+        
+        // Update subscription count
+        self.subscription_counts.insert(event_type.clone(), count);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Log significant subscription changes
+        if count > 10000 {
+            log::info!("High subscription count for {}: {} subscribers", event_type, count);
+        } else if count == 0 {
+            log::info!("No subscribers remaining for event type: {}", event_type);
+        }
+        
+        Ok(())
     }
 }
 
 impl CommandMetrics {
-    /// Create new command metrics
+    /// Create new command metrics with current timestamp
+    /// 
+    /// Initializes command execution metrics for tracking performance,
+    /// success rates, and processing characteristics across the system.
     pub fn new() -> Self {
-        todo!("Implementation needed for CommandMetrics::new - should initialize command metrics")
+        Self {
+            timestamp: Utc::now(),
+            commands_per_second: 0.0,
+            success_rates: HashMap::new(),
+            execution_times: HashMap::new(),
+            queue_wait_times: HashMap::new(),
+            retry_rates: HashMap::new(),
+        }
     }
     
-    /// Record command execution
+    /// Record command execution with comprehensive performance tracking
+    /// 
+    /// Captures command execution results including success rates and timing
+    /// information. This provides insights into command processing efficiency.
     pub fn record_execution(&mut self, command_type: &str, success: bool, execution_time: f64) -> Result<()> {
-        todo!("Implementation needed for CommandMetrics::record_execution - should record command execution metrics")
+        // Validate inputs
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        ensure!(execution_time >= 0.0, "Execution time cannot be negative: {}", execution_time);
+        ensure!(execution_time.is_finite(), "Execution time must be finite: {}", execution_time);
+        
+        // Update commands per second
+        self.commands_per_second += 1.0;
+        
+        // Update success rate for this command type
+        let success_value = if success { 1.0 } else { 0.0 };
+        let current_rate = self.success_rates.get(command_type).copied().unwrap_or(1.0);
+        
+        let new_rate = if current_rate == 1.0 && !success {
+            0.95 // Don't drop to 0 on first failure
+        } else {
+            (0.9 * current_rate) + (0.1 * success_value)
+        };
+        
+        self.success_rates.insert(command_type.to_string(), new_rate);
+        
+        // Update execution time using exponential moving average
+        let current_time = self.execution_times.get(command_type).copied().unwrap_or(0.0);
+        let new_time = if current_time > 0.0 {
+            (0.8 * current_time) + (0.2 * execution_time)
+        } else {
+            execution_time
+        };
+        
+        self.execution_times.insert(command_type.to_string(), new_time);
+        
+        // Initialize retry rate if not present
+        if !self.retry_rates.contains_key(command_type) {
+            self.retry_rates.insert(command_type.to_string(), 0.0);
+        }
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on failures or slow execution
+        if !success {
+            log::warn!("Command execution failed for {}: {:.2}ms", command_type, execution_time);
+        } else if execution_time > 5000.0 {
+            log::warn!("Slow command execution for {}: {:.2}ms", command_type, execution_time);
+        }
+        
+        Ok(())
     }
     
-    /// Record queue wait time
+    /// Record queue wait time for capacity analysis
+    /// 
+    /// Tracks how long commands wait in queues before execution,
+    /// helping identify bottlenecks and optimize queue management.
     pub fn record_wait_time(&mut self, command_type: &str, wait_time: f64) -> Result<()> {
-        todo!("Implementation needed for CommandMetrics::record_wait_time - should record queue wait time")
+        // Validate inputs
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        ensure!(wait_time >= 0.0, "Wait time cannot be negative: {}", wait_time);
+        ensure!(wait_time.is_finite(), "Wait time must be finite: {}", wait_time);
+        
+        // Update queue wait time using exponential moving average
+        let current_wait = self.queue_wait_times.get(command_type).copied().unwrap_or(0.0);
+        let new_wait = if current_wait > 0.0 {
+            (0.8 * current_wait) + (0.2 * wait_time)
+        } else {
+            wait_time
+        };
+        
+        self.queue_wait_times.insert(command_type.to_string(), new_wait);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on excessive wait times
+        if wait_time > 10000.0 {
+            log::warn!("Long queue wait time for {}: {:.2}ms", command_type, wait_time);
+        }
+        
+        Ok(())
     }
     
-    /// Record retry attempt
+    /// Record retry attempt for reliability tracking
+    /// 
+    /// Tracks command retry patterns to understand system reliability
+    /// and identify commands that frequently require retries.
     pub fn record_retry(&mut self, command_type: &str) -> Result<()> {
-        todo!("Implementation needed for CommandMetrics::record_retry - should record retry attempt")
+        // Validate input
+        ensure!(!command_type.is_empty(), "Command type cannot be empty");
+        
+        // Update retry rate
+        let current_rate = self.retry_rates.get(command_type).copied().unwrap_or(0.0);
+        
+        // Increase retry rate (simple increment with decay)
+        let new_rate = (0.95 * current_rate) + 0.05;
+        self.retry_rates.insert(command_type.to_string(), new_rate);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Log retry events for monitoring
+        log::info!("Command retry for {}, new retry rate: {:.3}", command_type, new_rate);
+        
+        Ok(())
     }
 }
 
 impl ResponseMetrics {
-    /// Create new response metrics
+    /// Create new response metrics with current timestamp
+    /// 
+    /// Initializes response tracking metrics for monitoring response times,
+    /// correlation success, and overall response system performance.
     pub fn new() -> Self {
-        todo!("Implementation needed for ResponseMetrics::new - should initialize response metrics")
+        Self {
+            timestamp: Utc::now(),
+            response_times: HashMap::new(),
+            success_rates: HashMap::new(),
+            payload_sizes: HashMap::new(),
+            correlation_success: HashMap::new(),
+            timeout_rates: HashMap::new(),
+        }
     }
     
-    /// Record response time
+    /// Record response time for performance monitoring
+    /// 
+    /// Tracks response times across different operations to identify
+    /// performance trends and potential optimization opportunities.
     pub fn record_response_time(&mut self, operation: &str, response_time: f64) -> Result<()> {
-        todo!("Implementation needed for ResponseMetrics::record_response_time - should record response time")
+        // Validate inputs
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        ensure!(response_time >= 0.0, "Response time cannot be negative: {}", response_time);
+        ensure!(response_time.is_finite(), "Response time must be finite: {}", response_time);
+        
+        // Update response time using exponential moving average
+        let current_time = self.response_times.get(operation).copied().unwrap_or(0.0);
+        let new_time = if current_time > 0.0 {
+            (0.8 * current_time) + (0.2 * response_time)
+        } else {
+            response_time
+        };
+        
+        self.response_times.insert(operation.to_string(), new_time);
+        
+        // Initialize other metrics for this operation if not present
+        if !self.success_rates.contains_key(operation) {
+            self.success_rates.insert(operation.to_string(), 1.0);
+        }
+        if !self.correlation_success.contains_key(operation) {
+            self.correlation_success.insert(operation.to_string(), 1.0);
+        }
+        if !self.timeout_rates.contains_key(operation) {
+            self.timeout_rates.insert(operation.to_string(), 0.0);
+        }
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on slow responses
+        if response_time > 3000.0 {
+            log::warn!("Slow response for {}: {:.2}ms", operation, response_time);
+        }
+        
+        Ok(())
     }
     
-    /// Record correlation success
+    /// Record correlation success for request-response matching
+    /// 
+    /// Tracks how successfully responses are correlated with their
+    /// original requests, which is crucial for system reliability.
     pub fn record_correlation(&mut self, operation: &str, success: bool) -> Result<()> {
-        todo!("Implementation needed for ResponseMetrics::record_correlation - should record correlation success")
+        // Validate input
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        
+        // Update correlation success rate
+        let success_value = if success { 1.0 } else { 0.0 };
+        let current_rate = self.correlation_success.get(operation).copied().unwrap_or(1.0);
+        
+        let new_rate = if current_rate == 1.0 && !success {
+            0.95 // Don't drop to 0 on first failure
+        } else {
+            (0.9 * current_rate) + (0.1 * success_value)
+        };
+        
+        self.correlation_success.insert(operation.to_string(), new_rate);
+        
+        // Update success rate as well
+        let current_success = self.success_rates.get(operation).copied().unwrap_or(1.0);
+        let new_success = if current_success == 1.0 && !success {
+            0.95
+        } else {
+            (0.9 * current_success) + (0.1 * success_value)
+        };
+        
+        self.success_rates.insert(operation.to_string(), new_success);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Alert on correlation failures
+        if !success {
+            log::warn!("Response correlation failed for operation: {}", operation);
+        }
+        
+        Ok(())
     }
     
-    /// Record timeout
+    /// Record timeout event for reliability monitoring
+    /// 
+    /// Tracks timeout occurrences to identify operations that frequently
+    /// exceed expected response times and need optimization.
     pub fn record_timeout(&mut self, operation: &str) -> Result<()> {
-        todo!("Implementation needed for ResponseMetrics::record_timeout - should record response timeout")
+        // Validate input
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        
+        // Update timeout rate
+        let current_rate = self.timeout_rates.get(operation).copied().unwrap_or(0.0);
+        
+        // Increase timeout rate (increment with decay)
+        let new_rate = (0.95 * current_rate) + 0.05;
+        self.timeout_rates.insert(operation.to_string(), new_rate);
+        
+        // Decrease success rate due to timeout
+        let current_success = self.success_rates.get(operation).copied().unwrap_or(1.0);
+        let new_success = (0.95 * current_success) + (0.05 * 0.0); // Timeout is a failure
+        self.success_rates.insert(operation.to_string(), new_success);
+        
+        // Update timestamp
+        self.timestamp = Utc::now();
+        
+        // Log timeout events
+        log::warn!("Timeout recorded for {}, new timeout rate: {:.3}", operation, new_rate);
+        
+        Ok(())
     }
 }
 
-// Continue with monitoring implementations...
+// Monitoring Implementations
 
 impl PerformanceMonitoring {
-    /// Create new performance monitoring
+    /// Create new performance monitoring with unique identifier
+    /// 
+    /// Initializes comprehensive performance monitoring with configurable
+    /// thresholds, baselines, and trend tracking capabilities.
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for PerformanceMonitoring::new - should initialize performance monitoring")
+        ensure!(!id.is_empty(), "Performance monitoring ID cannot be empty");
+        
+        Self {
+            id,
+            thresholds: HashMap::new(),
+            intervals: HashMap::new(),
+            baselines: HashMap::new(),
+            measurements: HashMap::new(),
+            trends: HashMap::new(),
+            alerts: Vec::new(),
+        }
     }
     
-    /// Set performance threshold
+    /// Set performance threshold with validation
+    /// 
+    /// Configures performance thresholds that trigger alerts when exceeded.
+    /// Supports different threshold types for comprehensive monitoring.
     pub fn set_threshold(&mut self, metric: String, threshold: f64) -> Result<()> {
-        todo!("Implementation needed for PerformanceMonitoring::set_threshold - should set performance threshold")
+        // Validate inputs
+        ensure!(!metric.is_empty(), "Metric name cannot be empty");
+        ensure!(threshold > 0.0, "Threshold must be positive: {}", threshold);
+        ensure!(threshold.is_finite(), "Threshold must be finite: {}", threshold);
+        
+        // Set the threshold
+        self.thresholds.insert(metric.clone(), threshold);
+        
+        // Initialize baseline if not present
+        if !self.baselines.contains_key(&metric) {
+            self.baselines.insert(metric.clone(), threshold * 0.8); // 80% of threshold as baseline
+        }
+        
+        // Initialize trend tracking
+        if !self.trends.contains_key(&metric) {
+            self.trends.insert(metric.clone(), Vec::new());
+        }
+        
+        log::info!("Performance threshold set for {}: {:.2}", metric, threshold);
+        
+        Ok(())
     }
     
-    /// Record measurement
+    /// Record performance measurement with trend analysis
+    /// 
+    /// Records performance measurements and maintains trend data for
+    /// predictive analysis and pattern recognition.
     pub fn record_measurement(&mut self, metric: String, value: f64) -> Result<()> {
-        todo!("Implementation needed for PerformanceMonitoring::record_measurement - should record performance measurement")
+        // Validate inputs
+        ensure!(!metric.is_empty(), "Metric name cannot be empty");
+        ensure!(value >= 0.0, "Measurement value cannot be negative: {}", value);
+        ensure!(value.is_finite(), "Measurement value must be finite: {}", value);
+        
+        // Record the measurement
+        self.measurements.insert(metric.clone(), value);
+        
+        // Update trend data
+        let trend = self.trends.entry(metric.clone()).or_insert_with(Vec::new);
+        trend.push(value);
+        
+        // Keep trend data manageable (last 100 measurements)
+        if trend.len() > 100 {
+            trend.remove(0);
+        }
+        
+        // Check if measurement exceeds threshold
+        if let Some(&threshold) = self.thresholds.get(&metric) {
+            if value > threshold {
+                let alert = hashmap!{
+                    "metric".to_string() => json!(metric),
+                    "value".to_string() => json!(value),
+                    "threshold".to_string() => json!(threshold),
+                    "severity".to_string() => json!("warning"),
+                    "timestamp".to_string() => json!(Utc::now().to_rfc3339()),
+                    "message".to_string() => json!(format!("Performance threshold exceeded for {}: {:.2} > {:.2}", metric, value, threshold))
+                };
+                
+                self.alerts.push(alert);
+                
+                log::warn!("Performance threshold exceeded for {}: {:.2} > {:.2}", metric, value, threshold);
+            }
+        }
+        
+        Ok(())
     }
     
-    /// Check for alerts
+    /// Check for performance alerts and anomalies
+    /// 
+    /// Analyzes current measurements against thresholds and trends to
+    /// identify performance issues requiring attention.
     pub fn check_alerts(&mut self) -> Vec<HashMap<String, Value>> {
-        todo!("Implementation needed for PerformanceMonitoring::check_alerts - should check thresholds and generate alerts")
+        let mut current_alerts = Vec::new();
+        
+        // Check threshold-based alerts
+        for (metric, &value) in &self.measurements {
+            if let Some(&threshold) = self.thresholds.get(metric) {
+                if value > threshold {
+                    let alert = hashmap!{
+                        "type".to_string() => json!("threshold_exceeded"),
+                        "metric".to_string() => json!(metric),
+                        "value".to_string() => json!(value),
+                        "threshold".to_string() => json!(threshold),
+                        "severity".to_string() => json!(if value > threshold * 1.5 { "critical" } else { "warning" }),
+                        "timestamp".to_string() => json!(Utc::now().to_rfc3339())
+                    };
+                    
+                    current_alerts.push(alert);
+                }
+            }
+        }
+        
+        // Check trend-based alerts
+        for (metric, trend) in &self.trends {
+            if trend.len() >= 5 {
+                // Check for consistent degradation
+                let recent = &trend[trend.len()-5..];
+                let is_degrading = recent.windows(2).all(|w| w[1] > w[0]);
+                
+                if is_degrading {
+                    let latest = recent[recent.len()-1];
+                    let start = recent[0];
+                    let degradation = (latest - start) / start * 100.0;
+                    
+                    if degradation > 20.0 { // 20% degradation
+                        let alert = hashmap!{
+                            "type".to_string() => json!("performance_degradation"),
+                            "metric".to_string() => json!(metric),
+                            "degradation_percent".to_string() => json!(degradation),
+                            "severity".to_string() => json!("warning"),
+                            "timestamp".to_string() => json!(Utc::now().to_rfc3339())
+                        };
+                        
+                        current_alerts.push(alert);
+                    }
+                }
+            }
+        }
+        
+        // Update stored alerts
+        self.alerts.extend(current_alerts.clone());
+        
+        // Keep alerts manageable (last 50 alerts)
+        if self.alerts.len() > 50 {
+            self.alerts.drain(0..self.alerts.len()-50);
+        }
+        
+        current_alerts
     }
     
-    /// Generate performance report
+    /// Generate comprehensive performance report
+    /// 
+    /// Creates detailed performance report including statistics, trends,
+    /// and recommendations for optimization.
     pub fn generate_report(&self) -> HashMap<String, Value> {
-        todo!("Implementation needed for PerformanceMonitoring::generate_report - should generate performance report")
+        let mut report = HashMap::new();
+        
+        // Basic information
+        report.insert("monitoring_id".to_string(), json!(self.id));
+        report.insert("report_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        report.insert("metrics_count".to_string(), json!(self.measurements.len()));
+        
+        // Current measurements
+        report.insert("current_measurements".to_string(), json!(self.measurements));
+        
+        // Threshold analysis
+        let mut threshold_analysis = HashMap::new();
+        for (metric, &value) in &self.measurements {
+            if let Some(&threshold) = self.thresholds.get(metric) {
+                threshold_analysis.insert(metric.clone(), json!({
+                    "value": value,
+                    "threshold": threshold,
+                    "utilization_percent": (value / threshold * 100.0).min(100.0),
+                    "status": if value > threshold { "exceeded" } else { "normal" }
+                }));
+            }
+        }
+        report.insert("threshold_analysis".to_string(), json!(threshold_analysis));
+        
+        // Trend analysis
+        let mut trend_analysis = HashMap::new();
+        for (metric, trend) in &self.trends {
+            if trend.len() >= 2 {
+                let first = trend[0];
+                let last = trend[trend.len()-1];
+                let change_percent = if first > 0.0 { (last - first) / first * 100.0 } else { 0.0 };
+                
+                trend_analysis.insert(metric.clone(), json!({
+                    "trend_direction": if change_percent > 5.0 { "increasing" } 
+                                      else if change_percent < -5.0 { "decreasing" } 
+                                      else { "stable" },
+                    "change_percent": change_percent,
+                    "data_points": trend.len(),
+                    "min": trend.iter().fold(f64::INFINITY, |a, &b| a.min(b)),
+                    "max": trend.iter().fold(0.0, |a, &b| a.max(b)),
+                    "average": trend.iter().sum::<f64>() / trend.len() as f64
+                }));
+            }
+        }
+        report.insert("trend_analysis".to_string(), json!(trend_analysis));
+        
+        // Alert summary
+        report.insert("total_alerts".to_string(), json!(self.alerts.len()));
+        report.insert("recent_alerts".to_string(), json!(self.alerts.iter().rev().take(10).collect::<Vec<_>>()));
+        
+        // Recommendations
+        let mut recommendations = Vec::new();
+        
+        for (metric, &value) in &self.measurements {
+            if let Some(&threshold) = self.thresholds.get(metric) {
+                if value > threshold * 0.9 {
+                    recommendations.push(format!("Consider optimizing {} - approaching threshold ({:.1}% utilization)", 
+                        metric, value / threshold * 100.0));
+                }
+            }
+        }
+        
+        report.insert("recommendations".to_string(), json!(recommendations));
+        
+        report
     }
+}
+
+// Helper macro for creating HashMaps
+macro_rules! hashmap {
+    ($( $key: expr => $val: expr ),*) => {{
+         let mut map = ::std::collections::HashMap::new();
+         $( map.insert($key, $val); )*
+         map
+    }}
 }
 
 impl LatencyMonitoring {
-    /// Create new latency monitoring
+    /// Create new latency monitoring with unique identifier
+    /// 
+    /// Initializes specialized latency monitoring with percentile calculation
+    /// and SLA compliance tracking capabilities.
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for LatencyMonitoring::new - should initialize latency monitoring")
+        ensure!(!id.is_empty(), "Latency monitoring ID cannot be empty");
+        
+        Self {
+            id,
+            measurements: HashMap::new(),
+            percentiles: HashMap::new(),
+            targets: HashMap::new(),
+            trends: HashMap::new(),
+            breakdown: HashMap::new(),
+        }
     }
     
-    /// Record latency measurement
+    /// Record latency measurement with statistical analysis
+    /// 
+    /// Records latency measurements and updates statistical indicators
+    /// including percentiles and trend analysis for performance monitoring.
     pub fn record_latency(&mut self, operation: String, latency: f64) -> Result<()> {
-        todo!("Implementation needed for LatencyMonitoring::record_latency - should record latency measurement")
+        // Validate inputs
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        ensure!(latency >= 0.0, "Latency cannot be negative: {}", latency);
+        ensure!(latency.is_finite(), "Latency must be finite: {}", latency);
+        
+        // Update current measurement
+        self.measurements.insert(operation.clone(), latency);
+        
+        // Update trend data
+        let trend = self.trends.entry(operation.clone()).or_insert_with(Vec::new);
+        trend.push(latency);
+        
+        // Keep trend data manageable (last 1000 measurements for accurate percentiles)
+        if trend.len() > 1000 {
+            trend.remove(0);
+        }
+        
+        // Recalculate percentiles if we have enough data
+        if trend.len() >= 10 {
+            self.calculate_percentiles(&operation)?;
+        }
+        
+        // Check against SLA targets
+        if let Some(&target) = self.targets.get(&operation) {
+            if latency > target {
+                log::warn!("Latency SLA violation for {}: {:.2}ms > {:.2}ms", operation, latency, target);
+            }
+        }
+        
+        Ok(())
     }
     
-    /// Calculate percentiles
+    /// Calculate latency percentiles for statistical analysis
+    /// 
+    /// Computes P50, P95, P99, and P99.9 percentiles for latency distribution
+    /// analysis and SLA monitoring.
     pub fn calculate_percentiles(&mut self, operation: &str) -> Result<()> {
-        todo!("Implementation needed for LatencyMonitoring::calculate_percentiles - should calculate latency percentiles")
+        // Validate input
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        
+        // Get trend data for this operation
+        let trend = self.trends.get(operation).context("No trend data found for operation")?;
+        
+        if trend.len() < 2 {
+            return Ok(()) // Not enough data for percentiles
+        }
+        
+        // Sort latency values for percentile calculation
+        let mut sorted_latencies = trend.clone();
+        sorted_latencies.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        
+        // Calculate percentiles
+        let len = sorted_latencies.len();
+        let p50_idx = (len as f64 * 0.50) as usize;
+        let p95_idx = (len as f64 * 0.95) as usize;
+        let p99_idx = (len as f64 * 0.99) as usize;
+        let p999_idx = (len as f64 * 0.999) as usize;
+        
+        let percentiles = hashmap!{
+            "p50".to_string() => sorted_latencies[p50_idx.min(len-1)],
+            "p95".to_string() => sorted_latencies[p95_idx.min(len-1)],
+            "p99".to_string() => sorted_latencies[p99_idx.min(len-1)],
+            "p99.9".to_string() => sorted_latencies[p999_idx.min(len-1)],
+            "mean".to_string() => sorted_latencies.iter().sum::<f64>() / len as f64,
+            "min".to_string() => sorted_latencies[0],
+            "max".to_string() => sorted_latencies[len-1]
+        };
+        
+        self.percentiles.insert(operation.to_string(), percentiles);
+        
+        Ok(())
     }
     
-    /// Check SLA compliance
+    /// Check SLA compliance for latency targets
+    /// 
+    /// Evaluates current latency performance against configured SLA targets
+    /// and returns compliance status.
     pub fn check_sla_compliance(&self, operation: &str) -> bool {
-        todo!("Implementation needed for LatencyMonitoring::check_sla_compliance - should check if latency meets SLA")
+        // Check if we have both current measurement and target
+        let current_latency = self.measurements.get(operation);
+        let target = self.targets.get(operation);
+        
+        match (current_latency, target) {
+            (Some(&current), Some(&target)) => current <= target,
+            _ => true // No target set, assume compliant
+        }
     }
 }
 
 impl ThroughputMonitoring {
-    /// Create new throughput monitoring
+    /// Create new throughput monitoring with unique identifier
+    /// 
+    /// Initializes throughput monitoring with capacity tracking,
+    /// bottleneck detection, and utilization analysis.
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for ThroughputMonitoring::new - should initialize throughput monitoring")
+        ensure!(!id.is_empty(), "Throughput monitoring ID cannot be empty");
+        
+        Self {
+            id,
+            current_throughput: HashMap::new(),
+            peak_throughput: HashMap::new(),
+            trends: HashMap::new(),
+            bottlenecks: Vec::new(),
+            capacity_utilization: HashMap::new(),
+        }
     }
     
-    /// Record throughput measurement
+    /// Record throughput measurement with capacity analysis
+    /// 
+    /// Records current throughput and updates capacity utilization metrics
+    /// for performance optimization and capacity planning.
     pub fn record_throughput(&mut self, operation: String, throughput: f64) -> Result<()> {
-        todo!("Implementation needed for ThroughputMonitoring::record_throughput - should record throughput measurement")
+        // Validate inputs
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        ensure!(throughput >= 0.0, "Throughput cannot be negative: {}", throughput);
+        ensure!(throughput.is_finite(), "Throughput must be finite: {}", throughput);
+        
+        // Update current throughput
+        self.current_throughput.insert(operation.clone(), throughput);
+        
+        // Update peak throughput
+        let current_peak = self.peak_throughput.get(&operation).copied().unwrap_or(0.0);
+        if throughput > current_peak {
+            self.peak_throughput.insert(operation.clone(), throughput);
+            log::info!("New peak throughput for {}: {:.2} ops/sec", operation, throughput);
+        }
+        
+        // Update trend data
+        let trend = self.trends.entry(operation.clone()).or_insert_with(Vec::new);
+        trend.push(throughput);
+        
+        // Keep trend data manageable
+        if trend.len() > 500 {
+            trend.remove(0);
+        }
+        
+        // Calculate capacity utilization if we have peak data
+        if let Some(&peak) = self.peak_throughput.get(&operation) {
+            if peak > 0.0 {
+                let utilization = throughput / peak;
+                self.capacity_utilization.insert(operation.clone(), utilization);
+                
+                // Check for bottleneck conditions
+                if utilization > 0.9 {
+                    if !self.bottlenecks.contains(&operation) {
+                        self.bottlenecks.push(operation.clone());
+                        log::warn!("Bottleneck detected for {}: {:.1}% capacity utilization", operation, utilization * 100.0);
+                    }
+                } else if utilization < 0.7 {
+                    // Remove from bottlenecks if utilization drops
+                    self.bottlenecks.retain(|op| op != &operation);
+                }
+            }
+        }
+        
+        Ok(())
     }
     
-    /// Identify bottlenecks
+    /// Identify performance bottlenecks across operations
+    /// 
+    /// Analyzes throughput patterns to identify operations that are
+    /// constraining overall system performance.
     pub fn identify_bottlenecks(&mut self) -> Vec<String> {
-        todo!("Implementation needed for ThroughputMonitoring::identify_bottlenecks - should identify performance bottlenecks")
+        // Clear current bottlenecks list
+        self.bottlenecks.clear();
+        
+        // Identify operations with high capacity utilization
+        for (operation, &utilization) in &self.capacity_utilization {
+            if utilization > 0.85 {
+                self.bottlenecks.push(operation.clone());
+            }
+        }
+        
+        // Identify operations with declining throughput trends
+        for (operation, trend) in &self.trends {
+            if trend.len() >= 10 {
+                let recent = &trend[trend.len()-5..];
+                let earlier = &trend[trend.len()-10..trend.len()-5];
+                
+                let recent_avg = recent.iter().sum::<f64>() / recent.len() as f64;
+                let earlier_avg = earlier.iter().sum::<f64>() / earlier.len() as f64;
+                
+                if earlier_avg > 0.0 {
+                    let decline = (earlier_avg - recent_avg) / earlier_avg;
+                    if decline > 0.2 && !self.bottlenecks.contains(operation) {
+                        self.bottlenecks.push(operation.clone());
+                        log::warn!("Throughput decline detected for {}: {:.1}% decrease", operation, decline * 100.0);
+                    }
+                }
+            }
+        }
+        
+        self.bottlenecks.clone()
     }
     
-    /// Calculate capacity utilization
+    /// Calculate capacity utilization for resource planning
+    /// 
+    /// Computes current capacity utilization relative to peak performance
+    /// for each operation to guide capacity planning decisions.
     pub fn calculate_utilization(&mut self, operation: &str) -> Result<f64> {
-        todo!("Implementation needed for ThroughputMonitoring::calculate_utilization - should calculate capacity utilization")
+        // Validate input
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        
+        let current = self.current_throughput.get(operation)
+            .context("No current throughput data for operation")?;
+        
+        let peak = self.peak_throughput.get(operation)
+            .context("No peak throughput data for operation")?;
+        
+        if *peak > 0.0 {
+            let utilization = current / peak;
+            self.capacity_utilization.insert(operation.to_string(), utilization);
+            Ok(utilization)
+        } else {
+            Ok(0.0)
+        }
     }
 }
 
 impl ErrorMonitoring {
-    /// Create new error monitoring
+    /// Create new error monitoring with unique identifier
+    /// 
+    /// Initializes comprehensive error tracking with pattern analysis
+    /// and critical error detection capabilities.
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for ErrorMonitoring::new - should initialize error monitoring")
+        ensure!(!id.is_empty(), "Error monitoring ID cannot be empty");
+        
+        Self {
+            id,
+            error_counts: HashMap::new(),
+            error_rates: HashMap::new(),
+            patterns: HashMap::new(),
+            recovery_metrics: HashMap::new(),
+            critical_alerts: Vec::new(),
+        }
     }
     
-    /// Record error
+    /// Record error occurrence with classification and analysis
+    /// 
+    /// Records error events and maintains statistical analysis for
+    /// error pattern detection and system reliability monitoring.
     pub fn record_error(&mut self, error_type: String, operation: &str) -> Result<()> {
-        todo!("Implementation needed for ErrorMonitoring::record_error - should record error occurrence")
+        // Validate inputs
+        ensure!(!error_type.is_empty(), "Error type cannot be empty");
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        
+        // Update error count for this type
+        let current_count = self.error_counts.get(&error_type).copied().unwrap_or(0);
+        self.error_counts.insert(error_type.clone(), current_count + 1);
+        
+        // Update error rate for this operation
+        let current_rate = self.error_rates.get(operation).copied().unwrap_or(0.0);
+        let new_rate = (0.95 * current_rate) + 0.05; // Increment with decay
+        self.error_rates.insert(operation.to_string(), new_rate);
+        
+        // Update error patterns
+        let pattern_key = format!("{}_{}", operation, error_type);
+        let pattern = self.patterns.entry(pattern_key.clone()).or_insert_with(Vec::new);
+        pattern.push(error_type.clone());
+        
+        // Keep pattern history manageable
+        if pattern.len() > 100 {
+            pattern.remove(0);
+        }
+        
+        // Check for critical error conditions
+        let is_critical = self.is_critical_error(&error_type, operation)?;
+        if is_critical {
+            let alert = hashmap!{
+                "error_type".to_string() => json!(error_type),
+                "operation".to_string() => json!(operation),
+                "timestamp".to_string() => json!(Utc::now().to_rfc3339()),
+                "severity".to_string() => json!("critical"),
+                "count".to_string() => json!(current_count + 1),
+                "rate".to_string() => json!(new_rate)
+            };
+            
+            self.critical_alerts.push(alert);
+            
+            // Keep critical alerts manageable
+            if self.critical_alerts.len() > 100 {
+                self.critical_alerts.remove(0);
+            }
+            
+            log::error!("Critical error recorded: {} in {} (count: {}, rate: {:.3})", 
+                error_type, operation, current_count + 1, new_rate);
+        }
+        
+        Ok(())
     }
     
-    /// Analyze error patterns
+    /// Analyze error patterns for root cause identification
+    /// 
+    /// Examines error patterns to identify recurring issues,
+    /// correlated failures, and potential root causes.
     pub fn analyze_patterns(&mut self) -> HashMap<String, Vec<String>> {
-        todo!("Implementation needed for ErrorMonitoring::analyze_patterns - should analyze error patterns")
+        let mut analysis = HashMap::new();
+        
+        // Analyze patterns for each operation/error combination
+        for (pattern_key, errors) in &self.patterns {
+            if errors.len() >= 5 {
+                // Count error type frequencies
+                let mut error_frequency = HashMap::new();
+                for error in errors {
+                    *error_frequency.entry(error.clone()).or_insert(0) += 1;
+                }
+                
+                // Identify dominant error types (>50% of errors)
+                let total_errors = errors.len();
+                let mut dominant_errors = Vec::new();
+                
+                for (error_type, count) in error_frequency {
+                    let frequency = count as f64 / total_errors as f64;
+                    if frequency > 0.5 {
+                        dominant_errors.push(format!("{} ({:.1}% of errors)", error_type, frequency * 100.0));
+                    }
+                }
+                
+                if !dominant_errors.is_empty() {
+                    analysis.insert(pattern_key.clone(), dominant_errors);
+                }
+                
+                // Check for error clustering (many errors in short time)
+                if errors.len() >= 10 {
+                    let recent_errors = &errors[errors.len()-10..];
+                    let unique_types: HashSet<_> = recent_errors.iter().collect();
+                    
+                    if unique_types.len() <= 3 {
+                        let clustering_info = vec![
+                            format!("Error clustering detected: {} error types in last 10 events", unique_types.len()),
+                            format!("Pattern suggests systematic issue in {}", pattern_key)
+                        ];
+                        analysis.insert(format!("{}_clustering", pattern_key), clustering_info);
+                    }
+                }
+            }
+        }
+        
+        // Analyze cross-operation correlations
+        let mut correlated_errors = Vec::new();
+        
+        for (operation1, rate1) in &self.error_rates {
+            for (operation2, rate2) in &self.error_rates {
+                if operation1 != operation2 && *rate1 > 0.1 && *rate2 > 0.1 {
+                    let correlation = (rate1 - rate2).abs();
+                    if correlation < 0.05 { // Similar error rates
+                        correlated_errors.push(format!("{} and {} have correlated error rates ({:.3}, {:.3})", 
+                            operation1, operation2, rate1, rate2));
+                    }
+                }
+            }
+        }
+        
+        if !correlated_errors.is_empty() {
+            analysis.insert("correlated_failures".to_string(), correlated_errors);
+        }
+        
+        analysis
     }
     
-    /// Check critical errors
+    /// Check for critical errors requiring immediate attention
+    /// 
+    /// Identifies error conditions that pose immediate risks to system
+    /// stability and require urgent intervention.
     pub fn check_critical_errors(&self) -> Vec<HashMap<String, Value>> {
-        todo!("Implementation needed for ErrorMonitoring::check_critical_errors - should identify critical errors")
+        let mut critical = Vec::new();
+        
+        // Check for high error rates
+        for (operation, &rate) in &self.error_rates {
+            if rate > 0.1 { // 10% error rate is critical
+                let alert = hashmap!{
+                    "type".to_string() => json!("high_error_rate"),
+                    "operation".to_string() => json!(operation),
+                    "error_rate".to_string() => json!(rate),
+                    "severity".to_string() => json!(if rate > 0.5 { "critical" } else { "warning" }),
+                    "timestamp".to_string() => json!(Utc::now().to_rfc3339())
+                };
+                critical.push(alert);
+            }
+        }
+        
+        // Check for high error counts
+        for (error_type, &count) in &self.error_counts {
+            if count > 100 {
+                let alert = hashmap!{
+                    "type".to_string() => json!("high_error_count"),
+                    "error_type".to_string() => json!(error_type),
+                    "count".to_string() => json!(count),
+                    "severity".to_string() => json!(if count > 1000 { "critical" } else { "warning" }),
+                    "timestamp".to_string() => json!(Utc::now().to_rfc3339())
+                };
+                critical.push(alert);
+            }
+        }
+        
+        // Include recent critical alerts
+        critical.extend(self.critical_alerts.iter().rev().take(10).cloned());
+        
+        critical
+    }
+    
+    /// Helper method to determine if an error is critical
+    fn is_critical_error(&self, error_type: &str, operation: &str) -> Result<bool> {
+        // Critical error types
+        let critical_types = [
+            "system_failure", "security_breach", "data_corruption", 
+            "memory_exhausted", "disk_full", "network_failure"
+        ];
+        
+        if critical_types.contains(&error_type) {
+            return Ok(true);
+        }
+        
+        // Check if error rate for this operation is critically high
+        if let Some(&rate) = self.error_rates.get(operation) {
+            if rate > 0.2 { // 20% error rate is critical
+                return Ok(true);
+            }
+        }
+        
+        // Check if error count for this type is critically high
+        if let Some(&count) = self.error_counts.get(error_type) {
+            if count > 500 {
+                return Ok(true);
+            }
+        }
+        
+        Ok(false)
     }
 }
 
