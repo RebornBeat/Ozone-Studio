@@ -17412,7 +17412,7 @@ impl ResponseTransform {
     }
 }
 
-// Continue with metrics implementations...
+// Metrics Implementations
 
 impl CommunicationMetrics {
     /// Create new communication metrics
@@ -17619,7 +17619,7 @@ impl ErrorMonitoring {
     }
 }
 
-// Continue with security implementations...
+// Security Implementations
 
 impl CommunicationSecurity {
     /// Create new communication security
