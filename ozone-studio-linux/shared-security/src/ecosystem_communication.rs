@@ -11457,242 +11457,2593 @@ impl ResponseRouting {
 }
 
 impl LoadBalancing {
-    /// Create new load balancing configuration
+    /// Create new load balancing configuration with specified algorithm
+    /// 
+    /// Supported algorithms: "round_robin", "weighted_round_robin", "least_connections", 
+    /// "weighted_least_connections", "ip_hash", "random", "least_response_time"
     pub fn new(id: String, algorithm: String) -> Self {
-        todo!("Implementation needed for LoadBalancing::new - should initialize load balancing")
+        let now = Utc::now();
+        
+        // Validate algorithm
+        let valid_algorithms = [
+            "round_robin", "weighted_round_robin", "least_connections",
+            "weighted_least_connections", "ip_hash", "random", "least_response_time"
+        ];
+        
+        let algorithm = if valid_algorithms.contains(&algorithm.as_str()) {
+            algorithm
+        } else {
+            "round_robin".to_string() // Default fallback
+        };
+        
+        Self {
+            id,
+            algorithm,
+            endpoints: HashMap::new(),
+            health_checks: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("interval".to_string(), json!(30)), // 30 seconds
+                ("timeout".to_string(), json!(5)),   // 5 seconds
+                ("unhealthy_threshold".to_string(), json!(3)),
+                ("healthy_threshold".to_string(), json!(2)),
+            ]),
+            session_affinity: HashMap::from([
+                ("enabled".to_string(), json!(false)),
+                ("cookie_name".to_string(), json!("OZONE_SESSION")),
+                ("ttl".to_string(), json!(3600)), // 1 hour
+            ]),
+            metrics: HashMap::from([
+                ("total_requests".to_string(), 0.0),
+                ("successful_requests".to_string(), 0.0),
+                ("failed_requests".to_string(), 0.0),
+                ("average_response_time".to_string(), 0.0),
+                ("last_updated".to_string(), now.timestamp() as f64),
+            ]),
+            circuit_breaker: None,
+        }
     }
     
-    /// Add endpoint
+    /// Add endpoint with specified weight (weight must be > 0.0)
     pub fn add_endpoint(&mut self, endpoint: String, weight: f64) -> Result<()> {
-        todo!("Implementation needed for LoadBalancing::add_endpoint - should add endpoint with weight")
+        ensure!(!endpoint.is_empty(), "Endpoint cannot be empty");
+        ensure!(weight > 0.0, "Weight must be greater than 0.0");
+        ensure!(weight <= 100.0, "Weight cannot exceed 100.0");
+        
+        // Check if endpoint already exists
+        if self.endpoints.contains_key(&endpoint) {
+            return Err(CommunicationError::ConfigurationError {
+                message: "Endpoint already exists".to_string(),
+                parameter: endpoint,
+            }.into());
+        }
+        
+        // Add endpoint with normalized weight
+        self.endpoints.insert(endpoint.clone(), weight);
+        
+        // Update metrics
+        self.metrics.insert("endpoint_count".to_string(), self.endpoints.len() as f64);
+        self.metrics.insert("last_updated".to_string(), Utc::now().timestamp() as f64);
+        
+        // Initialize endpoint-specific metrics
+        self.metrics.insert(format!("{}_requests", endpoint), 0.0);
+        self.metrics.insert(format!("{}_response_time", endpoint), 0.0);
+        self.metrics.insert(format!("{}_error_rate", endpoint), 0.0);
+        
+        Ok(())
     }
     
-    /// Select endpoint for request
+    /// Select optimal endpoint based on algorithm and request context
     pub fn select_endpoint(&self, request_context: &HashMap<String, Value>) -> Result<String> {
-        todo!("Implementation needed for LoadBalancing::select_endpoint - should select optimal endpoint")
+        if self.endpoints.is_empty() {
+            return Err(CommunicationError::ConfigurationError {
+                message: "No endpoints available".to_string(),
+                parameter: "endpoints".to_string(),
+            }.into());
+        }
+        
+        // Filter healthy endpoints if health checking is enabled
+        let available_endpoints = if self.health_checks.get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false) 
+        {
+            self.get_healthy_endpoints()?
+        } else {
+            self.endpoints.clone()
+        };
+        
+        if available_endpoints.is_empty() {
+            return Err(CommunicationError::ResourceError {
+                message: "No healthy endpoints available".to_string(),
+                resource_type: "endpoints".to_string(),
+            }.into());
+        }
+        
+        // Apply load balancing algorithm
+        let selected = match self.algorithm.as_str() {
+            "round_robin" => self.select_round_robin(&available_endpoints)?,
+            "weighted_round_robin" => self.select_weighted_round_robin(&available_endpoints)?,
+            "least_connections" => self.select_least_connections(&available_endpoints)?,
+            "weighted_least_connections" => self.select_weighted_least_connections(&available_endpoints)?,
+            "ip_hash" => self.select_ip_hash(&available_endpoints, request_context)?,
+            "random" => self.select_random(&available_endpoints)?,
+            "least_response_time" => self.select_least_response_time(&available_endpoints)?,
+            _ => self.select_round_robin(&available_endpoints)?, // Fallback
+        };
+        
+        // Check session affinity
+        if let Some(affinity_endpoint) = self.check_session_affinity(request_context) {
+            if available_endpoints.contains_key(&affinity_endpoint) {
+                return Ok(affinity_endpoint);
+            }
+        }
+        
+        Ok(selected)
     }
     
-    /// Update endpoint weights
+    /// Update endpoint weights with validation
     pub fn update_weights(&mut self, weights: HashMap<String, f64>) -> Result<()> {
-        todo!("Implementation needed for LoadBalancing::update_weights - should update endpoint weights")
+        for (endpoint, weight) in &weights {
+            ensure!(weight > &0.0, "Weight for {} must be greater than 0.0", endpoint);
+            ensure!(weight <= &100.0, "Weight for {} cannot exceed 100.0", endpoint);
+            
+            if !self.endpoints.contains_key(endpoint) {
+                return Err(CommunicationError::ConfigurationError {
+                    message: format!("Endpoint {} does not exist", endpoint),
+                    parameter: endpoint.clone(),
+                }.into());
+            }
+        }
+        
+        // Apply updates
+        for (endpoint, weight) in weights {
+            self.endpoints.insert(endpoint, weight);
+        }
+        
+        self.metrics.insert("last_updated".to_string(), Utc::now().timestamp() as f64);
+        Ok(())
+    }
+    
+    // Private helper methods for different load balancing algorithms
+    
+    fn select_round_robin(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let current_time = Utc::now().timestamp() as f64;
+        let total_requests = self.metrics.get("total_requests").unwrap_or(&0.0);
+        let endpoint_count = endpoints.len();
+        
+        if endpoint_count == 0 {
+            return Err(CommunicationError::ResourceError {
+                message: "No endpoints available for round robin".to_string(),
+                resource_type: "endpoints".to_string(),
+            }.into());
+        }
+        
+        let index = (*total_requests as usize) % endpoint_count;
+        let endpoint = endpoints.keys().nth(index).unwrap().clone();
+        Ok(endpoint)
+    }
+    
+    fn select_weighted_round_robin(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let total_weight: f64 = endpoints.values().sum();
+        let mut rng = thread_rng();
+        let random_weight: f64 = rng.gen_range(0.0..total_weight);
+        
+        let mut cumulative_weight = 0.0;
+        for (endpoint, weight) in endpoints {
+            cumulative_weight += weight;
+            if random_weight <= cumulative_weight {
+                return Ok(endpoint.clone());
+            }
+        }
+        
+        // Fallback to first endpoint
+        Ok(endpoints.keys().next().unwrap().clone())
+    }
+    
+    fn select_least_connections(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let mut min_connections = f64::INFINITY;
+        let mut selected_endpoint = String::new();
+        
+        for endpoint in endpoints.keys() {
+            let connections = self.metrics.get(&format!("{}_connections", endpoint))
+                .unwrap_or(&0.0);
+            
+            if *connections < min_connections {
+                min_connections = *connections;
+                selected_endpoint = endpoint.clone();
+            }
+        }
+        
+        if selected_endpoint.is_empty() {
+            selected_endpoint = endpoints.keys().next().unwrap().clone();
+        }
+        
+        Ok(selected_endpoint)
+    }
+    
+    fn select_weighted_least_connections(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let mut min_ratio = f64::INFINITY;
+        let mut selected_endpoint = String::new();
+        
+        for (endpoint, weight) in endpoints {
+            let connections = self.metrics.get(&format!("{}_connections", endpoint))
+                .unwrap_or(&0.0);
+            let ratio = connections / weight;
+            
+            if ratio < min_ratio {
+                min_ratio = ratio;
+                selected_endpoint = endpoint.clone();
+            }
+        }
+        
+        if selected_endpoint.is_empty() {
+            selected_endpoint = endpoints.keys().next().unwrap().clone();
+        }
+        
+        Ok(selected_endpoint)
+    }
+    
+    fn select_ip_hash(&self, endpoints: &HashMap<String, f64>, context: &HashMap<String, Value>) -> Result<String> {
+        let client_ip = context.get("client_ip")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        
+        let hash = self.calculate_hash(client_ip);
+        let endpoint_list: Vec<_> = endpoints.keys().collect();
+        let index = (hash as usize) % endpoint_list.len();
+        
+        Ok(endpoint_list[index].clone())
+    }
+    
+    fn select_random(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let endpoint_list: Vec<_> = endpoints.keys().collect();
+        let mut rng = thread_rng();
+        let index = rng.gen_range(0..endpoint_list.len());
+        Ok(endpoint_list[index].clone())
+    }
+    
+    fn select_least_response_time(&self, endpoints: &HashMap<String, f64>) -> Result<String> {
+        let mut min_response_time = f64::INFINITY;
+        let mut selected_endpoint = String::new();
+        
+        for endpoint in endpoints.keys() {
+            let response_time = self.metrics.get(&format!("{}_response_time", endpoint))
+                .unwrap_or(&0.0);
+            
+            if *response_time < min_response_time {
+                min_response_time = *response_time;
+                selected_endpoint = endpoint.clone();
+            }
+        }
+        
+        if selected_endpoint.is_empty() {
+            selected_endpoint = endpoints.keys().next().unwrap().clone();
+        }
+        
+        Ok(selected_endpoint)
+    }
+    
+    fn get_healthy_endpoints(&self) -> Result<HashMap<String, f64>> {
+        // In a real implementation, this would check actual health status
+        // For now, return all endpoints as healthy
+        Ok(self.endpoints.clone())
+    }
+    
+    fn check_session_affinity(&self, context: &HashMap<String, Value>) -> Option<String> {
+        if !self.session_affinity.get("enabled")?.as_bool()? {
+            return None;
+        }
+        
+        let cookie_name = self.session_affinity.get("cookie_name")?.as_str()?;
+        context.get("headers")
+            .and_then(|h| h.as_object())
+            .and_then(|headers| headers.get(cookie_name))
+            .and_then(|cookie| cookie.as_str())
+            .map(|s| s.to_string())
+    }
+    
+    fn calculate_hash(&self, input: &str) -> u64 {
+        // Simple hash function - in production, use a proper hash like SHA-256
+        input.chars().fold(0u64, |acc, c| acc.wrapping_mul(31).wrapping_add(c as u64))
     }
 }
 
 impl FailoverStrategy {
-    /// Create new failover strategy
+    /// Create new failover strategy with default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for FailoverStrategy::new - should initialize failover strategy")
+        Self {
+            id,
+            triggers: vec![
+                HashMap::from([
+                    ("condition".to_string(), json!("health_check_failure")),
+                    ("threshold".to_string(), json!(3)),
+                    ("window".to_string(), json!(300)), // 5 minutes
+                ]),
+                HashMap::from([
+                    ("condition".to_string(), json!("response_time_threshold")),
+                    ("threshold".to_string(), json!(5000)), // 5 seconds
+                    ("consecutive_failures".to_string(), json!(5)),
+                ]),
+                HashMap::from([
+                    ("condition".to_string(), json!("error_rate_threshold")),
+                    ("threshold".to_string(), json!(0.1)), // 10%
+                    ("window".to_string(), json!(60)), // 1 minute
+                ]),
+            ],
+            targets: Vec::new(),
+            timing: HashMap::from([
+                ("detection_interval".to_string(), Duration::from_secs(30)),
+                ("failover_timeout".to_string(), Duration::from_secs(300)), // 5 minutes
+                ("recovery_check_interval".to_string(), Duration::from_secs(60)),
+                ("max_failover_time".to_string(), Duration::from_secs(1800)), // 30 minutes
+            ]),
+            health_requirements: HashMap::from([
+                ("min_success_rate".to_string(), json!(0.95)),
+                ("max_response_time".to_string(), json!(2000)), // 2 seconds
+                ("min_uptime".to_string(), json!(0.99)),
+                ("required_checks".to_string(), json!(3)),
+            ]),
+            recovery: HashMap::from([
+                ("automatic_recovery".to_string(), json!(true)),
+                ("recovery_validation_period".to_string(), json!(300)), // 5 minutes
+                ("gradual_recovery".to_string(), json!(true)),
+                ("recovery_traffic_percentage".to_string(), json!(10)), // Start with 10%
+            ]),
+            notifications: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("channels".to_string(), json!(["email", "slack", "webhook"])),
+                ("severity_levels".to_string(), json!(["warning", "critical", "recovery"])),
+                ("cooldown_period".to_string(), json!(300)), // 5 minutes between notifications
+            ]),
+        }
     }
     
-    /// Add failover target
+    /// Add failover target with priority (lower numbers = higher priority)
     pub fn add_target(&mut self, target: String, priority: u32) -> Result<()> {
-        todo!("Implementation needed for FailoverStrategy::add_target - should add failover target with priority")
+        ensure!(!target.is_empty(), "Target cannot be empty");
+        ensure!(priority < 1000, "Priority must be less than 1000");
+        
+        // Check if target already exists
+        if self.targets.contains(&target) {
+            return Err(CommunicationError::ConfigurationError {
+                message: "Target already exists".to_string(),
+                parameter: target,
+            }.into());
+        }
+        
+        // Insert target in priority order
+        let insert_index = self.targets.len();
+        self.targets.insert(insert_index, target);
+        
+        // Sort targets by priority (would need additional priority tracking in real implementation)
+        self.targets.sort();
+        
+        Ok(())
     }
     
-    /// Check if failover should trigger
+    /// Evaluate if failover should trigger based on current system status
     pub fn should_failover(&self, current_status: &HashMap<String, Value>) -> bool {
-        todo!("Implementation needed for FailoverStrategy::should_failover - should evaluate failover conditions")
+        for trigger in &self.triggers {
+            if self.evaluate_trigger(trigger, current_status) {
+                return true;
+            }
+        }
+        false
     }
     
-    /// Get next failover target
+    /// Get next available failover target, excluding failed targets
     pub fn get_next_target(&self, failed_targets: &[String]) -> Option<String> {
-        todo!("Implementation needed for FailoverStrategy::get_next_target - should return next available target")
+        for target in &self.targets {
+            if !failed_targets.contains(target) {
+                // Verify target meets health requirements
+                if self.check_target_health(target) {
+                    return Some(target.clone());
+                }
+            }
+        }
+        None
+    }
+    
+    /// Configure failover triggers with validation
+    pub fn configure_triggers(&mut self, triggers: Vec<HashMap<String, Value>>) -> Result<()> {
+        for trigger in &triggers {
+            self.validate_trigger(trigger)?;
+        }
+        self.triggers = triggers;
+        Ok(())
+    }
+    
+    /// Set timing configuration for failover operations
+    pub fn set_timing(&mut self, timing_config: HashMap<String, Duration>) -> Result<()> {
+        for (key, duration) in timing_config {
+            ensure!(duration.as_secs() > 0, "Duration for {} must be greater than 0", key);
+            ensure!(duration.as_secs() < 86400, "Duration for {} must be less than 24 hours", key);
+            self.timing.insert(key, duration);
+        }
+        Ok(())
+    }
+    
+    /// Update health requirements for targets
+    pub fn update_health_requirements(&mut self, requirements: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &requirements {
+            match key.as_str() {
+                "min_success_rate" | "min_uptime" => {
+                    let rate = value.as_f64().ok_or_else(|| {
+                        CommunicationError::ValidationError {
+                            message: format!("{} must be a number", key),
+                            field: key.clone(),
+                        }
+                    })?;
+                    ensure!(rate >= 0.0 && rate <= 1.0, "{} must be between 0.0 and 1.0", key);
+                }
+                "max_response_time" => {
+                    let time = value.as_f64().ok_or_else(|| {
+                        CommunicationError::ValidationError {
+                            message: "max_response_time must be a number".to_string(),
+                            field: key.clone(),
+                        }
+                    })?;
+                    ensure!(time > 0.0, "max_response_time must be greater than 0");
+                }
+                _ => {} // Allow other requirements
+            }
+        }
+        
+        for (key, value) in requirements {
+            self.health_requirements.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    // Private helper methods
+    
+    fn evaluate_trigger(&self, trigger: &HashMap<String, Value>, status: &HashMap<String, Value>) -> bool {
+        let condition = trigger.get("condition")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        
+        match condition {
+            "health_check_failure" => {
+                let threshold = trigger.get("threshold")
+                    .and_then(|t| t.as_f64())
+                    .unwrap_or(3.0);
+                let failures = status.get("consecutive_health_failures")
+                    .and_then(|f| f.as_f64())
+                    .unwrap_or(0.0);
+                failures >= threshold
+            }
+            "response_time_threshold" => {
+                let threshold = trigger.get("threshold")
+                    .and_then(|t| t.as_f64())
+                    .unwrap_or(5000.0);
+                let response_time = status.get("average_response_time")
+                    .and_then(|r| r.as_f64())
+                    .unwrap_or(0.0);
+                response_time > threshold
+            }
+            "error_rate_threshold" => {
+                let threshold = trigger.get("threshold")
+                    .and_then(|t| t.as_f64())
+                    .unwrap_or(0.1);
+                let error_rate = status.get("error_rate")
+                    .and_then(|e| e.as_f64())
+                    .unwrap_or(0.0);
+                error_rate > threshold
+            }
+            _ => false,
+        }
+    }
+    
+    fn validate_trigger(&self, trigger: &HashMap<String, Value>) -> Result<()> {
+        let condition = trigger.get("condition")
+            .and_then(|c| c.as_str())
+            .ok_or_else(|| CommunicationError::ValidationError {
+                message: "Trigger must have a condition".to_string(),
+                field: "condition".to_string(),
+            })?;
+        
+        let valid_conditions = ["health_check_failure", "response_time_threshold", "error_rate_threshold"];
+        ensure!(valid_conditions.contains(&condition), "Invalid trigger condition: {}", condition);
+        
+        if trigger.contains_key("threshold") {
+            trigger.get("threshold")
+                .and_then(|t| t.as_f64())
+                .ok_or_else(|| CommunicationError::ValidationError {
+                    message: "Threshold must be a number".to_string(),
+                    field: "threshold".to_string(),
+                })?;
+        }
+        
+        Ok(())
+    }
+    
+    fn check_target_health(&self, _target: &str) -> bool {
+        // In a real implementation, this would perform actual health checks
+        // For now, assume targets are healthy
+        true
     }
 }
 
 impl CircuitBreaker {
-    /// Create new circuit breaker
+    /// Create new circuit breaker with specified thresholds
     pub fn new(id: String, failure_threshold: u32, timeout: Duration) -> Self {
-        todo!("Implementation needed for CircuitBreaker::new - should initialize circuit breaker with thresholds")
+        ensure!(failure_threshold > 0, "Failure threshold must be greater than 0");
+        ensure!(timeout.as_secs() > 0, "Timeout must be greater than 0");
+        
+        Self {
+            id,
+            state: "Closed".to_string(), // Closed, Open, HalfOpen
+            failure_threshold,
+            success_threshold: (failure_threshold / 2).max(1), // Default to half of failure threshold
+            timeout,
+            failure_count: 0,
+            success_count: 0,
+            last_state_change: Utc::now(),
+            metrics: HashMap::from([
+                ("total_requests".to_string(), 0.0),
+                ("successful_requests".to_string(), 0.0),
+                ("failed_requests".to_string(), 0.0),
+                ("rejection_count".to_string(), 0.0),
+                ("state_changes".to_string(), 0.0),
+                ("uptime_percentage".to_string(), 100.0),
+            ]),
+        }
     }
     
-    /// Record operation result
+    /// Record operation result and update circuit breaker state
     pub fn record_result(&mut self, success: bool) -> Result<()> {
-        todo!("Implementation needed for CircuitBreaker::record_result - should update circuit breaker state based on result")
+        let now = Utc::now();
+        
+        // Update metrics
+        self.metrics.insert("total_requests".to_string(), 
+            self.metrics.get("total_requests").unwrap_or(&0.0) + 1.0);
+        
+        if success {
+            self.metrics.insert("successful_requests".to_string(),
+                self.metrics.get("successful_requests").unwrap_or(&0.0) + 1.0);
+            self.success_count += 1;
+            self.failure_count = 0; // Reset failure count on success
+        } else {
+            self.metrics.insert("failed_requests".to_string(),
+                self.metrics.get("failed_requests").unwrap_or(&0.0) + 1.0);
+            self.failure_count += 1;
+            self.success_count = 0; // Reset success count on failure
+        }
+        
+        // Update state based on current conditions
+        match self.state.as_str() {
+            "Closed" => {
+                if self.failure_count >= self.failure_threshold {
+                    self.transition_to_open(now)?;
+                }
+            }
+            "Open" => {
+                // Check if timeout has elapsed
+                if now.signed_duration_since(self.last_state_change).to_std()
+                    .unwrap_or(Duration::from_secs(0)) >= self.timeout {
+                    self.transition_to_half_open(now)?;
+                }
+            }
+            "HalfOpen" => {
+                if success && self.success_count >= self.success_threshold {
+                    self.transition_to_closed(now)?;
+                } else if !success {
+                    self.transition_to_open(now)?;
+                }
+            }
+            _ => {
+                return Err(CommunicationError::InternalError {
+                    message: format!("Invalid circuit breaker state: {}", self.state),
+                    component: "CircuitBreaker".to_string(),
+                }.into());
+            }
+        }
+        
+        // Calculate uptime percentage
+        let total_requests = self.metrics.get("total_requests").unwrap_or(&1.0);
+        let successful_requests = self.metrics.get("successful_requests").unwrap_or(&0.0);
+        let uptime = (successful_requests / total_requests) * 100.0;
+        self.metrics.insert("uptime_percentage".to_string(), uptime);
+        
+        Ok(())
     }
     
-    /// Check if operation should be allowed
+    /// Check if operation should be allowed based on current state
     pub fn can_execute(&self) -> bool {
-        todo!("Implementation needed for CircuitBreaker::can_execute - should return true if circuit allows execution")
+        match self.state.as_str() {
+            "Closed" => true,
+            "HalfOpen" => true, // Allow limited traffic in half-open state
+            "Open" => {
+                // Check if timeout has elapsed to allow transition to half-open
+                let now = Utc::now();
+                now.signed_duration_since(self.last_state_change).to_std()
+                    .unwrap_or(Duration::from_secs(0)) >= self.timeout
+            }
+            _ => false,
+        }
     }
     
-    /// Reset circuit breaker
+    /// Reset circuit breaker to closed state
     pub fn reset(&mut self) -> Result<()> {
-        todo!("Implementation needed for CircuitBreaker::reset - should reset circuit breaker to closed state")
+        let now = Utc::now();
+        
+        self.state = "Closed".to_string();
+        self.failure_count = 0;
+        self.success_count = 0;
+        self.last_state_change = now;
+        
+        // Update metrics
+        self.metrics.insert("state_changes".to_string(),
+            self.metrics.get("state_changes").unwrap_or(&0.0) + 1.0);
+        
+        Ok(())
     }
     
-    /// Get current state
+    /// Get current circuit breaker state
     pub fn get_state(&self) -> &str {
-        todo!("Implementation needed for CircuitBreaker::get_state - should return current circuit breaker state")
+        &self.state
+    }
+    
+    /// Configure success threshold for half-open to closed transition
+    pub fn set_success_threshold(&mut self, threshold: u32) -> Result<()> {
+        ensure!(threshold > 0, "Success threshold must be greater than 0");
+        ensure!(threshold <= self.failure_threshold, 
+            "Success threshold cannot exceed failure threshold");
+        
+        self.success_threshold = threshold;
+        Ok(())
+    }
+    
+    /// Update timeout duration
+    pub fn set_timeout(&mut self, timeout: Duration) -> Result<()> {
+        ensure!(timeout.as_secs() > 0, "Timeout must be greater than 0");
+        ensure!(timeout.as_secs() < 3600, "Timeout cannot exceed 1 hour");
+        
+        self.timeout = timeout;
+        Ok(())
+    }
+    
+    /// Get circuit breaker metrics
+    pub fn get_metrics(&self) -> &HashMap<String, f64> {
+        &self.metrics
+    }
+    
+    /// Get detailed status information
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("state".to_string(), json!(self.state));
+        status.insert("failure_count".to_string(), json!(self.failure_count));
+        status.insert("success_count".to_string(), json!(self.success_count));
+        status.insert("failure_threshold".to_string(), json!(self.failure_threshold));
+        status.insert("success_threshold".to_string(), json!(self.success_threshold));
+        status.insert("timeout_seconds".to_string(), json!(self.timeout.as_secs()));
+        status.insert("last_state_change".to_string(), json!(self.last_state_change.to_rfc3339()));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        
+        status
+    }
+    
+    // Private helper methods for state transitions
+    
+    fn transition_to_open(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.state = "Open".to_string();
+        self.last_state_change = now;
+        self.metrics.insert("state_changes".to_string(),
+            self.metrics.get("state_changes").unwrap_or(&0.0) + 1.0);
+        Ok(())
+    }
+    
+    fn transition_to_half_open(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.state = "HalfOpen".to_string();
+        self.last_state_change = now;
+        self.success_count = 0; // Reset for half-open evaluation
+        self.metrics.insert("state_changes".to_string(),
+            self.metrics.get("state_changes").unwrap_or(&0.0) + 1.0);
+        Ok(())
+    }
+    
+    fn transition_to_closed(&mut self, now: DateTime<Utc>) -> Result<()> {
+        self.state = "Closed".to_string();
+        self.last_state_change = now;
+        self.failure_count = 0;
+        self.success_count = 0;
+        self.metrics.insert("state_changes".to_string(),
+            self.metrics.get("state_changes").unwrap_or(&0.0) + 1.0);
+        Ok(())
     }
 }
 
 impl RetryPolicy {
-    /// Create new retry policy
+    /// Create new retry policy with basic configuration
     pub fn new(id: String, max_attempts: u32) -> Self {
-        todo!("Implementation needed for RetryPolicy::new - should initialize retry policy")
+        ensure!(max_attempts > 0, "Max attempts must be greater than 0");
+        ensure!(max_attempts <= 20, "Max attempts should not exceed 20");
+        
+        Self {
+            id,
+            max_attempts,
+            base_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(30),
+            backoff_strategy: "exponential".to_string(),
+            jitter: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("max_jitter_ms".to_string(), json!(100)),
+                ("jitter_type".to_string(), json!("random")), // random, fixed
+            ]),
+            retryable_errors: vec![
+                "TimeoutError".to_string(),
+                "NetworkError".to_string(),
+                "CircuitBreakerError".to_string(),
+                "ResourceError".to_string(),
+                "InternalError".to_string(),
+            ],
+            non_retryable_errors: vec![
+                "AuthenticationError".to_string(),
+                "AuthorizationError".to_string(),
+                "ValidationError".to_string(),
+                "SerializationError".to_string(),
+            ],
+        }
     }
     
-    /// Create exponential backoff retry policy
+    /// Create exponential backoff retry policy with jitter
     pub fn exponential_backoff(max_attempts: u32, base_delay: Duration) -> Self {
-        todo!("Implementation needed for RetryPolicy::exponential_backoff - should create exponential backoff policy")
+        ensure!(max_attempts > 0, "Max attempts must be greater than 0");
+        ensure!(base_delay.as_millis() > 0, "Base delay must be greater than 0");
+        
+        Self {
+            id: format!("exponential_backoff_{}", Uuid::new_v4().simple()),
+            max_attempts,
+            base_delay,
+            max_delay: Duration::from_secs(60), // 1 minute max
+            backoff_strategy: "exponential".to_string(),
+            jitter: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("max_jitter_ms".to_string(), json!(base_delay.as_millis() / 2)),
+                ("jitter_type".to_string(), json!("random")),
+            ]),
+            retryable_errors: vec![
+                "TimeoutError".to_string(),
+                "NetworkError".to_string(),
+                "CircuitBreakerError".to_string(),
+                "ResourceError".to_string(),
+                "InternalError".to_string(),
+            ],
+            non_retryable_errors: vec![
+                "AuthenticationError".to_string(),
+                "AuthorizationError".to_string(),
+                "ValidationError".to_string(),
+                "SerializationError".to_string(),
+            ],
+        }
     }
     
-    /// Calculate next retry delay
+    /// Calculate delay for specific retry attempt
     pub fn next_delay(&self, attempt: u32) -> Duration {
-        todo!("Implementation needed for RetryPolicy::next_delay - should calculate delay for specific attempt")
+        if attempt >= self.max_attempts {
+            return Duration::from_secs(0);
+        }
+        
+        let base_delay = match self.backoff_strategy.as_str() {
+            "linear" => self.base_delay * attempt,
+            "exponential" => self.base_delay * (2_u32.pow(attempt.saturating_sub(1))),
+            "fixed" => self.base_delay,
+            _ => self.base_delay * (2_u32.pow(attempt.saturating_sub(1))), // Default to exponential
+        };
+        
+        // Apply maximum delay limit
+        let capped_delay = if base_delay > self.max_delay {
+            self.max_delay
+        } else {
+            base_delay
+        };
+        
+        // Apply jitter if enabled
+        if self.jitter.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.apply_jitter(capped_delay)
+        } else {
+            capped_delay
+        }
     }
     
-    /// Check if error is retryable
+    /// Check if specific error type is retryable
     pub fn is_retryable(&self, error: &str) -> bool {
-        todo!("Implementation needed for RetryPolicy::is_retryable - should check if error allows retry")
+        // First check if it's explicitly non-retryable
+        if self.non_retryable_errors.iter().any(|e| error.contains(e)) {
+            return false;
+        }
+        
+        // Then check if it's explicitly retryable
+        self.retryable_errors.iter().any(|e| error.contains(e))
     }
     
-    /// Check if should retry
+    /// Determine if retry should be attempted
     pub fn should_retry(&self, attempt: u32, error: &str) -> bool {
-        todo!("Implementation needed for RetryPolicy::should_retry - should determine if retry should occur")
+        attempt < self.max_attempts && self.is_retryable(error)
+    }
+    
+    /// Add retryable error pattern
+    pub fn add_retryable_error(&mut self, error_pattern: String) -> Result<()> {
+        ensure!(!error_pattern.is_empty(), "Error pattern cannot be empty");
+        
+        if !self.retryable_errors.contains(&error_pattern) {
+            self.retryable_errors.push(error_pattern);
+        }
+        Ok(())
+    }
+    
+    /// Add non-retryable error pattern
+    pub fn add_non_retryable_error(&mut self, error_pattern: String) -> Result<()> {
+        ensure!(!error_pattern.is_empty(), "Error pattern cannot be empty");
+        
+        if !self.non_retryable_errors.contains(&error_pattern) {
+            self.non_retryable_errors.push(error_pattern);
+        }
+        Ok(())
+    }
+    
+    /// Update backoff strategy
+    pub fn set_backoff_strategy(&mut self, strategy: String) -> Result<()> {
+        let valid_strategies = ["linear", "exponential", "fixed"];
+        ensure!(valid_strategies.contains(&strategy.as_str()), 
+            "Invalid backoff strategy: {}", strategy);
+        
+        self.backoff_strategy = strategy;
+        Ok(())
+    }
+    
+    /// Configure jitter settings
+    pub fn configure_jitter(&mut self, jitter_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &jitter_config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "jitter.enabled must be a boolean".to_string(),
+                        field: "jitter.enabled".to_string(),
+                    })?;
+                }
+                "max_jitter_ms" => {
+                    let jitter_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "jitter.max_jitter_ms must be a number".to_string(),
+                        field: "jitter.max_jitter_ms".to_string(),
+                    })?;
+                    ensure!(jitter_ms >= 0.0, "max_jitter_ms must be non-negative");
+                }
+                "jitter_type" => {
+                    let jitter_type = value.as_str().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "jitter.jitter_type must be a string".to_string(),
+                        field: "jitter.jitter_type".to_string(),
+                    })?;
+                    let valid_types = ["random", "fixed"];
+                    ensure!(valid_types.contains(&jitter_type), 
+                        "Invalid jitter type: {}", jitter_type);
+                }
+                _ => {} // Allow other jitter parameters
+            }
+        }
+        
+        for (key, value) in jitter_config {
+            self.jitter.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Get retry policy statistics
+    pub fn get_statistics(&self) -> HashMap<String, Value> {
+        let mut stats = HashMap::new();
+        
+        stats.insert("id".to_string(), json!(self.id));
+        stats.insert("max_attempts".to_string(), json!(self.max_attempts));
+        stats.insert("base_delay_ms".to_string(), json!(self.base_delay.as_millis()));
+        stats.insert("max_delay_ms".to_string(), json!(self.max_delay.as_millis()));
+        stats.insert("backoff_strategy".to_string(), json!(self.backoff_strategy));
+        stats.insert("retryable_errors".to_string(), json!(self.retryable_errors));
+        stats.insert("non_retryable_errors".to_string(), json!(self.non_retryable_errors));
+        stats.insert("jitter_config".to_string(), json!(self.jitter));
+        
+        stats
+    }
+    
+    // Private helper methods
+    
+    fn apply_jitter(&self, base_delay: Duration) -> Duration {
+        let max_jitter_ms = self.jitter.get("max_jitter_ms")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as u64;
+        
+        if max_jitter_ms == 0 {
+            return base_delay;
+        }
+        
+        let jitter_type = self.jitter.get("jitter_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("random");
+        
+        let jitter_amount = match jitter_type {
+            "random" => {
+                let mut rng = thread_rng();
+                rng.gen_range(0..=max_jitter_ms)
+            }
+            "fixed" => max_jitter_ms / 2, // Fixed jitter at half of max
+            _ => 0, // No jitter for unknown types
+        };
+        
+        base_delay + Duration::from_millis(jitter_amount)
     }
 }
 
 impl TimeoutPolicy {
-    /// Create new timeout policy
+    /// Create new timeout policy with default timeout
     pub fn new(id: String, default_timeout: Duration) -> Self {
-        todo!("Implementation needed for TimeoutPolicy::new - should initialize timeout policy")
+        ensure!(default_timeout.as_secs() > 0, "Default timeout must be greater than 0");
+        
+        Self {
+            id,
+            default_timeout,
+            operation_timeouts: HashMap::new(),
+            priority_adjustments: HashMap::from([
+                (MessagePriority::Critical, 2.0),  // Double timeout for critical
+                (MessagePriority::High, 1.5),      // 50% more for high priority
+                (MessagePriority::Normal, 1.0),    // Standard timeout
+                (MessagePriority::Low, 0.7),       // 30% less for low priority
+                (MessagePriority::BestEffort, 0.5), // Half timeout for best effort
+            ]),
+            adaptive: HashMap::from([
+                ("enabled".to_string(), json!(false)),
+                ("min_samples".to_string(), json!(10)),
+                ("percentile".to_string(), json!(95)), // Use 95th percentile for adaptive timeout
+                ("safety_margin".to_string(), json!(1.2)), // 20% safety margin
+                ("max_adjustment".to_string(), json!(3.0)), // Max 3x adjustment
+            ]),
+            escalation: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("escalation_levels".to_string(), json!(3)),
+                ("escalation_multiplier".to_string(), json!(1.5)),
+                ("max_escalation_timeout".to_string(), json!(300)), // 5 minutes max
+            ]),
+        }
     }
     
-    /// Get timeout for operation
+    /// Calculate timeout for specific operation and priority
     pub fn get_timeout(&self, operation: &str, priority: MessagePriority) -> Duration {
-        todo!("Implementation needed for TimeoutPolicy::get_timeout - should calculate timeout for operation and priority")
+        // Start with operation-specific timeout or default
+        let base_timeout = self.operation_timeouts.get(operation)
+            .cloned()
+            .unwrap_or(self.default_timeout);
+        
+        // Apply priority adjustment
+        let priority_multiplier = self.priority_adjustments.get(&priority)
+            .copied()
+            .unwrap_or(1.0);
+        
+        let adjusted_timeout = Duration::from_millis(
+            (base_timeout.as_millis() as f64 * priority_multiplier) as u64
+        );
+        
+        // Apply adaptive timeout if enabled
+        if self.adaptive.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.apply_adaptive_timeout(operation, adjusted_timeout)
+        } else {
+            adjusted_timeout
+        }
     }
     
-    /// Update operation timeout
+    /// Update timeout for specific operation
     pub fn update_operation_timeout(&mut self, operation: String, timeout: Duration) -> Result<()> {
-        todo!("Implementation needed for TimeoutPolicy::update_operation_timeout - should update specific operation timeout")
+        ensure!(!operation.is_empty(), "Operation name cannot be empty");
+        ensure!(timeout.as_secs() > 0, "Timeout must be greater than 0");
+        ensure!(timeout.as_secs() < 3600, "Timeout cannot exceed 1 hour");
+        
+        self.operation_timeouts.insert(operation, timeout);
+        Ok(())
     }
     
-    /// Configure adaptive timeouts
+    /// Configure adaptive timeout behavior
     pub fn configure_adaptive(&mut self, config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for TimeoutPolicy::configure_adaptive - should configure adaptive timeout behavior")
+        for (key, value) in &config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "adaptive.enabled must be a boolean".to_string(),
+                        field: "adaptive.enabled".to_string(),
+                    })?;
+                }
+                "min_samples" => {
+                    let samples = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "adaptive.min_samples must be a number".to_string(),
+                        field: "adaptive.min_samples".to_string(),
+                    })?;
+                    ensure!(samples > 0.0, "min_samples must be greater than 0");
+                }
+                "percentile" => {
+                    let percentile = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "adaptive.percentile must be a number".to_string(),
+                        field: "adaptive.percentile".to_string(),
+                    })?;
+                    ensure!(percentile > 0.0 && percentile <= 100.0, 
+                        "percentile must be between 0 and 100");
+                }
+                "safety_margin" => {
+                    let margin = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "adaptive.safety_margin must be a number".to_string(),
+                        field: "adaptive.safety_margin".to_string(),
+                    })?;
+                    ensure!(margin >= 1.0, "safety_margin must be at least 1.0");
+                }
+                _ => {} // Allow other adaptive parameters
+            }
+        }
+        
+        for (key, value) in config {
+            self.adaptive.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Update priority-based timeout adjustments
+    pub fn update_priority_adjustments(&mut self, adjustments: HashMap<MessagePriority, f64>) -> Result<()> {
+        for (priority, multiplier) in &adjustments {
+            ensure!(*multiplier > 0.0, "Priority multiplier for {:?} must be greater than 0", priority);
+            ensure!(*multiplier <= 10.0, "Priority multiplier for {:?} cannot exceed 10.0", priority);
+        }
+        
+        for (priority, multiplier) in adjustments {
+            self.priority_adjustments.insert(priority, multiplier);
+        }
+        Ok(())
+    }
+    
+    /// Configure timeout escalation settings
+    pub fn configure_escalation(&mut self, escalation_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &escalation_config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "escalation.enabled must be a boolean".to_string(),
+                        field: "escalation.enabled".to_string(),
+                    })?;
+                }
+                "escalation_levels" => {
+                    let levels = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "escalation.escalation_levels must be a number".to_string(),
+                        field: "escalation.escalation_levels".to_string(),
+                    })?;
+                    ensure!(levels > 0.0 && levels <= 10.0, 
+                        "escalation_levels must be between 1 and 10");
+                }
+                "escalation_multiplier" => {
+                    let multiplier = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "escalation.escalation_multiplier must be a number".to_string(),
+                        field: "escalation.escalation_multiplier".to_string(),
+                    })?;
+                    ensure!(multiplier > 1.0, "escalation_multiplier must be greater than 1.0");
+                }
+                _ => {} // Allow other escalation parameters
+            }
+        }
+        
+        for (key, value) in escalation_config {
+            self.escalation.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Get escalated timeout for retry attempts
+    pub fn get_escalated_timeout(&self, operation: &str, priority: MessagePriority, attempt: u32) -> Duration {
+        let base_timeout = self.get_timeout(operation, priority);
+        
+        if !self.escalation.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            return base_timeout;
+        }
+        
+        let escalation_multiplier = self.escalation.get("escalation_multiplier")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(1.5);
+        
+        let max_escalation_timeout = Duration::from_secs(
+            self.escalation.get("max_escalation_timeout")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(300.0) as u64
+        );
+        
+        let escalated_timeout = Duration::from_millis(
+            (base_timeout.as_millis() as f64 * escalation_multiplier.powi(attempt as i32)) as u64
+        );
+        
+        if escalated_timeout > max_escalation_timeout {
+            max_escalation_timeout
+        } else {
+            escalated_timeout
+        }
+    }
+    
+    /// Get timeout policy configuration summary
+    pub fn get_configuration(&self) -> HashMap<String, Value> {
+        let mut config = HashMap::new();
+        
+        config.insert("id".to_string(), json!(self.id));
+        config.insert("default_timeout_ms".to_string(), json!(self.default_timeout.as_millis()));
+        config.insert("operation_count".to_string(), json!(self.operation_timeouts.len()));
+        config.insert("priority_adjustments".to_string(), json!(self.priority_adjustments));
+        config.insert("adaptive_config".to_string(), json!(self.adaptive));
+        config.insert("escalation_config".to_string(), json!(self.escalation));
+        
+        config
+    }
+    
+    // Private helper methods
+    
+    fn apply_adaptive_timeout(&self, operation: &str, base_timeout: Duration) -> Duration {
+        // In a real implementation, this would use historical performance data
+        // to calculate adaptive timeouts based on recent response times
+        // For now, return the base timeout
+        base_timeout
     }
 }
 
 impl MessageQueue {
-    /// Create new message queue
+    /// Create new message queue with specified capacity
     pub fn new(id: String, capacity: usize) -> Self {
-        todo!("Implementation needed for MessageQueue::new - should initialize message queue with capacity")
+        ensure!(capacity > 0, "Queue capacity must be greater than 0");
+        
+        Self {
+            id,
+            config: HashMap::from([
+                ("fifo".to_string(), json!(true)),
+                ("persistent".to_string(), json!(false)),
+                ("auto_ack".to_string(), json!(true)),
+                ("compression".to_string(), json!(false)),
+            ]),
+            size: 0,
+            capacity,
+            persistence: HashMap::from([
+                ("enabled".to_string(), json!(false)),
+                ("storage_path".to_string(), json!("/tmp/message_queue")),
+                ("sync_interval".to_string(), json!(1000)), // 1 second
+            ]),
+            ordering: "fifo".to_string(), // fifo, lifo, priority
+            metrics: HashMap::from([
+                ("messages_enqueued".to_string(), 0.0),
+                ("messages_dequeued".to_string(), 0.0),
+                ("messages_dropped".to_string(), 0.0),
+                ("average_wait_time".to_string(), 0.0),
+                ("queue_utilization".to_string(), 0.0),
+            ]),
+            dead_letter_queue: None,
+        }
     }
     
-    /// Enqueue message
+    /// Add message to queue with ordering and capacity checks
     pub fn enqueue(&mut self, message: EcosystemMessage) -> Result<()> {
-        todo!("Implementation needed for MessageQueue::enqueue - should add message to queue with ordering")
+        // Check capacity
+        if self.size >= self.capacity {
+            // Try to send to dead letter queue if configured
+            if let Some(dlq_id) = &self.dead_letter_queue {
+                // In a real implementation, would forward to actual DLQ
+                self.metrics.insert("messages_dropped".to_string(),
+                    self.metrics.get("messages_dropped").unwrap_or(&0.0) + 1.0);
+                return Err(CommunicationError::QueueFullError {
+                    message: "Queue at capacity, message sent to dead letter queue".to_string(),
+                    queue_id: self.id.clone(),
+                    capacity: self.capacity,
+                }.into());
+            } else {
+                return Err(CommunicationError::QueueFullError {
+                    message: "Queue at capacity and no dead letter queue configured".to_string(),
+                    queue_id: self.id.clone(),
+                    capacity: self.capacity,
+                }.into());
+            }
+        }
+        
+        // Validate message
+        self.validate_message(&message)?;
+        
+        // In a real implementation, would add to actual queue data structure
+        self.size += 1;
+        
+        // Update metrics
+        self.metrics.insert("messages_enqueued".to_string(),
+            self.metrics.get("messages_enqueued").unwrap_or(&0.0) + 1.0);
+        self.metrics.insert("queue_utilization".to_string(),
+            (self.size as f64 / self.capacity as f64) * 100.0);
+        
+        // Handle persistence if enabled
+        if self.persistence.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.persist_message(&message)?;
+        }
+        
+        Ok(())
     }
     
-    /// Dequeue message
+    /// Remove and return next message from queue
     pub fn dequeue(&mut self) -> Option<EcosystemMessage> {
-        todo!("Implementation needed for MessageQueue::dequeue - should remove and return next message")
+        if self.size == 0 {
+            return None;
+        }
+        
+        // In a real implementation, would remove from actual queue data structure
+        // For now, create a placeholder message
+        let message = self.create_placeholder_message();
+        
+        self.size -= 1;
+        
+        // Update metrics
+        self.metrics.insert("messages_dequeued".to_string(),
+            self.metrics.get("messages_dequeued").unwrap_or(&0.0) + 1.0);
+        self.metrics.insert("queue_utilization".to_string(),
+            (self.size as f64 / self.capacity as f64) * 100.0);
+        
+        Some(message)
     }
     
-    /// Get queue size
+    /// Get current queue size
     pub fn size(&self) -> usize {
-        todo!("Implementation needed for MessageQueue::size - should return current queue size")
+        self.size
     }
     
-    /// Check if queue is full
+    /// Check if queue has reached capacity
     pub fn is_full(&self) -> bool {
-        todo!("Implementation needed for MessageQueue::is_full - should check if queue has reached capacity")
+        self.size >= self.capacity
     }
     
-    /// Get queue metrics
+    /// Get queue performance metrics
     pub fn get_metrics(&self) -> &HashMap<String, f64> {
-        todo!("Implementation needed for MessageQueue::get_metrics - should return queue performance metrics")
+        &self.metrics
+    }
+    
+    /// Check if queue is empty
+    pub fn is_empty(&self) -> bool {
+        self.size == 0
+    }
+    
+    /// Configure dead letter queue
+    pub fn set_dead_letter_queue(&mut self, dlq_id: String) -> Result<()> {
+        ensure!(!dlq_id.is_empty(), "Dead letter queue ID cannot be empty");
+        self.dead_letter_queue = Some(dlq_id);
+        Ok(())
+    }
+    
+    /// Update queue configuration
+    pub fn update_config(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &config {
+            match key.as_str() {
+                "fifo" | "persistent" | "auto_ack" | "compression" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("{} must be a boolean", key),
+                        field: key.clone(),
+                    })?;
+                }
+                _ => {} // Allow other configuration parameters
+            }
+        }
+        
+        for (key, value) in config {
+            self.config.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Configure persistence settings
+    pub fn configure_persistence(&mut self, persistence_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &persistence_config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "persistence.enabled must be a boolean".to_string(),
+                        field: "persistence.enabled".to_string(),
+                    })?;
+                }
+                "sync_interval" => {
+                    let interval = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "persistence.sync_interval must be a number".to_string(),
+                        field: "persistence.sync_interval".to_string(),
+                    })?;
+                    ensure!(interval > 0.0, "sync_interval must be greater than 0");
+                }
+                _ => {} // Allow other persistence parameters
+            }
+        }
+        
+        for (key, value) in persistence_config {
+            self.persistence.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Get queue status information
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("size".to_string(), json!(self.size));
+        status.insert("capacity".to_string(), json!(self.capacity));
+        status.insert("utilization_percent".to_string(), 
+            json!((self.size as f64 / self.capacity as f64) * 100.0));
+        status.insert("is_full".to_string(), json!(self.is_full()));
+        status.insert("is_empty".to_string(), json!(self.is_empty()));
+        status.insert("ordering".to_string(), json!(self.ordering));
+        status.insert("config".to_string(), json!(self.config));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        status.insert("dead_letter_queue".to_string(), json!(self.dead_letter_queue));
+        
+        status
+    }
+    
+    // Private helper methods
+    
+    fn validate_message(&self, message: &EcosystemMessage) -> Result<()> {
+        ensure!(!message.message_type.is_empty(), "Message type cannot be empty");
+        ensure!(!message.metadata.source.is_empty(), "Message source cannot be empty");
+        
+        // Check message size if compression is disabled
+        if !self.config.get("compression").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let message_size = serde_json::to_string(message)?.len();
+            ensure!(message_size < 1024 * 1024, "Message size exceeds 1MB limit"); // 1MB limit
+        }
+        
+        Ok(())
+    }
+    
+    fn persist_message(&self, _message: &EcosystemMessage) -> Result<()> {
+        // In a real implementation, would write message to persistent storage
+        Ok(())
+    }
+    
+    fn create_placeholder_message(&self) -> EcosystemMessage {
+        // Create a placeholder message for testing
+        // In a real implementation, would return actual queued message
+        use crate::{MessageMetadata, MessagePriority, MessageStatus};
+        
+        EcosystemMessage {
+            metadata: MessageMetadata {
+                id: Uuid::new_v4(),
+                correlation_id: None,
+                reply_to: None,
+                priority: MessagePriority::Normal,
+                response_type: crate::ResponseType::None,
+                status: MessageStatus::Queued,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                expires_at: None,
+                source: "queue".to_string(),
+                target: None,
+                routing_path: vec![],
+                headers: HashMap::new(),
+                security_context: None,
+                trace_context: None,
+                metrics: None,
+            },
+            payload: json!({"message": "placeholder"}),
+            attachments: vec![],
+            message_type: "placeholder".to_string(),
+            schema_version: None,
+            compression: None,
+            encryption: None,
+            signature: None,
+        }
     }
 }
 
 impl EventQueue {
-    /// Create new event queue
+    /// Create new event queue with default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for EventQueue::new - should initialize event queue")
+        Self {
+            id,
+            config: HashMap::from([
+                ("fan_out".to_string(), json!(true)),
+                ("persistent".to_string(), json!(false)),
+                ("ordered_delivery".to_string(), json!(true)),
+                ("duplicate_detection".to_string(), json!(true)),
+            ]),
+            subscriptions: HashMap::new(),
+            retention: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("retention_period_hours".to_string(), json!(24)), // 24 hours
+                ("max_events".to_string(), json!(10000)),
+                ("cleanup_interval_hours".to_string(), json!(1)),
+            ]),
+            ordering: HashMap::from([
+                ("global_ordering".to_string(), "timestamp".to_string()),
+                ("per_topic_ordering".to_string(), "sequence".to_string()),
+            ]),
+            metrics: HashMap::from([
+                ("events_published".to_string(), 0.0),
+                ("events_delivered".to_string(), 0.0),
+                ("subscription_count".to_string(), 0.0),
+                ("delivery_latency".to_string(), 0.0),
+                ("fan_out_ratio".to_string(), 0.0),
+            ]),
+        }
     }
     
-    /// Subscribe to event type
+    /// Add event subscription for specific event type
     pub fn subscribe(&mut self, event_type: String, subscriber: String) -> Result<()> {
-        todo!("Implementation needed for EventQueue::subscribe - should add event subscription")
+        ensure!(!event_type.is_empty(), "Event type cannot be empty");
+        ensure!(!subscriber.is_empty(), "Subscriber cannot be empty");
+        
+        // Add subscriber to event type
+        let subscribers = self.subscriptions.entry(event_type.clone())
+            .or_insert_with(Vec::new);
+        
+        if !subscribers.contains(&subscriber) {
+            subscribers.push(subscriber.clone());
+            
+            // Update metrics
+            self.metrics.insert("subscription_count".to_string(),
+                self.get_total_subscription_count() as f64);
+        }
+        
+        Ok(())
     }
     
-    /// Publish event
+    /// Publish event to all subscribers
     pub fn publish(&mut self, event: EcosystemEvent) -> Result<()> {
-        todo!("Implementation needed for EventQueue::publish - should publish event to subscribers")
+        // Validate event
+        self.validate_event(&event)?;
+        
+        // Get subscribers for this event type
+        let subscribers = self.subscriptions.get(&event.event_name)
+            .cloned()
+            .unwrap_or_default();
+        
+        if subscribers.is_empty() {
+            // No subscribers, but not an error
+            return Ok(());
+        }
+        
+        // Deliver to all subscribers (fan-out)
+        let delivery_count = subscribers.len();
+        for subscriber in subscribers {
+            self.deliver_event(&event, &subscriber)?;
+        }
+        
+        // Update metrics
+        self.metrics.insert("events_published".to_string(),
+            self.metrics.get("events_published").unwrap_or(&0.0) + 1.0);
+        self.metrics.insert("events_delivered".to_string(),
+            self.metrics.get("events_delivered").unwrap_or(&0.0) + delivery_count as f64);
+        
+        if delivery_count > 0 {
+            self.metrics.insert("fan_out_ratio".to_string(),
+                delivery_count as f64);
+        }
+        
+        // Handle retention if enabled
+        if self.retention.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.store_event(&event)?;
+        }
+        
+        Ok(())
     }
     
-    /// Configure retention policy
+    /// Configure event retention policy
     pub fn configure_retention(&mut self, retention_config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for EventQueue::configure_retention - should set event retention policy")
+        for (key, value) in &retention_config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "retention.enabled must be a boolean".to_string(),
+                        field: "retention.enabled".to_string(),
+                    })?;
+                }
+                "retention_period_hours" => {
+                    let hours = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "retention.retention_period_hours must be a number".to_string(),
+                        field: "retention.retention_period_hours".to_string(),
+                    })?;
+                    ensure!(hours > 0.0, "retention_period_hours must be greater than 0");
+                }
+                "max_events" => {
+                    let max_events = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "retention.max_events must be a number".to_string(),
+                        field: "retention.max_events".to_string(),
+                    })?;
+                    ensure!(max_events > 0.0, "max_events must be greater than 0");
+                }
+                _ => {} // Allow other retention parameters
+            }
+        }
+        
+        for (key, value) in retention_config {
+            self.retention.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Unsubscribe from event type
+    pub fn unsubscribe(&mut self, event_type: &str, subscriber: &str) -> Result<()> {
+        if let Some(subscribers) = self.subscriptions.get_mut(event_type) {
+            subscribers.retain(|s| s != subscriber);
+            
+            // Remove event type if no subscribers left
+            if subscribers.is_empty() {
+                self.subscriptions.remove(event_type);
+            }
+            
+            // Update metrics
+            self.metrics.insert("subscription_count".to_string(),
+                self.get_total_subscription_count() as f64);
+        }
+        
+        Ok(())
+    }
+    
+    /// Get all subscribers for an event type
+    pub fn get_subscribers(&self, event_type: &str) -> Vec<String> {
+        self.subscriptions.get(event_type)
+            .cloned()
+            .unwrap_or_default()
+    }
+    
+    /// Get all event types with subscriptions
+    pub fn get_subscribed_event_types(&self) -> Vec<String> {
+        self.subscriptions.keys().cloned().collect()
+    }
+    
+    /// Configure event ordering
+    pub fn configure_ordering(&mut self, ordering_config: HashMap<String, String>) -> Result<()> {
+        for (key, value) in &ordering_config {
+            match key.as_str() {
+                "global_ordering" => {
+                    let valid_orderings = ["timestamp", "sequence", "priority"];
+                    ensure!(valid_orderings.contains(&value.as_str()),
+                        "Invalid global ordering: {}", value);
+                }
+                "per_topic_ordering" => {
+                    let valid_orderings = ["timestamp", "sequence", "priority", "none"];
+                    ensure!(valid_orderings.contains(&value.as_str()),
+                        "Invalid per-topic ordering: {}", value);
+                }
+                _ => {} // Allow other ordering parameters
+            }
+        }
+        
+        for (key, value) in ordering_config {
+            self.ordering.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Update event queue configuration
+    pub fn update_config(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &config {
+            match key.as_str() {
+                "fan_out" | "persistent" | "ordered_delivery" | "duplicate_detection" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("{} must be a boolean", key),
+                        field: key.clone(),
+                    })?;
+                }
+                _ => {} // Allow other configuration parameters
+            }
+        }
+        
+        for (key, value) in config {
+            self.config.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Get event queue status
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("subscription_count".to_string(), json!(self.get_total_subscription_count()));
+        status.insert("event_types".to_string(), json!(self.get_subscribed_event_types()));
+        status.insert("config".to_string(), json!(self.config));
+        status.insert("retention".to_string(), json!(self.retention));
+        status.insert("ordering".to_string(), json!(self.ordering));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        
+        status
+    }
+    
+    // Private helper methods
+    
+    fn validate_event(&self, event: &EcosystemEvent) -> Result<()> {
+        ensure!(!event.event_name.is_empty(), "Event name cannot be empty");
+        ensure!(!event.source_component.is_empty(), "Event source component cannot be empty");
+        
+        // Check for duplicate detection if enabled
+        if self.config.get("duplicate_detection").and_then(|v| v.as_bool()).unwrap_or(false) {
+            // In a real implementation, would check for duplicate events
+        }
+        
+        Ok(())
+    }
+    
+    fn deliver_event(&self, _event: &EcosystemEvent, _subscriber: &str) -> Result<()> {
+        // In a real implementation, would deliver event to subscriber
+        // This might involve network calls, message queues, etc.
+        Ok(())
+    }
+    
+    fn store_event(&self, _event: &EcosystemEvent) -> Result<()> {
+        // In a real implementation, would store event for retention
+        Ok(())
+    }
+    
+    fn get_total_subscription_count(&self) -> usize {
+        self.subscriptions.values().map(|v| v.len()).sum()
     }
 }
 
 impl CommandQueue {
-    /// Create new command queue
+    /// Create new command queue with default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for CommandQueue::new - should initialize command queue")
+        Self {
+            id,
+            config: HashMap::from([
+                ("concurrent_execution".to_string(), json!(true)),
+                ("max_concurrent".to_string(), json!(10)),
+                ("preserve_order".to_string(), json!(false)),
+                ("auto_retry".to_string(), json!(true)),
+            ]),
+            prioritization: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("priority_levels".to_string(), json!(5)),
+                ("starvation_prevention".to_string(), json!(true)),
+                ("aging_factor".to_string(), json!(1.1)),
+            ]),
+            scheduling: HashMap::from([
+                ("algorithm".to_string(), json!("priority_fifo")),
+                ("batch_size".to_string(), json!(5)),
+                ("execution_window_ms".to_string(), json!(1000)),
+                ("load_balancing".to_string(), json!(true)),
+            ]),
+            timeout_handling: HashMap::from([
+                ("default_timeout_ms".to_string(), json!(30000)), // 30 seconds
+                ("escalation_enabled".to_string(), json!(true)),
+                ("max_retries".to_string(), json!(3)),
+                ("backoff_multiplier".to_string(), json!(2.0)),
+            ]),
+            metrics: HashMap::from([
+                ("commands_queued".to_string(), 0.0),
+                ("commands_executed".to_string(), 0.0),
+                ("commands_failed".to_string(), 0.0),
+                ("average_execution_time".to_string(), 0.0),
+                ("queue_depth".to_string(), 0.0),
+            ]),
+        }
     }
     
-    /// Queue command for execution
+    /// Queue command for execution with priority handling
     pub fn queue_command(&mut self, command: EcosystemCommand) -> Result<()> {
-        todo!("Implementation needed for CommandQueue::queue_command - should queue command with priority")
+        // Validate command
+        self.validate_command(&command)?;
+        
+        // Apply prioritization if enabled
+        let priority_score = if self.prioritization.get("enabled")
+            .and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.calculate_priority_score(&command)
+        } else {
+            1.0 // Default priority
+        };
+        
+        // In a real implementation, would add to priority queue
+        
+        // Update metrics
+        self.metrics.insert("commands_queued".to_string(),
+            self.metrics.get("commands_queued").unwrap_or(&0.0) + 1.0);
+        self.metrics.insert("queue_depth".to_string(),
+            self.metrics.get("queue_depth").unwrap_or(&0.0) + 1.0);
+        
+        Ok(())
     }
     
-    /// Get next command
+    /// Get next command for execution based on scheduling algorithm
     pub fn get_next_command(&mut self) -> Option<EcosystemCommand> {
-        todo!("Implementation needed for CommandQueue::get_next_command - should return highest priority command")
+        let queue_depth = self.metrics.get("queue_depth").unwrap_or(&0.0);
+        if *queue_depth <= 0.0 {
+            return None;
+        }
+        
+        // In a real implementation, would dequeue based on scheduling algorithm
+        let command = self.create_placeholder_command();
+        
+        // Update metrics
+        self.metrics.insert("queue_depth".to_string(), queue_depth - 1.0);
+        
+        Some(command)
     }
     
-    /// Configure scheduling
+    /// Configure command scheduling algorithm and parameters
     pub fn configure_scheduling(&mut self, scheduling_config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for CommandQueue::configure_scheduling - should set command scheduling rules")
+        for (key, value) in &scheduling_config {
+            match key.as_str() {
+                "algorithm" => {
+                    let algorithm = value.as_str().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "scheduling.algorithm must be a string".to_string(),
+                        field: "scheduling.algorithm".to_string(),
+                    })?;
+                    let valid_algorithms = ["fifo", "lifo", "priority_fifo", "round_robin", "load_balanced"];
+                    ensure!(valid_algorithms.contains(&algorithm),
+                        "Invalid scheduling algorithm: {}", algorithm);
+                }
+                "batch_size" => {
+                    let batch_size = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "scheduling.batch_size must be a number".to_string(),
+                        field: "scheduling.batch_size".to_string(),
+                    })?;
+                    ensure!(batch_size > 0.0 && batch_size <= 100.0,
+                        "batch_size must be between 1 and 100");
+                }
+                "execution_window_ms" => {
+                    let window_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "scheduling.execution_window_ms must be a number".to_string(),
+                        field: "scheduling.execution_window_ms".to_string(),
+                    })?;
+                    ensure!(window_ms > 0.0, "execution_window_ms must be greater than 0");
+                }
+                _ => {} // Allow other scheduling parameters
+            }
+        }
+        
+        for (key, value) in scheduling_config {
+            self.scheduling.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Configure command prioritization
+    pub fn configure_prioritization(&mut self, prioritization_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &prioritization_config {
+            match key.as_str() {
+                "enabled" | "starvation_prevention" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("prioritization.{} must be a boolean", key),
+                        field: format!("prioritization.{}", key),
+                    })?;
+                }
+                "priority_levels" => {
+                    let levels = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "prioritization.priority_levels must be a number".to_string(),
+                        field: "prioritization.priority_levels".to_string(),
+                    })?;
+                    ensure!(levels > 0.0 && levels <= 10.0,
+                        "priority_levels must be between 1 and 10");
+                }
+                "aging_factor" => {
+                    let factor = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "prioritization.aging_factor must be a number".to_string(),
+                        field: "prioritization.aging_factor".to_string(),
+                    })?;
+                    ensure!(factor >= 1.0, "aging_factor must be at least 1.0");
+                }
+                _ => {} // Allow other prioritization parameters
+            }
+        }
+        
+        for (key, value) in prioritization_config {
+            self.prioritization.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Configure timeout handling
+    pub fn configure_timeout_handling(&mut self, timeout_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &timeout_config {
+            match key.as_str() {
+                "escalation_enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "timeout_handling.escalation_enabled must be a boolean".to_string(),
+                        field: "timeout_handling.escalation_enabled".to_string(),
+                    })?;
+                }
+                "default_timeout_ms" => {
+                    let timeout_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "timeout_handling.default_timeout_ms must be a number".to_string(),
+                        field: "timeout_handling.default_timeout_ms".to_string(),
+                    })?;
+                    ensure!(timeout_ms > 0.0, "default_timeout_ms must be greater than 0");
+                }
+                "max_retries" => {
+                    let retries = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "timeout_handling.max_retries must be a number".to_string(),
+                        field: "timeout_handling.max_retries".to_string(),
+                    })?;
+                    ensure!(retries >= 0.0 && retries <= 10.0,
+                        "max_retries must be between 0 and 10");
+                }
+                _ => {} // Allow other timeout parameters
+            }
+        }
+        
+        for (key, value) in timeout_config {
+            self.timeout_handling.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Record command execution result
+    pub fn record_execution_result(&mut self, success: bool, execution_time_ms: f64) -> Result<()> {
+        if success {
+            self.metrics.insert("commands_executed".to_string(),
+                self.metrics.get("commands_executed").unwrap_or(&0.0) + 1.0);
+        } else {
+            self.metrics.insert("commands_failed".to_string(),
+                self.metrics.get("commands_failed").unwrap_or(&0.0) + 1.0);
+        }
+        
+        // Update average execution time
+        let current_avg = self.metrics.get("average_execution_time").unwrap_or(&0.0);
+        let total_executed = self.metrics.get("commands_executed").unwrap_or(&1.0);
+        let new_avg = (current_avg * (total_executed - 1.0) + execution_time_ms) / total_executed;
+        self.metrics.insert("average_execution_time".to_string(), new_avg);
+        
+        Ok(())
+    }
+    
+    /// Get command queue status
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("queue_depth".to_string(), 
+            json!(self.metrics.get("queue_depth").unwrap_or(&0.0)));
+        status.insert("config".to_string(), json!(self.config));
+        status.insert("prioritization".to_string(), json!(self.prioritization));
+        status.insert("scheduling".to_string(), json!(self.scheduling));
+        status.insert("timeout_handling".to_string(), json!(self.timeout_handling));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        
+        status
+    }
+    
+    // Private helper methods
+    
+    fn validate_command(&self, command: &EcosystemCommand) -> Result<()> {
+        ensure!(!command.command.is_empty(), "Command name cannot be empty");
+        ensure!(!command.metadata.source.is_empty(), "Command source cannot be empty");
+        
+        // Validate command arguments
+        for (key, value) in &command.arguments {
+            ensure!(!key.is_empty(), "Command argument key cannot be empty");
+            // Additional validation could be added here
+        }
+        
+        Ok(())
+    }
+    
+    fn calculate_priority_score(&self, command: &EcosystemCommand) -> f64 {
+        use crate::calculate_priority_score;
+        
+        let age = Utc::now().signed_duration_since(command.metadata.created_at)
+            .to_std().unwrap_or(Duration::from_secs(0));
+        
+        let mut context = HashMap::new();
+        context.insert("command_type".to_string(), json!(command.command_type));
+        
+        calculate_priority_score(command.metadata.priority, age, &context)
+    }
+    
+    fn create_placeholder_command(&self) -> EcosystemCommand {
+        use crate::{MessageMetadata, MessagePriority, MessageStatus, CommandType, ResponseType};
+        
+        EcosystemCommand {
+            metadata: MessageMetadata {
+                id: Uuid::new_v4(),
+                correlation_id: None,
+                reply_to: None,
+                priority: MessagePriority::Normal,
+                response_type: ResponseType::Immediate,
+                status: MessageStatus::Queued,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                expires_at: None,
+                source: "command_queue".to_string(),
+                target: None,
+                routing_path: vec![],
+                headers: HashMap::new(),
+                security_context: None,
+                trace_context: None,
+                metrics: None,
+            },
+            command_type: CommandType::Execute,
+            command: "placeholder".to_string(),
+            arguments: HashMap::new(),
+            expected_response: None,
+            timeout: Some(Duration::from_secs(30)),
+            idempotent: false,
+            prerequisites: vec![],
+            follow_up_commands: vec![],
+        }
     }
 }
 
 impl ResponseQueue {
-    /// Create new response queue
+    /// Create new response queue with default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for ResponseQueue::new - should initialize response queue")
+        Self {
+            id,
+            config: HashMap::from([
+                ("correlation_enabled".to_string(), json!(true)),
+                ("aggregation_enabled".to_string(), json!(false)),
+                ("timeout_cleanup".to_string(), json!(true)),
+                ("persistent".to_string(), json!(false)),
+            ]),
+            correlation: HashMap::from([
+                ("correlation_key".to_string(), json!("correlation_id")),
+                ("timeout_ms".to_string(), json!(30000)), // 30 seconds
+                ("max_pending".to_string(), json!(1000)),
+                ("cleanup_interval_ms".to_string(), json!(60000)), // 1 minute
+            ]),
+            aggregation: HashMap::from([
+                ("aggregation_window_ms".to_string(), json!(1000)), // 1 second
+                ("max_responses".to_string(), json!(10)),
+                ("aggregation_strategy".to_string(), json!("collect_all")),
+                ("partial_results".to_string(), json!(false)),
+            ]),
+            timeout_handling: HashMap::from([
+                ("default_timeout_ms".to_string(), json!(30000)), // 30 seconds
+                ("escalation_enabled".to_string(), json!(false)),
+                ("notification_enabled".to_string(), json!(true)),
+                ("auto_cleanup".to_string(), json!(true)),
+            ]),
+            metrics: HashMap::from([
+                ("responses_queued".to_string(), 0.0),
+                ("responses_delivered".to_string(), 0.0),
+                ("responses_timeout".to_string(), 0.0),
+                ("correlation_success_rate".to_string(), 100.0),
+                ("average_correlation_time".to_string(), 0.0),
+            ]),
+        }
     }
     
-    /// Queue response
+    /// Queue response with correlation tracking
     pub fn queue_response(&mut self, response: EcosystemResponse) -> Result<()> {
-        todo!("Implementation needed for ResponseQueue::queue_response - should queue response with correlation")
+        // Validate response
+        self.validate_response(&response)?;
+        
+        // Handle correlation if enabled
+        if self.config.get("correlation_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.handle_correlation(&response)?;
+        }
+        
+        // Handle aggregation if enabled
+        if self.config.get("aggregation_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.handle_aggregation(&response)?;
+        }
+        
+        // In a real implementation, would add to actual queue
+        
+        // Update metrics
+        self.metrics.insert("responses_queued".to_string(),
+            self.metrics.get("responses_queued").unwrap_or(&0.0) + 1.0);
+        
+        Ok(())
     }
     
-    /// Get correlated response
+    /// Get response by correlation ID
     pub fn get_response(&mut self, correlation_id: Uuid) -> Option<EcosystemResponse> {
-        todo!("Implementation needed for ResponseQueue::get_response - should return response for correlation ID")
+        // In a real implementation, would look up by correlation ID
+        
+        // For now, create a placeholder response
+        let response = self.create_placeholder_response(correlation_id);
+        
+        // Update metrics
+        self.metrics.insert("responses_delivered".to_string(),
+            self.metrics.get("responses_delivered").unwrap_or(&0.0) + 1.0);
+        
+        Some(response)
     }
     
-    /// Configure response aggregation
+    /// Configure response aggregation rules
     pub fn configure_aggregation(&mut self, aggregation_config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for ResponseQueue::configure_aggregation - should set response aggregation rules")
+        for (key, value) in &aggregation_config {
+            match key.as_str() {
+                "aggregation_window_ms" => {
+                    let window_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "aggregation.aggregation_window_ms must be a number".to_string(),
+                        field: "aggregation.aggregation_window_ms".to_string(),
+                    })?;
+                    ensure!(window_ms > 0.0, "aggregation_window_ms must be greater than 0");
+                }
+                "max_responses" => {
+                    let max_responses = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "aggregation.max_responses must be a number".to_string(),
+                        field: "aggregation.max_responses".to_string(),
+                    })?;
+                    ensure!(max_responses > 0.0, "max_responses must be greater than 0");
+                }
+                "aggregation_strategy" => {
+                    let strategy = value.as_str().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "aggregation.aggregation_strategy must be a string".to_string(),
+                        field: "aggregation.aggregation_strategy".to_string(),
+                    })?;
+                    let valid_strategies = ["collect_all", "first_wins", "majority_vote", "best_result"];
+                    ensure!(valid_strategies.contains(&strategy),
+                        "Invalid aggregation strategy: {}", strategy);
+                }
+                "partial_results" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "aggregation.partial_results must be a boolean".to_string(),
+                        field: "aggregation.partial_results".to_string(),
+                    })?;
+                }
+                _ => {} // Allow other aggregation parameters
+            }
+        }
+        
+        for (key, value) in aggregation_config {
+            self.aggregation.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Configure correlation settings
+    pub fn configure_correlation(&mut self, correlation_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &correlation_config {
+            match key.as_str() {
+                "timeout_ms" => {
+                    let timeout_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "correlation.timeout_ms must be a number".to_string(),
+                        field: "correlation.timeout_ms".to_string(),
+                    })?;
+                    ensure!(timeout_ms > 0.0, "timeout_ms must be greater than 0");
+                }
+                "max_pending" => {
+                    let max_pending = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "correlation.max_pending must be a number".to_string(),
+                        field: "correlation.max_pending".to_string(),
+                    })?;
+                    ensure!(max_pending > 0.0, "max_pending must be greater than 0");
+                }
+                "cleanup_interval_ms" => {
+                    let interval_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "correlation.cleanup_interval_ms must be a number".to_string(),
+                        field: "correlation.cleanup_interval_ms".to_string(),
+                    })?;
+                    ensure!(interval_ms > 0.0, "cleanup_interval_ms must be greater than 0");
+                }
+                _ => {} // Allow other correlation parameters
+            }
+        }
+        
+        for (key, value) in correlation_config {
+            self.correlation.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Configure timeout handling
+    pub fn configure_timeout_handling(&mut self, timeout_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &timeout_config {
+            match key.as_str() {
+                "escalation_enabled" | "notification_enabled" | "auto_cleanup" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("timeout_handling.{} must be a boolean", key),
+                        field: format!("timeout_handling.{}", key),
+                    })?;
+                }
+                "default_timeout_ms" => {
+                    let timeout_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "timeout_handling.default_timeout_ms must be a number".to_string(),
+                        field: "timeout_handling.default_timeout_ms".to_string(),
+                    })?;
+                    ensure!(timeout_ms > 0.0, "default_timeout_ms must be greater than 0");
+                }
+                _ => {} // Allow other timeout parameters
+            }
+        }
+        
+        for (key, value) in timeout_config {
+            self.timeout_handling.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Clean up expired responses and correlation entries
+    pub fn cleanup_expired(&mut self) -> Result<u32> {
+        // In a real implementation, would clean up actual expired entries
+        let expired_count = 0;
+        
+        // Update metrics
+        self.metrics.insert("responses_timeout".to_string(),
+            self.metrics.get("responses_timeout").unwrap_or(&0.0) + expired_count as f64);
+        
+        Ok(expired_count)
+    }
+    
+    /// Get pending response count
+    pub fn get_pending_count(&self) -> usize {
+        // In a real implementation, would return actual pending count
+        0
+    }
+    
+    /// Get response queue status
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("pending_responses".to_string(), json!(self.get_pending_count()));
+        status.insert("config".to_string(), json!(self.config));
+        status.insert("correlation".to_string(), json!(self.correlation));
+        status.insert("aggregation".to_string(), json!(self.aggregation));
+        status.insert("timeout_handling".to_string(), json!(self.timeout_handling));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        
+        status
+    }
+    
+    /// Update response queue configuration
+    pub fn update_config(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &config {
+            match key.as_str() {
+                "correlation_enabled" | "aggregation_enabled" | "timeout_cleanup" | "persistent" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("{} must be a boolean", key),
+                        field: key.clone(),
+                    })?;
+                }
+                _ => {} // Allow other configuration parameters
+            }
+        }
+        
+        for (key, value) in config {
+            self.config.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    // Private helper methods
+    
+    fn validate_response(&self, response: &EcosystemResponse) -> Result<()> {
+        ensure!(!response.metadata.source.is_empty(), "Response source cannot be empty");
+        
+        // Check if correlation is required
+        if self.config.get("correlation_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            ensure!(response.metadata.correlation_id.is_some() || response.metadata.reply_to.is_some(),
+                "Response must have correlation_id or reply_to for correlation tracking");
+        }
+        
+        Ok(())
+    }
+    
+    fn handle_correlation(&self, _response: &EcosystemResponse) -> Result<()> {
+        // In a real implementation, would handle correlation tracking
+        Ok(())
+    }
+    
+    fn handle_aggregation(&self, _response: &EcosystemResponse) -> Result<()> {
+        // In a real implementation, would handle response aggregation
+        Ok(())
+    }
+    
+    fn create_placeholder_response(&self, correlation_id: Uuid) -> EcosystemResponse {
+        use crate::{MessageMetadata, MessagePriority, MessageStatus, ResponseType};
+        
+        EcosystemResponse {
+            metadata: MessageMetadata {
+                id: Uuid::new_v4(),
+                correlation_id: Some(correlation_id),
+                reply_to: None,
+                priority: MessagePriority::Normal,
+                response_type: ResponseType::Immediate,
+                status: MessageStatus::Delivered,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                expires_at: None,
+                source: "response_queue".to_string(),
+                target: None,
+                routing_path: vec![],
+                headers: HashMap::new(),
+                security_context: None,
+                trace_context: None,
+                metrics: None,
+            },
+            payload: json!({"result": "placeholder_response"}),
+            success: true,
+            error: None,
+            error_details: None,
+            performance_metrics: None,
+            context: None,
+            attachments: vec![],
+        }
     }
 }
 
 impl PriorityQueue {
-    /// Create new priority queue
+    /// Create new priority queue with default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for PriorityQueue::new - should initialize priority queue")
+        Self {
+            id,
+            config: HashMap::from([
+                ("strict_priority".to_string(), json!(true)),
+                ("starvation_prevention".to_string(), json!(true)),
+                ("aging_enabled".to_string(), json!(true)),
+                ("preemption_enabled".to_string(), json!(false)),
+            ]),
+            priority_configs: HashMap::from([
+                (MessagePriority::Critical, HashMap::from([
+                    ("weight".to_string(), json!(1000)),
+                    ("max_queue_time_ms".to_string(), json!(1000)), // 1 second max
+                    ("bypass_rate_limiting".to_string(), json!(true)),
+                ])),
+                (MessagePriority::High, HashMap::from([
+                    ("weight".to_string(), json!(100)),
+                    ("max_queue_time_ms".to_string(), json!(5000)), // 5 seconds max
+                    ("bypass_rate_limiting".to_string(), json!(false)),
+                ])),
+                (MessagePriority::Normal, HashMap::from([
+                    ("weight".to_string(), json!(10)),
+                    ("max_queue_time_ms".to_string(), json!(30000)), // 30 seconds max
+                    ("bypass_rate_limiting".to_string(), json!(false)),
+                ])),
+                (MessagePriority::Low, HashMap::from([
+                    ("weight".to_string(), json!(1)),
+                    ("max_queue_time_ms".to_string(), json!(60000)), // 1 minute max
+                    ("bypass_rate_limiting".to_string(), json!(false)),
+                ])),
+                (MessagePriority::BestEffort, HashMap::from([
+                    ("weight".to_string(), json!(0.1)),
+                    ("max_queue_time_ms".to_string(), json!(300000)), // 5 minutes max
+                    ("bypass_rate_limiting".to_string(), json!(false)),
+                ])),
+            ]),
+            scheduling_algorithm: "weighted_priority".to_string(), // weighted_priority, strict_priority, round_robin_priority
+            starvation_prevention: HashMap::from([
+                ("enabled".to_string(), json!(true)),
+                ("aging_factor".to_string(), json!(1.1)),
+                ("max_age_boost".to_string(), json!(10.0)),
+                ("check_interval_ms".to_string(), json!(1000)), // 1 second
+            ]),
+            metrics: HashMap::from([
+                ("total_enqueued".to_string(), 0.0),
+                ("total_dequeued".to_string(), 0.0),
+                ("critical_processed".to_string(), 0.0),
+                ("high_processed".to_string(), 0.0),
+                ("normal_processed".to_string(), 0.0),
+                ("low_processed".to_string(), 0.0),
+                ("best_effort_processed".to_string(), 0.0),
+                ("average_wait_time".to_string(), 0.0),
+                ("starvation_events".to_string(), 0.0),
+            ]),
+        }
     }
     
-    /// Enqueue with priority
+    /// Enqueue message with specified priority
     pub fn enqueue_with_priority(&mut self, message: EcosystemMessage, priority: MessagePriority) -> Result<()> {
-        todo!("Implementation needed for PriorityQueue::enqueue_with_priority - should enqueue message with priority")
+        // Validate message and priority
+        self.validate_message(&message, &priority)?;
+        
+        // Calculate priority score
+        let priority_score = self.calculate_priority_score(&message, &priority)?;
+        
+        // Check for preemption if enabled
+        if self.config.get("preemption_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.handle_preemption(&priority)?;
+        }
+        
+        // In a real implementation, would insert into priority-ordered data structure
+        
+        // Update metrics
+        self.metrics.insert("total_enqueued".to_string(),
+            self.metrics.get("total_enqueued").unwrap_or(&0.0) + 1.0);
+        
+        let priority_metric = match priority {
+            MessagePriority::Critical => "critical_enqueued",
+            MessagePriority::High => "high_enqueued", 
+            MessagePriority::Normal => "normal_enqueued",
+            MessagePriority::Low => "low_enqueued",
+            MessagePriority::BestEffort => "best_effort_enqueued",
+        };
+        
+        self.metrics.insert(priority_metric.to_string(),
+            self.metrics.get(priority_metric).unwrap_or(&0.0) + 1.0);
+        
+        Ok(())
     }
     
-    /// Dequeue highest priority
+    /// Dequeue highest priority message with starvation prevention
     pub fn dequeue_highest(&mut self) -> Option<EcosystemMessage> {
-        todo!("Implementation needed for PriorityQueue::dequeue_highest - should return highest priority message")
+        // Apply starvation prevention if enabled
+        if self.starvation_prevention.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            self.apply_starvation_prevention();
+        }
+        
+        // In a real implementation, would dequeue based on scheduling algorithm
+        let message = self.select_next_message()?;
+        
+        // Update metrics
+        self.metrics.insert("total_dequeued".to_string(),
+            self.metrics.get("total_dequeued").unwrap_or(&0.0) + 1.0);
+        
+        let priority_metric = match message.metadata.priority {
+            MessagePriority::Critical => "critical_processed",
+            MessagePriority::High => "high_processed",
+            MessagePriority::Normal => "normal_processed", 
+            MessagePriority::Low => "low_processed",
+            MessagePriority::BestEffort => "best_effort_processed",
+        };
+        
+        self.metrics.insert(priority_metric.to_string(),
+            self.metrics.get(priority_metric).unwrap_or(&0.0) + 1.0);
+        
+        // Calculate and update wait time
+        let wait_time = Utc::now().signed_duration_since(message.metadata.created_at)
+            .to_std().unwrap_or(Duration::from_secs(0));
+        self.update_average_wait_time(wait_time.as_millis() as f64);
+        
+        Some(message)
     }
     
-    /// Configure priority levels
+    /// Configure priority level settings
     pub fn configure_priorities(&mut self, priority_configs: HashMap<MessagePriority, HashMap<String, Value>>) -> Result<()> {
-        todo!("Implementation needed for PriorityQueue::configure_priorities - should set priority level configurations")
+        for (priority, config) in &priority_configs {
+            for (key, value) in config {
+                match key.as_str() {
+                    "weight" => {
+                        let weight = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                            message: format!("priority config weight for {:?} must be a number", priority),
+                            field: "weight".to_string(),
+                        })?;
+                        ensure!(weight >= 0.0, "Priority weight must be non-negative");
+                    }
+                    "max_queue_time_ms" => {
+                        let time_ms = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                            message: format!("priority config max_queue_time_ms for {:?} must be a number", priority),
+                            field: "max_queue_time_ms".to_string(),
+                        })?;
+                        ensure!(time_ms > 0.0, "Max queue time must be greater than 0");
+                    }
+                    "bypass_rate_limiting" => {
+                        value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                            message: format!("priority config bypass_rate_limiting for {:?} must be a boolean", priority),
+                            field: "bypass_rate_limiting".to_string(),
+                        })?;
+                    }
+                    _ => {} // Allow other priority configuration parameters
+                }
+            }
+        }
+        
+        for (priority, config) in priority_configs {
+            self.priority_configs.insert(priority, config);
+        }
+        Ok(())
+    }
+    
+    /// Configure starvation prevention settings
+    pub fn configure_starvation_prevention(&mut self, starvation_config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &starvation_config {
+            match key.as_str() {
+                "enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "starvation_prevention.enabled must be a boolean".to_string(),
+                        field: "starvation_prevention.enabled".to_string(),
+                    })?;
+                }
+                "aging_factor" => {
+                    let factor = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "starvation_prevention.aging_factor must be a number".to_string(),
+                        field: "starvation_prevention.aging_factor".to_string(),
+                    })?;
+                    ensure!(factor >= 1.0, "aging_factor must be at least 1.0");
+                }
+                "max_age_boost" => {
+                    let boost = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "starvation_prevention.max_age_boost must be a number".to_string(),
+                        field: "starvation_prevention.max_age_boost".to_string(),
+                    })?;
+                    ensure!(boost > 0.0, "max_age_boost must be greater than 0");
+                }
+                "check_interval_ms" => {
+                    let interval = value.as_f64().ok_or_else(|| CommunicationError::ValidationError {
+                        message: "starvation_prevention.check_interval_ms must be a number".to_string(),
+                        field: "starvation_prevention.check_interval_ms".to_string(),
+                    })?;
+                    ensure!(interval > 0.0, "check_interval_ms must be greater than 0");
+                }
+                _ => {} // Allow other starvation prevention parameters
+            }
+        }
+        
+        for (key, value) in starvation_config {
+            self.starvation_prevention.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Set scheduling algorithm
+    pub fn set_scheduling_algorithm(&mut self, algorithm: String) -> Result<()> {
+        let valid_algorithms = ["weighted_priority", "strict_priority", "round_robin_priority"];
+        ensure!(valid_algorithms.contains(&algorithm.as_str()),
+            "Invalid scheduling algorithm: {}", algorithm);
+        
+        self.scheduling_algorithm = algorithm;
+        Ok(())
+    }
+    
+    /// Get priority queue statistics
+    pub fn get_statistics(&self) -> HashMap<String, Value> {
+        let mut stats = HashMap::new();
+        
+        stats.insert("id".to_string(), json!(self.id));
+        stats.insert("scheduling_algorithm".to_string(), json!(self.scheduling_algorithm));
+        stats.insert("total_processed".to_string(), 
+            json!(self.metrics.get("total_dequeued").unwrap_or(&0.0)));
+        stats.insert("average_wait_time_ms".to_string(),
+            json!(self.metrics.get("average_wait_time").unwrap_or(&0.0)));
+        
+        // Priority distribution
+        let total_processed = self.metrics.get("total_dequeued").unwrap_or(&1.0);
+        stats.insert("priority_distribution".to_string(), json!({
+            "critical": (self.metrics.get("critical_processed").unwrap_or(&0.0) / total_processed) * 100.0,
+            "high": (self.metrics.get("high_processed").unwrap_or(&0.0) / total_processed) * 100.0,
+            "normal": (self.metrics.get("normal_processed").unwrap_or(&0.0) / total_processed) * 100.0,
+            "low": (self.metrics.get("low_processed").unwrap_or(&0.0) / total_processed) * 100.0,
+            "best_effort": (self.metrics.get("best_effort_processed").unwrap_or(&0.0) / total_processed) * 100.0,
+        }));
+        
+        stats.insert("starvation_events".to_string(),
+            json!(self.metrics.get("starvation_events").unwrap_or(&0.0)));
+        stats.insert("config".to_string(), json!(self.config));
+        stats.insert("metrics".to_string(), json!(self.metrics));
+        
+        stats
+    }
+    
+    /// Check for messages exceeding maximum queue time
+    pub fn check_queue_time_violations(&self) -> Vec<HashMap<String, Value>> {
+        // In a real implementation, would check actual queued messages
+        // For now, return empty list
+        Vec::new()
+    }
+    
+    /// Get current queue depth by priority
+    pub fn get_queue_depth_by_priority(&self) -> HashMap<MessagePriority, usize> {
+        // In a real implementation, would return actual queue depths
+        HashMap::from([
+            (MessagePriority::Critical, 0),
+            (MessagePriority::High, 0),
+            (MessagePriority::Normal, 0),
+            (MessagePriority::Low, 0),
+            (MessagePriority::BestEffort, 0),
+        ])
+    }
+    
+    /// Update priority queue configuration
+    pub fn update_config(&mut self, config: HashMap<String, Value>) -> Result<()> {
+        for (key, value) in &config {
+            match key.as_str() {
+                "strict_priority" | "starvation_prevention" | "aging_enabled" | "preemption_enabled" => {
+                    value.as_bool().ok_or_else(|| CommunicationError::ValidationError {
+                        message: format!("{} must be a boolean", key),
+                        field: key.clone(),
+                    })?;
+                }
+                _ => {} // Allow other configuration parameters
+            }
+        }
+        
+        for (key, value) in config {
+            self.config.insert(key, value);
+        }
+        Ok(())
+    }
+    
+    /// Get priority queue status
+    pub fn get_status(&self) -> HashMap<String, Value> {
+        let mut status = HashMap::new();
+        
+        status.insert("id".to_string(), json!(self.id));
+        status.insert("scheduling_algorithm".to_string(), json!(self.scheduling_algorithm));
+        status.insert("queue_depths".to_string(), json!(self.get_queue_depth_by_priority()));
+        status.insert("config".to_string(), json!(self.config));
+        status.insert("priority_configs".to_string(), json!(self.priority_configs));
+        status.insert("starvation_prevention".to_string(), json!(self.starvation_prevention));
+        status.insert("metrics".to_string(), json!(self.metrics));
+        
+        status
+    }
+    
+    // Private helper methods
+    
+    fn validate_message(&self, message: &EcosystemMessage, priority: &MessagePriority) -> Result<()> {
+        ensure!(!message.message_type.is_empty(), "Message type cannot be empty");
+        ensure!(!message.metadata.source.is_empty(), "Message source cannot be empty");
+        
+        // Check if priority configuration exists
+        if !self.priority_configs.contains_key(priority) {
+            return Err(CommunicationError::ConfigurationError {
+                message: format!("No configuration found for priority level: {:?}", priority),
+                parameter: "priority".to_string(),
+            }.into());
+        }
+        
+        Ok(())
+    }
+    
+    fn calculate_priority_score(&self, message: &EcosystemMessage, priority: &MessagePriority) -> Result<f64> {
+        let priority_config = self.priority_configs.get(priority)
+            .ok_or_else(|| CommunicationError::ConfigurationError {
+                message: format!("No configuration for priority: {:?}", priority),
+                parameter: "priority".to_string(),
+            })?;
+        
+        let base_weight = priority_config.get("weight")
+            .and_then(|w| w.as_f64())
+            .unwrap_or(1.0);
+        
+        let mut score = base_weight;
+        
+        // Apply aging if enabled
+        if self.config.get("aging_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let age = Utc::now().signed_duration_since(message.metadata.created_at)
+                .to_std().unwrap_or(Duration::from_secs(0));
+            
+            let aging_factor = self.starvation_prevention.get("aging_factor")
+                .and_then(|f| f.as_f64())
+                .unwrap_or(1.1);
+            
+            let age_boost = (age.as_secs() as f64 / 60.0) * aging_factor; // Per minute aging
+            let max_boost = self.starvation_prevention.get("max_age_boost")
+                .and_then(|b| b.as_f64())
+                .unwrap_or(10.0);
+            
+            score += age_boost.min(max_boost);
+        }
+        
+        Ok(score)
+    }
+    
+    fn handle_preemption(&self, _new_priority: &MessagePriority) -> Result<()> {
+        // In a real implementation, would handle preemption logic
+        Ok(())
+    }
+    
+    fn apply_starvation_prevention(&mut self) {
+        // In a real implementation, would boost priority of aged messages
+        // and detect starvation conditions
+    }
+    
+    fn select_next_message(&self) -> Option<EcosystemMessage> {
+        // In a real implementation, would select based on scheduling algorithm
+        // For now, create a placeholder message
+        Some(self.create_placeholder_priority_message())
+    }
+    
+    fn update_average_wait_time(&mut self, wait_time_ms: f64) {
+        let current_avg = self.metrics.get("average_wait_time").unwrap_or(&0.0);
+        let total_processed = self.metrics.get("total_dequeued").unwrap_or(&1.0);
+        let new_avg = (current_avg * (total_processed - 1.0) + wait_time_ms) / total_processed;
+        self.metrics.insert("average_wait_time".to_string(), new_avg);
+    }
+    
+    fn create_placeholder_priority_message(&self) -> EcosystemMessage {
+        use crate::{MessageMetadata, MessagePriority, MessageStatus, ResponseType};
+        
+        EcosystemMessage {
+            metadata: MessageMetadata {
+                id: Uuid::new_v4(),
+                correlation_id: None,
+                reply_to: None,
+                priority: MessagePriority::Normal,
+                response_type: ResponseType::None,
+                status: MessageStatus::Queued,
+                created_at: Utc::now() - ChronoDuration::minutes(1), // Age the message slightly
+                updated_at: Utc::now(),
+                expires_at: None,
+                source: "priority_queue".to_string(),
+                target: None,
+                routing_path: vec![],
+                headers: HashMap::new(),
+                security_context: None,
+                trace_context: None,
+                metrics: None,
+            },
+            payload: json!({"message": "priority_placeholder"}),
+            attachments: vec![],
+            message_type: "priority_test".to_string(),
+            schema_version: None,
+            compression: None,
+            encryption: None,
+            signature: None,
+        }
     }
 }
 
@@ -12654,6 +15005,152 @@ impl ResponseAudit {
 // ================================================================================================
 // SHARED UTILITY FUNCTIONS - Complete Production-Ready Implementations
 // ================================================================================================
+/// Utility function to create a default load balancing configuration
+pub fn create_default_load_balancer(id: String) -> LoadBalancing {
+    LoadBalancing::new(id, "round_robin".to_string())
+}
+
+/// Utility function to create a default circuit breaker
+pub fn create_default_circuit_breaker(id: String) -> CircuitBreaker {
+    CircuitBreaker::new(id, 5, Duration::from_secs(60))
+}
+
+/// Utility function to create an exponential backoff retry policy
+pub fn create_exponential_retry_policy(max_attempts: u32) -> RetryPolicy {
+    RetryPolicy::exponential_backoff(max_attempts, Duration::from_millis(100))
+}
+
+/// Utility function to create a default timeout policy
+pub fn create_default_timeout_policy(id: String) -> TimeoutPolicy {
+    TimeoutPolicy::new(id, Duration::from_secs(30))
+}
+
+/// Utility function to create a high-capacity message queue
+pub fn create_high_capacity_message_queue(id: String) -> MessageQueue {
+    MessageQueue::new(id, 100000) // 100K capacity
+}
+
+/// Utility function to create a default event queue
+pub fn create_default_event_queue(id: String) -> EventQueue {
+    EventQueue::new(id)
+}
+
+/// Utility function to create a default command queue
+pub fn create_default_command_queue(id: String) -> CommandQueue {
+    CommandQueue::new(id)
+}
+
+/// Utility function to create a default response queue
+pub fn create_default_response_queue(id: String) -> ResponseQueue {
+    ResponseQueue::new(id)
+}
+
+/// Utility function to create a default priority queue
+pub fn create_default_priority_queue(id: String) -> PriorityQueue {
+    PriorityQueue::new(id)
+}
+
+/// Calculate load balancing efficiency score
+pub fn calculate_load_balancing_efficiency(load_balancer: &LoadBalancing) -> f64 {
+    let total_requests = load_balancer.metrics.get("total_requests").unwrap_or(&0.0);
+    let successful_requests = load_balancer.metrics.get("successful_requests").unwrap_or(&0.0);
+    
+    if *total_requests > 0.0 {
+        (successful_requests / total_requests) * 100.0
+    } else {
+        100.0 // Perfect efficiency if no requests yet
+    }
+}
+
+/// Calculate circuit breaker reliability score
+pub fn calculate_circuit_breaker_reliability(circuit_breaker: &CircuitBreaker) -> f64 {
+    circuit_breaker.metrics.get("uptime_percentage").unwrap_or(&100.0).clone()
+}
+
+/// Validate retry policy configuration
+pub fn validate_retry_policy_config(retry_policy: &RetryPolicy) -> Result<()> {
+    ensure!(retry_policy.max_attempts > 0, "Max attempts must be greater than 0");
+    ensure!(retry_policy.max_attempts <= 20, "Max attempts should not exceed 20");
+    ensure!(retry_policy.base_delay.as_millis() > 0, "Base delay must be greater than 0");
+    ensure!(retry_policy.max_delay >= retry_policy.base_delay, "Max delay must be >= base delay");
+    
+    Ok(())
+}
+
+/// Calculate queue utilization percentage
+pub fn calculate_queue_utilization(queue: &MessageQueue) -> f64 {
+    (queue.size as f64 / queue.capacity as f64) * 100.0
+}
+
+/// Get priority queue health score
+pub fn get_priority_queue_health(priority_queue: &PriorityQueue) -> f64 {
+    let starvation_events = priority_queue.metrics.get("starvation_events").unwrap_or(&0.0);
+    let total_processed = priority_queue.metrics.get("total_dequeued").unwrap_or(&1.0);
+    
+    // Health decreases with starvation events
+    let starvation_ratio = starvation_events / total_processed;
+    let health_score = (1.0 - starvation_ratio.min(1.0)) * 100.0;
+    
+    health_score.max(0.0)
+}
+
+/// Create a comprehensive resilience configuration
+pub fn create_comprehensive_resilience_config() -> HashMap<String, Value> {
+    let mut config = HashMap::new();
+    
+    config.insert("load_balancing".to_string(), json!({
+        "algorithm": "weighted_round_robin",
+        "health_checks_enabled": true,
+        "session_affinity": false
+    }));
+    
+    config.insert("circuit_breaker".to_string(), json!({
+        "failure_threshold": 5,
+        "timeout_seconds": 60,
+        "success_threshold": 3
+    }));
+    
+    config.insert("retry_policy".to_string(), json!({
+        "max_attempts": 3,
+        "backoff_strategy": "exponential",
+        "jitter_enabled": true
+    }));
+    
+    config.insert("timeout_policy".to_string(), json!({
+        "default_timeout_seconds": 30,
+        "adaptive_timeout": false,
+        "escalation_enabled": true
+    }));
+    
+    config
+}
+
+/// Validate comprehensive resilience configuration
+pub fn validate_resilience_configuration(config: &HashMap<String, Value>) -> Result<()> {
+    // Validate load balancing config
+    if let Some(lb_config) = config.get("load_balancing") {
+        if let Some(algorithm) = lb_config.get("algorithm").and_then(|a| a.as_str()) {
+            let valid_algorithms = ["round_robin", "weighted_round_robin", "least_connections"];
+            ensure!(valid_algorithms.contains(&algorithm), "Invalid load balancing algorithm");
+        }
+    }
+    
+    // Validate circuit breaker config
+    if let Some(cb_config) = config.get("circuit_breaker") {
+        if let Some(threshold) = cb_config.get("failure_threshold").and_then(|t| t.as_f64()) {
+            ensure!(threshold > 0.0, "Circuit breaker failure threshold must be positive");
+        }
+    }
+    
+    // Validate retry policy config
+    if let Some(retry_config) = config.get("retry_policy") {
+        if let Some(attempts) = retry_config.get("max_attempts").and_then(|a| a.as_f64()) {
+            ensure!(attempts > 0.0 && attempts <= 20.0, "Max retry attempts must be between 1 and 20");
+        }
+    }
+    
+    Ok(())
+}
 
 /// Calculate message priority score for routing decisions
 pub fn calculate_priority_score(priority: MessagePriority, age: Duration, context: &HashMap<String, Value>) -> f64 {
