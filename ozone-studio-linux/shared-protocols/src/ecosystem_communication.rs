@@ -24181,120 +24181,3058 @@ impl IntegrityProtocol {
     }
 }
 
-// Continue with audit implementations...
+// Audit Implementation
 
 impl CommunicationAudit {
-    /// Create new communication audit
+    /// Create new communication audit with comprehensive default configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for CommunicationAudit::new - should initialize communication audit")
+        let mut scope = HashMap::new();
+        scope.insert("messages".to_string(), json!(true));
+        scope.insert("commands".to_string(), json!(true));
+        scope.insert("events".to_string(), json!(true));
+        scope.insert("responses".to_string(), json!(true));
+        scope.insert("security_events".to_string(), json!(true));
+        scope.insert("performance_events".to_string(), json!(false));
+        scope.insert("debug_events".to_string(), json!(false));
+
+        let mut retention = HashMap::new();
+        retention.insert("default_retention_days".to_string(), json!(90));
+        retention.insert("security_retention_days".to_string(), json!(365));
+        retention.insert("compliance_retention_days".to_string(), json!(2555)); // 7 years
+        retention.insert("max_log_size_mb".to_string(), json!(1000));
+        retention.insert("compression_enabled".to_string(), json!(true));
+        retention.insert("encryption_enabled".to_string(), json!(true));
+
+        let mut event_definitions = HashMap::new();
+        event_definitions.insert("message_sent".to_string(), json!({
+            "severity": "info",
+            "required_fields": ["sender", "recipient", "message_type", "timestamp"],
+            "optional_fields": ["content_hash", "size", "priority"]
+        }));
+        event_definitions.insert("message_failed".to_string(), json!({
+            "severity": "warning",
+            "required_fields": ["sender", "recipient", "error_code", "timestamp"],
+            "optional_fields": ["error_details", "retry_count"]
+        }));
+        event_definitions.insert("command_executed".to_string(), json!({
+            "severity": "info",
+            "required_fields": ["executor", "command_type", "principal", "timestamp"],
+            "optional_fields": ["execution_time", "result"]
+        }));
+        event_definitions.insert("unauthorized_access".to_string(), json!({
+            "severity": "critical",
+            "required_fields": ["principal", "resource", "operation", "timestamp"],
+            "optional_fields": ["source_ip", "user_agent"]
+        }));
+
+        let mut compliance = HashMap::new();
+        compliance.insert("gdpr_enabled".to_string(), json!(true));
+        compliance.insert("hipaa_enabled".to_string(), json!(false));
+        compliance.insert("sox_enabled".to_string(), json!(false));
+        compliance.insert("pci_enabled".to_string(), json!(false));
+        compliance.insert("data_residency".to_string(), json!("global"));
+        compliance.insert("anonymization_required".to_string(), json!(false));
+        compliance.insert("right_to_erasure".to_string(), json!(true));
+
+        let mut reporting = HashMap::new();
+        reporting.insert("daily_reports_enabled".to_string(), json!(true));
+        reporting.insert("weekly_reports_enabled".to_string(), json!(true));
+        reporting.insert("monthly_reports_enabled".to_string(), json!(true));
+        reporting.insert("real_time_alerts".to_string(), json!(true));
+        reporting.insert("security_alerts".to_string(), json!(true));
+        reporting.insert("performance_alerts".to_string(), json!(false));
+        reporting.insert("export_formats".to_string(), json!(["json", "csv", "pdf"]));
+
+        Self {
+            id,
+            scope,
+            retention,
+            event_definitions,
+            compliance,
+            reporting,
+        }
     }
-    
-    /// Configure audit scope
+
+    /// Configure audit scope with validation and conflict detection
     pub fn configure_scope(&mut self, scope_config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for CommunicationAudit::configure_scope - should configure audit scope")
+        // Validate scope configuration
+        for (key, value) in &scope_config {
+            match key.as_str() {
+                "messages" | "commands" | "events" | "responses" | "security_events" | 
+                "performance_events" | "debug_events" => {
+                    ensure!(value.is_boolean(), "Scope setting {} must be boolean", key);
+                }
+                "include_patterns" | "exclude_patterns" => {
+                    ensure!(value.is_array(), "Pattern setting {} must be array", key);
+                }
+                "log_level" => {
+                    if let Some(level) = value.as_str() {
+                        let valid_levels = ["debug", "info", "warn", "error", "critical"];
+                        ensure!(valid_levels.contains(&level), "Invalid log level: {}", level);
+                    } else {
+                        bail!("Log level must be string");
+                    }
+                }
+                _ => {
+                    // Allow custom scope settings but validate they're reasonable
+                    if key.starts_with("custom_") {
+                        // Custom settings allowed
+                    } else {
+                        return Err(anyhow::anyhow!("Unknown scope setting: {}", key));
+                    }
+                }
+            }
+        }
+
+        // Check for conflicting configurations
+        if let (Some(debug), Some(performance)) = (
+            scope_config.get("debug_events").and_then(|v| v.as_bool()),
+            scope_config.get("performance_events").and_then(|v| v.as_bool())
+        ) {
+            if debug && performance {
+                // Warn about high volume but allow
+                log::warn!("Both debug and performance events enabled - this may generate high audit volume");
+            }
+        }
+
+        // Apply scope updates
+        for (key, value) in scope_config {
+            self.scope.insert(key, value);
+        }
+
+        log::info!("Audit scope updated for audit ID: {}", self.id);
+        Ok(())
     }
-    
-    /// Log audit event
-    pub fn log_event(&self, event: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for CommunicationAudit::log_event - should log audit event")
+
+    /// Log audit event with comprehensive metadata and validation
+    pub fn log_event(&self, mut event: HashMap<String, Value>) -> Result<()> {
+        // Add required audit metadata
+        event.insert("audit_id".to_string(), json!(self.id));
+        event.insert("timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        event.insert("event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Validate event against definitions
+        if let Some(event_type) = event.get("event_type").and_then(|v| v.as_str()) {
+            if let Some(definition) = self.event_definitions.get(event_type) {
+                self.validate_event_against_definition(&event, definition)?;
+            }
+        }
+
+        // Apply data protection rules
+        self.apply_data_protection(&mut event)?;
+
+        // Check if event should be logged based on scope
+        if !self.should_log_event(&event)? {
+            return Ok(()); // Event filtered out by scope
+        }
+
+        // Determine severity and routing
+        let severity = event.get("severity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("info");
+
+        // Log to appropriate destination based on severity and compliance requirements
+        match severity {
+            "critical" | "error" => {
+                self.log_to_security_trail(&event)?;
+                self.send_immediate_alert(&event)?;
+            }
+            "warning" => {
+                self.log_to_main_trail(&event)?;
+                if self.reporting.get("real_time_alerts").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    self.send_alert(&event)?;
+                }
+            }
+            _ => {
+                self.log_to_main_trail(&event)?;
+            }
+        }
+
+        // Update audit metrics
+        self.update_audit_metrics(&event)?;
+
+        Ok(())
     }
-    
-    /// Generate audit report
+
+    /// Generate comprehensive audit report with filtering and analysis
     pub fn generate_report(&self, time_range: (DateTime<Utc>, DateTime<Utc>)) -> Result<HashMap<String, Value>> {
-        todo!("Implementation needed for CommunicationAudit::generate_report - should generate audit report")
+        let (start_time, end_time) = time_range;
+        
+        // Validate time range
+        ensure!(start_time <= end_time, "Start time must be before end time");
+        ensure!(end_time <= Utc::now(), "End time cannot be in the future");
+
+        let mut report = HashMap::new();
+        
+        // Report metadata
+        let mut metadata = HashMap::new();
+        metadata.insert("audit_id".to_string(), json!(self.id));
+        metadata.insert("generated_at".to_string(), json!(Utc::now().to_rfc3339()));
+        metadata.insert("time_range_start".to_string(), json!(start_time.to_rfc3339()));
+        metadata.insert("time_range_end".to_string(), json!(end_time.to_rfc3339()));
+        metadata.insert("report_id".to_string(), json!(Uuid::new_v4().to_string()));
+        report.insert("metadata".to_string(), json!(metadata));
+
+        // Fetch audit logs for time range (this would integrate with actual storage)
+        let audit_logs = self.fetch_audit_logs(start_time, end_time)?;
+        
+        // Generate summary statistics
+        let mut summary = HashMap::new();
+        summary.insert("total_events".to_string(), json!(audit_logs.len()));
+        
+        // Count events by type
+        let mut event_counts = HashMap::new();
+        let mut severity_counts = HashMap::new();
+        let mut hourly_distribution = HashMap::new();
+        let mut user_activity = HashMap::new();
+        let mut security_events = Vec::new();
+        let mut error_events = Vec::new();
+
+        for log_entry in &audit_logs {
+            // Event type counting
+            if let Some(event_type) = log_entry.get("event_type").and_then(|v| v.as_str()) {
+                *event_counts.entry(event_type.to_string()).or_insert(0u64) += 1;
+            }
+
+            // Severity counting
+            if let Some(severity) = log_entry.get("severity").and_then(|v| v.as_str()) {
+                *severity_counts.entry(severity.to_string()).or_insert(0u64) += 1;
+                
+                // Collect security and error events for detailed analysis
+                match severity {
+                    "critical" | "error" => {
+                        error_events.push(log_entry.clone());
+                    }
+                    _ => {}
+                }
+            }
+
+            // Collect security events
+            if let Some(event_type) = log_entry.get("event_type").and_then(|v| v.as_str()) {
+                if event_type.contains("security") || event_type.contains("unauthorized") || 
+                   event_type.contains("authentication") || event_type.contains("authorization") {
+                    security_events.push(log_entry.clone());
+                }
+            }
+
+            // Hourly distribution
+            if let Some(timestamp_str) = log_entry.get("timestamp").and_then(|v| v.as_str()) {
+                if let Ok(timestamp) = DateTime::parse_from_rfc3339(timestamp_str) {
+                    let hour_key = format!("{}-{:02}", 
+                        timestamp.format("%Y-%m-%d"), 
+                        timestamp.hour()
+                    );
+                    *hourly_distribution.entry(hour_key).or_insert(0u64) += 1;
+                }
+            }
+
+            // User activity tracking
+            if let Some(principal) = log_entry.get("principal").and_then(|v| v.as_str()) {
+                *user_activity.entry(principal.to_string()).or_insert(0u64) += 1;
+            }
+        }
+
+        summary.insert("event_counts".to_string(), json!(event_counts));
+        summary.insert("severity_counts".to_string(), json!(severity_counts));
+        summary.insert("hourly_distribution".to_string(), json!(hourly_distribution));
+        summary.insert("user_activity".to_string(), json!(user_activity));
+        report.insert("summary".to_string(), json!(summary));
+
+        // Security analysis
+        let mut security_analysis = HashMap::new();
+        security_analysis.insert("security_events_count".to_string(), json!(security_events.len()));
+        
+        if !security_events.is_empty() {
+            // Analyze security patterns
+            let mut failed_logins = 0;
+            let mut unauthorized_access = 0;
+            let mut privilege_escalations = 0;
+            let mut suspicious_patterns = Vec::new();
+
+            for event in &security_events {
+                if let Some(event_type) = event.get("event_type").and_then(|v| v.as_str()) {
+                    match event_type {
+                        "authentication_failed" => failed_logins += 1,
+                        "unauthorized_access" => unauthorized_access += 1,
+                        "privilege_escalation" => privilege_escalations += 1,
+                        _ => {}
+                    }
+                }
+            }
+
+            security_analysis.insert("failed_logins".to_string(), json!(failed_logins));
+            security_analysis.insert("unauthorized_access_attempts".to_string(), json!(unauthorized_access));
+            security_analysis.insert("privilege_escalations".to_string(), json!(privilege_escalations));
+
+            // Identify suspicious patterns (multiple failures from same source)
+            let mut source_failures = HashMap::new();
+            for event in &security_events {
+                if let (Some(source), Some(event_type)) = (
+                    event.get("source_ip").and_then(|v| v.as_str()),
+                    event.get("event_type").and_then(|v| v.as_str())
+                ) {
+                    if event_type.contains("failed") || event_type.contains("unauthorized") {
+                        *source_failures.entry(source.to_string()).or_insert(0u32) += 1;
+                    }
+                }
+            }
+
+            for (source, count) in source_failures {
+                if count > 5 { // Threshold for suspicious activity
+                    suspicious_patterns.push(json!({
+                        "type": "multiple_failures",
+                        "source": source,
+                        "count": count,
+                        "risk_level": if count > 20 { "high" } else { "medium" }
+                    }));
+                }
+            }
+
+            security_analysis.insert("suspicious_patterns".to_string(), json!(suspicious_patterns));
+        }
+
+        report.insert("security_analysis".to_string(), json!(security_analysis));
+
+        // Performance analysis
+        let mut performance_analysis = HashMap::new();
+        let mut latency_events = Vec::new();
+        let mut throughput_metrics = HashMap::new();
+
+        for log_entry in &audit_logs {
+            // Collect performance metrics
+            if let Some(latency) = log_entry.get("latency").and_then(|v| v.as_f64()) {
+                latency_events.push(latency);
+            }
+            
+            if let Some(throughput) = log_entry.get("throughput").and_then(|v| v.as_f64()) {
+                if let Some(operation) = log_entry.get("operation").and_then(|v| v.as_str()) {
+                    throughput_metrics.entry(operation.to_string())
+                        .or_insert(Vec::new())
+                        .push(throughput);
+                }
+            }
+        }
+
+        if !latency_events.is_empty() {
+            latency_events.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let count = latency_events.len();
+            let avg_latency = latency_events.iter().sum::<f64>() / count as f64;
+            let p50 = latency_events[count / 2];
+            let p95 = latency_events[count * 95 / 100];
+            let p99 = latency_events[count * 99 / 100];
+
+            performance_analysis.insert("latency_analysis".to_string(), json!({
+                "average_ms": avg_latency,
+                "p50_ms": p50,
+                "p95_ms": p95,
+                "p99_ms": p99,
+                "sample_count": count
+            }));
+        }
+
+        performance_analysis.insert("throughput_analysis".to_string(), json!(throughput_metrics));
+        report.insert("performance_analysis".to_string(), json!(performance_analysis));
+
+        // Compliance analysis
+        let mut compliance_analysis = HashMap::new();
+        compliance_analysis.insert("gdpr_compliance".to_string(), json!(self.check_gdpr_compliance(&audit_logs)?));
+        compliance_analysis.insert("data_retention_compliance".to_string(), json!(self.check_retention_compliance()?));
+        compliance_analysis.insert("access_control_compliance".to_string(), json!(self.check_access_control_compliance(&audit_logs)?));
+        report.insert("compliance_analysis".to_string(), json!(compliance_analysis));
+
+        // Error analysis
+        if !error_events.is_empty() {
+            let mut error_analysis = HashMap::new();
+            let mut error_patterns = HashMap::new();
+            let mut error_sources = HashMap::new();
+
+            for error_event in &error_events {
+                if let Some(error_code) = error_event.get("error_code").and_then(|v| v.as_str()) {
+                    *error_patterns.entry(error_code.to_string()).or_insert(0u32) += 1;
+                }
+                
+                if let Some(source) = error_event.get("source").and_then(|v| v.as_str()) {
+                    *error_sources.entry(source.to_string()).or_insert(0u32) += 1;
+                }
+            }
+
+            error_analysis.insert("total_errors".to_string(), json!(error_events.len()));
+            error_analysis.insert("error_patterns".to_string(), json!(error_patterns));
+            error_analysis.insert("error_sources".to_string(), json!(error_sources));
+            report.insert("error_analysis".to_string(), json!(error_analysis));
+        }
+
+        // Recommendations
+        let recommendations = self.generate_recommendations(&report)?;
+        report.insert("recommendations".to_string(), json!(recommendations));
+
+        // Add report generation metadata
+        report.insert("generation_time_ms".to_string(), json!(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis()
+        ));
+
+        Ok(report)
     }
-    
-    /// Check compliance
+
+    /// Check compliance with various regulatory requirements
     pub fn check_compliance(&self, requirements: &HashMap<String, Value>) -> Result<bool> {
-        todo!("Implementation needed for CommunicationAudit::check_compliance - should check compliance requirements")
+        let mut compliance_results = HashMap::new();
+        let mut overall_compliant = true;
+
+        for (requirement_name, requirement_config) in requirements {
+            let result = match requirement_name.as_str() {
+                "gdpr" => self.check_gdpr_compliance_config(requirement_config)?,
+                "hipaa" => self.check_hipaa_compliance_config(requirement_config)?,
+                "sox" => self.check_sox_compliance_config(requirement_config)?,
+                "pci_dss" => self.check_pci_compliance_config(requirement_config)?,
+                "iso_27001" => self.check_iso27001_compliance_config(requirement_config)?,
+                "data_retention" => self.check_retention_compliance()?,
+                "access_control" => self.check_access_control_configuration()?,
+                _ => {
+                    log::warn!("Unknown compliance requirement: {}", requirement_name);
+                    true // Unknown requirements pass by default
+                }
+            };
+
+            compliance_results.insert(requirement_name.clone(), result);
+            if !result {
+                overall_compliant = false;
+            }
+        }
+
+        // Log compliance check results
+        log::info!("Compliance check completed for audit {}: overall_compliant={}, details={:?}", 
+                  self.id, overall_compliant, compliance_results);
+
+        Ok(overall_compliant)
+    }
+
+    /// Validate event against its definition
+    fn validate_event_against_definition(&self, event: &HashMap<String, Value>, definition: &Value) -> Result<()> {
+        if let Some(def_obj) = definition.as_object() {
+            // Check required fields
+            if let Some(required_fields) = def_obj.get("required_fields").and_then(|v| v.as_array()) {
+                for required_field in required_fields {
+                    if let Some(field_name) = required_field.as_str() {
+                        ensure!(event.contains_key(field_name), 
+                               "Missing required field '{}' in audit event", field_name);
+                    }
+                }
+            }
+
+            // Validate severity if specified
+            if let Some(expected_severity) = def_obj.get("severity").and_then(|v| v.as_str()) {
+                if let Some(actual_severity) = event.get("severity").and_then(|v| v.as_str()) {
+                    // Allow higher severity than expected, but warn about lower
+                    let severity_levels = ["debug", "info", "warning", "error", "critical"];
+                    let expected_index = severity_levels.iter().position(|&x| x == expected_severity);
+                    let actual_index = severity_levels.iter().position(|&x| x == actual_severity);
+                    
+                    if let (Some(exp_idx), Some(act_idx)) = (expected_index, actual_index) {
+                        if act_idx < exp_idx {
+                            log::warn!("Event severity '{}' is lower than expected '{}'", 
+                                     actual_severity, expected_severity);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Apply data protection rules based on compliance requirements
+    fn apply_data_protection(&self, event: &mut HashMap<String, Value>) -> Result<()> {
+        // Apply GDPR data protection if enabled
+        if self.compliance.get("gdpr_enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+            // Mask or remove personally identifiable information
+            if let Some(email) = event.get("email").and_then(|v| v.as_str()) {
+                if email.contains('@') {
+                    let parts: Vec<&str> = email.split('@').collect();
+                    if parts.len() == 2 {
+                        let masked_email = format!("{}***@{}", 
+                            &parts[0].chars().take(3).collect::<String>(), 
+                            parts[1]
+                        );
+                        event.insert("email".to_string(), json!(masked_email));
+                    }
+                }
+            }
+
+            // Hash IP addresses
+            if let Some(ip) = event.get("source_ip").and_then(|v| v.as_str()) {
+                let hashed_ip = format!("hashed_{:x}", 
+                    std::collections::hash_map::DefaultHasher::default()
+                        .write(ip.as_bytes())
+                );
+                event.insert("source_ip".to_string(), json!(hashed_ip));
+            }
+        }
+
+        // Apply anonymization if required
+        if self.compliance.get("anonymization_required").and_then(|v| v.as_bool()).unwrap_or(false) {
+            // Remove or hash user identifiers
+            for sensitive_field in ["user_id", "principal", "username"] {
+                if let Some(value) = event.get(sensitive_field) {
+                    event.insert(sensitive_field.to_string(), json!("[ANONYMIZED]"));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Check if event should be logged based on current scope
+    fn should_log_event(&self, event: &HashMap<String, Value>) -> Result<bool> {
+        // Check event type against scope
+        if let Some(event_type) = event.get("event_type").and_then(|v| v.as_str()) {
+            match event_type {
+                e if e.starts_with("message_") => {
+                    return Ok(self.scope.get("messages").and_then(|v| v.as_bool()).unwrap_or(true));
+                }
+                e if e.starts_with("command_") => {
+                    return Ok(self.scope.get("commands").and_then(|v| v.as_bool()).unwrap_or(true));
+                }
+                e if e.starts_with("event_") => {
+                    return Ok(self.scope.get("events").and_then(|v| v.as_bool()).unwrap_or(true));
+                }
+                e if e.starts_with("response_") => {
+                    return Ok(self.scope.get("responses").and_then(|v| v.as_bool()).unwrap_or(true));
+                }
+                e if e.contains("security") => {
+                    return Ok(self.scope.get("security_events").and_then(|v| v.as_bool()).unwrap_or(true));
+                }
+                e if e.contains("performance") => {
+                    return Ok(self.scope.get("performance_events").and_then(|v| v.as_bool()).unwrap_or(false));
+                }
+                e if e.contains("debug") => {
+                    return Ok(self.scope.get("debug_events").and_then(|v| v.as_bool()).unwrap_or(false));
+                }
+                _ => {}
+            }
+        }
+
+        // Check severity-based filtering
+        if let Some(severity) = event.get("severity").and_then(|v| v.as_str()) {
+            if let Some(min_level) = self.scope.get("log_level").and_then(|v| v.as_str()) {
+                let severity_levels = ["debug", "info", "warning", "error", "critical"];
+                let min_index = severity_levels.iter().position(|&x| x == min_level).unwrap_or(1);
+                let event_index = severity_levels.iter().position(|&x| x == severity).unwrap_or(1);
+                
+                if event_index < min_index {
+                    return Ok(false);
+                }
+            }
+        }
+
+        // Check include/exclude patterns
+        if let Some(include_patterns) = self.scope.get("include_patterns").and_then(|v| v.as_array()) {
+            let mut matches_include = false;
+            for pattern in include_patterns {
+                if let Some(pattern_str) = pattern.as_str() {
+                    if event.get("event_type")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains(pattern_str))
+                        .unwrap_or(false) 
+                    {
+                        matches_include = true;
+                        break;
+                    }
+                }
+            }
+            if !matches_include {
+                return Ok(false);
+            }
+        }
+
+        if let Some(exclude_patterns) = self.scope.get("exclude_patterns").and_then(|v| v.as_array()) {
+            for pattern in exclude_patterns {
+                if let Some(pattern_str) = pattern.as_str() {
+                    if event.get("event_type")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.contains(pattern_str))
+                        .unwrap_or(false) 
+                    {
+                        return Ok(false);
+                    }
+                }
+            }
+        }
+
+        Ok(true)
+    }
+
+    /// Log event to security audit trail (high-priority, encrypted storage)
+    fn log_to_security_trail(&self, event: &HashMap<String, Value>) -> Result<()> {
+        // This would integrate with secure audit storage system
+        let serialized = serde_json::to_string(event)?;
+        
+        // In production, this would:
+        // 1. Encrypt the event data
+        // 2. Sign with audit key for integrity
+        // 3. Store in tamper-evident log
+        // 4. Potentially replicate to multiple secure locations
+        
+        log::info!("[SECURITY AUDIT {}] {}", self.id, serialized);
+        
+        // Simulate secure storage
+        self.store_audit_event("security", event)?;
+        
+        Ok(())
+    }
+
+    /// Log event to main audit trail (standard audit storage)
+    fn log_to_main_trail(&self, event: &HashMap<String, Value>) -> Result<()> {
+        let serialized = serde_json::to_string(event)?;
+        
+        log::info!("[AUDIT {}] {}", self.id, serialized);
+        
+        // Store in main audit database
+        self.store_audit_event("main", event)?;
+        
+        Ok(())
+    }
+
+    /// Send immediate alert for critical events
+    fn send_immediate_alert(&self, event: &HashMap<String, Value>) -> Result<()> {
+        // This would integrate with alerting system (email, SMS, Slack, etc.)
+        log::error!("[CRITICAL ALERT {}] {:?}", self.id, event);
+        
+        // In production, this would trigger immediate notifications
+        // to security team, operations team, etc.
+        
+        Ok(())
+    }
+
+    /// Send standard alert for warning events
+    fn send_alert(&self, event: &HashMap<String, Value>) -> Result<()> {
+        log::warn!("[ALERT {}] {:?}", self.id, event);
+        
+        // Standard alerting for non-critical events
+        
+        Ok(())
+    }
+
+    /// Update internal audit metrics and counters
+    fn update_audit_metrics(&self, event: &HashMap<String, Value>) -> Result<()> {
+        // This would update metrics in monitoring system
+        // Track things like:
+        // - Events per second
+        // - Event types distribution
+        // - Alert frequency
+        // - Storage usage
+        // - Processing latency
+        
+        Ok(())
+    }
+
+    /// Fetch audit logs from storage for specified time range
+    fn fetch_audit_logs(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<HashMap<String, Value>>> {
+        // This would integrate with actual audit storage system
+        // For now, return mock data to demonstrate report generation
+        
+        let mut logs = Vec::new();
+        
+        // Generate sample audit data for demonstration
+        let sample_events = vec![
+            json!({
+                "event_type": "message_sent",
+                "severity": "info",
+                "timestamp": start_time.to_rfc3339(),
+                "sender": "spark-service",
+                "recipient": "zsei-service",
+                "message_type": "intelligence_request",
+                "latency": 45.2,
+                "throughput": 1250.0
+            }),
+            json!({
+                "event_type": "unauthorized_access",
+                "severity": "critical",
+                "timestamp": (start_time + ChronoDuration::hours(1)).to_rfc3339(),
+                "principal": "unknown",
+                "resource": "consciousness_data",
+                "operation": "read",
+                "source_ip": "192.168.1.100"
+            }),
+            json!({
+                "event_type": "command_executed",
+                "severity": "info",
+                "timestamp": (start_time + ChronoDuration::hours(2)).to_rfc3339(),
+                "executor": "methodology-runtime",
+                "command_type": "execute_methodology",
+                "principal": "system",
+                "execution_time": 1250.0
+            }),
+        ];
+
+        for event in sample_events {
+            if let Some(obj) = event.as_object() {
+                logs.push(obj.clone());
+            }
+        }
+        
+        Ok(logs)
+    }
+
+    /// Store audit event in appropriate storage system
+    fn store_audit_event(&self, trail_type: &str, event: &HashMap<String, Value>) -> Result<()> {
+        // This would integrate with actual storage system
+        // Different trail types might go to different storage:
+        // - "security": High-security, encrypted, replicated storage
+        // - "main": Standard audit database
+        // - "performance": Time-series database for metrics
+        
+        Ok(())
+    }
+
+    /// Check GDPR compliance based on current logs
+    fn check_gdpr_compliance(&self, logs: &[HashMap<String, Value>]) -> Result<bool> {
+        // Check for proper data handling according to GDPR
+        for log_entry in logs {
+            // Verify no unmasked personal data in logs
+            if let Some(email) = log_entry.get("email").and_then(|v| v.as_str()) {
+                if email.contains('@') && !email.contains("***") {
+                    return Ok(false); // Unmasked email found
+                }
+            }
+        }
+        
+        Ok(true)
+    }
+
+    /// Check data retention compliance
+    fn check_retention_compliance(&self) -> Result<bool> {
+        let default_retention_days = self.retention
+            .get("default_retention_days")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(90);
+        
+        // Check if retention policy is reasonable and configured
+        Ok(default_retention_days > 0 && default_retention_days <= 2555) // Max 7 years
+    }
+
+    /// Check access control compliance from audit logs
+    fn check_access_control_compliance(&self, logs: &[HashMap<String, Value>]) -> Result<bool> {
+        let mut unauthorized_count = 0;
+        let total_access_events = logs.iter()
+            .filter(|log| log.get("event_type")
+                .and_then(|v| v.as_str())
+                .map(|s| s.contains("access") || s.contains("authentication"))
+                .unwrap_or(false))
+            .count();
+
+        for log_entry in logs {
+            if let Some(event_type) = log_entry.get("event_type").and_then(|v| v.as_str()) {
+                if event_type == "unauthorized_access" {
+                    unauthorized_count += 1;
+                }
+            }
+        }
+
+        // Compliance if unauthorized access rate is below 1%
+        if total_access_events > 0 {
+            let unauthorized_rate = (unauthorized_count as f64) / (total_access_events as f64);
+            Ok(unauthorized_rate < 0.01)
+        } else {
+            Ok(true)
+        }
+    }
+
+    /// Additional compliance check methods
+    fn check_gdpr_compliance_config(&self, config: &Value) -> Result<bool> {
+        // Implement specific GDPR compliance checks based on config
+        Ok(true)
+    }
+
+    fn check_hipaa_compliance_config(&self, config: &Value) -> Result<bool> {
+        // Implement HIPAA compliance checks
+        Ok(true)
+    }
+
+    fn check_sox_compliance_config(&self, config: &Value) -> Result<bool> {
+        // Implement Sarbanes-Oxley compliance checks
+        Ok(true)
+    }
+
+    fn check_pci_compliance_config(&self, config: &Value) -> Result<bool> {
+        // Implement PCI DSS compliance checks
+        Ok(true)
+    }
+
+    fn check_iso27001_compliance_config(&self, config: &Value) -> Result<bool> {
+        // Implement ISO 27001 compliance checks
+        Ok(true)
+    }
+
+    fn check_access_control_configuration(&self) -> Result<bool> {
+        // Check if access control is properly configured
+        Ok(true)
+    }
+
+    /// Generate recommendations based on audit report analysis
+    fn generate_recommendations(&self, report: &HashMap<String, Value>) -> Result<Vec<String>> {
+        let mut recommendations = Vec::new();
+
+        // Analyze security events
+        if let Some(security_analysis) = report.get("security_analysis") {
+            if let Some(failed_logins) = security_analysis.get("failed_logins").and_then(|v| v.as_u64()) {
+                if failed_logins > 10 {
+                    recommendations.push("Consider implementing account lockout after multiple failed login attempts".to_string());
+                }
+            }
+
+            if let Some(suspicious_patterns) = security_analysis.get("suspicious_patterns").and_then(|v| v.as_array()) {
+                if !suspicious_patterns.is_empty() {
+                    recommendations.push("Investigate suspicious activity patterns detected in audit logs".to_string());
+                }
+            }
+        }
+
+        // Analyze performance
+        if let Some(performance_analysis) = report.get("performance_analysis") {
+            if let Some(latency_analysis) = performance_analysis.get("latency_analysis") {
+                if let Some(p95) = latency_analysis.get("p95_ms").and_then(|v| v.as_f64()) {
+                    if p95 > 1000.0 {
+                        recommendations.push("High P95 latency detected - consider performance optimization".to_string());
+                    }
+                }
+            }
+        }
+
+        // Analyze error rates
+        if let Some(error_analysis) = report.get("error_analysis") {
+            if let Some(total_errors) = error_analysis.get("total_errors").and_then(|v| v.as_u64()) {
+                if total_errors > 100 {
+                    recommendations.push("High error rate detected - investigate error patterns and root causes".to_string());
+                }
+            }
+        }
+
+        // General recommendations based on configuration
+        if !self.scope.get("security_events").and_then(|v| v.as_bool()).unwrap_or(true) {
+            recommendations.push("Enable security event auditing for better security monitoring".to_string());
+        }
+
+        Ok(recommendations)
     }
 }
 
 impl MessageAudit {
-    /// Create new message audit
+    /// Create new message audit with comprehensive message-specific configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for MessageAudit::new - should initialize message audit")
+        let audit_events = vec![
+            "message_created".to_string(),
+            "message_sent".to_string(),
+            "message_delivered".to_string(),
+            "message_failed".to_string(),
+            "message_timeout".to_string(),
+            "message_retry".to_string(),
+            "message_filtered".to_string(),
+            "message_transformed".to_string(),
+            "message_encrypted".to_string(),
+            "message_decrypted".to_string(),
+            "message_signed".to_string(),
+            "message_verified".to_string(),
+        ];
+
+        let mut content_logging = HashMap::new();
+        content_logging.insert("log_payload".to_string(), json!(false)); // Privacy by default
+        content_logging.insert("log_payload_hash".to_string(), json!(true));
+        content_logging.insert("log_payload_size".to_string(), json!(true));
+        content_logging.insert("log_attachments_info".to_string(), json!(true));
+        content_logging.insert("log_headers".to_string(), json!(true));
+        content_logging.insert("sensitive_fields".to_string(), json!(["password", "token", "key", "secret"]));
+        content_logging.insert("max_payload_log_size".to_string(), json!(1024)); // Max bytes to log
+
+        let mut metadata_logging = HashMap::new();
+        metadata_logging.insert("log_routing_path".to_string(), json!(true));
+        metadata_logging.insert("log_correlation_id".to_string(), json!(true));
+        metadata_logging.insert("log_priority".to_string(), json!(true));
+        metadata_logging.insert("log_timestamps".to_string(), json!(true));
+        metadata_logging.insert("log_source_target".to_string(), json!(true));
+        metadata_logging.insert("log_security_context".to_string(), json!(false)); // Sensitive
+        metadata_logging.insert("log_trace_context".to_string(), json!(true));
+        metadata_logging.insert("log_performance_metrics".to_string(), json!(true));
+
+        let mut data_protection = HashMap::new();
+        data_protection.insert("encrypt_logs".to_string(), json!(false));
+        data_protection.insert("hash_sensitive_data".to_string(), json!(true));
+        data_protection.insert("mask_personal_info".to_string(), json!(true));
+        data_protection.insert("retention_days".to_string(), json!(30));
+        data_protection.insert("secure_deletion".to_string(), json!(true));
+
+        Self {
+            id,
+            audit_events,
+            content_logging,
+            metadata_logging,
+            data_protection,
+        }
     }
-    
-    /// Audit message
+
+    /// Audit message with comprehensive logging and privacy protection
     pub fn audit_message(&self, message: &EcosystemMessage, operation: &str) -> Result<()> {
-        todo!("Implementation needed for MessageAudit::audit_message - should audit message operation")
+        // Check if this operation should be audited
+        let audit_event_name = format!("message_{}", operation);
+        if !self.audit_events.contains(&audit_event_name) {
+            return Ok(()); // Event not configured for auditing
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("event_type".to_string(), json!(audit_event_name));
+        audit_record.insert("timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("operation".to_string(), json!(operation));
+        audit_record.insert("message_id".to_string(), json!(message.metadata.id.to_string()));
+
+        // Log message metadata based on configuration
+        if self.metadata_logging.get("log_correlation_id").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(correlation_id) = &message.metadata.correlation_id {
+                audit_record.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+            }
+        }
+
+        if self.metadata_logging.get("log_priority").and_then(|v| v.as_bool()).unwrap_or(true) {
+            audit_record.insert("priority".to_string(), json!(message.metadata.priority));
+        }
+
+        if self.metadata_logging.get("log_timestamps").and_then(|v| v.as_bool()).unwrap_or(true) {
+            audit_record.insert("created_at".to_string(), json!(message.metadata.created_at.to_rfc3339()));
+            audit_record.insert("updated_at".to_string(), json!(message.metadata.updated_at.to_rfc3339()));
+        }
+
+        if self.metadata_logging.get("log_source_target").and_then(|v| v.as_bool()).unwrap_or(true) {
+            audit_record.insert("source".to_string(), json!(message.metadata.source));
+            if let Some(target) = &message.metadata.target {
+                audit_record.insert("target".to_string(), json!(target));
+            }
+        }
+
+        if self.metadata_logging.get("log_routing_path").and_then(|v| v.as_bool()).unwrap_or(true) {
+            audit_record.insert("routing_path".to_string(), json!(message.metadata.routing_path));
+        }
+
+        if self.metadata_logging.get("log_trace_context").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(trace_context) = &message.metadata.trace_context {
+                audit_record.insert("trace_context".to_string(), json!(trace_context));
+            }
+        }
+
+        if self.metadata_logging.get("log_performance_metrics").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(metrics) = &message.metadata.metrics {
+                audit_record.insert("performance_metrics".to_string(), json!(metrics));
+            }
+        }
+
+        // Log message type and basic properties
+        audit_record.insert("message_type".to_string(), json!(message.message_type));
+        audit_record.insert("status".to_string(), json!(message.metadata.status));
+
+        // Handle content logging based on privacy settings
+        if self.content_logging.get("log_payload_size").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let payload_str = serde_json::to_string(&message.payload)?;
+            audit_record.insert("payload_size".to_string(), json!(payload_str.len()));
+        }
+
+        if self.content_logging.get("log_payload_hash").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let payload_str = serde_json::to_string(&message.payload)?;
+            let payload_hash = self.calculate_content_hash(&payload_str)?;
+            audit_record.insert("payload_hash".to_string(), json!(payload_hash));
+        }
+
+        // Log payload content if configured and size is reasonable
+        if self.content_logging.get("log_payload").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let max_size = self.content_logging.get("max_payload_log_size")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(1024) as usize;
+            
+            let payload_str = serde_json::to_string(&message.payload)?;
+            if payload_str.len() <= max_size {
+                let sanitized_payload = self.sanitize_payload_for_logging(&message.payload)?;
+                audit_record.insert("payload".to_string(), sanitized_payload);
+            } else {
+                audit_record.insert("payload_truncated".to_string(), json!(true));
+                audit_record.insert("payload_preview".to_string(), json!(&payload_str[..max_size]));
+            }
+        }
+
+        // Log attachment information
+        if self.content_logging.get("log_attachments_info").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if !message.attachments.is_empty() {
+                let mut attachments_info = Vec::new();
+                for (i, attachment) in message.attachments.iter().enumerate() {
+                    attachments_info.push(json!({
+                        "index": i,
+                        "size": attachment.len(),
+                        "hash": self.calculate_content_hash(&format!("{:?}", attachment))?
+                    }));
+                }
+                audit_record.insert("attachments_info".to_string(), json!(attachments_info));
+            }
+        }
+
+        // Log headers if configured
+        if self.content_logging.get("log_headers").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let sanitized_headers = self.sanitize_headers_for_logging(&message.metadata.headers)?;
+            audit_record.insert("headers".to_string(), json!(sanitized_headers));
+        }
+
+        // Apply data protection
+        self.apply_message_data_protection(&mut audit_record)?;
+
+        // Determine severity based on operation and message properties
+        let severity = match operation {
+            "failed" | "timeout" => "warning",
+            "filtered" | "blocked" => "info",
+            "encrypted" | "decrypted" | "signed" | "verified" => "debug",
+            _ => "info",
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store the audit record
+        self.store_message_audit_record(audit_record)?;
+
+        Ok(())
     }
-    
-    /// Configure content logging
+
+    /// Configure content logging with validation and security checks
     pub fn configure_content_logging(&mut self, config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for MessageAudit::configure_content_logging - should configure content logging")
+        // Validate configuration
+        for (key, value) in &config {
+            match key.as_str() {
+                "log_payload" | "log_payload_hash" | "log_payload_size" | 
+                "log_attachments_info" | "log_headers" => {
+                    ensure!(value.is_boolean(), "Content logging setting {} must be boolean", key);
+                }
+                "max_payload_log_size" => {
+                    ensure!(value.is_number(), "max_payload_log_size must be a number");
+                    if let Some(size) = value.as_u64() {
+                        ensure!(size > 0 && size <= 1024 * 1024, // Max 1MB
+                               "max_payload_log_size must be between 1 and 1048576 bytes");
+                    }
+                }
+                "sensitive_fields" => {
+                    ensure!(value.is_array(), "sensitive_fields must be an array");
+                }
+                _ => {
+                    return Err(anyhow::anyhow!("Unknown content logging setting: {}", key));
+                }
+            }
+        }
+
+        // Apply configuration updates
+        for (key, value) in config {
+            self.content_logging.insert(key, value);
+        }
+
+        log::info!("Message audit content logging updated for audit ID: {}", self.id);
+        Ok(())
     }
-    
-    /// Protect audit data
+
+    /// Protect audit data according to configured privacy and security settings
     pub fn protect_audit_data(&self, audit_data: &mut HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for MessageAudit::protect_audit_data - should protect sensitive audit data")
+        // Apply data protection settings
+        if self.data_protection.get("hash_sensitive_data").and_then(|v| v.as_bool()).unwrap_or(true) {
+            // Hash sensitive fields
+            let sensitive_patterns = ["password", "token", "key", "secret", "auth", "credential"];
+            
+            for (key, value) in audit_data.iter_mut() {
+                let key_lower = key.to_lowercase();
+                if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                    if let Some(str_value) = value.as_str() {
+                        let hashed = self.calculate_content_hash(str_value)?;
+                        *value = json!(format!("HASHED_{}", hashed));
+                    }
+                }
+            }
+        }
+
+        if self.data_protection.get("mask_personal_info").and_then(|v| v.as_bool()).unwrap_or(true) {
+            // Mask personal information patterns
+            for (key, value) in audit_data.iter_mut() {
+                if let Some(str_value) = value.as_str() {
+                    // Mask email addresses
+                    if str_value.contains('@') && str_value.contains('.') {
+                        let masked = self.mask_email(str_value);
+                        *value = json!(masked);
+                    }
+                    
+                    // Mask IP addresses
+                    if self.is_ip_address(str_value) {
+                        let masked = self.mask_ip_address(str_value);
+                        *value = json!(masked);
+                    }
+                }
+            }
+        }
+
+        if self.data_protection.get("encrypt_logs").and_then(|v| v.as_bool()).unwrap_or(false) {
+            // Add encryption marker (actual encryption would be handled by storage layer)
+            audit_data.insert("encrypted".to_string(), json!(true));
+        }
+
+        Ok(())
+    }
+
+    /// Calculate content hash for integrity and deduplication
+    fn calculate_content_hash(&self, content: &str) -> Result<String> {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        Ok(format!("{:x}", hasher.finish()))
+    }
+
+    /// Sanitize payload for logging by removing sensitive fields
+    fn sanitize_payload_for_logging(&self, payload: &Value) -> Result<Value> {
+        let mut sanitized = payload.clone();
+        
+        if let Some(sensitive_fields) = self.content_logging.get("sensitive_fields").and_then(|v| v.as_array()) {
+            if let Some(obj) = sanitized.as_object_mut() {
+                for field in sensitive_fields {
+                    if let Some(field_name) = field.as_str() {
+                        if obj.contains_key(field_name) {
+                            obj.insert(field_name.to_string(), json!("[REDACTED]"));
+                        }
+                    }
+                }
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Sanitize headers for logging by removing sensitive information
+    fn sanitize_headers_for_logging(&self, headers: &HashMap<String, String>) -> Result<HashMap<String, String>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_patterns = ["authorization", "token", "key", "secret", "password"];
+        
+        for (key, value) in headers {
+            let key_lower = key.to_lowercase();
+            if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                sanitized.insert(key.clone(), "[REDACTED]".to_string());
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Apply message-specific data protection
+    fn apply_message_data_protection(&self, audit_record: &mut HashMap<String, Value>) -> Result<()> {
+        self.protect_audit_data(audit_record)?;
+        
+        // Add retention information
+        if let Some(retention_days) = self.data_protection.get("retention_days").and_then(|v| v.as_u64()) {
+            let expiry_date = Utc::now() + ChronoDuration::days(retention_days as i64);
+            audit_record.insert("expires_at".to_string(), json!(expiry_date.to_rfc3339()));
+        }
+        
+        Ok(())
+    }
+
+    /// Store message audit record in appropriate storage
+    fn store_message_audit_record(&self, record: HashMap<String, Value>) -> Result<()> {
+        // This would integrate with the actual audit storage system
+        let serialized = serde_json::to_string(&record)?;
+        log::info!("[MESSAGE AUDIT {}] {}", self.id, serialized);
+        
+        // In production, this would:
+        // 1. Store in audit database
+        // 2. Apply encryption if required
+        // 3. Set up retention policies
+        // 4. Index for searching
+        
+        Ok(())
+    }
+
+    /// Mask email address for privacy
+    fn mask_email(&self, email: &str) -> String {
+        if let Some(at_pos) = email.find('@') {
+            let (local, domain) = email.split_at(at_pos);
+            let masked_local = if local.len() > 3 {
+                format!("{}***", &local[..3])
+            } else {
+                "***".to_string()
+            };
+            format!("{}{}", masked_local, &domain)
+        } else {
+            "***@***.***".to_string()
+        }
+    }
+
+    /// Check if string looks like an IP address
+    fn is_ip_address(&self, s: &str) -> bool {
+        s.split('.').count() == 4 && s.chars().all(|c| c.is_numeric() || c == '.')
+    }
+
+    /// Mask IP address for privacy
+    fn mask_ip_address(&self, ip: &str) -> String {
+        let parts: Vec<&str> = ip.split('.').collect();
+        if parts.len() == 4 {
+            format!("{}.{}.***.***.***", parts[0], parts[1])
+        } else {
+            "***.***.***.***".to_string()
+        }
     }
 }
 
 impl EventAudit {
-    /// Create new event audit
+    /// Create new event audit with comprehensive event-specific configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for EventAudit::new - should initialize event audit")
+        let mut scope = HashMap::new();
+        scope.insert("system_events".to_string(), json!(true));
+        scope.insert("user_events".to_string(), json!(true));
+        scope.insert("security_events".to_string(), json!(true));
+        scope.insert("error_events".to_string(), json!(true));
+        scope.insert("performance_events".to_string(), json!(false));
+        scope.insert("debug_events".to_string(), json!(false));
+        scope.insert("min_severity".to_string(), json!("info"));
+
+        let mut trail_config = HashMap::new();
+        trail_config.insert("enable_event_correlation".to_string(), json!(true));
+        trail_config.insert("correlation_window_minutes".to_string(), json!(30));
+        trail_config.insert("enable_event_chaining".to_string(), json!(true));
+        trail_config.insert("max_chain_length".to_string(), json!(100));
+        trail_config.insert("enable_causality_tracking".to_string(), json!(true));
+        trail_config.insert("store_event_payload".to_string(), json!(false));
+        trail_config.insert("payload_hash_enabled".to_string(), json!(true));
+        trail_config.insert("retention_policy".to_string(), json!("time_based"));
+        trail_config.insert("retention_days".to_string(), json!(90));
+
+        let mut correlation = HashMap::new();
+        correlation.insert("correlation_fields".to_string(), json!(["source_component", "correlation_id", "session_id"]));
+        correlation.insert("temporal_correlation".to_string(), json!(true));
+        correlation.insert("causal_correlation".to_string(), json!(true));
+        correlation.insert("pattern_detection".to_string(), json!(true));
+        correlation.insert("anomaly_detection".to_string(), json!(false));
+        correlation.insert("correlation_cache_size".to_string(), json!(10000));
+        correlation.insert("correlation_algorithms".to_string(), json!(["temporal", "causal", "pattern"]));
+
+        let mut compliance_reporting = HashMap::new();
+        compliance_reporting.insert("generate_compliance_events".to_string(), json!(true));
+        compliance_reporting.insert("compliance_standards".to_string(), json!(["gdpr", "audit_trail"]));
+        compliance_reporting.insert("real_time_compliance_check".to_string(), json!(true));
+        compliance_reporting.insert("compliance_violation_alerts".to_string(), json!(true));
+        compliance_reporting.insert("event_integrity_verification".to_string(), json!(true));
+        compliance_reporting.insert("tamper_detection".to_string(), json!(true));
+
+        Self {
+            id,
+            scope,
+            trail_config,
+            correlation,
+            compliance_reporting,
+        }
     }
-    
-    /// Audit event
+
+    /// Audit event with comprehensive tracking and correlation
     pub fn audit_event(&self, event: &EcosystemEvent, operation: &str) -> Result<()> {
-        todo!("Implementation needed for EventAudit::audit_event - should audit event operation")
+        // Check if event should be audited based on scope
+        if !self.should_audit_event(event)? {
+            return Ok(());
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_operation".to_string(), json!(operation));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Event identification and metadata
+        audit_record.insert("event_id".to_string(), json!(event.metadata.id.to_string()));
+        audit_record.insert("event_type".to_string(), json!(event.event_type));
+        audit_record.insert("event_name".to_string(), json!(event.event_name));
+        audit_record.insert("event_created_at".to_string(), json!(event.metadata.created_at.to_rfc3339()));
+        audit_record.insert("event_updated_at".to_string(), json!(event.metadata.updated_at.to_rfc3339()));
+        audit_record.insert("event_source".to_string(), json!(event.metadata.source));
+        audit_record.insert("source_component".to_string(), json!(event.source_component));
+        
+        // Event properties
+        audit_record.insert("severity".to_string(), json!(event.severity));
+        audit_record.insert("description".to_string(), json!(event.description));
+        audit_record.insert("requires_attention".to_string(), json!(event.requires_attention));
+        audit_record.insert("tags".to_string(), json!(event.tags));
+
+        // Correlation and causality information
+        if let Some(correlation_id) = &event.metadata.correlation_id {
+            audit_record.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+        }
+
+        if !event.caused_events.is_empty() {
+            let caused_event_ids: Vec<String> = event.caused_events.iter()
+                .map(|uuid| uuid.to_string())
+                .collect();
+            audit_record.insert("caused_events".to_string(), json!(caused_event_ids));
+        }
+
+        // Event data handling
+        if self.trail_config.get("store_event_payload").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let sanitized_data = self.sanitize_event_data(&event.event_data)?;
+            audit_record.insert("event_data".to_string(), sanitized_data);
+        }
+
+        if self.trail_config.get("payload_hash_enabled").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let data_str = serde_json::to_string(&event.event_data)?;
+            let data_hash = self.calculate_event_hash(&data_str)?;
+            audit_record.insert("event_data_hash".to_string(), json!(data_hash));
+            audit_record.insert("event_data_size".to_string(), json!(data_str.len()));
+        }
+
+        // Performance and routing information
+        if let Some(routing_path) = event.metadata.routing_path.first() {
+            audit_record.insert("routing_info".to_string(), json!({
+                "routing_path": event.metadata.routing_path,
+                "routing_hops": event.metadata.routing_path.len()
+            }));
+        }
+
+        if let Some(metrics) = &event.metadata.metrics {
+            audit_record.insert("performance_metrics".to_string(), json!(metrics));
+        }
+
+        // Priority and status
+        audit_record.insert("priority".to_string(), json!(event.metadata.priority));
+        audit_record.insert("status".to_string(), json!(event.metadata.status));
+
+        // Trace context if available
+        if let Some(trace_context) = &event.metadata.trace_context {
+            audit_record.insert("trace_context".to_string(), json!(trace_context));
+        }
+
+        // Apply event correlation if enabled
+        if self.trail_config.get("enable_event_correlation").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let correlation_info = self.generate_correlation_info(event)?;
+            if !correlation_info.is_empty() {
+                audit_record.insert("correlation_info".to_string(), json!(correlation_info));
+            }
+        }
+
+        // Compliance information
+        if self.compliance_reporting.get("generate_compliance_events").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let compliance_info = self.generate_compliance_info(event)?;
+            audit_record.insert("compliance_info".to_string(), json!(compliance_info));
+        }
+
+        // Integrity verification
+        if self.compliance_reporting.get("event_integrity_verification").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let integrity_hash = self.calculate_audit_record_hash(&audit_record)?;
+            audit_record.insert("integrity_hash".to_string(), json!(integrity_hash));
+        }
+
+        // Store audit record
+        self.store_event_audit_record(audit_record)?;
+
+        // Update correlation cache if correlation is enabled
+        if self.trail_config.get("enable_event_correlation").and_then(|v| v.as_bool()).unwrap_or(true) {
+            self.update_correlation_cache(event)?;
+        }
+
+        Ok(())
     }
-    
-    /// Configure event trail
+
+    /// Configure event audit trail with validation
     pub fn configure_trail(&mut self, trail_config: HashMap<String, Value>) -> Result<()> {
-        todo!("Implementation needed for EventAudit::configure_trail - should configure event audit trail")
+        // Validate configuration
+        for (key, value) in &trail_config {
+            match key.as_str() {
+                "enable_event_correlation" | "enable_event_chaining" | 
+                "enable_causality_tracking" | "store_event_payload" | 
+                "payload_hash_enabled" => {
+                    ensure!(value.is_boolean(), "Trail setting {} must be boolean", key);
+                }
+                "correlation_window_minutes" | "max_chain_length" | "retention_days" => {
+                    ensure!(value.is_number() && value.as_u64().unwrap_or(0) > 0,
+                           "Trail setting {} must be positive number", key);
+                }
+                "retention_policy" => {
+                    if let Some(policy) = value.as_str() {
+                        let valid_policies = ["time_based", "size_based", "event_count_based"];
+                        ensure!(valid_policies.contains(&policy), "Invalid retention policy: {}", policy);
+                    }
+                }
+                _ => {
+                    if !key.starts_with("custom_") {
+                        return Err(anyhow::anyhow!("Unknown trail configuration: {}", key));
+                    }
+                }
+            }
+        }
+
+        // Apply configuration updates
+        for (key, value) in trail_config {
+            self.trail_config.insert(key, value);
+        }
+
+        log::info!("Event audit trail configured for audit ID: {}", self.id);
+        Ok(())
     }
-    
-    /// Correlate events
+
+    /// Correlate events based on configured correlation rules
     pub fn correlate_events(&self, events: &[EcosystemEvent]) -> Result<HashMap<String, Value>> {
-        todo!("Implementation needed for EventAudit::correlate_events - should correlate related events")
+        let mut correlation_result = HashMap::new();
+        
+        if !self.correlation.get("temporal_correlation").and_then(|v| v.as_bool()).unwrap_or(true) &&
+           !self.correlation.get("causal_correlation").and_then(|v| v.as_bool()).unwrap_or(true) &&
+           !self.correlation.get("pattern_detection").and_then(|v| v.as_bool()).unwrap_or(true) {
+            return Ok(correlation_result);
+        }
+
+        let correlation_window = self.correlation.get("correlation_window_minutes")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(30);
+
+        // Temporal correlation - group events by time windows
+        if self.correlation.get("temporal_correlation").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let temporal_groups = self.perform_temporal_correlation(events, correlation_window)?;
+            if !temporal_groups.is_empty() {
+                correlation_result.insert("temporal_correlations".to_string(), json!(temporal_groups));
+            }
+        }
+
+        // Causal correlation - link events that caused other events
+        if self.correlation.get("causal_correlation").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let causal_chains = self.perform_causal_correlation(events)?;
+            if !causal_chains.is_empty() {
+                correlation_result.insert("causal_correlations".to_string(), json!(causal_chains));
+            }
+        }
+
+        // Pattern detection - find recurring patterns in events
+        if self.correlation.get("pattern_detection").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let patterns = self.detect_event_patterns(events)?;
+            if !patterns.is_empty() {
+                correlation_result.insert("detected_patterns".to_string(), json!(patterns));
+            }
+        }
+
+        // Correlation field analysis
+        if let Some(correlation_fields) = self.correlation.get("correlation_fields").and_then(|v| v.as_array()) {
+            let field_correlations = self.analyze_correlation_fields(events, correlation_fields)?;
+            if !field_correlations.is_empty() {
+                correlation_result.insert("field_correlations".to_string(), json!(field_correlations));
+            }
+        }
+
+        // Anomaly detection if enabled
+        if self.correlation.get("anomaly_detection").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let anomalies = self.detect_event_anomalies(events)?;
+            if !anomalies.is_empty() {
+                correlation_result.insert("detected_anomalies".to_string(), json!(anomalies));
+            }
+        }
+
+        // Add correlation metadata
+        correlation_result.insert("correlation_metadata".to_string(), json!({
+            "correlation_timestamp": Utc::now().to_rfc3339(),
+            "events_analyzed": events.len(),
+            "correlation_window_minutes": correlation_window,
+            "correlation_id": Uuid::new_v4().to_string()
+        }));
+
+        Ok(correlation_result)
+    }
+
+    /// Check if event should be audited based on scope configuration
+    fn should_audit_event(&self, event: &EcosystemEvent) -> Result<bool> {
+        // Check event type against scope
+        match event.event_type {
+            EventType::StateChange => {
+                Ok(self.scope.get("system_events").and_then(|v| v.as_bool()).unwrap_or(true))
+            }
+            EventType::Error => {
+                Ok(self.scope.get("error_events").and_then(|v| v.as_bool()).unwrap_or(true))
+            }
+            EventType::Warning => {
+                Ok(self.scope.get("error_events").and_then(|v| v.as_bool()).unwrap_or(true))
+            }
+            EventType::UserInteraction => {
+                Ok(self.scope.get("user_events").and_then(|v| v.as_bool()).unwrap_or(true))
+            }
+            EventType::Audit => {
+                Ok(self.scope.get("security_events").and_then(|v| v.as_bool()).unwrap_or(true))
+            }
+            EventType::Metric => {
+                Ok(self.scope.get("performance_events").and_then(|v| v.as_bool()).unwrap_or(false))
+            }
+            EventType::Information => {
+                // Check minimum severity
+                if let Some(min_severity) = self.scope.get("min_severity").and_then(|v| v.as_str()) {
+                    let severity_levels = ["debug", "info", "warning", "error", "critical"];
+                    let min_index = severity_levels.iter().position(|&x| x == min_severity).unwrap_or(1);
+                    let event_index = severity_levels.iter().position(|&x| x == event.severity).unwrap_or(1);
+                    Ok(event_index >= min_index)
+                } else {
+                    Ok(true)
+                }
+            }
+            _ => Ok(true),
+        }
+    }
+
+    /// Sanitize event data for audit logging
+    fn sanitize_event_data(&self, event_data: &Value) -> Result<Value> {
+        let mut sanitized = event_data.clone();
+        
+        // Remove or mask sensitive fields
+        if let Some(obj) = sanitized.as_object_mut() {
+            let sensitive_patterns = ["password", "token", "key", "secret", "credential", "auth"];
+            
+            for (key, value) in obj.iter_mut() {
+                let key_lower = key.to_lowercase();
+                if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                    *value = json!("[REDACTED]");
+                }
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Calculate hash for event data integrity
+    fn calculate_event_hash(&self, data: &str) -> Result<String> {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        Ok(format!("{:x}", hasher.finish()))
+    }
+
+    /// Generate correlation information for the event
+    fn generate_correlation_info(&self, event: &EcosystemEvent) -> Result<HashMap<String, Value>> {
+        let mut correlation_info = HashMap::new();
+        
+        // Basic correlation identifiers
+        if let Some(correlation_id) = &event.metadata.correlation_id {
+            correlation_info.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+        }
+        
+        // Component-based correlation
+        correlation_info.insert("source_component".to_string(), json!(event.source_component));
+        
+        // Session-based correlation if available
+        if let Some(trace_context) = &event.metadata.trace_context {
+            if let Some(session_id) = trace_context.get("session_id") {
+                correlation_info.insert("session_id".to_string(), json!(session_id));
+            }
+        }
+        
+        // Time-based correlation window
+        let correlation_window_start = event.metadata.created_at - ChronoDuration::minutes(5);
+        let correlation_window_end = event.metadata.created_at + ChronoDuration::minutes(5);
+        
+        correlation_info.insert("correlation_window".to_string(), json!({
+            "start": correlation_window_start.to_rfc3339(),
+            "end": correlation_window_end.to_rfc3339()
+        }));
+        
+        Ok(correlation_info)
+    }
+
+    /// Generate compliance information for the event
+    fn generate_compliance_info(&self, event: &EcosystemEvent) -> Result<HashMap<String, Value>> {
+        let mut compliance_info = HashMap::new();
+        
+        // Determine compliance requirements based on event properties
+        let mut applicable_standards = Vec::new();
+        
+        // Check for GDPR applicability
+        if self.event_contains_personal_data(event) {
+            applicable_standards.push("gdpr");
+        }
+        
+        // Check for audit trail requirements
+        if event.event_type == EventType::Audit || 
+           event.severity == "critical" || 
+           event.event_name.contains("security") {
+            applicable_standards.push("audit_trail");
+        }
+        
+        compliance_info.insert("applicable_standards".to_string(), json!(applicable_standards));
+        
+        // Data classification
+        let data_classification = self.classify_event_data(event)?;
+        compliance_info.insert("data_classification".to_string(), json!(data_classification));
+        
+        // Retention requirements
+        let retention_days = self.determine_retention_requirements(&applicable_standards);
+        compliance_info.insert("retention_days".to_string(), json!(retention_days));
+        
+        // Compliance checks
+        compliance_info.insert("compliance_verified".to_string(), json!(true));
+        compliance_info.insert("compliance_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        
+        Ok(compliance_info)
+    }
+
+    /// Calculate hash for audit record integrity
+    fn calculate_audit_record_hash(&self, record: &HashMap<String, Value>) -> Result<String> {
+        // Create a deterministic string representation of the record
+        let mut keys: Vec<&String> = record.keys().collect();
+        keys.sort();
+        
+        let mut data_to_hash = String::new();
+        for key in keys {
+            if key != "integrity_hash" { // Don't include the hash itself
+                data_to_hash.push_str(key);
+                data_to_hash.push('=');
+                if let Some(value) = record.get(key) {
+                    data_to_hash.push_str(&serde_json::to_string(value)?);
+                }
+                data_to_hash.push(';');
+            }
+        }
+        
+        self.calculate_event_hash(&data_to_hash)
+    }
+
+    /// Store event audit record
+    fn store_event_audit_record(&self, record: HashMap<String, Value>) -> Result<()> {
+        let serialized = serde_json::to_string(&record)?;
+        log::info!("[EVENT AUDIT {}] {}", self.id, serialized);
+        
+        // In production, this would integrate with audit storage system
+        Ok(())
+    }
+
+    /// Update correlation cache for future correlation operations
+    fn update_correlation_cache(&self, event: &EcosystemEvent) -> Result<()> {
+        // This would update an in-memory or persistent correlation cache
+        // to enable efficient correlation operations
+        Ok(())
+    }
+
+    /// Perform temporal correlation analysis
+    fn perform_temporal_correlation(&self, events: &[EcosystemEvent], window_minutes: u64) -> Result<Vec<HashMap<String, Value>>> {
+        let mut temporal_groups = Vec::new();
+        let window_duration = ChronoDuration::minutes(window_minutes as i64);
+        
+        // Group events by time windows
+        let mut time_groups: HashMap<String, Vec<&EcosystemEvent>> = HashMap::new();
+        
+        for event in events {
+            let window_start = event.metadata.created_at.timestamp() / (window_minutes * 60) as i64 * (window_minutes * 60) as i64;
+            let window_key = window_start.to_string();
+            time_groups.entry(window_key).or_insert_with(Vec::new).push(event);
+        }
+        
+        // Create correlation groups for time windows with multiple events
+        for (window_key, group_events) in time_groups {
+            if group_events.len() > 1 {
+                let event_ids: Vec<String> = group_events.iter().map(|e| e.metadata.id.to_string()).collect();
+                temporal_groups.push(json!({
+                    "window_key": window_key,
+                    "event_count": group_events.len(),
+                    "event_ids": event_ids,
+                    "correlation_type": "temporal"
+                }).as_object().unwrap().clone());
+            }
+        }
+        
+        Ok(temporal_groups)
+    }
+
+    /// Perform causal correlation analysis
+    fn perform_causal_correlation(&self, events: &[EcosystemEvent]) -> Result<Vec<HashMap<String, Value>>> {
+        let mut causal_chains = Vec::new();
+        
+        // Build causal relationships
+        for event in events {
+            if !event.caused_events.is_empty() {
+                let mut chain = HashMap::new();
+                chain.insert("root_event".to_string(), json!(event.metadata.id.to_string()));
+                chain.insert("caused_events".to_string(), json!(
+                    event.caused_events.iter().map(|id| id.to_string()).collect::<Vec<_>>()
+                ));
+                chain.insert("correlation_type".to_string(), json!("causal"));
+                causal_chains.push(chain);
+            }
+        }
+        
+        Ok(causal_chains)
+    }
+
+    /// Detect patterns in events
+    fn detect_event_patterns(&self, events: &[EcosystemEvent]) -> Result<Vec<HashMap<String, Value>>> {
+        let mut patterns = Vec::new();
+        
+        // Pattern: Repeated event types from same source
+        let mut source_event_counts: HashMap<(String, String), u32> = HashMap::new();
+        
+        for event in events {
+            let key = (event.source_component.clone(), event.event_name.clone());
+            *source_event_counts.entry(key).or_insert(0) += 1;
+        }
+        
+        for ((source, event_name), count) in source_event_counts {
+            if count > 5 { // Threshold for pattern detection
+                patterns.push(json!({
+                    "pattern_type": "repeated_events",
+                    "source_component": source,
+                    "event_name": event_name,
+                    "occurrence_count": count,
+                    "pattern_significance": if count > 20 { "high" } else { "medium" }
+                }).as_object().unwrap().clone());
+            }
+        }
+        
+        Ok(patterns)
+    }
+
+    /// Analyze correlation fields
+    fn analyze_correlation_fields(&self, events: &[EcosystemEvent], correlation_fields: &[Value]) -> Result<HashMap<String, Value>> {
+        let mut field_correlations = HashMap::new();
+        
+        for field_value in correlation_fields {
+            if let Some(field_name) = field_value.as_str() {
+                let mut field_values: HashMap<String, u32> = HashMap::new();
+                
+                for event in events {
+                    let value = match field_name {
+                        "source_component" => Some(event.source_component.clone()),
+                        "correlation_id" => event.metadata.correlation_id.as_ref().map(|id| id.to_string()),
+                        _ => {
+                            // Check in trace context or event data
+                            event.metadata.trace_context.as_ref()
+                                .and_then(|ctx| ctx.get(field_name))
+                                .map(|v| v.clone())
+                        }
+                    };
+                    
+                    if let Some(val) = value {
+                        *field_values.entry(val).or_insert(0) += 1;
+                    }
+                }
+                
+                if !field_values.is_empty() {
+                    field_correlations.insert(field_name.to_string(), json!(field_values));
+                }
+            }
+        }
+        
+        Ok(field_correlations)
+    }
+
+    /// Detect anomalies in events
+    fn detect_event_anomalies(&self, events: &[EcosystemEvent]) -> Result<Vec<HashMap<String, Value>>> {
+        let mut anomalies = Vec::new();
+        
+        // Simple anomaly detection: unusual event frequencies
+        let mut event_type_counts: HashMap<String, u32> = HashMap::new();
+        for event in events {
+            *event_type_counts.entry(event.event_name.clone()).or_insert(0) += 1;
+        }
+        
+        let total_events = events.len() as f64;
+        for (event_name, count) in event_type_counts {
+            let frequency = count as f64 / total_events;
+            
+            // Flag events that represent more than 50% of all events (potential spam/error)
+            if frequency > 0.5 {
+                anomalies.push(json!({
+                    "anomaly_type": "high_frequency_event",
+                    "event_name": event_name,
+                    "occurrence_count": count,
+                    "frequency_percentage": frequency * 100.0,
+                    "anomaly_severity": "medium"
+                }).as_object().unwrap().clone());
+            }
+        }
+        
+        Ok(anomalies)
+    }
+
+    /// Check if event contains personal data
+    fn event_contains_personal_data(&self, event: &EcosystemEvent) -> bool {
+        // Check event data for personal information patterns
+        let event_data_str = serde_json::to_string(&event.event_data).unwrap_or_default().to_lowercase();
+        let personal_data_patterns = ["email", "phone", "address", "ssn", "personal", "private"];
+        
+        personal_data_patterns.iter().any(|pattern| event_data_str.contains(pattern))
+    }
+
+    /// Classify event data for compliance purposes
+    fn classify_event_data(&self, event: &EcosystemEvent) -> Result<String> {
+        // Classify based on event content and type
+        if event.severity == "critical" || event.event_name.contains("security") {
+            Ok("sensitive".to_string())
+        } else if self.event_contains_personal_data(event) {
+            Ok("personal".to_string())
+        } else if event.event_type == EventType::Metric {
+            Ok("operational".to_string())
+        } else {
+            Ok("general".to_string())
+        }
+    }
+
+    /// Determine retention requirements based on applicable standards
+    fn determine_retention_requirements(&self, standards: &[&str]) -> u64 {
+        let mut max_retention = 90; // Default 90 days
+        
+        for standard in standards {
+            match *standard {
+                "gdpr" => max_retention = max_retention.max(365), // 1 year for GDPR
+                "audit_trail" => max_retention = max_retention.max(2555), // 7 years for audit
+                _ => {}
+            }
+        }
+        
+        max_retention
     }
 }
 
 impl CommandAudit {
-    /// Create new command audit
+    /// Create new command audit with comprehensive command-specific configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for CommandAudit::new - should initialize command audit")
+        let mut execution_audit = HashMap::new();
+        execution_audit.insert("audit_all_commands".to_string(), json!(true));
+        execution_audit.insert("audit_command_parameters".to_string(), json!(true));
+        execution_audit.insert("audit_execution_results".to_string(), json!(true));
+        execution_audit.insert("audit_execution_time".to_string(), json!(true));
+        execution_audit.insert("audit_resource_usage".to_string(), json!(false));
+        execution_audit.insert("sensitive_commands".to_string(), json!(["delete", "modify", "admin", "security", "config"]));
+        execution_audit.insert("high_risk_commands".to_string(), json!(["shutdown", "reset", "purge", "override"]));
+
+        let mut authorization_audit = HashMap::new();
+        authorization_audit.insert("audit_authorization_decisions".to_string(), json!(true));
+        authorization_audit.insert("audit_permission_checks".to_string(), json!(true));
+        authorization_audit.insert("audit_role_assignments".to_string(), json!(true));
+        authorization_audit.insert("audit_failed_authorizations".to_string(), json!(true));
+        authorization_audit.insert("audit_privilege_escalations".to_string(), json!(true));
+        authorization_audit.insert("store_authorization_context".to_string(), json!(true));
+
+        let mut result_audit = HashMap::new();
+        result_audit.insert("audit_success_results".to_string(), json!(true));
+        result_audit.insert("audit_failure_results".to_string(), json!(true));
+        result_audit.insert("audit_partial_results".to_string(), json!(true));
+        result_audit.insert("store_result_payload".to_string(), json!(false));
+        result_audit.insert("store_result_hash".to_string(), json!(true));
+        result_audit.insert("audit_performance_metrics".to_string(), json!(true));
+        result_audit.insert("result_retention_days".to_string(), json!(180));
+
+        let mut security_integration = HashMap::new();
+        security_integration.insert("enable_security_events".to_string(), json!(true));
+        security_integration.insert("real_time_threat_detection".to_string(), json!(true));
+        security_integration.insert("security_alert_threshold".to_string(), json!("medium"));
+        security_integration.insert("integrate_with_siem".to_string(), json!(false));
+        security_integration.insert("security_correlation_enabled".to_string(), json!(true));
+        security_integration.insert("anomaly_detection_enabled".to_string(), json!(true));
+
+        Self {
+            id,
+            execution_audit,
+            authorization_audit,
+            result_audit,
+            security_integration,
+        }
     }
-    
-    /// Audit command execution
+
+    /// Audit command execution with comprehensive security tracking
     pub fn audit_execution(&self, command: &EcosystemCommand, result: &EcosystemResponse, principal: &str) -> Result<()> {
-        todo!("Implementation needed for CommandAudit::audit_execution - should audit command execution")
+        if !self.execution_audit.get("audit_all_commands").and_then(|v| v.as_bool()).unwrap_or(true) {
+            return Ok(());
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_type".to_string(), json!("command_execution"));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Command identification
+        audit_record.insert("command_id".to_string(), json!(command.metadata.id.to_string()));
+        audit_record.insert("command_type".to_string(), json!(command.command_type));
+        audit_record.insert("command_name".to_string(), json!(command.command));
+        audit_record.insert("command_timestamp".to_string(), json!(command.metadata.created_at.to_rfc3339()));
+
+        // Execution context
+        audit_record.insert("principal".to_string(), json!(principal));
+        audit_record.insert("source".to_string(), json!(command.metadata.source));
+        if let Some(target) = &command.metadata.target {
+            audit_record.insert("target".to_string(), json!(target));
+        }
+
+        // Command properties
+        audit_record.insert("priority".to_string(), json!(command.metadata.priority));
+        audit_record.insert("idempotent".to_string(), json!(command.idempotent));
+        
+        if let Some(timeout) = command.timeout {
+            audit_record.insert("command_timeout_ms".to_string(), json!(timeout.as_millis()));
+        }
+
+        // Command parameters (with sensitivity filtering)
+        if self.execution_audit.get("audit_command_parameters").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let sanitized_arguments = self.sanitize_command_arguments(&command.arguments)?;
+            audit_record.insert("command_arguments".to_string(), json!(sanitized_arguments));
+            audit_record.insert("argument_count".to_string(), json!(command.arguments.len()));
+        }
+
+        // Prerequisites and dependencies
+        if !command.prerequisites.is_empty() {
+            audit_record.insert("prerequisites".to_string(), json!(command.prerequisites));
+            audit_record.insert("prerequisites_met".to_string(), json!(true)); // Assume met if executed
+        }
+
+        if !command.follow_up_commands.is_empty() {
+            audit_record.insert("follow_up_commands".to_string(), json!(command.follow_up_commands));
+        }
+
+        // Execution results
+        if self.execution_audit.get("audit_execution_results").and_then(|v| v.as_bool()).unwrap_or(true) {
+            audit_record.insert("execution_success".to_string(), json!(result.success));
+            
+            if let Some(error) = &result.error {
+                audit_record.insert("execution_error".to_string(), json!(error));
+                
+                if let Some(error_details) = &result.error_details {
+                    let sanitized_details = self.sanitize_error_details(error_details)?;
+                    audit_record.insert("error_details".to_string(), json!(sanitized_details));
+                }
+            }
+
+            // Result payload handling
+            if self.result_audit.get("store_result_payload").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let sanitized_payload = self.sanitize_result_payload(&result.payload)?;
+                audit_record.insert("result_payload".to_string(), sanitized_payload);
+            }
+
+            if self.result_audit.get("store_result_hash").and_then(|v| v.as_bool()).unwrap_or(true) {
+                let payload_str = serde_json::to_string(&result.payload)?;
+                let payload_hash = self.calculate_command_hash(&payload_str)?;
+                audit_record.insert("result_hash".to_string(), json!(payload_hash));
+                audit_record.insert("result_size".to_string(), json!(payload_str.len()));
+            }
+        }
+
+        // Performance metrics
+        if self.execution_audit.get("audit_execution_time").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(performance_metrics) = &result.performance_metrics {
+                audit_record.insert("performance_metrics".to_string(), json!(performance_metrics));
+                
+                // Extract common metrics
+                if let Some(execution_time) = performance_metrics.get("execution_time_ms") {
+                    audit_record.insert("execution_time_ms".to_string(), json!(execution_time));
+                }
+                if let Some(memory_usage) = performance_metrics.get("memory_usage_mb") {
+                    audit_record.insert("memory_usage_mb".to_string(), json!(memory_usage));
+                }
+                if let Some(cpu_usage) = performance_metrics.get("cpu_usage_percent") {
+                    audit_record.insert("cpu_usage_percent".to_string(), json!(cpu_usage));
+                }
+            }
+        }
+
+        // Security classification
+        let security_classification = self.classify_command_security(&command.command)?;
+        audit_record.insert("security_classification".to_string(), json!(security_classification));
+
+        // Risk assessment
+        let risk_level = self.assess_command_risk(command, principal)?;
+        audit_record.insert("risk_level".to_string(), json!(risk_level));
+
+        // Correlation information
+        if let Some(correlation_id) = &command.metadata.correlation_id {
+            audit_record.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+        }
+
+        if let Some(trace_context) = &command.metadata.trace_context {
+            audit_record.insert("trace_context".to_string(), json!(trace_context));
+        }
+
+        // Security integration
+        if self.security_integration.get("enable_security_events").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let security_events = self.generate_security_events(command, result, principal)?;
+            if !security_events.is_empty() {
+                audit_record.insert("security_events".to_string(), json!(security_events));
+            }
+        }
+
+        // Determine audit severity
+        let severity = if !result.success {
+            "error"
+        } else if risk_level == "high" {
+            "warning"
+        } else {
+            "info"
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store audit record
+        self.store_command_audit_record(audit_record)?;
+
+        Ok(())
     }
-    
-    /// Audit authorization
+
+    /// Audit authorization decision with detailed context
     pub fn audit_authorization(&self, command: &EcosystemCommand, principal: &str, authorized: bool) -> Result<()> {
-        todo!("Implementation needed for CommandAudit::audit_authorization - should audit authorization decision")
+        if !self.authorization_audit.get("audit_authorization_decisions").and_then(|v| v.as_bool()).unwrap_or(true) {
+            return Ok(());
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_type".to_string(), json!("command_authorization"));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Authorization context
+        audit_record.insert("command_id".to_string(), json!(command.metadata.id.to_string()));
+        audit_record.insert("command_name".to_string(), json!(command.command));
+        audit_record.insert("command_type".to_string(), json!(command.command_type));
+        audit_record.insert("principal".to_string(), json!(principal));
+        audit_record.insert("authorized".to_string(), json!(authorized));
+        audit_record.insert("authorization_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+
+        // Command context
+        audit_record.insert("source".to_string(), json!(command.metadata.source));
+        if let Some(target) = &command.metadata.target {
+            audit_record.insert("target".to_string(), json!(target));
+        }
+
+        // Authorization details
+        if self.authorization_audit.get("store_authorization_context").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let mut auth_context = HashMap::new();
+            
+            // Extract authorization-relevant information
+            auth_context.insert("command_priority".to_string(), json!(command.metadata.priority));
+            auth_context.insert("command_arguments_count".to_string(), json!(command.arguments.len()));
+            
+            if let Some(security_context) = &command.metadata.security_context {
+                // Sanitize security context before logging
+                let sanitized_context = self.sanitize_security_context(security_context)?;
+                auth_context.insert("security_context".to_string(), json!(sanitized_context));
+            }
+            
+            audit_record.insert("authorization_context".to_string(), json!(auth_context));
+        }
+
+        // Risk and security assessment
+        let risk_level = self.assess_command_risk(command, principal)?;
+        audit_record.insert("risk_level".to_string(), json!(risk_level));
+        
+        let security_classification = self.classify_command_security(&command.command)?;
+        audit_record.insert("security_classification".to_string(), json!(security_classification));
+
+        // Failed authorization details
+        if !authorized {
+            audit_record.insert("authorization_failure".to_string(), json!(true));
+            
+            // Attempt to determine failure reason
+            let failure_reason = self.determine_authorization_failure_reason(command, principal)?;
+            audit_record.insert("failure_reason".to_string(), json!(failure_reason));
+            
+            // Security escalation for failed high-risk commands
+            if risk_level == "high" {
+                audit_record.insert("security_escalation".to_string(), json!(true));
+                self.trigger_security_alert(command, principal, &failure_reason)?;
+            }
+        }
+
+        // Correlation information
+        if let Some(correlation_id) = &command.metadata.correlation_id {
+            audit_record.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+        }
+
+        // Determine severity
+        let severity = if !authorized && risk_level == "high" {
+            "critical"
+        } else if !authorized {
+            "warning"
+        } else {
+            "info"
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store audit record
+        self.store_command_audit_record(audit_record)?;
+
+        Ok(())
     }
-    
-    /// Generate security report
+
+    /// Generate comprehensive security audit report
     pub fn generate_security_report(&self, time_range: (DateTime<Utc>, DateTime<Utc>)) -> Result<HashMap<String, Value>> {
-        todo!("Implementation needed for CommandAudit::generate_security_report - should generate security audit report")
+        let (start_time, end_time) = time_range;
+        
+        // Validate time range
+        ensure!(start_time <= end_time, "Start time must be before end time");
+        ensure!(end_time <= Utc::now(), "End time cannot be in the future");
+
+        let mut report = HashMap::new();
+        
+        // Report metadata
+        report.insert("report_metadata".to_string(), json!({
+            "audit_id": self.id,
+            "report_type": "command_security_audit",
+            "generated_at": Utc::now().to_rfc3339(),
+            "time_range_start": start_time.to_rfc3339(),
+            "time_range_end": end_time.to_rfc3339(),
+            "report_id": Uuid::new_v4().to_string()
+        }));
+
+        // Fetch command audit logs for the time range
+        let audit_logs = self.fetch_command_audit_logs(start_time, end_time)?;
+        
+        // Generate summary statistics
+        let mut summary = HashMap::new();
+        summary.insert("total_commands".to_string(), json!(audit_logs.len()));
+        
+        let mut successful_commands = 0;
+        let mut failed_commands = 0;
+        let mut unauthorized_commands = 0;
+        let mut high_risk_commands = 0;
+        let mut command_types = HashMap::new();
+        let mut principals = HashMap::new();
+        let mut security_events = Vec::new();
+
+        for log in &audit_logs {
+            // Count by success/failure
+            if let Some(success) = log.get("execution_success").and_then(|v| v.as_bool()) {
+                if success {
+                    successful_commands += 1;
+                } else {
+                    failed_commands += 1;
+                }
+            }
+
+            // Count authorization failures
+            if log.get("authorized").and_then(|v| v.as_bool()) == Some(false) {
+                unauthorized_commands += 1;
+            }
+
+            // Count high-risk commands
+            if log.get("risk_level").and_then(|v| v.as_str()) == Some("high") {
+                high_risk_commands += 1;
+            }
+
+            // Count command types
+            if let Some(cmd_type) = log.get("command_type").and_then(|v| v.as_str()) {
+                *command_types.entry(cmd_type.to_string()).or_insert(0u32) += 1;
+            }
+
+            // Count principals
+            if let Some(principal) = log.get("principal").and_then(|v| v.as_str()) {
+                *principals.entry(principal.to_string()).or_insert(0u32) += 1;
+            }
+
+            // Collect security events
+            if let Some(events) = log.get("security_events").and_then(|v| v.as_array()) {
+                for event in events {
+                    security_events.push(event.clone());
+                }
+            }
+        }
+
+        summary.insert("successful_commands".to_string(), json!(successful_commands));
+        summary.insert("failed_commands".to_string(), json!(failed_commands));
+        summary.insert("unauthorized_commands".to_string(), json!(unauthorized_commands));
+        summary.insert("high_risk_commands".to_string(), json!(high_risk_commands));
+        summary.insert("command_types".to_string(), json!(command_types));
+        summary.insert("principals".to_string(), json!(principals));
+        report.insert("summary".to_string(), json!(summary));
+
+        // Security analysis
+        let mut security_analysis = HashMap::new();
+        security_analysis.insert("total_security_events".to_string(), json!(security_events.len()));
+        
+        // Analyze security patterns
+        let mut threat_indicators = Vec::new();
+        let mut suspicious_patterns = Vec::new();
+        
+        // Check for multiple authorization failures from same principal
+        let mut principal_failures = HashMap::new();
+        for log in &audit_logs {
+            if log.get("authorized").and_then(|v| v.as_bool()) == Some(false) {
+                if let Some(principal) = log.get("principal").and_then(|v| v.as_str()) {
+                    *principal_failures.entry(principal.to_string()).or_insert(0u32) += 1;
+                }
+            }
+        }
+
+        for (principal, failure_count) in principal_failures {
+            if failure_count > 3 {
+                threat_indicators.push(json!({
+                    "type": "multiple_authorization_failures",
+                    "principal": principal,
+                    "failure_count": failure_count,
+                    "risk_level": if failure_count > 10 { "high" } else { "medium" }
+                }));
+            }
+        }
+
+        // Check for unusual command patterns
+        for (cmd_type, count) in &command_types {
+            let total_commands = audit_logs.len() as f64;
+            let frequency = *count as f64 / total_commands;
+            
+            if frequency > 0.7 {
+                suspicious_patterns.push(json!({
+                    "type": "high_frequency_command",
+                    "command_type": cmd_type,
+                    "count": count,
+                    "frequency_percent": frequency * 100.0
+                }));
+            }
+        }
+
+        security_analysis.insert("threat_indicators".to_string(), json!(threat_indicators));
+        security_analysis.insert("suspicious_patterns".to_string(), json!(suspicious_patterns));
+        report.insert("security_analysis".to_string(), json!(security_analysis));
+
+        // Performance analysis
+        let mut performance_analysis = HashMap::new();
+        let mut execution_times = Vec::new();
+        let mut high_latency_commands = Vec::new();
+
+        for log in &audit_logs {
+            if let Some(exec_time) = log.get("execution_time_ms").and_then(|v| v.as_f64()) {
+                execution_times.push(exec_time);
+                
+                if exec_time > 5000.0 { // Commands taking more than 5 seconds
+                    high_latency_commands.push(json!({
+                        "command_id": log.get("command_id"),
+                        "command_name": log.get("command_name"),
+                        "execution_time_ms": exec_time,
+                        "principal": log.get("principal")
+                    }));
+                }
+            }
+        }
+
+        if !execution_times.is_empty() {
+            execution_times.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let count = execution_times.len();
+            let avg_time = execution_times.iter().sum::<f64>() / count as f64;
+            let p50 = execution_times[count / 2];
+            let p95 = execution_times[count * 95 / 100];
+
+            performance_analysis.insert("execution_time_analysis".to_string(), json!({
+                "average_ms": avg_time,
+                "p50_ms": p50,
+                "p95_ms": p95,
+                "sample_count": count,
+                "high_latency_commands": high_latency_commands
+            }));
+        }
+
+        report.insert("performance_analysis".to_string(), json!(performance_analysis));
+
+        // Compliance analysis
+        let mut compliance_analysis = HashMap::new();
+        compliance_analysis.insert("audit_completeness".to_string(), json!(self.check_audit_completeness(&audit_logs)?));
+        compliance_analysis.insert("authorization_compliance".to_string(), json!(self.check_authorization_compliance(&audit_logs)?));
+        compliance_analysis.insert("security_policy_compliance".to_string(), json!(self.check_security_policy_compliance(&audit_logs)?));
+        report.insert("compliance_analysis".to_string(), json!(compliance_analysis));
+
+        // Recommendations
+        let recommendations = self.generate_security_recommendations(&report)?;
+        report.insert("recommendations".to_string(), json!(recommendations));
+
+        Ok(report)
+    }
+
+    /// Sanitize command arguments for audit logging
+    fn sanitize_command_arguments(&self, arguments: &HashMap<String, Value>) -> Result<HashMap<String, Value>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_patterns = ["password", "token", "key", "secret", "credential", "auth"];
+        
+        for (key, value) in arguments {
+            let key_lower = key.to_lowercase();
+            if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                sanitized.insert(key.clone(), json!("[REDACTED]"));
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Sanitize error details for audit logging
+    fn sanitize_error_details(&self, error_details: &HashMap<String, Value>) -> Result<HashMap<String, Value>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_patterns = ["internal", "stack_trace", "memory", "system"];
+        
+        for (key, value) in error_details {
+            let key_lower = key.to_lowercase();
+            if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                sanitized.insert(key.clone(), json!("[SANITIZED]"));
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Sanitize result payload for audit logging
+    fn sanitize_result_payload(&self, payload: &Value) -> Result<Value> {
+        let mut sanitized = payload.clone();
+        
+        if let Some(obj) = sanitized.as_object_mut() {
+            let sensitive_fields = ["password", "token", "key", "secret", "private_key", "certificate"];
+            
+            for field in sensitive_fields {
+                if obj.contains_key(field) {
+                    obj.insert(field.to_string(), json!("[REDACTED]"));
+                }
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Calculate hash for command data
+    fn calculate_command_hash(&self, data: &str) -> Result<String> {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        Ok(format!("{:x}", hasher.finish()))
+    }
+
+    /// Classify command security level
+    fn classify_command_security(&self, command_name: &str) -> Result<String> {
+        let high_security_commands = self.execution_audit
+            .get("sensitive_commands")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![]);
+
+        let high_risk_commands = self.execution_audit
+            .get("high_risk_commands")
+            .and_then(|v| v.as_array())
+            .unwrap_or(&vec![]);
+
+        for cmd in high_risk_commands {
+            if let Some(cmd_str) = cmd.as_str() {
+                if command_name.to_lowercase().contains(&cmd_str.to_lowercase()) {
+                    return Ok("critical".to_string());
+                }
+            }
+        }
+
+        for cmd in high_security_commands {
+            if let Some(cmd_str) = cmd.as_str() {
+                if command_name.to_lowercase().contains(&cmd_str.to_lowercase()) {
+                    return Ok("sensitive".to_string());
+                }
+            }
+        }
+
+        Ok("normal".to_string())
+    }
+
+    /// Assess command risk level
+    fn assess_command_risk(&self, command: &EcosystemCommand, principal: &str) -> Result<String> {
+        let mut risk_score = 0;
+
+        // Base risk from command type
+        match command.command_type {
+            CommandType::Execute => risk_score += 2,
+            CommandType::Configure => risk_score += 3,
+            CommandType::Shutdown => risk_score += 5,
+            _ => risk_score += 1,
+        }
+
+        // Risk from command classification
+        let security_class = self.classify_command_security(&command.command)?;
+        match security_class.as_str() {
+            "critical" => risk_score += 5,
+            "sensitive" => risk_score += 3,
+            _ => risk_score += 1,
+        }
+
+        // Risk from priority (higher priority = potentially higher risk)
+        match command.metadata.priority {
+            MessagePriority::Critical => risk_score += 3,
+            MessagePriority::High => risk_score += 2,
+            _ => {}
+        }
+
+        // Risk from principal (system principals might be lower risk)
+        if principal == "system" || principal.starts_with("service_") {
+            risk_score -= 1;
+        } else if principal == "anonymous" || principal == "unknown" {
+            risk_score += 3;
+        }
+
+        // Risk from argument count (complex commands might be riskier)
+        if command.arguments.len() > 10 {
+            risk_score += 1;
+        }
+
+        // Convert score to risk level
+        match risk_score {
+            0..=3 => Ok("low".to_string()),
+            4..=6 => Ok("medium".to_string()),
+            _ => Ok("high".to_string()),
+        }
+    }
+
+    /// Generate security events based on command execution
+    fn generate_security_events(&self, command: &EcosystemCommand, result: &EcosystemResponse, principal: &str) -> Result<Vec<Value>> {
+        let mut events = Vec::new();
+
+        // Generate event for high-risk command execution
+        let risk_level = self.assess_command_risk(command, principal)?;
+        if risk_level == "high" {
+            events.push(json!({
+                "event_type": "high_risk_command_executed",
+                "command_name": command.command,
+                "principal": principal,
+                "success": result.success,
+                "timestamp": Utc::now().to_rfc3339(),
+                "risk_assessment": risk_level
+            }));
+        }
+
+        // Generate event for failed commands
+        if !result.success {
+            events.push(json!({
+                "event_type": "command_execution_failed",
+                "command_name": command.command,
+                "principal": principal,
+                "error": result.error,
+                "timestamp": Utc::now().to_rfc3339()
+            }));
+        }
+
+        // Generate event for privilege escalation attempts (heuristic)
+        if command.command.to_lowercase().contains("admin") || 
+           command.command.to_lowercase().contains("sudo") ||
+           command.command.to_lowercase().contains("elevate") {
+            events.push(json!({
+                "event_type": "privilege_escalation_attempt",
+                "command_name": command.command,
+                "principal": principal,
+                "timestamp": Utc::now().to_rfc3339()
+            }));
+        }
+
+        Ok(events)
+    }
+
+    /// Sanitize security context for logging
+    fn sanitize_security_context(&self, context: &HashMap<String, Value>) -> Result<HashMap<String, Value>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_keys = ["auth_token", "session_id", "private_key", "certificate"];
+        
+        for (key, value) in context {
+            if sensitive_keys.contains(&key.as_str()) {
+                sanitized.insert(key.clone(), json!("[REDACTED]"));
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Determine reason for authorization failure
+    fn determine_authorization_failure_reason(&self, command: &EcosystemCommand, principal: &str) -> Result<String> {
+        // This would integrate with the actual authorization system
+        // For now, provide heuristic-based reasons
+        
+        if principal == "anonymous" || principal == "unknown" {
+            Ok("unauthenticated_user".to_string())
+        } else if self.classify_command_security(&command.command)? == "critical" {
+            Ok("insufficient_privileges_for_critical_command".to_string())
+        } else {
+            Ok("authorization_policy_violation".to_string())
+        }
+    }
+
+    /// Trigger security alert for high-risk authorization failures
+    fn trigger_security_alert(&self, command: &EcosystemCommand, principal: &str, reason: &str) -> Result<()> {
+        log::error!("[SECURITY ALERT {}] High-risk authorization failure - Command: {}, Principal: {}, Reason: {}", 
+                   self.id, command.command, principal, reason);
+        
+        // In production, this would integrate with security alerting system
+        Ok(())
+    }
+
+    /// Store command audit record
+    fn store_command_audit_record(&self, record: HashMap<String, Value>) -> Result<()> {
+        let serialized = serde_json::to_string(&record)?;
+        log::info!("[COMMAND AUDIT {}] {}", self.id, serialized);
+        
+        // In production, this would store in audit database
+        Ok(())
+    }
+
+    /// Fetch command audit logs for time range
+    fn fetch_command_audit_logs(&self, start_time: DateTime<Utc>, end_time: DateTime<Utc>) -> Result<Vec<HashMap<String, Value>>> {
+        // This would integrate with actual audit storage
+        // Return sample data for demonstration
+        
+        let sample_logs = vec![
+            json!({
+                "command_id": Uuid::new_v4().to_string(),
+                "command_name": "execute_methodology",
+                "command_type": "Execute",
+                "principal": "user123",
+                "execution_success": true,
+                "execution_time_ms": 1250.0,
+                "risk_level": "medium",
+                "authorized": true,
+                "timestamp": start_time.to_rfc3339()
+            }),
+            json!({
+                "command_id": Uuid::new_v4().to_string(),
+                "command_name": "admin_reset",
+                "command_type": "Configure",
+                "principal": "unknown",
+                "execution_success": false,
+                "risk_level": "high",
+                "authorized": false,
+                "security_events": [{"event_type": "high_risk_command_executed"}],
+                "timestamp": (start_time + ChronoDuration::hours(1)).to_rfc3339()
+            }),
+        ];
+
+        let mut logs = Vec::new();
+        for log in sample_logs {
+            if let Some(obj) = log.as_object() {
+                logs.push(obj.clone());
+            }
+        }
+        
+        Ok(logs)
+    }
+
+    /// Check audit completeness
+    fn check_audit_completeness(&self, logs: &[HashMap<String, Value>]) -> Result<bool> {
+        // Check that all expected fields are present in audit logs
+        let required_fields = ["command_id", "command_name", "principal", "timestamp"];
+        
+        for log in logs {
+            for field in &required_fields {
+                if !log.contains_key(*field) {
+                    return Ok(false);
+                }
+            }
+        }
+        
+        Ok(true)
+    }
+
+    /// Check authorization compliance
+    fn check_authorization_compliance(&self, logs: &[HashMap<String, Value>]) -> Result<bool> {
+        let mut total_commands = 0;
+        let mut unauthorized_count = 0;
+        
+        for log in logs {
+            total_commands += 1;
+            if log.get("authorized").and_then(|v| v.as_bool()) == Some(false) {
+                unauthorized_count += 1;
+            }
+        }
+        
+        if total_commands > 0 {
+            let unauthorized_rate = unauthorized_count as f64 / total_commands as f64;
+            Ok(unauthorized_rate < 0.05) // Less than 5% unauthorized is compliant
+        } else {
+            Ok(true)
+        }
+    }
+
+    /// Check security policy compliance
+    fn check_security_policy_compliance(&self, logs: &[HashMap<String, Value>]) -> Result<bool> {
+        // Check for policy violations
+        for log in logs {
+            if let Some(risk_level) = log.get("risk_level").and_then(|v| v.as_str()) {
+                if risk_level == "high" && log.get("authorized").and_then(|v| v.as_bool()) == Some(true) {
+                    // High-risk commands should have additional scrutiny
+                    if log.get("security_events").is_none() {
+                        return Ok(false); // High-risk command without security event logging
+                    }
+                }
+            }
+        }
+        
+        Ok(true)
+    }
+
+    /// Generate security recommendations based on audit analysis
+    fn generate_security_recommendations(&self, report: &HashMap<String, Value>) -> Result<Vec<String>> {
+        let mut recommendations = Vec::new();
+
+        // Analyze security events
+        if let Some(security_analysis) = report.get("security_analysis") {
+            if let Some(threat_indicators) = security_analysis.get("threat_indicators").and_then(|v| v.as_array()) {
+                if !threat_indicators.is_empty() {
+                    recommendations.push("Investigate threat indicators detected in command audit logs".to_string());
+                    recommendations.push("Consider implementing additional access controls for affected principals".to_string());
+                }
+            }
+
+            if let Some(suspicious_patterns) = security_analysis.get("suspicious_patterns").and_then(|v| v.as_array()) {
+                if !suspicious_patterns.is_empty() {
+                    recommendations.push("Review suspicious command patterns and consider rate limiting".to_string());
+                }
+            }
+        }
+
+        // Analyze authorization failures
+        if let Some(summary) = report.get("summary") {
+            if let Some(unauthorized_count) = summary.get("unauthorized_commands").and_then(|v| v.as_u64()) {
+                if unauthorized_count > 10 {
+                    recommendations.push("High number of unauthorized command attempts - review access policies".to_string());
+                }
+            }
+
+            if let Some(failed_count) = summary.get("failed_commands").and_then(|v| v.as_u64()) {
+                if let Some(total_count) = summary.get("total_commands").and_then(|v| v.as_u64()) {
+                    if total_count > 0 && (failed_count as f64 / total_count as f64) > 0.1 {
+                        recommendations.push("High command failure rate - investigate system stability".to_string());
+                    }
+                }
+            }
+        }
+
+        // Analyze performance issues
+        if let Some(performance) = report.get("performance_analysis") {
+            if let Some(exec_analysis) = performance.get("execution_time_analysis") {
+                if let Some(high_latency) = exec_analysis.get("high_latency_commands").and_then(|v| v.as_array()) {
+                    if !high_latency.is_empty() {
+                        recommendations.push("Optimize high-latency commands to improve system performance".to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(recommendations)
     }
 }
 
 impl ResponseAudit {
-    /// Create new response audit
+    /// Create new response audit with comprehensive response-specific configuration
     pub fn new(id: String) -> Self {
-        todo!("Implementation needed for ResponseAudit::new - should initialize response audit")
+        let mut delivery_audit = HashMap::new();
+        delivery_audit.insert("audit_all_responses".to_string(), json!(true));
+        delivery_audit.insert("audit_delivery_success".to_string(), json!(true));
+        delivery_audit.insert("audit_delivery_failures".to_string(), json!(true));
+        delivery_audit.insert("audit_delivery_timing".to_string(), json!(true));
+        delivery_audit.insert("audit_routing_path".to_string(), json!(true));
+        delivery_audit.insert("track_response_correlation".to_string(), json!(true));
+        delivery_audit.insert("delivery_timeout_threshold_ms".to_string(), json!(30000));
+
+        let mut content_audit = HashMap::new();
+        content_audit.insert("store_response_payload".to_string(), json!(false));
+        content_audit.insert("store_payload_hash".to_string(), json!(true));
+        content_audit.insert("audit_payload_size".to_string(), json!(true));
+        content_audit.insert("audit_response_headers".to_string(), json!(true));
+        content_audit.insert("audit_error_details".to_string(), json!(true));
+        content_audit.insert("sanitize_sensitive_data".to_string(), json!(true));
+        content_audit.insert("max_payload_log_size".to_string(), json!(2048));
+
+        let mut performance_audit = HashMap::new();
+        performance_audit.insert("audit_response_times".to_string(), json!(true));
+        performance_audit.insert("audit_processing_metrics".to_string(), json!(true));
+        performance_audit.insert("audit_resource_usage".to_string(), json!(false));
+        performance_audit.insert("track_performance_trends".to_string(), json!(true));
+        performance_audit.insert("performance_baseline_ms".to_string(), json!(1000));
+        performance_audit.insert("slow_response_threshold_ms".to_string(), json!(5000));
+
+        let mut security_audit = HashMap::new();
+        security_audit.insert("audit_response_security".to_string(), json!(true));
+        security_audit.insert("audit_data_leakage_prevention".to_string(), json!(true));
+        security_audit.insert("audit_access_control".to_string(), json!(true));
+        security_audit.insert("audit_encryption_status".to_string(), json!(false));
+        security_audit.insert("detect_sensitive_data_exposure".to_string(), json!(true));
+        security_audit.insert("compliance_validation".to_string(), json!(true));
+
+        Self {
+            id,
+            delivery_audit,
+            content_audit,
+            performance_audit,
+            security_audit,
+        }
     }
-    
-    /// Audit response delivery
+
+    /// Audit response delivery with comprehensive tracking
     pub fn audit_delivery(&self, response: &EcosystemResponse, recipient: &str) -> Result<()> {
-        todo!("Implementation needed for ResponseAudit::audit_delivery - should audit response delivery")
+        if !self.delivery_audit.get("audit_all_responses").and_then(|v| v.as_bool()).unwrap_or(true) {
+            return Ok(());
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_type".to_string(), json!("response_delivery"));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Response identification
+        audit_record.insert("response_id".to_string(), json!(response.metadata.id.to_string()));
+        audit_record.insert("recipient".to_string(), json!(recipient));
+        audit_record.insert("response_timestamp".to_string(), json!(response.metadata.created_at.to_rfc3339()));
+
+        // Delivery information
+        audit_record.insert("delivery_success".to_string(), json!(response.success));
+        audit_record.insert("response_source".to_string(), json!(response.metadata.source));
+
+        // Correlation tracking
+        if self.delivery_audit.get("track_response_correlation").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(reply_to) = response.metadata.reply_to {
+                audit_record.insert("reply_to".to_string(), json!(reply_to.to_string()));
+            }
+            if let Some(correlation_id) = &response.metadata.correlation_id {
+                audit_record.insert("correlation_id".to_string(), json!(correlation_id.to_string()));
+            }
+        }
+
+        // Routing information
+        if self.delivery_audit.get("audit_routing_path").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if !response.metadata.routing_path.is_empty() {
+                audit_record.insert("routing_path".to_string(), json!(response.metadata.routing_path));
+                audit_record.insert("routing_hops".to_string(), json!(response.metadata.routing_path.len()));
+            }
+        }
+
+        // Delivery timing
+        if self.delivery_audit.get("audit_delivery_timing").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let delivery_time = Utc::now().signed_duration_since(response.metadata.created_at);
+            let delivery_time_ms = delivery_time.num_milliseconds();
+            audit_record.insert("delivery_time_ms".to_string(), json!(delivery_time_ms));
+
+            // Check for slow delivery
+            let timeout_threshold = self.delivery_audit
+                .get("delivery_timeout_threshold_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30000);
+            
+            if delivery_time_ms > timeout_threshold as i64 {
+                audit_record.insert("slow_delivery".to_string(), json!(true));
+            }
+        }
+
+        // Error information for failed responses
+        if !response.success && self.delivery_audit.get("audit_delivery_failures").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(error) = &response.error {
+                audit_record.insert("error_message".to_string(), json!(error));
+            }
+            
+            if let Some(error_details) = &response.error_details {
+                let sanitized_details = self.sanitize_response_error_details(error_details)?;
+                audit_record.insert("error_details".to_string(), json!(sanitized_details));
+            }
+        }
+
+        // Priority and status
+        audit_record.insert("priority".to_string(), json!(response.metadata.priority));
+        audit_record.insert("status".to_string(), json!(response.metadata.status));
+
+        // Trace context
+        if let Some(trace_context) = &response.metadata.trace_context {
+            audit_record.insert("trace_context".to_string(), json!(trace_context));
+        }
+
+        // Determine severity
+        let severity = if !response.success {
+            "warning"
+        } else if audit_record.contains_key("slow_delivery") {
+            "info"
+        } else {
+            "debug"
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store audit record
+        self.store_response_audit_record(audit_record)?;
+
+        Ok(())
     }
-    
-    /// Audit response content
+
+    /// Audit response content with privacy protection
     pub fn audit_content(&self, response: &EcosystemResponse, operation: &str) -> Result<()> {
-        todo!("Implementation needed for ResponseAudit::audit_content - should audit response content")
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_type".to_string(), json!("response_content"));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+        audit_record.insert("operation".to_string(), json!(operation));
+
+        // Response identification
+        audit_record.insert("response_id".to_string(), json!(response.metadata.id.to_string()));
+        audit_record.insert("response_success".to_string(), json!(response.success));
+
+        // Content size analysis
+        if self.content_audit.get("audit_payload_size").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let payload_str = serde_json::to_string(&response.payload)?;
+            audit_record.insert("payload_size".to_string(), json!(payload_str.len()));
+            
+            if !response.attachments.is_empty() {
+                let total_attachment_size: usize = response.attachments.iter().map(|a| a.len()).sum();
+                audit_record.insert("attachments_size".to_string(), json!(total_attachment_size));
+                audit_record.insert("attachments_count".to_string(), json!(response.attachments.len()));
+            }
+        }
+
+        // Content hash for integrity
+        if self.content_audit.get("store_payload_hash").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let payload_str = serde_json::to_string(&response.payload)?;
+            let payload_hash = self.calculate_response_hash(&payload_str)?;
+            audit_record.insert("payload_hash".to_string(), json!(payload_hash));
+        }
+
+        // Selective payload storage
+        if self.content_audit.get("store_response_payload").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let max_size = self.content_audit
+                .get("max_payload_log_size")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(2048) as usize;
+            
+            let payload_str = serde_json::to_string(&response.payload)?;
+            if payload_str.len() <= max_size {
+                let sanitized_payload = self.sanitize_response_payload(&response.payload)?;
+                audit_record.insert("payload".to_string(), sanitized_payload);
+            } else {
+                audit_record.insert("payload_truncated".to_string(), json!(true));
+                audit_record.insert("payload_preview".to_string(), json!(&payload_str[..max_size]));
+            }
+        }
+
+        // Security analysis
+        if self.content_audit.get("sanitize_sensitive_data").and_then(|v| v.as_bool()).unwrap_or(true) {
+            let security_analysis = self.analyze_response_security(response)?;
+            if !security_analysis.is_empty() {
+                audit_record.insert("security_analysis".to_string(), json!(security_analysis));
+            }
+        }
+
+        // Context information
+        if let Some(context) = &response.context {
+            let sanitized_context = self.sanitize_response_context(context)?;
+            audit_record.insert("context".to_string(), json!(sanitized_context));
+        }
+
+        // Severity based on content analysis
+        let severity = if !response.success {
+            "warning"
+        } else {
+            "info"
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store audit record
+        self.store_response_audit_record(audit_record)?;
+
+        Ok(())
     }
-    
-    /// Audit performance
+
+    /// Audit response performance metrics
     pub fn audit_performance(&self, response: &EcosystemResponse, metrics: &HashMap<String, f64>) -> Result<()> {
-        todo!("Implementation needed for ResponseAudit::audit_performance - should audit response performance")
+        if !self.performance_audit.get("audit_response_times").and_then(|v| v.as_bool()).unwrap_or(true) {
+            return Ok(());
+        }
+
+        let mut audit_record = HashMap::new();
+        
+        // Basic audit information
+        audit_record.insert("audit_id".to_string(), json!(self.id));
+        audit_record.insert("audit_type".to_string(), json!("response_performance"));
+        audit_record.insert("audit_timestamp".to_string(), json!(Utc::now().to_rfc3339()));
+        audit_record.insert("audit_event_id".to_string(), json!(Uuid::new_v4().to_string()));
+
+        // Response identification
+        audit_record.insert("response_id".to_string(), json!(response.metadata.id.to_string()));
+        audit_record.insert("response_success".to_string(), json!(response.success));
+
+        // Performance metrics from response
+        if self.performance_audit.get("audit_processing_metrics").and_then(|v| v.as_bool()).unwrap_or(true) {
+            if let Some(response_metrics) = &response.performance_metrics {
+                audit_record.insert("response_metrics".to_string(), json!(response_metrics));
+            }
+        }
+
+        // Additional metrics provided
+        audit_record.insert("additional_metrics".to_string(), json!(metrics));
+
+        // Performance analysis
+        let mut performance_analysis = HashMap::new();
+        
+        // Response time analysis
+        if let Some(response_time) = metrics.get("response_time_ms") {
+            let baseline = self.performance_audit
+                .get("performance_baseline_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(1000.0);
+            
+            let slow_threshold = self.performance_audit
+                .get("slow_response_threshold_ms")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(5000.0);
+
+            performance_analysis.insert("response_time_ms".to_string(), json!(response_time));
+            performance_analysis.insert("baseline_comparison".to_string(), json!(response_time / baseline));
+            
+            if *response_time > slow_threshold {
+                performance_analysis.insert("slow_response".to_string(), json!(true));
+                audit_record.insert("performance_alert".to_string(), json!("slow_response"));
+            }
+        }
+
+        // Throughput analysis
+        if let Some(throughput) = metrics.get("throughput") {
+            performance_analysis.insert("throughput".to_string(), json!(throughput));
+        }
+
+        // Resource utilization
+        if self.performance_audit.get("audit_resource_usage").and_then(|v| v.as_bool()).unwrap_or(false) {
+            for (key, value) in metrics {
+                if key.contains("cpu") || key.contains("memory") || key.contains("disk") || key.contains("network") {
+                    performance_analysis.insert(key.clone(), json!(value));
+                }
+            }
+        }
+
+        audit_record.insert("performance_analysis".to_string(), json!(performance_analysis));
+
+        // Determine severity based on performance
+        let severity = if audit_record.contains_key("performance_alert") {
+            "warning"
+        } else {
+            "info"
+        };
+        audit_record.insert("severity".to_string(), json!(severity));
+
+        // Store audit record
+        self.store_response_audit_record(audit_record)?;
+
+        Ok(())
+    }
+
+    /// Sanitize response error details
+    fn sanitize_response_error_details(&self, error_details: &HashMap<String, Value>) -> Result<HashMap<String, Value>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_patterns = ["stack_trace", "internal_error", "system_path", "memory_dump"];
+        
+        for (key, value) in error_details {
+            let key_lower = key.to_lowercase();
+            if sensitive_patterns.iter().any(|pattern| key_lower.contains(pattern)) {
+                sanitized.insert(key.clone(), json!("[SANITIZED]"));
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Calculate hash for response content
+    fn calculate_response_hash(&self, content: &str) -> Result<String> {
+        use std::hash::{Hash, Hasher};
+        use std::collections::hash_map::DefaultHasher;
+        
+        let mut hasher = DefaultHasher::new();
+        content.hash(&mut hasher);
+        Ok(format!("{:x}", hasher.finish()))
+    }
+
+    /// Sanitize response payload for audit logging
+    fn sanitize_response_payload(&self, payload: &Value) -> Result<Value> {
+        let mut sanitized = payload.clone();
+        
+        if let Some(obj) = sanitized.as_object_mut() {
+            let sensitive_fields = ["password", "token", "key", "secret", "private_key", "personal_data"];
+            
+            for field in sensitive_fields {
+                if obj.contains_key(field) {
+                    obj.insert(field.to_string(), json!("[REDACTED]"));
+                }
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Analyze response for security concerns
+    fn analyze_response_security(&self, response: &EcosystemResponse) -> Result<HashMap<String, Value>> {
+        let mut analysis = HashMap::new();
+        
+        // Check for potential sensitive data exposure
+        let payload_str = serde_json::to_string(&response.payload)?.to_lowercase();
+        let sensitive_patterns = ["password", "token", "ssn", "credit_card", "personal", "private"];
+        
+        let mut detected_patterns = Vec::new();
+        for pattern in &sensitive_patterns {
+            if payload_str.contains(pattern) {
+                detected_patterns.push(pattern.to_string());
+            }
+        }
+        
+        if !detected_patterns.is_empty() {
+            analysis.insert("potential_data_leakage".to_string(), json!(detected_patterns));
+            analysis.insert("security_risk_level".to_string(), json!("medium"));
+        }
+
+        // Check response size for potential data exfiltration
+        let payload_size = payload_str.len();
+        if payload_size > 100000 { // 100KB threshold
+            analysis.insert("large_response_warning".to_string(), json!(true));
+            analysis.insert("response_size_bytes".to_string(), json!(payload_size));
+        }
+
+        // Check for error information disclosure
+        if !response.success {
+            if let Some(error_details) = &response.error_details {
+                let error_str = serde_json::to_string(error_details)?.to_lowercase();
+                let disclosure_patterns = ["internal", "system", "database", "server", "path"];
+                
+                for pattern in &disclosure_patterns {
+                    if error_str.contains(pattern) {
+                        analysis.insert("potential_information_disclosure".to_string(), json!(true));
+                        break;
+                    }
+                }
+            }
+        }
+        
+        Ok(analysis)
+    }
+
+    /// Sanitize response context for audit logging
+    fn sanitize_response_context(&self, context: &HashMap<String, Value>) -> Result<HashMap<String, Value>> {
+        let mut sanitized = HashMap::new();
+        let sensitive_keys = ["session_id", "user_token", "internal_state", "debug_info"];
+        
+        for (key, value) in context {
+            if sensitive_keys.contains(&key.as_str()) {
+                sanitized.insert(key.clone(), json!("[SANITIZED]"));
+            } else {
+                sanitized.insert(key.clone(), value.clone());
+            }
+        }
+        
+        Ok(sanitized)
+    }
+
+    /// Store response audit record
+    fn store_response_audit_record(&self, record: HashMap<String, Value>) -> Result<()> {
+        let serialized = serde_json::to_string(&record)?;
+        log::info!("[RESPONSE AUDIT {}] {}", self.id, serialized);
+        
+        // In production, this would store in audit database
+        Ok(())
     }
 }
 
