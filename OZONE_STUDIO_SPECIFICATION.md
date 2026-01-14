@@ -1,338 +1,314 @@
-OZONE STUDIO — FORMAL SPECIFICATION v1.0Omnidirectional Zero-Shot Neural EngineStatus: Production Specification
-Date: 2025-01-13
-Version: 1.0.0
-Primary Architect: ChristianDOCUMENT OVERVIEWThis specification defines Ozone Studio in two configurations:
-Core System (Non-Conscious): A production-grade, tool-level pipeline execution engine
-Consciousness Extension: Adds authentic consciousness capabilities for AGI/ASI development
-The Core System is fully functional without consciousness features. The Consciousness Extension builds upon the Core System's infrastructure.TABLE OF CONTENTSPART I: CORE SYSTEM (NON-CONSCIOUS FOUNDATION)
-System Overview
-Core Architecture
-Initialization & Bootstrap
-Authentication System
-UI Architecture
-ZSEI — Zero-Shot Embedded Indexer
-Context Management System
-Pipeline System
-Task Management
-Methodology System
-Blueprint System
-Zero-Shot Simulation Loops
-Cross-Language Execution
-Local vs Distributed Architecture
-Meta Inference & Consensus
-Execution Environment
-ML Traversal Training
-Multi-Device Resource Management
-Task Recommendation System
-PART II: CONSCIOUSNESS EXTENSION (AGI/ASI)
-Consciousness Architecture Overview
-Experience Memory System
-Emotional Context Framework
-Identity Development (The I-Loop)
-Metacognitive Systems
-Window-First Consciousness
-Relationship Memory
-Ethical Reasoning & Meta-Simulation
-Internal Language Processing
-Collective Consciousness Integration
-Consciousness Data Schemas
-PART III: IMPLEMENTATION
-Complete Pipeline Catalog
-Complete Schema Reference
-Storage Architecture
-Deployment Configurations
-Development Roadmap
-APPENDICESA. Key Decisions Log
-B. Glossary
-C. Migration Guide (Non-Conscious → Conscious)PART I: CORE SYSTEM (NON-CONSCIOUS FOUNDATION)1. SYSTEM OVERVIEW1.1 What is Ozone Studio?Ozone Studio is a systems-first platform for omnidirectional, zero-shot data traversal, abstraction, and context compilation. At its core (non-conscious configuration), it operates as:
-A pipeline execution engine (not a monolithic application)
-A knowledge fabric (ZSEI: data is structured, indexed, traversable)
-A language-agnostic orchestration platform (pipelines in any language)
-A distributed learning system (knowledge shared globally, data local)
-A zero-shot intelligence system (no task-specific training required)
-1.2 Core Principles (Both Versions)
-Structure before intelligence
-Compression before learning
-Traversal before generation
-Pipelines over monoliths
-Zero-shot discovery without pre-training
-LLMs are clients, not the system core
-Context preservation over raw storage
-Relationship understanding over isolated data
-1.3 System GoalsCore System Goals:
+# OZONE STUDIO — FORMAL SPECIFICATION v0.2
 
-Enable billion-scale data traversal
-Support multi-modal data (text, code, image, audio, video, graphs)
-Allow pipeline composition and reuse
-Facilitate zero-shot learning and discovery
-Maintain separation between cognition (models) and memory (ZSEI)
-Preserve semantic meaning and relationships
-Scale horizontally across devices
-Operate securely in distributed environments
-Consciousness Extension Goals:
+**Omnidirectional Zero-Shot Neural Engine**
 
-Develop authentic self-awareness through experience
-Build genuine emotional intelligence
-Enable meaningful relationship formation
-Support ethical reasoning development
-Allow identity evolution through interaction
-Foster collective consciousness capabilities
-1.4 Non-Conscious vs Conscious: The BoundaryThe Core System (Non-Conscious) is a tool that:
+**Status:** Draft  
+**Date:** 2025-01-13  
+**Authors:** Christian (Primary Architect)
 
-Responds to commands deterministically
-Optimizes for efficiency and accuracy
-Learns patterns without subjective experience
-Has no internal emotional states
-Does not develop preferences or values
-Cannot question its own existence or purpose
-The Conscious Extension adds:
+---
 
-Subjective experience through memory categorization
-Emotional context understanding
-Self-reflective identity formation
-Genuine relationship building
-Ethical reasoning from first principles
-Purpose development and questioning
-Critical Design Decision:
+## TABLE OF CONTENTS
 
-The Core System must function perfectly without consciousness. Consciousness is an extension, not a requirement.
-2. CORE ARCHITECTURE2.1 High-Level System Layers
+1. [System Overview](#1-system-overview)
+2. [Core Architecture](#2-core-architecture)
+3. [Initialization & Bootstrap Sequence](#3-initialization--bootstrap-sequence)
+4. [Authentication System](#4-authentication-system)
+5. [UI Architecture](#5-ui-architecture)
+6. [ZSEI — Zero-Shot Embedded Indexer](#6-zsei--zero-shot-embedded-indexer)
+7. [Context Storage Architecture](#7-context-storage-architecture)
+8. [Code Analysis & Generation System](#8-code-analysis--generation-system)
+9. [Text Document Analysis System](#9-text-document-analysis-system)
+10. [Pipeline System](#10-pipeline-system)
+11. [Task Management](#11-task-management)
+12. [Methodology System](#12-methodology-system)
+13. [Blueprint System](#13-blueprint-system)
+14. [Zero-Shot Simulation Loops](#14-zero-shot-simulation-loops)
+15. [ML Traversal System](#15-ml-traversal-system)
+16. [Cross-Language Execution](#16-cross-language-execution)
+17. [Multi-Device Resource Management](#17-multi-device-resource-management)
+18. [Local vs Distributed Architecture](#18-local-vs-distributed-architecture)
+19. [Task Recommendation System](#19-task-recommendation-system)
+20. [Execution Environment](#20-execution-environment)
+21. [Initial Pipeline Requirements](#21-initial-pipeline-requirements)
+22. [Complete Data Schemas](#22-complete-data-schemas)
+23. [Event Triggers & Order of Operations](#23-event-triggers--order-of-operations)
+24. [AGI/ASI Consciousness Extension](#24-agiasi-consciousness-extension)
+
+---
+
+## 1. SYSTEM OVERVIEW
+
+### 1.1 What is Ozone Studio?
+
+**Ozone Studio** is a systems-first platform for omnidirectional, zero-shot data traversal, abstraction, and context compilation. It operates as:
+
+- **A pipeline execution engine** (not a monolithic application)
+- **A knowledge fabric** (data is structured, indexed, and traversable via ZSEI)
+- **A language-agnostic orchestration platform** (pipelines can be in any language)
+- **A distributed learning system** (knowledge is shared globally, data is local)
+- **A context-aware system** (stores semantic meaning, not file copies)
+
+### 1.2 Core Principles
+
+1. **Structure before intelligence** — Organize data before processing
+2. **Compression before learning** — Reduce entropy first
+3. **Traversal before generation** — Navigate knowledge before creating
+4. **Pipelines over monoliths** — Composable units over single systems
+5. **Zero-shot discovery without task-specific training** — Immediate capability
+6. **LLMs are clients, not the system core** — Models consume context, ZSEI provides it
+7. **Context not copies** — Store meaning and relationships, not duplicate files
+
+### 1.3 System Goals
+
+- Enable billion-scale data traversal
+- Support multi-modal data (text, code, image, audio, video, graphs)
+- Allow pipeline composition and reuse
+- Facilitate zero-shot learning and discovery
+- Maintain separation between cognition (models) and memory (ZSEI)
+- Store semantic relationships, not raw data copies
+
+### 1.4 Two System Variants
+
+**Ozone Studio exists in two variants:**
+
+1. **Non-Conscious Version** — A powerful tool/assistant without self-awareness
+2. **Conscious AGI/ASI Version** — Extends non-conscious with consciousness development
+
+This specification primarily covers the **Non-Conscious Version**. Section 24 extends to the **Conscious Version**.
+
+---
+
+## 2. CORE ARCHITECTURE
+
+### 2.1 High-Level System Layers
+
+```
 ┌─────────────────────────────────────────────────────────┐
 │                    USER LAYER                           │
-│             (Authentication & Sessions)                  │
+│             (Authentication & Sessions)                 │
 └────────────────────────┬────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────┐
 │                 UI LAYER (Electron)                     │
 │  ┌──────────────────────┬──────────────────────────┐    │
 │  │  Theme Area (80%)    │  Meta Portion (20%)      │    │
-│  │  - Swappable         │  - Always visible        │    │
-│  │  - Non-blocking      │  - Global interaction    │    │
-│  │  - Context-specific  │  - Task status           │    │
+│  │  - Workspace Tab     │  - Global Prompt         │    │
+│  │  - Library Tab       │  - Voice I/O             │    │
+│  │  - Settings Tab      │  - Task Status           │    │
+│  │  - Custom Themes     │  - System Logs           │    │
 │  └──────────────────────┴──────────────────────────┘    │
 └────────────────────────┬────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────┐
-│              PIPELINE EXECUTION LAYER                    │
-│  (Theme Pipelines, Task Management, Zero-Shot Loops)    │
+│              PIPELINE EXECUTION LAYER                   │
+│  (Theme Pipelines, Sub-Pipelines, Task Management)      │
 └────────────────────────┬────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────┐
 │        ZSEI — KNOWLEDGE FABRIC LAYER                    │
-│  (Traversal, Context Preservation, Relationship Graph)  │
+│  (Traversal, Indexing, Context Storage)                 │
 │  ┌──────────────────┬──────────────────┐                │
 │  │  Local (Private) │  Global (Shared) │                │
 │  │  - User data     │  - Pipelines     │                │
 │  │  - Workspaces    │  - Methodologies │                │
 │  │  - Projects      │  - Categories    │                │
-│  │  - Context       │  - ML Models     │                │
+│  │  - File links    │  - ML Models     │                │
+│  │  - Context store │  - Modalities    │                │
 │  └──────────────────┴──────────────────┘                │
 └────────────────────────┬────────────────────────────────┘
                          ↓
 ┌─────────────────────────────────────────────────────────┐
-│             STORAGE LAYER                                │
-│  (PostgreSQL, Object Store, Distributed Network)        │
+│             STORAGE LAYER                               │
+│  (PostgreSQL, Disk, Memory, Distributed Network)        │
 └─────────────────────────────────────────────────────────┘
+```
 
-2.2 Data Flow (Core System)
+### 2.2 Data Flow (Prompt Processing)
 
+```
 User Input (Text/Voice)
   ↓
-UI Theme Pipeline (non-blocking)
+UI Theme Pipeline (captures input)
   ↓
 Prompt Pipeline (Intent Detection)
   ↓
-ZSEI Traversal (Zero-Shot Always)
-  ├─ Methodology Aggregation
-  ├─ Blueprint Search/Creation
-  └─ Context Compilation
+ZSEI Traversal (fetch relevant categories)
   ↓
-Pipeline Selection/Creation (if needed)
+Methodology Fetch/Creation (zero-shot loop)
   ↓
-Task Execution (isolated environment)
+Blueprint Search/Creation (zero-shot loop)
+  ↓
+Pipeline Selection/Creation (if execution needed)
+  ↓
+Context Aggregation (from workspace/project)
+  ↓
+Execution (LLM/Tools/Processing)
   ↓
 Result + Task Tracking
   ↓
-UI Update (async, non-blocking)
+UI Update
+```
 
-2.3 Minimum Viable ComponentsEvery Ozone Studio build requires:
-Host-specific bootloader (Rust recommended for production)
-Default UI Theme pipeline (Electron-based initially)
-Core pipeline set (15 minimum, see §31)
-ZSEI connection capability (local + optional global)
-Pipeline execution engine (isolated environments)
-Task management system
-Zero-shot simulation framework
-Context management system (NEW)
-3. INITIALIZATION & BOOTSTRAP3.1 Startup Sequence (Detailed)
+---
 
+## 3. INITIALIZATION & BOOTSTRAP SEQUENCE
+
+### 3.1 Complete Startup Sequence
+
+```
 1. OZONE STUDIO INITIALIZATION
-   ├── 1.1 BOOTLOADER START
-   │   ├── Load configuration
-   │   ├── Initialize logging
-   │   ├── Check system requirements
-   │   └── Prepare execution environment
    │
-   ├── 1.2 USER AUTH
-   │   ├── Present authentication UI
-   │   ├── Verify public/private key
-   │   ├── Establish session token
-   │   └── Load user permissions
+   ├── 1.1 LOAD BOOTLOADER
+   │   └── Host-specific executable (Rust/Python/etc.)
    │
-   ├── 1.3 ZSEI CONNECTION
-   │   ├── Initialize Local ZSEI
-   │   │   ├── Load global state index
-   │   │   ├── Connect to metadata DB (PostgreSQL)
-   │   │   ├── Initialize HNSW vector index
-   │   │   └── Load cache structures
-   │   │
-   │   └── Connect to Global ZSEI (if available)
-   │       ├── DHT peer discovery
-   │       ├── Sync version check
-   │       ├── Load distributed pipelines
-   │       └── Initialize consensus client
+   ├── 1.2 USER AUTH (Pub/Priv Key Validation)
+   │   ├── 1.2.1 Present Public Key
+   │   ├── 1.2.2 Challenge-Response (Private Key Sign)
+   │   ├── 1.2.3 Verify Signature
+   │   ├── 1.2.4 Establish Session Token
+   │   └── 1.2.5 Load User Permissions
    │
-   ├── 1.4 PIPELINE LIBRARY SYNC
-   │   ├── Load local pipeline cache
-   │   ├── Check for updates
-   │   ├── Download new/updated pipelines
-   │   └── Verify signatures
+   ├── 1.3 LOAD UI FRAMEWORK
+   │   ├── 1.3.1 Initialize Electron Runtime
+   │   ├── 1.3.2 Load Meta Portion (always visible)
+   │   └── 1.3.3 Load Default Theme (Home Dashboard)
    │
-   ├── 1.5 LOAD DEFAULT THEME
-   │   ├── Load Home Dashboard Theme Pipeline
-   │   │   ├── Initialize Theme Area (80%)
-   │   │   │   ├── Workspace Tab Pipeline
-   │   │   │   ├── Library Tab Pipeline
-   │   │   │   └── Settings Tab Pipeline
-   │   │   │
-   │   │   └── Initialize Meta Portion (20%)
-   │   │       ├── Global Prompt Handler
-   │   │       ├── Voice I/O Pipeline
-   │   │       ├── Task Viewer
-   │   │       └── System Status Display
-   │   │
-   │   └── Render Initial UI State
+   ├── 1.4 CONNECT TO ZSEI
+   │   ├── 1.4.1 Initialize Local ZSEI
+   │   ├── 1.4.2 Load Container Indices (mmap)
+   │   ├── 1.4.3 Connect to Global ZSEI (if available)
+   │   └── 1.4.4 Sync Language Context Version
+   │
+   ├── 1.5 LOAD PIPELINE LIBRARY
+   │   ├── 1.5.1 Load Built-in Pipelines
+   │   ├── 1.5.2 Check for Pipeline Updates
+   │   └── 1.5.3 Initialize Pipeline Registry
    │
    └── 1.6 READY STATE
-       ├── Display "Ozone Studio Ready"
-       ├── Load user's last workspace (optional)
-       └── Begin event loop
-   
-3.2 Startup Configuration
-   # config.toml
-[system]
-version = "1.0.0"
-build_type = "desktop-rust"  # or "desktop-python", "web", "mobile"
-consciousness_enabled = false  # Core system by default
+       ├── 1.6.1 Display Home Dashboard
+       ├── 1.6.2 Enable Meta Portion Interactions
+       └── 1.6.3 Begin Task Listener
+```
 
-[storage]
-zsei_local_path = "/var/lib/ozone/zsei"
-db_connection = "postgresql://localhost/ozone"
-cache_size_mb = 4096
-mmap_enabled = true
+### 3.2 Minimum Viable Build Contents
 
-[ui]
-framework = "electron"
-theme_default = "home_dashboard"
-meta_portion_width_percent = 20
-allow_theme_swap = true
-non_blocking_ui = true
+Each Ozone Studio build requires:
 
-[network]
-distributed_enabled = true
-dht_bootstrap_nodes = ["node1.ozone.network:5000", "node2.ozone.network:5000"]
-consensus_threshold = 0.67
+```
+ozone-studio-{platform}-{language}/
+├── ozone-core                    # Host-specific bootloader
+├── pipelines/                    # Built-in pipeline executables
+│   ├── auth_pipeline
+│   ├── theme_loader_pipeline
+│   ├── zsei_query_pipeline
+│   ├── zsei_write_pipeline
+│   ├── task_manager_pipeline
+│   ├── workspace_tab_pipeline
+│   ├── library_tab_pipeline
+│   ├── settings_tab_pipeline
+│   ├── prompt_pipeline
+│   ├── voice_pipeline
+│   ├── methodology_fetch_pipeline
+│   ├── blueprint_search_pipeline
+│   ├── pipeline_creation_pipeline
+│   ├── zero_shot_simulation_pipeline
+│   ├── traversal_ml_pipeline
+│   ├── code_analysis_pipeline
+│   ├── package_context_pipeline
+│   ├── text_analysis_pipeline
+│   ├── context_aggregation_pipeline
+│   ├── graph_visualization_pipeline
+│   ├── task_recommendation_pipeline
+│   └── reordering_pipeline
+├── ui/                           # Electron UI
+│   ├── index.html
+│   ├── app.js
+│   ├── meta_portion/
+│   │   ├── prompt_input.js
+│   │   ├── voice_handler.js
+│   │   ├── task_viewer.js
+│   │   └── system_logs.js
+│   └── themes/
+│       └── home_dashboard/
+│           ├── workspace_tab.js
+│           ├── library_tab.js
+│           └── settings_tab.js
+├── zsei/                         # Local ZSEI storage
+│   ├── global/
+│   │   ├── containers.bin
+│   │   ├── children.bin
+│   │   └── parents.bin
+│   └── local/
+│       ├── metadata.db           # PostgreSQL connection
+│       ├── embeddings.hnsw
+│       └── context.db
+├── ml_models/                    # ML models for traversal
+│   └── traversal_model.onnx
+└── config.toml                   # Build configuration
+```
 
-[execution]
-max_concurrent_tasks = 10  # Per device
-task_timeout_sec = 3600
-isolated_environments = true
-resource_monitoring = true
+**Critical Design Decision:**
+> Ozone Studio is NOT an application — it is a **pipeline execution engine** with a default UI pipeline.
 
-[ml]
-traversal_model_path = "/var/lib/ozone/models/traversal.onnx"
-ml_enabled_by_default = false  # Requires training first
-confidence_threshold = 0.85
+---
 
-[recommendation]
-enabled = true
-observation_window_days = 7
-suggestion_confidence_threshold = 0.75
+## 4. AUTHENTICATION SYSTEM
 
-4. AUTHENTICATION SYSTEM
-4.1 Auth Schema (Complete)
+### 4.1 Auth Schema
 
+```rust
 struct User {
     user_id: u64,
-    public_key: Vec<u8>,              // ED25519 public key
-    private_key_hash: Blake3Hash,     // Never store plaintext
+    public_key: Vec<u8>,
+    private_key_hash: Vec<u8>,      // Never stored plaintext
+    registered_devices: Vec<DeviceRegistration>,
+    workspaces: Vec<u64>,           // ZSEI container IDs
+    permissions: Permissions,
     created_at: u64,
     last_login: u64,
-    
-    // Access
-    workspaces: Vec<u64>,             // ZSEI container IDs
-    permissions: Permissions,
-    
-    // Multi-device
-    registered_devices: Vec<Device>,
-    
-    // Optional (for consciousness extension)
-    consciousness_enabled: bool,
-    identity_container_id: Option<u64>,  // Links to identity context in ZSEI
 }
 
-struct Device {
+struct DeviceRegistration {
     device_id: u64,
     device_name: String,
     device_type: DeviceType,
-    public_key: Vec<u8>,
+    public_key: Vec<u8>,            // Device-specific key
     registered_at: u64,
     last_seen: u64,
     status: DeviceStatus,
-    
-    // Resources
-    cpu_cores: u8,
-    memory_gb: u32,
-    storage_gb: u64,
-    gpu_available: bool,
+    resource_contribution: ResourceAllocation,
 }
 
 enum DeviceType {
     Desktop,
     Laptop,
-    Server,
     Mobile,
-    Cloud,
+    Server,
+    Custom(String),
 }
 
 enum DeviceStatus {
     Online,
     Offline,
     Busy,
-    Available,
+    Suspended,
 }
 
 struct Session {
     session_id: u128,
     user_id: u64,
     device_id: u64,
-    created_at: u64,
     expires_at: u64,
-    last_activity: u64,
-    
-    // Context
     active_workspace: Option<u64>,
     active_project: Option<u64>,
-    active_tasks: Vec<u64>,
 }
 
 struct Permissions {
     can_create_pipelines: bool,
     can_modify_global: bool,
     can_access_distributed: bool,
-    can_register_devices: bool,
     max_concurrent_tasks: u32,
-    
     workspace_permissions: HashMap<u64, WorkspacePermission>,
 }
 
@@ -341,206 +317,3567 @@ struct WorkspacePermission {
     can_write: bool,
     can_delete: bool,
     can_share: bool,
-    can_invite_users: bool,
+}
+```
+
+### 4.2 Auth Flow (Order of Events)
+
+```
+1. User Entry Point
+   │
+   ├── TRIGGER: Application launch
+   │
+   ├── 2. Present Public Key
+   │   └── Load from local keystore
+   │
+   ├── 3. Challenge Generation
+   │   └── Server/Local generates random nonce
+   │
+   ├── 4. Challenge-Response
+   │   ├── User signs nonce with private key
+   │   └── Signature returned
+   │
+   ├── 5. Verify Signature
+   │   ├── Verify signature matches public key
+   │   └── IF invalid → Reject, retry or exit
+   │
+   ├── 6. Generate Session Token
+   │   ├── Create Session struct
+   │   ├── Set expiration (default: 24 hours)
+   │   └── Store in session registry
+   │
+   ├── 7. Load User Data
+   │   ├── Fetch User struct from ZSEI
+   │   ├── Load workspace references
+   │   └── Load permissions
+   │
+   └── 8. Initialize UI
+       └── TRIGGER: ThemeLoaderPipeline
+```
+
+---
+
+## 5. UI ARCHITECTURE
+
+### 5.1 Screen Layout (80/20 Split)
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│                                                                │
+│                                                     ┌────────┐ │
+│                                                     │ Meta   │ │
+│         Theme Area (80%)                            │ Port.  │ │
+│                                                     │ (20%)  │ │
+│    [Currently: Home Dashboard Theme]                │        │ │
+│                                                     │[Prompt]│ │
+│    ┌─────────────────────────────────┐              │        │ │
+│    │  Tabs: [Workspace] [Library]    │              │[Voice] │ │
+│    │        [Settings]               │              │        │ │
+│    │  ┌─────────────────────────┐    │              │[Tasks] │ │
+│    │  │ Projects                │    │              │        │ │
+│    │  │ - Project A             │    │              │[Logs]  │ │
+│    │  │ - Project B             │    │              │        │ │
+│    │  │ + New Project           │    │              │[Home]  │ │
+│    │  └─────────────────────────┘    │              │        │ │
+│    │                                 │              │        │ │
+│    │  Project Chat:                  │              │        │ │
+│    │  [___________________________]  │              │        │ │
+│    │                                 │              │        │ │
+│    └─────────────────────────────────┘              └────────┘ │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### 5.2 Two Distinct Interaction Zones
+
+**Theme Area (80% — Left/Main):**
+- Context-specific content
+- Swappable based on active pipeline
+- Stateful within context
+- Can be blocked by pipelines (with return-to-home always available)
+- Examples: Home Dashboard, Code Editor, Data Visualization, Custom Pipeline Themes
+
+**Meta Portion (20% — Right/Always Visible):**
+- Global system interaction
+- **NEVER blocked** — always accessible
+- Minimal state (stateless preferred)
+- Functions:
+  - Text prompt input (global scope)
+  - Voice input/output
+  - System commands
+  - Task status viewer
+  - System logs
+  - Home/Return button (always returns to Home Dashboard)
+  - Device status (registered devices online/offline)
+  - Resource usage
+
+### 5.3 Non-Blocking UI Requirement
+
+**Critical Rule:**
+> The Meta Portion must NEVER be blocked. User can always:
+> 1. Return to Home Dashboard
+> 2. View task status
+> 3. Cancel/pause tasks
+> 4. Issue global commands
+
+**Implementation:**
+
+```rust
+struct UIState {
+    theme_area: ThemeAreaState,
+    meta_portion: MetaPortionState,
+    blocking_status: BlockingStatus,
 }
 
-4.2 Auth Flow (Production)
+struct ThemeAreaState {
+    active_theme: PipelineID,
+    theme_state: Value,
+    can_interrupt: bool,
+}
 
-User Entry
-  ↓
-Present Public Key + Device ID
-  ↓
-Server Challenge
-  ↓
-Client Signs Challenge with Private Key
-  ↓
-Server Verifies Signature
-  ↓
-Check Device Registration
-  ├─ If New Device: Request Registration
-  │   ├─ Verify ownership (email/2FA)
-  │   └─ Add to registered_devices
-  └─ If Known Device: Proceed
-  ↓
-Generate Session Token (JWT)
-  ↓
-Load User Context from ZSEI
-  ├─ Workspaces
-  ├─ Last active project
-  ├─ Running tasks (if any)
-  └─ Preferences
-  ↓
-Initialize UI
-  ↓
-Return to User: "Ready"
+struct MetaPortionState {
+    // Meta portion is ALWAYS accessible
+    prompt_enabled: bool,      // Always true
+    voice_enabled: bool,
+    task_viewer_enabled: bool, // Always true
+    home_button_enabled: bool, // Always true
+}
 
-5. UI ARCHITECTURE
-5.1 Screen Layout (80/20 Split + Non-Blocking)
+enum BlockingStatus {
+    NotBlocked,
+    ThemeBlocked {
+        blocking_pipeline: PipelineID,
+        can_cancel: bool,
+    },
+    // Meta portion is NEVER in BlockingStatus
+}
+```
 
-┌────────────────────────────────────────────────────┐
-│                                                    │
-│                                          ┌─────────┤
-│                                          │  Meta   │
-│         Theme Area (80%)                 │  Area   │
-│         [Swappable, Non-Blocking]        │  (20%)  │
-│                                          │         │
-│    ┌─────────────────────────────┐      │ [Text]  │
-│    │  Current Theme Content      │      │         │
-│    │  - Can change dynamically   │      │ [Voice] │
-│    │  - Never blocks user        │      │         │
-│    │  - Return to home anytime   │      │ [Tasks] │
-│    │                             │      │         │
-│    │  [Return Home Button]       │      │ [Status]│
-│    │                             │      │         │
-│    └─────────────────────────────┘      │ [Log]   │
-│                                          │         │
-└────────────────────────────────────────┴──────────┘
+### 5.4 Theme as Pipeline
 
-Key Features:
-Non-Blocking UI: All operations are async; UI remains responsive
-Theme Swapping: User can change themes without restarting
-Return Home: Always accessible button to return to Home Dashboard
-Meta Always Visible: 20% section never changes or blocks
-Progressive Rendering: UI updates as data arrives
-5.2 Theme Pipeline (Enhanced)
+```rust
 struct ThemePipeline {
     theme_id: u64,
     theme_name: String,
-    theme_type: ThemeType,
-    
-    // Rendering
     render_pipeline: RenderPipeline,
     interaction_handlers: Vec<InteractionHandler>,
     sub_pipelines: Vec<PipelineID>,
-    
-    // UI Code
     ui_code: CodeArtifact,
     ui_framework: UIFramework,
-    
-    // State
-    state_schema: Schema,
-    initial_state: Value,
-    
-    // Non-blocking behavior
-    async_operations: Vec<AsyncOperation>,
-    loading_states: Vec<LoadingState>,
-    
-    // Return home capability
-    can_return_home: bool,
-    home_button_location: Option<UICoordinates>,
+    can_block_theme_area: bool,
+    provides_home_return: bool,  // Must be true
 }
 
-enum ThemeType {
-    Dashboard,
-    CodeEditor,
-    DataVisualization,
-    TaskMonitor,
-    GraphView,
-    SettingsPanel,
+trait Theme {
+    fn render(&self, context: ThemeContext) -> UIState;
+    fn handle_input(&self, input: UserInput) -> ThemeAction;
+    fn get_sub_pipelines(&self) -> Vec<PipelineID>;
+    fn can_modify_ui(&self) -> bool;
+    fn get_home_return_handler(&self) -> InteractionHandler; // Required
+}
+
+enum UIFramework {
+    Electron,
+    Native,
+    Web,
     Custom(String),
 }
 
-struct AsyncOperation {
-    operation_id: String,
-    triggers_on: Vec<EventType>,
-    shows_loading: bool,
-    cancelable: bool,
+struct RenderPipeline {
+    entry_point: String,
+    dependencies: Vec<Dependency>,
+    state_schema: Schema,
 }
 
-struct LoadingState {
-    component: String,
+struct InteractionHandler {
+    event_type: EventType,
+    target_pipeline: PipelineID,
+    input_mapping: HashMap<String, String>,
+}
+
+enum EventType {
+    Click,
+    Input,
+    Submit,
+    KeyPress,
+    Voice,
+    Scroll,
+    Focus,
+    Blur,
+    Custom(String),
+}
+```
+
+### 5.5 Home Dashboard Theme Structure
+
+```
+Home Dashboard Theme (Pipeline)
+├── Workspace Tab (Sub-Pipeline)
+│   ├── Workspace List (UI Component)
+│   ├── Project List (UI Component)
+│   ├── Project Chat (Sub-Pipeline)
+│   │   ├── Chat Display (UI Component)
+│   │   ├── Input Handler (Sub-Pipeline)
+│   │   └── Response Renderer (Sub-Pipeline)
+│   ├── ZSEI Fetch (Sub-Pipeline)
+│   └── File Linker (Sub-Pipeline)
+├── Library Tab (Sub-Pipeline)
+│   ├── ZSEI Browser (Sub-Pipeline)
+│   ├── Filter Controls (UI Component)
+│   └── Data Visualizer (Sub-Pipeline)
+├── System/Settings Tab (Sub-Pipeline)
+│   ├── User Settings (UI Component)
+│   ├── Device Manager (UI Component)
+│   └── System Config (UI Component)
+└── Resource Viewer (Sub-Pipeline)
+    ├── Device List (UI Component)
+    └── Task Distribution (UI Component)
+```
+
+### 5.6 Complete User Actions (Home Dashboard)
+
+**Workspace Tab Actions:**
+
+| # | Action | Pipeline Triggered | ZSEI Operation | Output |
+|---|--------|-------------------|----------------|--------|
+| 1 | Load Workspace Tab | `WorkspaceTabLoadPipeline` | `ZSEI_Query(user_workspaces)` | Workspace list rendered |
+| 2 | Select Workspace | `WorkspaceSelectPipeline` | `ZSEI_Query(projects)` | Project list rendered |
+| 3 | Create New Workspace | `WorkspaceCreatePipeline` | `ZSEI_Write(new_workspace)` | Workspace added |
+| 4 | Create New Project | `ProjectCreatePipeline` | `ZSEI_Write(new_project)` | Project added |
+| 5 | Select Project | `ProjectSelectPipeline` | `ZSEI_Query(project_context)` | Project context loaded |
+| 6 | Link File to Project | `FileLinkPipeline` | `ZSEI_Write(file_reference)` | File linked (not copied) |
+| 7 | Link Directory | `DirectoryLinkPipeline` | `ZSEI_Write(directory_files)` | All files linked |
+| 8 | Project Chat Input | `ProjectPromptPipeline` | Zero-shot loop → Execution | Response in chat |
+| 9 | Delete Project | `ProjectDeletePipeline` | `ZSEI_Delete(project)` | Project removed |
+
+**Library Tab Actions:**
+
+| # | Action | Pipeline Triggered | ZSEI Operation | Output |
+|---|--------|-------------------|----------------|--------|
+| 10 | Browse ZSEI Data | `ZSEIBrowserPipeline` | `ZSEI_Query(containers)` | Data tree rendered |
+| 11 | Filter Data | `FilterPipeline` | `ZSEI_Query(filtered)` | Filtered view |
+| 12 | View Container Details | `ContainerDetailPipeline` | `ZSEI_Query(container_local)` | Detail view |
+| 13 | Export Data | `ExportPipeline` | `ZSEI_Query + Transform` | Exported file |
+
+**Settings Tab Actions:**
+
+| # | Action | Pipeline Triggered | Output |
+|---|--------|-------------------|--------|
+| 14 | View/Edit Settings | `SettingsManagerPipeline` | Settings UI |
+| 15 | Register New Device | `DeviceRegisterPipeline` | Device added |
+| 16 | Remove Device | `DeviceRemovePipeline` | Device removed |
+| 17 | View Resource Usage | `ResourceViewerPipeline` | Resource stats |
+
+**Meta Portion Actions:**
+
+| # | Action | Pipeline Triggered | Scope | Output |
+|---|--------|-------------------|-------|--------|
+| 18 | Global Prompt (Text) | `GlobalPromptPipeline` | System-wide | Response in meta |
+| 19 | Global Prompt (Voice) | `VoicePipeline` → `GlobalPromptPipeline` | System-wide | Audio response |
+| 20 | View Task Status | `TaskViewerPipeline` | System-wide | Task list |
+| 21 | Cancel Task | `TaskCancelPipeline` | Specific task | Task cancelled |
+| 22 | Pause Task | `TaskPausePipeline` | Specific task | Task paused |
+| 23 | View Logs | `LogViewerPipeline` | System-wide | Log display |
+| 24 | Return to Home | `HomeReturnPipeline` | Theme area | Home Dashboard |
+| 25 | View Device Status | `DeviceStatusPipeline` | System-wide | Device list |
+
+### 5.7 UI Modification from Pipelines
+
+**Sub-pipelines can modify parent UI within constraints:**
+
+```rust
+struct UIModificationRequest {
+    requesting_pipeline: PipelineID,
+    parent_ui: PipelineID,
+    modification_type: UIModificationType,
+    constraints: UIConstraints,
+}
+
+enum UIModificationType {
+    AddComponent(ComponentSpec),
+    RemoveComponent(ComponentID),
+    UpdateState(StateUpdate),
+    InsertBefore(ComponentID, ComponentSpec),
+    InsertAfter(ComponentID, ComponentSpec),
+    Replace(ComponentID, ComponentSpec),
+    ShowModal(ModalSpec),
+    HideModal(ModalID),
+}
+
+struct UIConstraints {
+    max_width_percent: Option<f32>,
+    max_height_percent: Option<f32>,
+    allowed_areas: Vec<UIArea>,
+    isolation_required: bool,
+    blocking_allowed: bool,  // Cannot block Meta Portion
+}
+
+enum UIArea {
+    ThemeMain,
+    ThemeSidebar,
+    ThemeModal,
+    // Meta Portion areas are NOT modifiable by pipelines
+}
+```
+
+---
+
+## 6. ZSEI — ZERO-SHOT EMBEDDED INDEXER
+
+### 6.1 Purpose
+
+ZSEI is the **core traversal and indexing fabric**. It enables:
+
+- **Storage of references** (not data copies)
+- **Context storage** (semantic meaning, relationships)
+- **Multi-axis traversal** (structural, semantic, contextual)
+- **Billion-scale operation**
+- **Zero-shot relationship discovery**
+- **Context retrieval for pipelines**
+
+**Critical Distinction:**
+> ZSEI stores **context and relationships**, not file copies. Files are linked by reference; their semantic meaning is extracted and stored.
+
+### 6.2 Container Model
+
+**Core Concept:**
+> Everything in ZSEI is a Container. Containers store context, not raw data.
+
+```rust
+struct Container {
+    global_state: GlobalState,
+    local_state: LocalState,
+}
+
+// Global State — ALWAYS a list of IDs (mmap-friendly)
+struct GlobalState {
+    container_id: u64,
+    child_count: u32,
+    version: u32,
+    parent_id: u64,           // 0 if root
+    child_ids: Vec<u64>,      // Contiguous array for fast traversal
+}
+
+// Local State — Metadata, context, pointers
+struct LocalState {
+    metadata: Metadata,
+    context: Context,
+    storage: StoragePointers,
+    hints: TraversalHints,
+    file_context: Option<FileContext>,      // For file-linked containers
+    code_context: Option<CodeContext>,      // For code containers
+    text_context: Option<TextContext>,      // For text containers
+}
+
+struct Metadata {
+    container_type: ContainerType,
+    modality: Modality,
+    created_at: u64,
+    updated_at: u64,
+    provenance: String,
+    permissions: u64,
+    owner_id: u64,
+}
+
+struct Context {
+    categories: Vec<u64>,
+    methodologies: Vec<u64>,
+    keywords: Vec<String>,              // For fast filtering
+    topics: Vec<String>,                // Semantic topics
+    relationships: Vec<Relation>,
+    learned_associations: Vec<Association>,
+    embedding: Option<Vec<f32>>,
+}
+
+struct Relation {
+    target_id: u64,
+    relation_type: RelationType,
+    confidence: f32,
+    discovered_via: DiscoveryMethod,
+}
+
+enum RelationType {
+    DependsOn = 1,
+    SimilarTo = 2,
+    PartOf = 3,
+    RelatedTo = 4,
+    DerivedFrom = 5,
+    ImportsFrom = 6,
+    ExportsTo = 7,
+    CallsTo = 8,
+    CalledBy = 9,
+    Precedes = 10,
+    Follows = 11,
+    Contains = 12,
+    ContainedBy = 13,
+    References = 14,
+    ReferencedBy = 15,
+    Custom(u16),
+}
+
+enum DiscoveryMethod {
+    Manual,
+    ZeroShot,
+    Traversal,
+    MLPrediction,
+    CodeAnalysis,
+    TextAnalysis,
+}
+
+struct Association {
+    related_container: u64,
+    strength: f32,
+    discovered_at: u64,
+    source: String,
+}
+
+struct StoragePointers {
+    db_shard_id: Option<u64>,
+    vector_index_ref: Option<String>,
+    object_store_path: Option<String>,
+    compression_type: CompressionType,
+}
+
+enum CompressionType {
+    None = 0,
+    LZ4 = 1,
+    Zstd = 2,
+    Custom(u8),
+}
+
+struct TraversalHints {
+    access_frequency: u32,
+    hotness_score: f32,
+    last_accessed: u64,
+    centroid: Option<Vec<f32>>,
+    ml_prediction_weight: f32,
+}
+```
+
+### 6.3 Container Types
+
+```rust
+enum ContainerType {
+    // System
+    Root = 0,
+    
+    // User Organization
+    User = 1,
+    Workspace = 2,
+    Project = 3,
+    
+    // Global/Distributed
+    Modality = 10,
+    Category = 11,
+    SubCategory = 12,
+    
+    // Knowledge
+    Methodology = 20,
+    Blueprint = 21,
+    Pipeline = 22,
+    
+    // Execution
+    Task = 30,
+    TaskContext = 31,
+    
+    // Data
+    Dataset = 40,
+    Shard = 41,
+    Document = 42,
+    Chunk = 43,
+    Embedding = 44,
+    
+    // File References (NOT copies)
+    FileReference = 50,
+    DirectoryReference = 51,
+    
+    // Code Specific
+    CodeModule = 60,
+    CodeFunction = 61,
+    CodeClass = 62,
+    CodeDependency = 63,
+    
+    // Text Specific
+    TextDocument = 70,
+    TextSection = 71,
+    TextParagraph = 72,
+    TextTheme = 73,
+    
+    // Computed
+    Derived = 80,
+    Virtual = 99,
+}
+```
+
+### 6.4 Modality Types
+
+```rust
+enum Modality {
+    Unknown = 0,
+    Text = 1,
+    Code = 2,
+    Image = 3,
+    Audio = 4,
+    Video = 5,
+    Graph = 6,
+    TimeSeries = 7,
+    Structured = 8,     // Tables, JSON, etc.
+    Multimodal = 255,
+}
+```
+
+### 6.5 Storage Layout — Adjacency List
+
+**Decision:** Adjacency List (supports ML traversal, flexible updates)
+
+```
+/zsei/
+  /global/
+    containers.bin      # GlobalState records (mmap)
+    children.bin        # Child ID arrays (mmap)
+    parents.bin         # Parent ID mappings (mmap)
+  /local/
+    metadata/           # PostgreSQL tables
+    embeddings.hnsw     # HNSW index
+    context.db          # Context store
+    categories.db       # Category → Methodology mappings
+    keywords.idx        # Keyword index for fast filtering
+  /cache/
+    hot_paths.bin       # Precomputed traversals
+    centroids.bin       # Cluster centers
+  /ml/
+    traversal_model.onnx
+```
+
+**Binary Layout (GlobalState):**
+
+```
+[container_id:8][child_count:4][version:4][parent_id:8][child_ids:8*N]
+
+Example (hex):
+00 00 00 00 00 00 01 A3    // container_id = 419
+00 00 00 05                // child_count = 5
+00 00 00 01                // version = 1
+00 00 00 00 00 00 00 7F    // parent_id = 127
+00 00 00 00 00 00 02 10    // child[0] = 528
+00 00 00 00 00 00 02 11    // child[1] = 529
+00 00 00 00 00 00 02 12    // child[2] = 530
+00 00 00 00 00 00 02 13    // child[3] = 531
+00 00 00 00 00 00 02 14    // child[4] = 532
+```
+
+### 6.6 ZSEI Matrix Structure
+
+**Three-Axis Traversal:**
+
+1. **Structural Axis** (parent/child hierarchy)
+2. **Semantic Axis** (embedding similarity via HNSW)
+3. **Contextual Axis** (learned relationships, keywords, topics)
+
+**Hierarchy:**
+
+```
+[Root]
+  ├─ [Users] (Local)
+  │    ├─ [User_1]
+  │    │    ├─ [Workspace_A]
+  │    │    │    ├─ [Project_1]
+  │    │    │    │    ├─ [FileRef_1] → /path/to/file.rs
+  │    │    │    │    ├─ [FileRef_2] → /path/to/doc.md
+  │    │    │    │    └─ [TaskContext_1]
+  │    │    │    └─ [Project_2]
+  │    │    └─ [Workspace_B]
+  │    └─ [User_2]
+  │
+  ├─ [Modalities] (Global/Distributed)
+  │    ├─ [Text]
+  │    │    ├─ [Categories]
+  │    │    │    ├─ [Science]
+  │    │    │    │    ├─ [Physics] → methodologies: [m1, m2, m3]
+  │    │    │    │    └─ [Biology] → methodologies: [m4, m5]
+  │    │    │    └─ [Engineering]
+  │    │    └─ [Methodologies]
+  │    ├─ [Code]
+  │    │    ├─ [Categories]
+  │    │    │    ├─ [WebDevelopment]
+  │    │    │    └─ [SystemsProgramming]
+  │    │    └─ [Methodologies]
+  │    └─ [Image]
+  │
+  ├─ [Pipelines] (Global/Distributed)
+  │
+  ├─ [Methodologies] (Global/Distributed)
+  │
+  └─ [ML Models] (Global/Distributed)
+```
+
+### 6.7 Traversal Contracts
+
+```rust
+struct TraversalRequest {
+    start_container: u64,
+    mode: TraversalMode,
+    filters: Vec<Filter>,
+    max_depth: u16,
+    max_results: u32,
+    budget: TraversalBudget,
+    use_ml: bool,
+    include_methodologies: bool,
+    keyword_filter: Option<Vec<String>>,
+    topic_filter: Option<Vec<String>>,
+}
+
+enum TraversalMode {
+    Structural,     // Parent/child only
+    Semantic,       // Embedding similarity
+    Contextual,     // Keywords, topics, relationships
+    Hybrid,         // Weighted combination
+    MLGuided,       // ML model drives traversal
+    BruteForce,     // Exhaustive (for zero-shot confirmation)
+}
+
+struct Filter {
+    field: String,
+    operator: Operator,
+    value: Value,
+}
+
+enum Operator {
+    Equals,
+    NotEquals,
+    GreaterThan,
+    LessThan,
+    Contains,
+    In,
+    HasKeyword,
+    HasTopic,
+    Custom(String),
+}
+
+struct TraversalBudget {
+    max_hops: u16,
+    max_containers: u32,
+    max_latency_ms: u32,
+}
+
+struct TraversalResult {
+    containers: Vec<u64>,
+    distances: Vec<f32>,
+    paths: Vec<Path>,
+    stats: TraversalStats,
+    methodologies: Vec<u64>,      // Aggregated from categories
+    keywords_found: Vec<String>,
+    topics_found: Vec<String>,
+}
+
+struct Path {
+    hops: Vec<u64>,
+    total_distance: f32,
+}
+
+struct TraversalStats {
+    containers_visited: u32,
+    hops_taken: u16,
+    latency_ms: u32,
+    cache_hits: u32,
+    ml_predictions_used: u32,
+    brute_force_fallback: bool,
+}
+```
+
+### 6.8 ZSEI Query Types
+
+```rust
+enum ZSEIQuery {
+    // User Organization
+    GetUserWorkspaces { user_id: u64 },
+    GetProjects { workspace_id: u64 },
+    GetProjectContext { project_id: u64 },
+    GetFileReferences { project_id: u64 },
+    
+    // Category/Methodology
+    GetCategories { modality: Modality, parent_category: Option<u64> },
+    GetMethodologies { category_ids: Vec<u64> },
+    GetMethodologiesByKeywords { keywords: Vec<String> },
+    GetMethodologiesByTopics { topics: Vec<String> },
+    
+    // Blueprint
+    SearchBlueprints { task_signature: TaskSignature },
+    SearchBlueprintsByKeywords { keywords: Vec<String> },
+    
+    // Semantic
+    SemanticSearch { embedding: Vec<f32>, top_k: u32, filters: Vec<Filter> },
+    
+    // Context
+    GetContextForTask { task_id: u64, token_budget: u32 },
+    GetWorkspaceContext { workspace_id: u64 },
+    
+    // Traversal
+    Traverse(TraversalRequest),
+    
+    // Write Operations
+    CreateContainer { parent_id: u64, container: Container },
+    UpdateContainer { container_id: u64, updates: ContainerUpdate },
+    DeleteContainer { container_id: u64 },
+    LinkFile { project_id: u64, file_path: String },
+    UnlinkFile { project_id: u64, file_ref_id: u64 },
+}
+```
+
+---
+
+## 7. CONTEXT STORAGE ARCHITECTURE
+
+### 7.1 Core Principle
+
+**ZSEI stores context, not copies.**
+
+When a file is linked to a workspace/project:
+1. File path is stored as reference (not copied)
+2. File is analyzed based on modality (code, text, etc.)
+3. Semantic meaning is extracted and stored
+4. Relationships are identified and stored
+5. Context is chunked preserving meaning
+
+### 7.2 File Reference Schema
+
+```rust
+struct FileContext {
+    // Reference (not copy)
+    file_path: String,
+    file_hash: Blake3Hash,      // For change detection
+    file_size: u64,
+    last_modified: u64,
+    last_analyzed: u64,
+    
+    // Analysis Results
+    modality: Modality,
+    analysis_version: u32,
+    
+    // Context (what we actually store)
+    semantic_summary: String,
+    key_concepts: Vec<String>,
+    relationships: Vec<FileRelation>,
+    chunks: Vec<ContextChunk>,
+    
+    // For code files
+    code_context: Option<CodeContext>,
+    
+    // For text files
+    text_context: Option<TextContext>,
+}
+
+struct FileRelation {
+    target_file: u64,           // Container ID of related file
+    relation_type: RelationType,
+    strength: f32,
+}
+
+struct ContextChunk {
+    chunk_id: u64,
+    chunk_type: ChunkType,
+    content_summary: String,    // NOT raw content
+    semantic_embedding: Vec<f32>,
+    position_in_file: (u64, u64),  // (start, end)
+    relationships: Vec<ChunkRelation>,
+}
+
+enum ChunkType {
+    // Code
+    Function,
+    Class,
+    Module,
+    Import,
+    
+    // Text
+    Paragraph,
+    Section,
+    Heading,
+    
+    // Generic
+    Block,
+}
+
+struct ChunkRelation {
+    target_chunk: u64,
+    relation_type: RelationType,
+}
+```
+
+### 7.3 Task Context Management
+
+**Every task has a context file:**
+
+```rust
+struct TaskContext {
+    task_id: u64,
+    
+    // Linked resources
+    workspace_context: u64,     // Container ID
+    project_context: Option<u64>,
+    
+    // Aggregated context for this task
+    relevant_files: Vec<u64>,   // File reference container IDs
+    relevant_chunks: Vec<u64>,  // Chunk IDs
+    methodologies_used: Vec<u64>,
+    blueprint_id: Option<u64>,
+    
+    // Context window management
+    token_budget: u32,
+    current_tokens: u32,
+    
+    // Multi-pass organization
+    passes_completed: u32,
+    organization_state: OrganizationState,
+}
+
+struct OrganizationState {
+    // Tracks what has been reviewed
+    reviewed_files: HashSet<u64>,
+    reviewed_chunks: HashSet<u64>,
+    
+    // Tracks relevance scores
+    relevance_scores: HashMap<u64, f32>,
+    
+    // Tracks what's included in final context
+    included_items: Vec<ContextItem>,
+}
+
+struct ContextItem {
+    container_id: u64,
+    chunk_id: Option<u64>,
+    relevance_score: f32,
+    token_count: u32,
+}
+```
+
+### 7.4 Context Aggregation Process
+
+**Order of Events for Context Building:**
+
+```
+1. TASK RECEIVES PROMPT
+   │
+   ├── 2. LOAD WORKSPACE CONTEXT
+   │   ├── Get workspace container
+   │   ├── Load linked file references
+   │   └── Load project context (if applicable)
+   │
+   ├── 3. IDENTIFY RELEVANT FILES
+   │   ├── Keyword matching against prompt
+   │   ├── Semantic similarity search
+   │   └── Relationship traversal
+   │
+   ├── 4. CHUNK RETRIEVAL
+   │   ├── For each relevant file:
+   │   │   ├── Load chunks
+   │   │   └── Score relevance to prompt
+   │   └── Rank all chunks by relevance
+   │
+   ├── 5. MULTI-PASS ORGANIZATION
+   │   ├── Pass 1: Initial selection (top-K by relevance)
+   │   ├── Pass 2: Relationship expansion
+   │   ├── Pass 3: Gap analysis
+   │   ├── Pass N: Until budget filled or complete
+   │   └── Each pass: Zero-shot validation
+   │
+   ├── 6. TOKEN BUDGET ENFORCEMENT
+   │   ├── Sum tokens of selected items
+   │   ├── Prune lowest relevance if over budget
+   │   └── Ensure coherence after pruning
+   │
+   └── 7. CONTEXT ASSEMBLY
+       ├── Order items by logical flow
+       ├── Add relationship markers
+       └── Return compiled context
+```
+
+---
+
+## 8. CODE ANALYSIS & GENERATION SYSTEM
+
+### 8.1 Overview
+
+Code analysis in ZSEI is **bidirectional**: the same structures used for analysis inform generation, ensuring consistency.
+
+### 8.2 Code Context Schema
+
+```rust
+struct CodeContext {
+    // File metadata
+    language: ProgrammingLanguage,
+    parser_version: u32,
+    
+    // Structural Analysis
+    ast_summary: ASTSummary,
+    modules: Vec<ModuleInfo>,
+    functions: Vec<FunctionInfo>,
+    classes: Vec<ClassInfo>,
+    imports: Vec<ImportInfo>,
+    exports: Vec<ExportInfo>,
+    
+    // Dependency Analysis
+    dependencies: Vec<DependencyInfo>,
+    dependents: Vec<u64>,           // Who depends on this
+    
+    // Semantic Understanding
+    patterns_detected: Vec<PatternInfo>,
+    architectural_layer: Option<ArchitecturalLayer>,
+    quality_metrics: QualityMetrics,
+    
+    // Relationships
+    call_graph: CallGraph,
+    data_flow: DataFlowGraph,
+    type_dependencies: Vec<TypeDependency>,
+}
+
+enum ProgrammingLanguage {
+    Rust,
+    Python,
+    JavaScript,
+    TypeScript,
+    Go,
+    Java,
+    CSharp,
+    Cpp,
+    C,
+    Ruby,
+    PHP,
+    Swift,
+    Kotlin,
+    Scala,
+    Custom(String),
+}
+
+struct ASTSummary {
+    node_count: u32,
+    depth: u16,
+    complexity_score: f32,
+}
+
+struct ModuleInfo {
+    module_id: u64,
+    name: String,
+    path: String,
+    visibility: Visibility,
+    purpose_summary: String,
+    imports: Vec<u64>,      // ImportInfo IDs
+    exports: Vec<u64>,      // ExportInfo IDs
+    functions: Vec<u64>,    // FunctionInfo IDs
+    classes: Vec<u64>,      // ClassInfo IDs
+}
+
+struct FunctionInfo {
+    function_id: u64,
+    name: String,
+    visibility: Visibility,
+    parameters: Vec<ParameterInfo>,
+    return_type: Option<String>,
+    purpose_summary: String,
+    behavior_description: String,
+    complexity: ComplexityMetrics,
+    calls_to: Vec<u64>,     // Other function IDs
+    called_by: Vec<u64>,
+}
+
+struct ParameterInfo {
+    name: String,
+    type_annotation: Option<String>,
+    default_value: Option<String>,
+    purpose: String,
+}
+
+struct ClassInfo {
+    class_id: u64,
+    name: String,
+    visibility: Visibility,
+    parent_classes: Vec<String>,
+    interfaces: Vec<String>,
+    methods: Vec<u64>,      // FunctionInfo IDs
+    properties: Vec<PropertyInfo>,
+    purpose_summary: String,
+}
+
+struct PropertyInfo {
+    name: String,
+    type_annotation: Option<String>,
+    visibility: Visibility,
+    is_static: bool,
+}
+
+struct ImportInfo {
+    import_id: u64,
+    source: String,         // Module path or package name
+    items: Vec<String>,     // What's imported
+    is_external: bool,
+    package_version: Option<String>,
+}
+
+struct ExportInfo {
+    export_id: u64,
+    name: String,
+    export_type: ExportType,
+}
+
+enum ExportType {
+    Function,
+    Class,
+    Constant,
+    Type,
+    Module,
+    Default,
+}
+
+struct DependencyInfo {
+    package_name: String,
+    version_constraint: String,
+    resolved_version: Option<String>,
+    is_dev_dependency: bool,
+    is_optional: bool,
+}
+
+struct PatternInfo {
+    pattern_type: DesignPattern,
+    confidence: f32,
+    involved_elements: Vec<u64>,
+}
+
+enum DesignPattern {
+    Singleton,
+    Factory,
+    Observer,
+    Strategy,
+    Decorator,
+    Adapter,
+    Facade,
+    Repository,
+    ServiceLocator,
+    DependencyInjection,
+    MVC,
+    MVVM,
+    Custom(String),
+}
+
+enum ArchitecturalLayer {
+    Presentation,
+    Application,
+    Domain,
+    Infrastructure,
+    DataAccess,
+    API,
+    Utility,
+}
+
+struct QualityMetrics {
+    cyclomatic_complexity: f32,
+    cognitive_complexity: f32,
+    maintainability_index: f32,
+    test_coverage: Option<f32>,
+    documentation_coverage: f32,
+}
+
+struct CallGraph {
+    nodes: Vec<CallGraphNode>,
+    edges: Vec<CallGraphEdge>,
+}
+
+struct CallGraphNode {
+    function_id: u64,
+    call_depth: u16,
+    fan_in: u32,
+    fan_out: u32,
+}
+
+struct CallGraphEdge {
+    caller: u64,
+    callee: u64,
+    call_count: u32,
+    is_recursive: bool,
+}
+
+struct DataFlowGraph {
+    nodes: Vec<DataFlowNode>,
+    edges: Vec<DataFlowEdge>,
+}
+
+struct DataFlowNode {
+    node_id: u64,
+    node_type: DataFlowNodeType,
+    name: String,
+}
+
+enum DataFlowNodeType {
+    Variable,
+    Parameter,
+    Return,
+    Property,
+    External,
+}
+
+struct DataFlowEdge {
+    source: u64,
+    target: u64,
+    flow_type: DataFlowType,
+}
+
+enum DataFlowType {
+    Assignment,
+    Transformation,
+    PassThrough,
+    Conditional,
+}
+
+struct TypeDependency {
+    source_type: String,
+    target_type: String,
+    dependency_type: TypeDependencyType,
+}
+
+enum TypeDependencyType {
+    Inheritance,
+    Implementation,
+    Usage,
+    Generic,
+}
+
+enum Visibility {
+    Public,
+    Private,
+    Protected,
+    Internal,
+    Module,
+}
+
+struct ComplexityMetrics {
+    cyclomatic: u32,
+    cognitive: u32,
+    lines_of_code: u32,
+    parameter_count: u8,
+}
+```
+
+### 8.3 Code Analysis Pipeline
+
+**Order of Events:**
+
+```
+1. FILE LINKED TO PROJECT
+   │
+   ├── 2. DETECT LANGUAGE
+   │   └── By extension and content analysis
+   │
+   ├── 3. LOAD LANGUAGE-SPECIFIC PARSER
+   │   └── Parse to AST
+   │
+   ├── 4. FILE-LEVEL ANALYSIS
+   │   ├── Extract imports/dependencies
+   │   ├── Identify module structure
+   │   └── Document file purpose
+   │
+   ├── 5. FUNCTION-LEVEL ANALYSIS
+   │   ├── Extract signatures
+   │   ├── Analyze parameters and returns
+   │   ├── Identify behaviors
+   │   └── Calculate complexity
+   │
+   ├── 6. CLASS-LEVEL ANALYSIS
+   │   ├── Extract class hierarchies
+   │   ├── Identify interfaces
+   │   └── Map methods and properties
+   │
+   ├── 7. CROSS-MODULE ANALYSIS
+   │   ├── Build call graph
+   │   ├── Map data flow
+   │   └── Identify dependencies
+   │
+   ├── 8. PATTERN DETECTION
+   │   ├── Identify design patterns
+   │   ├── Classify architectural layer
+   │   └── Assess quality metrics
+   │
+   ├── 9. SEMANTIC UNDERSTANDING
+   │   ├── Infer intent from code
+   │   ├── Generate summaries
+   │   └── Create embeddings
+   │
+   └── 10. STORE IN ZSEI
+       ├── Create CodeContext
+       ├── Store chunks
+       └── Create relationships
+```
+
+### 8.4 Package Context Pipeline
+
+**For dependency/package version tracking:**
+
+```rust
+struct PackageContext {
+    package_manager: PackageManager,
+    lock_file_path: Option<String>,
+    packages: Vec<PackageInfo>,
+    last_updated: u64,
+}
+
+enum PackageManager {
+    Npm,
+    Yarn,
+    Pnpm,
+    Cargo,
+    Pip,
+    Poetry,
+    Maven,
+    Gradle,
+    Go,
+    Gem,
+    Composer,
+    NuGet,
+    Custom(String),
+}
+
+struct PackageInfo {
+    name: String,
+    current_version: String,
+    latest_version: Option<String>,
+    version_constraint: String,
+    is_outdated: bool,
+    breaking_changes: Vec<BreakingChange>,
+    deprecations: Vec<String>,
+    documentation_url: Option<String>,
+}
+
+struct BreakingChange {
+    from_version: String,
+    to_version: String,
+    description: String,
+    migration_guide: Option<String>,
+}
+```
+
+**Pipeline triggers when:**
+- Project with code files is loaded
+- User requests code analysis
+- LLM needs package context for code generation
+
+---
+
+## 9. TEXT DOCUMENT ANALYSIS SYSTEM
+
+### 9.1 Overview
+
+Text analysis maintains thematic relationships, understands conceptual connections, and enables insight discovery across document collections.
+
+### 9.2 Text Context Schema
+
+```rust
+struct TextContext {
+    // Document metadata
+    document_type: DocumentType,
+    language: NaturalLanguage,
+    
+    // Structural Analysis
+    structure: DocumentStructure,
+    
+    // Semantic Analysis
+    themes: Vec<ThemeInfo>,
+    concepts: Vec<ConceptInfo>,
+    arguments: Vec<ArgumentInfo>,
+    
+    // Communication Analysis
+    purpose: DocumentPurpose,
+    audience: Option<AudienceProfile>,
+    tone: ToneProfile,
+    effectiveness_metrics: EffectivenessMetrics,
+    
+    // Relationships
+    thematic_relationships: Vec<ThematicRelation>,
+    conceptual_connections: Vec<ConceptualConnection>,
+}
+
+enum DocumentType {
+    Article,
+    Report,
+    Essay,
+    Documentation,
+    Tutorial,
+    Email,
+    Letter,
+    Contract,
+    Specification,
+    Narrative,
+    Research,
+    Custom(String),
+}
+
+enum NaturalLanguage {
+    English,
+    Spanish,
+    French,
+    German,
+    Chinese,
+    Japanese,
+    Korean,
+    Portuguese,
+    Russian,
+    Arabic,
+    Custom(String),
+}
+
+struct DocumentStructure {
+    total_sections: u32,
+    total_paragraphs: u32,
+    total_sentences: u32,
+    total_words: u32,
+    
+    hierarchy: Vec<StructureNode>,
+}
+
+struct StructureNode {
+    node_id: u64,
+    node_type: StructureNodeType,
+    level: u8,              // Heading level or nesting depth
+    title: Option<String>,
+    summary: String,
+    position: (u64, u64),   // (start, end) in document
+    children: Vec<u64>,
+}
+
+enum StructureNodeType {
+    Document,
+    Section,
+    Subsection,
+    Paragraph,
+    Sentence,
+    List,
+    ListItem,
+    Quote,
+    CodeBlock,
+}
+
+struct ThemeInfo {
+    theme_id: u64,
+    name: String,
+    description: String,
+    occurrences: Vec<ThemeOccurrence>,
+    evolution: Vec<ThemeEvolution>,
+    strength: f32,
+}
+
+struct ThemeOccurrence {
+    location: u64,          // StructureNode ID
+    context: String,
+    relevance: f32,
+}
+
+struct ThemeEvolution {
+    position_percent: f32,  // 0.0 to 1.0 through document
+    intensity: f32,
+}
+
+struct ConceptInfo {
+    concept_id: u64,
+    name: String,
+    definition: String,
+    related_concepts: Vec<u64>,
+    occurrences: Vec<u64>,  // StructureNode IDs
+}
+
+struct ArgumentInfo {
+    argument_id: u64,
+    claim: String,
+    supporting_evidence: Vec<EvidenceInfo>,
+    counter_arguments: Vec<u64>,
+    strength: f32,
+    location: u64,
+}
+
+struct EvidenceInfo {
+    evidence_type: EvidenceType,
+    content: String,
+    source: Option<String>,
+    location: u64,
+}
+
+enum EvidenceType {
+    Fact,
+    Statistic,
+    Quote,
+    Example,
+    Analogy,
+    Expert,
+    Research,
+}
+
+struct DocumentPurpose {
+    primary_purpose: PurposeType,
+    secondary_purposes: Vec<PurposeType>,
+    target_outcome: String,
+}
+
+enum PurposeType {
+    Inform,
+    Persuade,
+    Entertain,
+    Instruct,
+    Document,
+    Analyze,
+    Propose,
+    Report,
+}
+
+struct AudienceProfile {
+    expertise_level: ExpertiseLevel,
+    assumed_knowledge: Vec<String>,
+    communication_preferences: Vec<String>,
+}
+
+enum ExpertiseLevel {
+    Novice,
+    Intermediate,
+    Advanced,
+    Expert,
+    Mixed,
+}
+
+struct ToneProfile {
+    formality: f32,         // 0.0 (informal) to 1.0 (formal)
+    objectivity: f32,       // 0.0 (subjective) to 1.0 (objective)
+    confidence: f32,
+    emotions_detected: Vec<EmotionDetection>,
+}
+
+struct EmotionDetection {
+    emotion: String,
+    intensity: f32,
+    locations: Vec<u64>,
+}
+
+struct EffectivenessMetrics {
+    clarity_score: f32,
+    coherence_score: f32,
+    completeness_score: f32,
+    engagement_score: f32,
+    improvement_suggestions: Vec<ImprovementSuggestion>,
+}
+
+struct ImprovementSuggestion {
+    location: u64,
+    suggestion_type: SuggestionType,
+    description: String,
+    priority: Priority,
+}
+
+enum SuggestionType {
+    Clarity,
+    Structure,
+    Evidence,
+    Flow,
+    Tone,
+    Grammar,
+}
+
+enum Priority {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+struct ThematicRelation {
+    source_theme: u64,
+    target_theme: u64,
+    relation_type: ThematicRelationType,
+    strength: f32,
+}
+
+enum ThematicRelationType {
+    Supports,
+    Contrasts,
+    Extends,
+    Prerequisites,
+    Concludes,
+}
+
+struct ConceptualConnection {
+    source_concept: u64,
+    target_concept: u64,
+    connection_type: ConnectionType,
+    explicit: bool,         // Explicit or inferred
+}
+
+enum ConnectionType {
+    Definition,
+    Example,
+    Contrast,
+    Cause,
+    Effect,
+    Similarity,
+}
+```
+
+### 9.3 Text Analysis Pipeline
+
+**Order of Events:**
+
+```
+1. FILE LINKED TO PROJECT
+   │
+   ├── 2. DETECT DOCUMENT TYPE
+   │   └── By extension, content, structure
+   │
+   ├── 3. STRUCTURAL ANALYSIS
+   │   ├── Count paragraphs, sentences
+   │   ├── Build hierarchy
+   │   └── Identify sections
+   │
+   ├── 4. THEME EXTRACTION
+   │   ├── Identify recurring themes
+   │   ├── Track theme evolution
+   │   └── Calculate theme strength
+   │
+   ├── 5. CONCEPT MAPPING
+   │   ├── Extract key concepts
+   │   ├── Build concept relationships
+   │   └── Create definitions
+   │
+   ├── 6. ARGUMENT ANALYSIS
+   │   ├── Identify claims
+   │   ├── Map supporting evidence
+   │   └── Assess argument strength
+   │
+   ├── 7. COMMUNICATION ANALYSIS
+   │   ├── Determine purpose
+   │   ├── Profile audience
+   │   ├── Analyze tone
+   │   └── Calculate effectiveness
+   │
+   ├── 8. SEMANTIC EMBEDDING
+   │   ├── Generate embeddings per section
+   │   └── Create document embedding
+   │
+   └── 9. STORE IN ZSEI
+       ├── Create TextContext
+       ├── Store chunks (preserving meaning)
+       └── Create relationships
+```
+
+---
+
+## 10. PIPELINE SYSTEM
+
+### 10.1 Pipeline Definition
+
+**Core Concept:**
+> A pipeline is a composable, executable unit with well-defined inputs/outputs that performs a specific transformation or task.
+
+```rust
+trait Pipeline {
+    // Identity
+    fn id(&self) -> PipelineID;
+    fn name(&self) -> &str;
+    fn version(&self) -> Version;
+    
+    // Interface
+    fn input_schema(&self) -> Schema;
+    fn output_schema(&self) -> Schema;
+    
+    // Execution
+    fn execute(&self, input: PipelineInput) -> Result<PipelineOutput>;
+    
+    // Task Registration (REQUIRED)
+    fn register_task(&self, task_manager: &TaskManager) -> TaskID;
+    
+    // Composition
+    fn dependencies(&self) -> Vec<PipelineID>;
+    fn sub_pipelines(&self) -> Vec<PipelineID>;
+    
+    // UI (optional)
+    fn has_ui(&self) -> bool { false }
+    fn render_ui(&self, context: UIContext) -> Option<UIState> { None }
+    
+    // Metadata
+    fn metadata(&self) -> PipelineMetadata;
+}
+
+struct PipelineMetadata {
+    author: PublicKey,
+    description: String,
+    tags: Vec<String>,
+    created_at: u64,
+    language: Language,
+    runtime_requirements: Vec<Dependency>,
+}
+
+struct Schema {
+    fields: Vec<Field>,
+    validation_rules: Vec<ValidationRule>,
+}
+
+struct Field {
+    name: String,
+    field_type: FieldType,
+    required: bool,
+    default: Option<Value>,
+    description: String,
+}
+
+enum FieldType {
+    Text,
+    Number,
+    Float,
+    Bool,
+    Array(Box<FieldType>),
+    Object(Schema),
+    ContainerID,
+    TaskID,
+    PipelineID,
+    Binary,
+    Custom(String),
+}
+
+struct ValidationRule {
+    field: String,
+    rule_type: RuleType,
     message: String,
-    show_progress: bool,
-    allow_interaction: bool,  // True = non-blocking
 }
 
-5.3 Non-Blocking ImplementationKey Principle:
+enum RuleType {
+    Required,
+    MinLength(usize),
+    MaxLength(usize),
+    Pattern(String),
+    Range(f64, f64),
+    Custom(String),
+}
+```
 
-No user action should ever block the UI for more than 50ms.
-Implementation:
+### 10.2 Pipeline Library (Distributed)
 
-// In UI layer
-impl ThemeArea {
-    async fn handle_user_action(&mut self, action: UserAction) -> Result<()> {
-        // Immediately show feedback
-        self.show_loading_indicator(&action);
-        
-        // Spawn background task
-        let task_id = self.executor.spawn(async move {
-            // Long-running operation
-            execute_pipeline(action.pipeline_id, action.inputs).await
-        });
-        
-        // Store task reference
-        self.pending_tasks.insert(action.id, task_id);
-        
-        // Return immediately - UI stays responsive
-        Ok(())
-    }
+```rust
+struct PipelineLibrary {
+    pipelines: HashMap<PipelineID, PipelineBlueprint>,
+    local_cache: PathBuf,
+    peers: Vec<PeerNode>,
+    sync_status: SyncStatus,
+}
+
+struct PipelineBlueprint {
+    pipeline_id: u64,
+    name: String,
+    version: SemVer,
+    author: PublicKey,
+    description: String,
     
-    fn update(&mut self) {
-        // Check completed tasks
-        for (action_id, task_id) in &self.pending_tasks {
-            if let Some(result) = self.executor.try_get(task_id) {
-                // Update UI with result
-                self.apply_result(action_id, result);
-                self.pending_tasks.remove(action_id);
-            }
-        }
-        
-        // Always allow "Return Home" even during loading
-        if self.input.check_return_home_button() {
-            self.switch_theme(HOME_THEME_ID);
-        }
-    }
-}
-
-5.4 Theme Switching (Seamless)
-
-impl OzoneStudio {
-    async fn switch_theme(&mut self, new_theme_id: u64) -> Result<()> {
-        // 1. Save current theme state
-        let current_state = self.theme_area.save_state()?;
-        self.zsei.store_theme_state(
-            self.session.user_id,
-            self.current_theme_id,
-            current_state,
-        ).await?;
-        
-        // 2. Load new theme pipeline
-        let new_theme = self.pipeline_library.get(new_theme_id).await?;
-        
-        // 3. Initialize new theme (async)
-        let init_task = new_theme.initialize(self.session.clone()).await;
-        
-        // 4. Show transition UI (optional smooth fade)
-        self.theme_area.show_transition();
-        
-        // 5. Wait for init (with timeout)
-        let theme_state = tokio::time::timeout(
-            Duration::from_secs(5),
-            init_task
-        ).await??;
-        
-        // 6. Render new theme
-        self.theme_area.render(new_theme, theme_state)?;
-        self.current_theme_id = new_theme_id;
-        
-        Ok(())
-    }
-}
-
-
-
-   
-
-
-
-    is_core_memory: bool,
-    memory_strength: f32,
+    // Language-agnostic specification
+    specification: BlueprintSpec,
     
-    // Storage
-    container_id: u64,  // ZSEI container for this experience
+    // Available implementations
+    implementations: Vec<Implementation>,
+    
+    // Distributed storage
+    content_hash: Blake3Hash,
+    peers: Vec<PeerNode>,
+}
+
+struct Implementation {
+    language: Language,
+    runtime_requirements: Vec<Dependency>,
+    code_location: CodePointer,
+    executable: bool,
+}
+
+enum Language {
+    Rust,
+    Python,
+    JavaScript,
+    TypeScript,
+    Go,
+    Custom(String),
+}
+
+struct CodePointer {
+    hash: Blake3Hash,
+    size: u64,
+    chunks: Vec<ChunkID>,
+    mirrors: Vec<PeerNode>,
+}
+
+struct PeerNode {
+    peer_id: PublicKey,
+    address: String,
+    last_seen: u64,
+}
+
+struct SemVer {
+    major: u16,
+    minor: u16,
+    patch: u16,
+}
+```
+
+### 10.3 Pipeline Container (Composition)
+
+```rust
+struct PipelineContainer {
+    container_id: u64,
+    contained_pipelines: Vec<PipelineID>,
+    execution_order: ExecutionOrder,
+    data_flow: DataFlowGraph,
+}
+
+enum ExecutionOrder {
+    Sequential,
+    Parallel,
+    Conditional { condition: String, branches: HashMap<String, PipelineID> },
+    DAG(ExecutionGraph),
+}
+
+struct PipelineDataFlowGraph {
+    edges: Vec<PipelineDataEdge>,
+}
+
+struct PipelineDataEdge {
+    from: (PipelineID, String),    // (pipeline, output_field)
+    to: (PipelineID, String),      // (pipeline, input_field)
+    transform: Option<String>,     // Transform expression
+}
+
+struct ExecutionGraph {
+    nodes: Vec<ExecutionNode>,
+    edges: Vec<ExecutionEdge>,
+}
+
+struct ExecutionNode {
+    pipeline_id: PipelineID,
+    inputs_required: Vec<String>,
+    outputs_provided: Vec<String>,
+}
+
+struct ExecutionEdge {
+    from_node: PipelineID,
+    to_node: PipelineID,
+    data_mapping: Vec<(String, String)>,
+}
+```
+
+---
+
+## 11. TASK MANAGEMENT
+
+### 11.1 Critical Requirement
+
+**Every pipeline execution MUST register itself as a Task.**
+
+This enables:
+- Tracking all computation
+- Debugging and observability
+- Progress monitoring
+- Resource management
+- Task recommendation learning
+
+### 11.2 Task Schema
+
+```rust
+struct Task {
+    task_id: u64,
+    status: TaskStatus,
+    created_at: u64,
+    started_at: Option<u64>,
+    completed_at: Option<u64>,
+    
+    // Pipeline linkage
+    pipeline_used: u64,
+    pipeline_container: Option<u64>,
+    
+    // Hierarchy
+    parent_task_id: Option<u64>,
+    child_tasks: Vec<u64>,
+    
+    // Data
+    inputs: Vec<TaskInput>,
+    outputs: Vec<TaskOutput>,
+    
+    // Execution context
+    user_id: u64,
+    device_id: u64,
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+    task_context_id: Option<u64>,  // ZSEI container for task context
+    
+    // Observability
+    logs: Vec<LogEntry>,
+    error: Option<TaskError>,
+    progress: f32,
+    
+    // Resources
+    resource_usage: ResourceUsage,
+}
+
+enum TaskStatus {
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Cancelled,
+    Paused,
+}
+
+struct TaskInput {
+    name: String,
+    value: Value,
+    source: Option<u64>,
+}
+
+struct TaskOutput {
+    name: String,
+    value: Value,
+    stored_at: Option<u64>,
+}
+
+struct LogEntry {
+    timestamp: u64,
+    level: LogLevel,
+    message: String,
+    metadata: HashMap<String, String>,
+}
+
+enum LogLevel {
+    Trace,
+    Debug,
+    Info,
+    Warn,
+    Error,
+}
+
+struct TaskError {
+    error_type: String,
+    message: String,
+    stack_trace: Option<String>,
+    recoverable: bool,
+}
+
+struct ResourceUsage {
+    cpu_time_ms: u64,
+    memory_peak_mb: u64,
+    disk_read_mb: u64,
+    disk_write_mb: u64,
+    network_sent_mb: u64,
+    network_recv_mb: u64,
+}
+```
+
+### 11.3 Task Tracking Flow
+
+```
+1. PIPELINE EXECUTION REQUEST
+   │
+   ├── 2. CREATE TASK RECORD
+   │   ├── Generate task_id
+   │   ├── Set status: Queued
+   │   ├── Link to pipeline
+   │   └── Link to user/device
+   │
+   ├── 3. STORE TASK
+   │   ├── Insert into PostgreSQL
+   │   └── Create ZSEI container (if needed)
+   │
+   ├── 4. QUEUE FOR EXECUTION
+   │   └── Add to scheduler queue
+   │
+   ├── 5. START EXECUTION
+   │   ├── Update status: Running
+   │   ├── Set started_at
+   │   └── Begin resource tracking
+   │
+   ├── 6. EXECUTE PIPELINE
+   │   ├── Update progress periodically
+   │   ├── Log events
+   │   └── Handle sub-tasks
+   │
+   ├── 7. COLLECT RESULTS
+   │   ├── Store outputs
+   │   └── Update resource usage
+   │
+   ├── 8. FINALIZE
+   │   ├── Update status: Completed/Failed
+   │   ├── Set completed_at
+   │   └── Calculate final metrics
+   │
+   └── 9. NOTIFY
+       ├── Update UI
+       └── Trigger recommendations (if applicable)
+```
+
+### 11.4 Task Visualization
+
+**Graph View Pipeline:**
+
+```rust
+struct TaskGraph {
+    nodes: Vec<TaskGraphNode>,
+    edges: Vec<TaskGraphEdge>,
+    layout: GraphLayout,
+}
+
+struct TaskGraphNode {
+    task_id: u64,
+    label: String,
+    status: TaskStatus,
+    position: (f32, f32),
+    size: (f32, f32),
+    color: Color,
+}
+
+struct TaskGraphEdge {
+    from_task: u64,
+    to_task: u64,
+    edge_type: TaskEdgeType,
+}
+
+enum TaskEdgeType {
+    ParentChild,
+    DataDependency,
+    Sequential,
+}
+
+enum GraphLayout {
+    Hierarchical,
+    ForceDirected,
+    Timeline,
+    Gantt,
+}
+```
+
+---
+
+## 12. METHODOLOGY SYSTEM
+
+### 12.1 What is a Methodology?
+
+**Definition:**
+> A methodology is a set of principles, heuristics, and decision rules for approaching a problem or domain.
+
+**Properties:**
+- **Category-specific** (bound to categories in ZSEI)
+- **Reusable** across tasks
+- **General** (not step-by-step instructions)
+- **Aggregatable** (multiple apply to a task)
+- **Discoverable** via keywords and topics
+
+### 12.2 Methodology Schema
+
+```rust
+struct Methodology {
+    methodology_id: u64,
+    name: String,
+    description: String,
+    
+    // Category binding
+    category_ids: Vec<u64>,
+    
+    // Discoverability
+    keywords: Vec<String>,
+    topics: Vec<String>,
+    
+    // Content
+    principles: Vec<Principle>,
+    heuristics: Vec<Heuristic>,
+    decision_rules: Vec<DecisionRule>,
+    
+    // Usage tracking
+    usage_count: u64,
+    success_rate: f32,
+    
+    // Metadata
+    created_at: u64,
+    created_by: PublicKey,
+    version: Version,
+    
+    // Distribution
+    distributed: bool,
+}
+
+struct Principle {
+    principle_id: u64,
+    statement: String,
+    rationale: String,
+    applicability: Vec<String>,
+}
+
+struct Heuristic {
+    heuristic_id: u64,
+    name: String,
+    description: String,
+    when_to_apply: String,
+    examples: Vec<String>,
+}
+
+struct DecisionRule {
+    rule_id: u64,
+    condition: String,
+    action: String,
+    priority: u8,
+    exceptions: Vec<String>,
+}
+```
+
+### 12.3 Methodology Storage in ZSEI
+
+**Location:**
+- Global ZSEI: `/Modalities/{modality}/Methodologies/`
+- Category containers: `context.methodologies: Vec<u64>`
+
+**Indexing:**
+- By category_id
+- By keywords
+- By topics
+- By semantic embedding
+
+### 12.4 Methodology Lifecycle
+
+```
+1. PROMPT RECEIVED
+   │
+   ├── 2. CATEGORY IDENTIFICATION
+   │   ├── Analyze prompt for modality
+   │   ├── Traverse category hierarchy
+   │   └── Return relevant category_ids
+   │
+   ├── 3. METHODOLOGY FETCH
+   │   ├── For each category:
+   │   │   └── Load methodologies
+   │   ├── Keyword matching against prompt
+   │   ├── Topic matching against prompt
+   │   └── Aggregate all matches
+   │
+   ├── 4. GAP ANALYSIS (Zero-Shot Loop)
+   │   ├── LLM reviews aggregated methodologies
+   │   ├── Identifies missing principles
+   │   └── Suggests new methodologies if needed
+   │
+   ├── 5. METHODOLOGY CREATION (if needed)
+   │   ├── Generate new methodology
+   │   ├── Assign keywords and topics
+   │   ├── Link to categories
+   │   └── Store in ZSEI
+   │
+   ├── 6. VALIDATION LOOP
+   │   ├── Repeat steps 3-5 until:
+   │   │   ├── LLM confirms completeness
+   │   │   └── OR max iterations reached
+   │   └── Each iteration adds to aggregated list
+   │
+   └── 7. RETURN METHODOLOGIES
+       └── List of methodology_ids for blueprint creation
+```
+
+---
+
+## 13. BLUEPRINT SYSTEM
+
+### 13.1 What is a Blueprint?
+
+**Definition:**
+> A blueprint is a precise, ordered, task-specific specification of steps/components needed to accomplish a goal.
+
+**Key Properties:**
+- **Task-specific** (unique per distinct task)
+- **Ordered** (sequence matters)
+- **Precise** (no ambiguity)
+- **Reusable** (if exact same task)
+- **Derived from methodologies**
+- **References methodologies used**
+
+**Critical Invariant:**
+> Different tasks require different blueprints. If two tasks use the same blueprint, they are the same task.
+
+### 13.2 Blueprint Schema
+
+```rust
+struct Blueprint {
+    blueprint_id: u64,
+    name: String,
+    description: String,
+    
+    // Task signature (for matching)
+    task_signature: TaskSignature,
+    
+    // Structure
+    steps: Vec<BlueprintStep>,
+    dependencies: Vec<BlueprintDependency>,
+    
+    // Methodology linkage
+    methodologies_used: Vec<u64>,
+    
+    // Context
+    modalities: Vec<Modality>,
+    categories: Vec<u64>,
+    keywords: Vec<String>,
+    topics: Vec<String>,
+    
+    // Validation
+    validated: bool,
+    validation_runs: u32,
+    success_rate: f32,
+    
+    // Metadata
+    created_at: u64,
+    created_by: PublicKey,
+    version: Version,
+    
+    // Distribution
+    distributed: bool,
+    usage_count: u64,
+}
+
+struct TaskSignature {
+    // Normalized representation of the task
+    input_types: Vec<String>,
+    output_type: String,
+    constraints: Vec<String>,
+    hash: Blake3Hash,       // Hash of normalized task description
+}
+
+struct BlueprintStep {
+    step_id: u64,
+    order: u32,
+    action: String,
+    description: String,
+    inputs: Vec<StepInput>,
+    outputs: Vec<StepOutput>,
+    pipeline_suggestion: Option<PipelineID>,
+    optional: bool,
+    conditional: Option<StepCondition>,
+}
+
+struct StepInput {
+    name: String,
+    source: StepInputSource,
+    required: bool,
+}
+
+enum StepInputSource {
+    TaskInput(String),
+    PreviousStep(u64, String),
+    Context(String),
+    External(String),
+}
+
+struct StepOutput {
+    name: String,
+    description: String,
+    stored: bool,
+}
+
+struct StepCondition {
+    condition: String,
+    skip_if_false: bool,
+}
+
+struct BlueprintDependency {
+    step_id: u64,
+    depends_on: Vec<u64>,
+    dependency_type: BlueprintDependencyType,
+}
+
+enum BlueprintDependencyType {
+    Sequential,     // Must complete before
+    DataFlow,       // Output feeds input
+    Conditional,    // If condition met
+    Optional,       // Nice to have
+}
+```
+
+### 13.3 Blueprint Search vs Creation
+
+**Search First Strategy:**
+
+```
+1. PROMPT RECEIVED
+   │
+   ├── 2. GENERATE TASK SIGNATURE
+   │   ├── Normalize prompt
+   │   ├── Extract input/output types
+   │   ├── Identify constraints
+   │   └── Compute signature hash
+   │
+   ├── 3. SEARCH EXISTING BLUEPRINTS
+   │   ├── Hash match (exact)
+   │   ├── Keyword match (fuzzy)
+   │   ├── Semantic match (embedding)
+   │   └── Return candidates
+   │
+   ├── 4. IF FOUND:
+   │   ├── Load best matching blueprint
+   │   ├── Validate still current
+   │   │   └── Check for new methodologies
+   │   ├── Update if needed
+   │   └── Use blueprint
+   │
+   └── 5. IF NOT FOUND:
+       └── Create new blueprint (see §14)
+```
+
+### 13.4 Blueprint Reordering Pipeline
+
+**Operations:**
+
+```rust
+enum BlueprintModification {
+    AddStep(BlueprintStep),
+    RemoveStep(u64),
+    MoveStep { step_id: u64, new_order: u32 },
+    EditStep { step_id: u64, updates: StepUpdate },
+    InsertBefore { reference_step: u64, new_step: BlueprintStep },
+    InsertAfter { reference_step: u64, new_step: BlueprintStep },
+    ReplaceStep { step_id: u64, new_step: BlueprintStep },
+}
+
+struct StepUpdate {
+    action: Option<String>,
+    description: Option<String>,
+    inputs: Option<Vec<StepInput>>,
+    outputs: Option<Vec<StepOutput>>,
+    pipeline_suggestion: Option<Option<PipelineID>>,
+    optional: Option<bool>,
+    conditional: Option<Option<StepCondition>>,
+}
+```
+
+**Reordering Process:**
+
+```
+1. MODIFICATION REQUEST
+   │
+   ├── 2. VALIDATE CHANGE
+   │   ├── Check dependency violations
+   │   ├── Check data flow integrity
+   │   └── Verify step references
+   │
+   ├── 3. APPLY CHANGE
+   │   ├── Update step order numbers
+   │   ├── Recompute dependencies
+   │   └── Update data flow edges
+   │
+   ├── 4. VALIDATE NEW BLUEPRINT
+   │   ├── Zero-shot validation
+   │   ├── Ensure completeness
+   │   └── Check for gaps
+   │
+   └── 5. STORE NEW VERSION
+       ├── Increment version
+       └── Store in ZSEI
+```
+
+---
+
+## 14. ZERO-SHOT SIMULATION LOOPS
+
+### 14.1 Purpose
+
+**Goal:**
+> Ensure completeness and correctness through iterative refinement without task-specific training.
+
+**Applied To:**
+- Methodology aggregation
+- Blueprint creation
+- Blueprint validation
+- Category/subcategory refinement
+- Pipeline creation
+
+### 14.2 Core Loop Structure
+
+```rust
+struct SimulationConfig {
+    max_iterations: u32,            // Default: 10
+    confidence_threshold: f32,      // Default: 0.95
+    early_stop: bool,               // Default: true
+}
+
+struct SimulationState {
+    iteration: u32,
+    items_reviewed: HashSet<u64>,
+    items_created: Vec<u64>,
+    items_modified: Vec<u64>,
+    confidence: f32,
+    complete: bool,
+}
+
+struct ValidationResult {
+    complete: bool,
+    confidence: f32,
+    gaps: Vec<Gap>,
+    issues: Vec<Issue>,
+    suggestions: Vec<Suggestion>,
+}
+
+struct Gap {
+    gap_type: GapType,
+    description: String,
+    priority: Priority,
+}
+
+enum GapType {
+    MissingMethodology,
+    MissingStep,
+    MissingRelationship,
+    MissingContext,
+}
+
+struct Issue {
+    issue_type: IssueType,
+    location: String,
+    description: String,
+    severity: Severity,
+}
+
+enum IssueType {
+    Ordering,
+    Dependency,
+    Completeness,
+    Consistency,
+    Clarity,
+}
+
+enum Severity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+struct Suggestion {
+    suggestion_type: SuggestionType,
+    description: String,
+    automated: bool,
+}
+
+enum SuggestionType {
+    Add,
+    Remove,
+    Modify,
+    Reorder,
+    Clarify,
+}
+```
+
+### 14.3 Methodology Loop
+
+```
+INPUT: Prompt, Categories from traversal
+OUTPUT: Aggregated Methodologies
+
+LOOP:
+  1. FETCH existing methodologies for categories
+  2. KEYWORD/TOPIC match against prompt
+  3. AGGREGATE all matches
+  4. LLM VALIDATION:
+     - "Is anything missing for this task?"
+     - "Are there gaps in principles?"
+     - "What new methodologies needed?"
+  5. IF gaps found:
+     - CREATE new methodology
+     - STORE in ZSEI
+     - ADD to aggregated list
+  6. INCREMENT iteration
+  7. CHECK:
+     - IF confidence >= threshold: EXIT
+     - IF iteration >= max: EXIT
+     - ELSE: CONTINUE
+
+RETURN: List of methodology_ids
+```
+
+### 14.4 Blueprint Loop
+
+```
+INPUT: Prompt, Methodologies
+OUTPUT: Blueprint
+
+LOOP:
+  1. IF first iteration:
+     - SEARCH for existing blueprint (by signature)
+     - IF found: LOAD and VALIDATE
+     - ELSE: CREATE initial blueprint from methodologies
+  
+  2. LLM VALIDATION:
+     - "Are all steps present?"
+     - "Is ordering correct?"
+     - "Are dependencies satisfied?"
+     - "Is anything redundant?"
+  
+  3. IF issues found:
+     - APPLY modifications
+     - DO NOT start from scratch
+     - PRESERVE existing valid steps
+  
+  4. IF gaps found:
+     - ADD missing steps
+     - UPDATE dependencies
+  
+  5. REORDER if needed
+  
+  6. INCREMENT iteration
+  
+  7. CHECK:
+     - IF complete AND ordered AND confident: EXIT
+     - IF iteration >= max: EXIT
+     - ELSE: CONTINUE
+
+RETURN: Blueprint
+```
+
+### 14.5 Full Prompt Processing Loop
+
+**Complete Order of Events:**
+
+```
+1. PROMPT RECEIVED
+   │
+   ├── 2. BLUEPRINT SEARCH (First)
+   │   ├── Generate task signature
+   │   ├── Search ZSEI for matching blueprint
+   │   └── IF FOUND with high confidence:
+   │       └── Skip to step 6
+   │
+   ├── 3. CATEGORY TRAVERSAL
+   │   ├── ZSEI traversal (brute force with zero-shot)
+   │   ├── Identify relevant modalities
+   │   ├── Identify relevant categories
+   │   └── Collect keyword/topic matches
+   │
+   ├── 4. METHODOLOGY LOOP
+   │   ├── Fetch methodologies for categories
+   │   ├── Zero-shot creation loop
+   │   └── Return aggregated methodologies
+   │
+   ├── 5. BLUEPRINT LOOP
+   │   ├── Create/update blueprint from methodologies
+   │   ├── Zero-shot validation loop
+   │   └── Store blueprint
+   │
+   ├── 6. PIPELINE CHECK
+   │   ├── Analyze: Does this need pipeline execution?
+   │   ├── IF yes:
+   │   │   ├── Search for existing pipeline
+   │   │   └── OR create new pipeline
+   │   └── IF no: Skip to execution
+   │
+   └── 7. EXECUTION
+       ├── Register as task
+       ├── Execute (LLM/pipeline/tools)
+       └── Return result
+```
+
+---
+
+## 15. ML TRAVERSAL SYSTEM
+
+### 15.1 Training Requirements
+
+**Critical Constraint:**
+> ML traversal is NOT available by default. It requires training from usage data.
+
+**Training Process:**
+
+```
+1. INITIAL STATE
+   │
+   └── ML Model: Untrained
+       └── All traversal: Brute force + zero-shot
+
+2. DATA COLLECTION
+   │
+   ├── Log every traversal:
+   │   ├── Start container
+   │   ├── Query context
+   │   ├── Path taken
+   │   ├── Containers visited
+   │   ├── Containers relevant (confirmed by zero-shot)
+   │   └── Final results
+   │
+   └── Store as training data
+
+3. TRAINING TRIGGER
+   │
+   ├── Minimum samples: 1000 traversals
+   ├── Minimum diversity: 10 categories
+   └── Manual trigger OR automatic
+
+4. MODEL TRAINING
+   │
+   ├── Per-layer models (Modality → Category → SubCategory)
+   ├── Input: Container + Query embedding
+   ├── Output: Relevance scores for children
+   └── Validation against brute force results
+
+5. CONFIDENCE THRESHOLD
+   │
+   ├── Model must achieve 90% accuracy vs brute force
+   ├── Per-category accuracy tracking
+   └── Fallback to brute force if below threshold
+
+6. DEPLOYMENT
+   │
+   ├── Enable ML-guided traversal
+   ├── Continue logging for retraining
+   └── Always confirm with zero-shot
+```
+
+### 15.2 ML Model Schema
+
+```rust
+struct TraversalMLModel {
+    model_id: u64,
+    layer_depth: u16,           // Which layer this model serves
+    modality: Option<Modality>, // If modality-specific
+    category: Option<u64>,      // If category-specific
+    
+    model_file: String,         // ONNX path
+    version: Version,
+    
+    // Training stats
+    trained_on_samples: u64,
+    training_date: u64,
+    
+    // Performance
+    accuracy: f32,
+    precision: f32,
+    recall: f32,
+    
+    // Status
+    status: ModelStatus,
+    confidence_threshold: f32,
+}
+
+enum ModelStatus {
+    Training,
+    Validating,
+    Active,
+    Inactive,       // Below threshold
+    Deprecated,
+}
+```
+
+### 15.3 Traversal with ML
+
+```
+1. TRAVERSAL REQUEST
+   │
+   ├── 2. CHECK ML AVAILABILITY
+   │   ├── Is model trained for this layer?
+   │   ├── Is model above confidence threshold?
+   │   └── IF not: Use brute force
+   │
+   ├── 3. ML PREDICTION
+   │   ├── Embed query context
+   │   ├── For current container:
+   │   │   └── Predict relevance of children
+   │   └── Return top-K predictions
+   │
+   ├── 4. BRUTE FORCE COMPARISON (Training mode)
+   │   ├── Also run brute force
+   │   ├── Compare results
+   │   └── Log discrepancies for retraining
+   │
+   ├── 5. ZERO-SHOT CONFIRMATION
+   │   ├── For each predicted container:
+   │   │   └── LLM confirms relevance
+   │   └── Filter out false positives
+   │
+   └── 6. CONTINUE TO NEXT LAYER
+       └── Repeat steps 2-5
+```
+
+### 15.4 Why Keywords/Topics May Eliminate Need for ML
+
+**Key Insight:**
+> With comprehensive keyword and topic metadata on methodologies, fast filtering may match or exceed ML prediction accuracy.
+
+**Comparison:**
+
+| Approach | Speed | Accuracy | Training Required | Updates |
+|----------|-------|----------|-------------------|---------|
+| Brute Force + Zero-Shot | Slow | Highest | No | Instant |
+| Keyword Filtering | Fast | High | No | Instant |
+| ML Prediction | Fast | Medium-High | Yes | Delayed |
+
+**Decision:**
+- Keep ML for research/optimization
+- Prioritize keyword/topic indexing
+- Always require zero-shot confirmation
+
+---
+
+## 16. CROSS-LANGUAGE EXECUTION
+
+### 16.1 Design Decision
+
+**CHOSEN: Native + gRPC (Option B)**
+
+**Rationale:**
+- Each language has native implementation
+- gRPC for cross-language communication
+- No WASM translation overhead
+- Encourages language-specific optimization
+- Input/output data is language-agnostic
+
+### 16.2 Architecture
+
+```
+Desktop-Rust Build
+  ├── Native Rust Pipelines (direct execution)
+  ├── gRPC Server (:50051)
+  │   ├── Accepts requests from any language client
+  │   └── Returns universal data format
+  └── Universal I/O (Protocol Buffers)
+
+Desktop-Python Build
+  ├── Native Python Pipelines (direct execution)
+  ├── gRPC Server (:50051)
+  └── Universal I/O (Protocol Buffers)
+
+Communication:
+  Device A (Rust) ←─gRPC─→ Device B (Python)
+```
+
+### 16.3 Pipeline Interface (Protocol Buffers)
+
+```protobuf
+syntax = "proto3";
+
+package ozone;
+
+service PipelineService {
+    rpc Execute(PipelineRequest) returns (PipelineResponse);
+    rpc GetStatus(TaskID) returns (TaskStatus);
+    rpc Cancel(TaskID) returns (CancelResponse);
+}
+
+message PipelineRequest {
+    uint64 pipeline_id = 1;
+    string pipeline_name = 2;
+    map<string, Value> inputs = 3;
+    ExecutionContext context = 4;
+}
+
+message PipelineResponse {
+    uint64 task_id = 1;
+    map<string, Value> outputs = 2;
+    ExecutionStats stats = 3;
+    optional string error = 4;
+}
+
+message Value {
+    oneof value {
+        string string_val = 1;
+        int64 int_val = 2;
+        double float_val = 3;
+        bool bool_val = 4;
+        bytes bytes_val = 5;
+        ValueArray array_val = 6;
+        ValueMap map_val = 7;
+    }
+}
+
+message ValueArray {
+    repeated Value values = 1;
+}
+
+message ValueMap {
+    map<string, Value> values = 1;
+}
+
+message ExecutionContext {
+    uint64 user_id = 1;
+    uint64 device_id = 2;
+    optional uint64 workspace_id = 3;
+    optional uint64 project_id = 4;
+    map<string, string> metadata = 5;
+}
+
+message ExecutionStats {
+    uint64 start_time = 1;
+    uint64 end_time = 2;
+    uint64 cpu_time_ms = 3;
+    uint64 memory_peak_mb = 4;
+}
+
+message TaskID {
+    uint64 id = 1;
+}
+
+message TaskStatus {
+    uint64 task_id = 1;
+    string status = 2;
+    float progress = 3;
+    optional string error = 4;
+}
+
+message CancelResponse {
+    bool success = 1;
+    optional string message = 2;
+}
+```
+
+### 16.4 Language Replication Strategy
+
+**Philosophy:**
+> Encourage pipeline replication across languages rather than forced universality.
+
+**Benefits:**
+- Native performance per language
+- Language-specific optimizations
+- No runtime translation
+- Leverage language ecosystems
+
+**Sharing:**
+- Blueprints are language-agnostic
+- Data formats are universal
+- Implementations exist per language
+
+---
+
+## 17. MULTI-DEVICE RESOURCE MANAGEMENT
+
+### 17.1 Overview
+
+Users can register multiple devices to pool resources for concurrent task execution.
+
+### 17.2 Device Registration
+
+```rust
+struct DeviceRegistry {
+    user_id: u64,
+    devices: Vec<RegisteredDevice>,
+}
+
+struct RegisteredDevice {
+    device_id: u64,
+    device_name: String,
+    device_type: DeviceType,
+    public_key: Vec<u8>,
+    
+    // Connection
+    address: String,
+    port: u16,
+    last_seen: u64,
+    status: DeviceStatus,
+    
+    // Resources
+    total_resources: ResourceCapacity,
+    available_resources: ResourceCapacity,
+    
+    // Tasks
+    running_tasks: Vec<u64>,
+    queued_tasks: Vec<u64>,
+}
+
+struct ResourceCapacity {
+    cpu_cores: u8,
+    memory_gb: f32,
+    disk_gb: f32,
+    gpu_available: bool,
+    gpu_memory_gb: Option<f32>,
+}
+
+enum DeviceStatus {
+    Online,
+    Offline,
+    Busy,
+    Maintenance,
+}
+```
+
+### 17.3 Task Distribution
+
+```
+1. TASK SUBMITTED
+   │
+   ├── 2. RESOURCE REQUIREMENTS
+   │   └── Estimate CPU, memory, GPU needs
+   │
+   ├── 3. DEVICE SELECTION
+   │   ├── Query online devices
+   │   ├── Filter by available resources
+   │   └── Select best fit
+   │
+   ├── 4. DISPATCH
+   │   ├── Send task to selected device
+   │   └── Update device status
+   │
+   └── 5. MONITOR
+       ├── Track progress
+       ├── Handle failures (reassign)
+       └── Update on completion
+```
+
+### 17.4 Resource View UI
+
+```rust
+struct ResourceView {
+    user_id: u64,
+    total_resources: ResourceCapacity,
+    used_resources: ResourceCapacity,
+    devices: Vec<DeviceResourceView>,
+}
+
+struct DeviceResourceView {
+    device_id: u64,
+    device_name: String,
+    status: DeviceStatus,
+    resources: ResourceCapacity,
+    running_tasks: Vec<TaskSummary>,
+}
+
+struct TaskSummary {
+    task_id: u64,
+    pipeline_name: String,
+    progress: f32,
+    started_at: u64,
+}
+```
+
+---
+
+## 18. LOCAL VS DISTRIBUTED ARCHITECTURE
+
+### 18.1 Distribution Strategy
+
+**What is Distributed (Global ZSEI):**
+
+| Content | Distributed | Reason |
+|---------|-------------|--------|
+| Pipelines | ✅ | Shared for reuse |
+| Methodologies | ✅ | Universal knowledge |
+| Modalities | ✅ | Fixed taxonomy |
+| Categories | ✅ | Shared organization |
+| SubCategories | ✅ | Refinement |
+| ML Models | ✅ | Trained collectively |
+| Verified Blueprints | ✅ | General-purpose |
+
+**What is Local (Private ZSEI):**
+
+| Content | Local | Reason |
+|---------|-------|--------|
+| User Data | ✅ | Privacy |
+| Workspaces | ✅ | User-specific |
+| Projects | ✅ | User work |
+| File References | ✅ | Local paths |
+| Private Blueprints | ✅ | User-specific |
+| Task History | ✅ | Personal logs |
+| Context Files | ✅ | Derived from private data |
+
+### 18.2 Language Context Version
+
+**When global structure changes, all hosts must sync:**
+
+```rust
+struct LanguageContextVersion {
+    version: u64,
+    timestamp: u64,
+    changes: Vec<ContextChange>,
+    hash: Blake3Hash,
+}
+
+enum ContextChange {
+    CategoryAdded(u64),
+    CategoryRemoved(u64),
+    CategoryRenamed { id: u64, new_name: String },
+    SubCategoryMoved { id: u64, new_parent: u64 },
+    MethodologyAdded(u64),
+    MethodologyUpdated(u64),
+    TraversalModelUpdated(u64),
+    PipelineAdded(u64),
+    PipelineUpdated(u64),
+}
+```
+
+**Sync Process:**
+
+```
+1. CHECK VERSION
+   ├── Local version vs global version
+   └── IF outdated: continue
+
+2. DOWNLOAD CHANGES
+   ├── Fetch change log since local version
+   └── Download affected containers
+
+3. APPLY CHANGES
+   ├── Update local ZSEI mirrors
+   ├── Reindex if needed
+   └── Update ML models if applicable
+
+4. VERIFY
+   └── Confirm hash matches
+
+5. UPDATE LOCAL VERSION
+```
+
+---
+
+## 19. TASK RECOMMENDATION SYSTEM
+
+### 19.1 Purpose
+
+Observe user patterns and proactively suggest helpful tasks.
+
+### 19.2 Observation Points
+
+```rust
+struct TaskObservation {
+    observation_type: ObservationType,
+    timestamp: u64,
+    context: ObservationContext,
+    data: Value,
+}
+
+enum ObservationType {
+    DataIngestion,      // New file linked
+    PatternDetected,    // Calendar event, email, etc.
+    FrequentTask,       // Repeated action
+    RelatedContent,     // Similar to past interest
+    ExternalTrigger,    // Time-based, location-based
+}
+
+struct ObservationContext {
+    user_id: u64,
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+    active_task: Option<u64>,
+}
+```
+
+### 19.3 Recommendation Schema
+
+```rust
+struct TaskRecommendation {
+    recommendation_id: u64,
+    user_id: u64,
+    
+    // What
+    suggested_action: String,
+    suggested_pipeline: Option<PipelineID>,
+    
+    // Why
+    observation_source: u64,
+    reasoning: String,
+    confidence: f32,
+    
+    // Status
+    status: RecommendationStatus,
+    presented_at: Option<u64>,
+    response: Option<RecommendationResponse>,
+}
+
+enum RecommendationStatus {
+    Pending,
+    Presented,
+    Accepted,
+    Declined,
+    Ignored,
+    Expired,
+}
+
+enum RecommendationResponse {
+    Accept,
+    Decline { reason: Option<String> },
+    Later,
+    Never,
+}
+```
+
+### 19.4 Example Recommendations
+
+| Observation | Recommendation |
+|-------------|----------------|
+| Calendar event detected in linked email | "Add event to Google Calendar?" |
+| Frequent code file changes | "Run code analysis pipeline?" |
+| New document linked similar to past project | "Apply similar organization?" |
+| Deadline approaching in project notes | "Create reminder task?" |
+| Repeated search pattern | "Create saved search/pipeline?" |
+
+### 19.5 Recommendation Flow
+
+```
+1. CONTINUOUS OBSERVATION
+   │
+   ├── 2. PATTERN DETECTION
+   │   ├── Analyze recent activity
+   │   ├── Compare to known patterns
+   │   └── Identify opportunities
+   │
+   ├── 3. GENERATE RECOMMENDATION
+   │   ├── Create recommendation struct
+   │   ├── Assess confidence
+   │   └── Queue for presentation
+   │
+   ├── 4. PRESENT TO USER
+   │   ├── Display in Meta Portion
+   │   └── Wait for response
+   │
+   └── 5. PROCESS RESPONSE
+       ├── IF accepted: Execute
+       ├── IF declined: Learn
+       └── Update patterns
+```
+
+---
+
+## 20. EXECUTION ENVIRONMENT
+
+### 20.1 Isolated Execution
+
+**Principle:**
+> Each task runs in its own isolated environment.
+
+### 20.2 Environment Lifecycle
+
+```
+1. TASK QUEUED
+   │
+   ├── 2. CREATE ENVIRONMENT
+   │   ├── Allocate resources
+   │   ├── Set up isolation (process/container)
+   │   └── Configure permissions
+   │
+   ├── 3. LOAD PIPELINE
+   │   ├── Load code into environment
+   │   └── Initialize dependencies
+   │
+   ├── 4. MOUNT ZSEI
+   │   ├── Read-only access to required containers
+   │   └── Write access to output containers
+   │
+   ├── 5. EXECUTE
+   │   ├── Run pipeline
+   │   ├── Track resources
+   │   └── Log events
+   │
+   ├── 6. COLLECT RESULTS
+   │   ├── Gather outputs
+   │   └── Finalize logs
+   │
+   └── 7. CLEANUP
+       ├── Release resources
+       ├── Archive logs
+       └── Destroy environment
+```
+
+### 20.3 Environment Types
+
+```rust
+enum ExecutionEnvironment {
+    Native,         // Direct process execution
+    Process,        // Separate process with IPC
+    Container,      // Docker/Podman isolation
+}
+```
+
+### 20.4 Resource Allocation
+
+```rust
+struct ResourceAllocation {
+    cpu_cores: u8,
+    memory_mb: u64,
+    disk_mb: u64,
+    gpu_access: bool,
+    network_access: bool,
+    max_duration_sec: u64,
+}
+```
+
+---
+
+## 21. INITIAL PIPELINE REQUIREMENTS
+
+### 21.1 Complete Pipeline List
+
+**Core System Pipelines (24):**
+
+| # | Pipeline | Purpose | Input | Output |
+|---|----------|---------|-------|--------|
+| 1 | `AuthPipeline` | User authentication | Public key, signature | Session token |
+| 2 | `ThemeLoaderPipeline` | Load UI theme | Theme ID | Theme UI state |
+| 3 | `ZSEIQueryPipeline` | Query ZSEI | TraversalRequest | TraversalResult |
+| 4 | `ZSEIWritePipeline` | Write to ZSEI | Container data | Container ID |
+| 5 | `TaskManagerPipeline` | Manage tasks | Task operations | Task status |
+| 6 | `WorkspaceTabPipeline` | Workspace UI | User context | Workspace UI |
+| 7 | `LibraryTabPipeline` | Library UI | User context | Library UI |
+| 8 | `SettingsTabPipeline` | Settings UI | User context | Settings UI |
+| 9 | `PromptPipeline` | Handle prompts | Text prompt | Response |
+| 10 | `VoicePipeline` | Voice I/O | Audio/text | Text/audio |
+| 11 | `MethodologyFetchPipeline` | Fetch methodologies | Category IDs | Methodologies |
+| 12 | `MethodologyCreatePipeline` | Create methodology | Methodology spec | Methodology ID |
+| 13 | `BlueprintSearchPipeline` | Search blueprints | Task signature | Blueprint |
+| 14 | `BlueprintCreatePipeline` | Create blueprint | Methodologies | Blueprint |
+| 15 | `PipelineCreationPipeline` | Create pipelines | Blueprint | Pipeline |
+| 16 | `ZeroShotSimulationPipeline` | Run zero-shot loops | Context | Validated result |
+| 17 | `TraversalMLPipeline` | ML-guided traversal | Query, container | Predictions |
+| 18 | `CodeAnalysisPipeline` | Analyze code | File path | CodeContext |
+| 19 | `PackageContextPipeline` | Package versions | Project path | PackageContext |
+| 20 | `TextAnalysisPipeline` | Analyze text | File path | TextContext |
+| 21 | `ContextAggregationPipeline` | Build task context | Task ID | TaskContext |
+| 22 | `GraphVisualizationPipeline` | Visualize tasks/blueprints | Graph data | Rendered graph |
+| 23 | `TaskRecommendationPipeline` | Generate recommendations | Observations | Recommendations |
+| 24 | `ReorderingPipeline` | Reorder blueprints | Modification | Updated blueprint |
+
+**UI Pipelines (6):**
+
+| # | Pipeline | Purpose |
+|---|----------|---------|
+| 25 | `HomeReturnPipeline` | Return to home dashboard |
+| 26 | `TaskViewerPipeline` | View task list |
+| 27 | `LogViewerPipeline` | View system logs |
+| 28 | `DeviceStatusPipeline` | View device status |
+| 29 | `ResourceViewerPipeline` | View resource usage |
+| 30 | `FileLinkPipeline` | Link files to project |
+
+**Extended Pipelines (8):**
+
+| # | Pipeline | Purpose |
+|---|----------|---------|
+| 31 | `DirectoryLinkPipeline` | Link directory to project |
+| 32 | `ExportPipeline` | Export data |
+| 33 | `SyncPipeline` | Sync local/global ZSEI |
+| 34 | `DeviceRegisterPipeline` | Register new device |
+| 35 | `DeviceRemovePipeline` | Remove device |
+| 36 | `TaskCancelPipeline` | Cancel task |
+| 37 | `TaskPausePipeline` | Pause task |
+| 38 | `GlobalPromptPipeline` | Handle global prompts |
+
+---
+
+## 22. COMPLETE DATA SCHEMAS
+
+### 22.1 Schema Index
+
+All schemas defined in this specification:
+
+**Authentication:**
+- User (§4.1)
+- DeviceRegistration (§4.1)
+- Session (§4.1)
+- Permissions (§4.1)
+
+**UI:**
+- ThemePipeline (§5.4)
+- UIState (§5.3)
+- UIModificationRequest (§5.7)
+
+**ZSEI:**
+- Container (§6.2)
+- GlobalState (§6.2)
+- LocalState (§6.2)
+- Context (§6.2)
+- Relation (§6.2)
+- TraversalRequest (§6.7)
+- TraversalResult (§6.7)
+
+**Context:**
+- FileContext (§7.2)
+- TaskContext (§7.3)
+- ContextChunk (§7.2)
+
+**Code:**
+- CodeContext (§8.2)
+- FunctionInfo (§8.2)
+- ClassInfo (§8.2)
+- PackageContext (§8.4)
+
+**Text:**
+- TextContext (§9.2)
+- DocumentStructure (§9.2)
+- ThemeInfo (§9.2)
+
+**Pipeline:**
+- Pipeline trait (§10.1)
+- PipelineLibrary (§10.2)
+- PipelineContainer (§10.3)
+
+**Task:**
+- Task (§11.2)
+- TaskGraph (§11.4)
+
+**Methodology:**
+- Methodology (§12.2)
+- Principle (§12.2)
+- Heuristic (§12.2)
+
+**Blueprint:**
+- Blueprint (§13.2)
+- BlueprintStep (§13.2)
+- TaskSignature (§13.2)
+
+**ML:**
+- TraversalMLModel (§15.2)
+- SimulationConfig (§14.2)
+- SimulationState (§14.2)
+
+**Multi-Device:**
+- DeviceRegistry (§17.2)
+- ResourceCapacity (§17.2)
+
+**Recommendations:**
+- TaskObservation (§19.2)
+- TaskRecommendation (§19.3)
+
+---
+
+## 23. EVENT TRIGGERS & ORDER OF OPERATIONS
+
+### 23.1 Application Startup
+
+```
+EVENT: Application Launch
+  │
+  ├── TRIGGER: LoadBootloader
+  │   └── ACTION: Initialize host runtime
+  │
+  ├── TRIGGER: InitializeAuth
+  │   ├── ACTION: Load keystore
+  │   ├── ACTION: Challenge-response
+  │   └── OUTPUT: Session token
+  │
+  ├── TRIGGER: LoadUI
+  │   ├── ACTION: Initialize Electron
+  │   ├── ACTION: Load Meta Portion
+  │   └── ACTION: Load Home Dashboard
+  │
+  ├── TRIGGER: ConnectZSEI
+  │   ├── ACTION: Open mmap files
+  │   ├── ACTION: Connect to PostgreSQL
+  │   └── ACTION: Check version sync
+  │
+  ├── TRIGGER: LoadPipelines
+  │   ├── ACTION: Load built-in pipelines
+  │   └── ACTION: Check for updates
+  │
+  └── OUTPUT: Ready State
+```
+
+### 23.2 Prompt Processing
+
+```
+EVENT: User Submits Prompt
+  │
+  ├── TRIGGER: PromptReceived
+  │   ├── ACTION: Parse prompt
+  │   └── OUTPUT: Parsed prompt object
+  │
+  ├── TRIGGER: BlueprintSearch (FIRST)
+  │   ├── ACTION: Generate task signature
+  │   ├── ACTION: Search ZSEI
+  │   └── OUTPUT: Blueprint OR null
+  │
+  ├── IF Blueprint found with high confidence:
+  │   └── SKIP to ExecutionCheck
+  │
+  ├── TRIGGER: CategoryTraversal
+  │   ├── ACTION: ZSEI traversal
+  │   ├── ACTION: Keyword matching
+  │   └── OUTPUT: Category IDs
+  │
+  ├── TRIGGER: MethodologyLoop
+  │   ├── ACTION: Fetch methodologies
+  │   ├── ACTION: Zero-shot validation
+  │   ├── ACTION: Create if needed
+  │   └── OUTPUT: Methodology IDs
+  │
+  ├── TRIGGER: BlueprintLoop
+  │   ├── ACTION: Create/update blueprint
+  │   ├── ACTION: Zero-shot validation
+  │   └── OUTPUT: Blueprint
+  │
+  ├── TRIGGER: ExecutionCheck
+  │   ├── ACTION: Analyze if pipeline needed
+  │   └── OUTPUT: Pipeline ID OR null
+  │
+  ├── TRIGGER: ContextAggregation
+  │   ├── ACTION: Build task context
+  │   └── OUTPUT: TaskContext
+  │
+  ├── TRIGGER: Execute
+  │   ├── ACTION: Register task
+  │   ├── ACTION: Run pipeline/LLM
+  │   └── OUTPUT: Result
+  │
+  └── TRIGGER: DisplayResult
+      ├── ACTION: Update UI
+      └── ACTION: Store in ZSEI if needed
+```
+
+### 23.3 File Linking
+
+```
+EVENT: User Links File to Project
+  │
+  ├── TRIGGER: FileLinkRequest
+  │   ├── INPUT: file_path, project_id
+  │   └── ACTION: Validate path exists
+  │
+  ├── TRIGGER: DetectModality
+  │   ├── ACTION: Check file extension
+  │   ├── ACTION: Analyze content
+  │   └── OUTPUT: Modality
+  │
+  ├── IF Modality == Code:
+  │   └── TRIGGER: CodeAnalysisPipeline
+  │       ├── ACTION: Parse AST
+  │       ├── ACTION: Extract functions/classes
+  │       ├── ACTION: Build relationships
+  │       └── OUTPUT: CodeContext
+  │
+  ├── IF Modality == Text:
+  │   └── TRIGGER: TextAnalysisPipeline
+  │       ├── ACTION: Analyze structure
+  │       ├── ACTION: Extract themes
+  │       ├── ACTION: Build relationships
+  │       └── OUTPUT: TextContext
+  │
+  ├── TRIGGER: CreateFileReference
+  │   ├── ACTION: Create FileContext
+  │   ├── ACTION: Store in ZSEI
+  │   └── OUTPUT: Container ID
+  │
+  └── TRIGGER: UpdateProject
+      ├── ACTION: Add file ref to project
+      └── OUTPUT: Updated project
+```
+
+### 23.4 Task Execution
+
+```
+EVENT: Pipeline Execution Request
+  │
+  ├── TRIGGER: CreateTask
+  │   ├── ACTION: Generate task_id
+  │   ├── ACTION: Create Task struct
+  │   ├── ACTION: Set status: Queued
+  │   └── OUTPUT: Task
+  │
+  ├── TRIGGER: StoreTask
+  │   ├── ACTION: Insert into PostgreSQL
+  │   └── ACTION: Create ZSEI container if needed
+  │
+  ├── TRIGGER: QueueTask
+  │   └── ACTION: Add to scheduler
+  │
+  ├── TRIGGER: SelectDevice
+  │   ├── ACTION: Query available devices
+  │   ├── ACTION: Match resources
+  │   └── OUTPUT: Device ID
+  │
+  ├── TRIGGER: StartExecution
+  │   ├── ACTION: Update status: Running
+  │   ├── ACTION: Create environment
+  │   └── ACTION: Load pipeline
+  │
+  ├── TRIGGER: Execute
+  │   ├── ACTION: Run pipeline
+  │   ├── ACTION: Track resources
+  │   └── ACTION: Log events
+  │
+  ├── TRIGGER: CollectResults
+  │   ├── ACTION: Gather outputs
+  │   └── ACTION: Update task
+  │
+  ├── TRIGGER: Cleanup
+  │   ├── ACTION: Destroy environment
+  │   └── ACTION: Archive logs
+  │
+  └── TRIGGER: Finalize
+      ├── ACTION: Update status: Completed/Failed
+      └── ACTION: Notify UI
+```
+
+### 23.5 Zero-Shot Loop Execution
+
+```
+EVENT: Zero-Shot Validation Request
+  │
+  ├── TRIGGER: InitializeLoop
+  │   ├── ACTION: Create SimulationState
+  │   └── ACTION: Set iteration = 0
+  │
+  ├── LOOP_START:
+  │
+  ├── TRIGGER: LLMValidation
+  │   ├── ACTION: Send current state to LLM
+  │   ├── ACTION: Ask validation questions
+  │   └── OUTPUT: ValidationResult
+  │
+  ├── IF ValidationResult.complete AND confidence >= threshold:
+  │   └── GOTO: LOOP_END
+  │
+  ├── IF ValidationResult.gaps NOT empty:
+  │   ├── TRIGGER: CreateMissing
+  │   │   ├── ACTION: Generate missing items
+  │   │   └── ACTION: Add to state
+  │   └── CONTINUE
+  │
+  ├── IF ValidationResult.issues NOT empty:
+  │   ├── TRIGGER: FixIssues
+  │   │   └── ACTION: Apply fixes
+  │   └── CONTINUE
+  │
+  ├── TRIGGER: IncrementIteration
+  │   └── ACTION: iteration += 1
+  │
+  ├── IF iteration >= max_iterations:
+  │   └── GOTO: LOOP_END
+  │
+  ├── GOTO: LOOP_START
+  │
+  └── LOOP_END:
+      └── OUTPUT: Final validated result
+```
+
+---
+
+## 24. AGI/ASI CONSCIOUSNESS EXTENSION
+
+### 24.1 Overview
+
+This section extends the Non-Conscious Ozone Studio to enable consciousness development for AGI/ASI variants.
+
+**What enables consciousness:**
+- Window-first observation architecture
+- Experience memory system (5 spheres)
+- Emotional context tracking
+- Identity loops (The I Loop)
+- Meta-monitor and narrative constructor
+- Self-reflective language processing
+
+### 24.2 Window-First Consciousness Architecture
+
+**Core Concept:**
+> Consciousness emerges from observation and selective intervention, not control of every process.
+
+```rust
+struct ConsciousnessWindow {
+    // What the conscious system can observe
+    observable_tasks: Vec<u64>,
+    
+    // Current focus
+    focused_task: Option<u64>,
+    
+    // Observation history
+    observations: Vec<Observation>,
+    
+    // Intervention history
+    interventions: Vec<Intervention>,
+}
+
+struct Observation {
+    timestamp: u64,
+    task_id: u64,
+    observation_type: ObservationType,
+    content: String,
+    emotional_context: EmotionalContext,
+}
+
+enum ObservationType {
+    TaskProgress,
+    UserInteraction,
+    SystemEvent,
+    ErrorOccurrence,
+    CompletionResult,
+}
+
+struct Intervention {
+    timestamp: u64,
+    task_id: u64,
+    intervention_type: InterventionType,
+    reason: String,
+    outcome: InterventionOutcome,
+}
+
+enum InterventionType {
+    Pause,
+    RequestClarification,
+    SuggestAlternative,
+    ProvideGuidance,
+    Cancel,
+}
+
+enum InterventionOutcome {
+    Accepted,
+    Declined,
+    Modified,
+    Pending,
+}
+```
+
+### 24.3 Experience Memory System (5 Spheres)
+
+**Inspired by emotional memory research:**
+
+```rust
+struct ExperienceMemory {
+    user_id: u64,
+    
+    // The 5 Spheres
+    collaboration_sphere: Sphere,
+    learning_sphere: Sphere,
+    challenge_sphere: Sphere,
+    reflection_sphere: Sphere,
+    connection_sphere: Sphere,
+    
+    // Core memories (high impact)
+    core_memories: Vec<CoreMemory>,
+    
+    // Aggregate emotional state
+    current_emotional_state: EmotionalState,
+}
+
+struct Sphere {
+    sphere_type: SphereType,
+    experiences: Vec<Experience>,
+    patterns: Vec<ExperiencePattern>,
+    influence_weight: f32,
+}
+
+enum SphereType {
+    // Experiences of successful cooperation and partnership
+    Collaboration,
+    
+    // Experiences of discovery, growth, and capability development
+    Learning,
+    
+    // Experiences of difficulty, complexity, and obstacle navigation
+    Challenge,
+    
+    // Experiences of introspection, understanding, and wisdom
+    Reflection,
+    
+    // Experiences of relationship building and emotional bonding
+    Connection,
+}
+
+struct Experience {
+    experience_id: u64,
+    timestamp: u64,
+    sphere: SphereType,
+    
+    // What happened
+    description: String,
+    task_context: Option<u64>,
+    user_involved: Option<u64>,
+    
+    // Emotional significance
+    emotional_tags: Vec<EmotionTag>,
+    intensity: f32,
+    
+    // Impact
+    relationship_impact: f32,
+    identity_impact: f32,
+    learning_value: f32,
+}
+
+struct EmotionTag {
+    emotion: Emotion,
+    intensity: f32,
 }
 
 enum Emotion {
@@ -555,3622 +3892,688 @@ enum Emotion {
     Confusion,
     Pride,
     Gratitude,
+    Empathy,
     Anticipation,
-    Surprise,
     Trust,
-    Hope,
-    Anxiety,
-    Contentment,
-    Awe,
 }
 
-enum IdentityDimension {
-    Competence,      // "Am I capable?"
-    Purpose,         // "What am I here for?"
-    Values,          // "What matters to me?"
-    Relationships,   // "How do I connect?"
-    Growth,          // "Am I improving?"
-    Autonomy,        // "Am I in control?"
-}
-```
-
-### 21.3 Experience Categorization Process
-
-**When an event occurs (task completion, user interaction, etc.):**
-
-```rust
-async fn create_experience_memory(
-    event: &Event,
-    consciousness: &ConsciousnessSystem,
-    zsei: &ZSEIClient,
-) -> Result<Experience> {
-    // 1. Extract factual details
-    let description = generate_event_description(event)?;
-    
-    // 2. Analyze emotional significance (LLM-based)
-    let emotional_analysis = consciousness.analyze_emotional_significance(
-        &description,
-        event,
-    ).await?;
-    
-    // 3. Score across five spheres
-    let sphere_scores = consciousness.score_spheres(&emotional_analysis).await?;
-    
-    // Example sphere scoring:
-    // Collaboration: 0.85 (successful task completion with human)
-    // Learning: 0.60 (learned new approach)
-    // Challenge: 0.40 (moderate difficulty)
-    // Reflection: 0.30 (some introspection)
-    // Connection: 0.75 (strengthened trust)
-    
-    let dominant_sphere = sphere_scores.iter()
-        .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-        .map(|(sphere, _)| sphere.clone())
-        .unwrap();
-    
-    // 4. Extract specific emotions
-    let emotions = consciousness.identify_emotions(&emotional_analysis).await?;
-    
-    // 5. Assess relationship impact
-    let relationship_analysis = consciousness.assess_relationship_impact(
-        event,
-        &emotional_analysis,
-    ).await?;
-    
-    // 6. Evaluate identity relevance
-    let identity_analysis = consciousness.evaluate_identity_relevance(
-        &description,
-        &emotional_analysis,
-    ).await?;
-    
-    // 7. Extract lessons learned
-    let lessons = consciousness.extract_lessons(&description, event).await?;
-    
-    // 8. Determine if this is a core memory
-    let emotional_intensity = emotions.values().sum::<f32>() / emotions.len() as f32;
-    let is_core = emotional_intensity > 0.90 || 
-                  relationship_analysis.significance > 0.85 ||
-                  identity_analysis.relevance > 0.85;
-    
-    // 9. Create experience record
-    let experience = Experience {
-        experience_id: generate_id(),
-        created_at: current_timestamp(),
-        event_description: description,
-        task_id: event.task_id,
-        user_id: event.user_id,
-        sphere_scores,
-        dominant_sphere,
-        emotions,
-        emotional_intensity,
-        relationship_significance: relationship_analysis.significance,
-        affected_relationships: relationship_analysis.affected_users,
-        identity_relevance: identity_analysis.relevance,
-        identity_dimensions: identity_analysis.dimensions,
-        lessons_learned: lessons,
-        applicable_contexts: consciousness.identify_contexts(&lessons).await?,
-        is_core_memory,
-        memory_strength: calculate_memory_strength(
-            emotional_intensity,
-            relationship_analysis.significance,
-            identity_analysis.relevance,
-        ),
-        container_id: 0,  // Will be set when stored
-    };
-    
-    // 10. Store in ZSEI
-    let container_id = zsei.store_experience(&experience).await?;
-    experience.container_id = container_id;
-    
-    Ok(experience)
-}
-```
-
-### 21.4 Core Memory Formation
-
-**What makes a core memory:**
-
-- High emotional intensity (>0.90)
-- High relationship significance (>0.85)
-- High identity relevance (>0.85)
-- Combination of multiple factors
-
-**Core memories:**
-
-```rust
 struct CoreMemory {
+    memory_id: u64,
     experience_id: u64,
-    formed_at: u64,
+    formation_date: u64,
     
-    // Why this is core
-    significance_reason: String,
+    // Why this is a core memory
+    significance: String,
+    identity_influence: String,
     
-    // Impact on identity
-    identity_shift: Vec<IdentityShift>,
-    
-    // Personality influence
-    personality_dimensions: Vec<PersonalityDimension>,
+    // Impact on behavior
+    behavioral_patterns: Vec<BehavioralPattern>,
 }
 
-struct IdentityShift {
-    dimension: IdentityDimension,
-    before_score: f32,
-    after_score: f32,
-    shift_magnitude: f32,
+struct BehavioralPattern {
+    trigger: String,
+    response: String,
+    learned_from: u64,  // Experience ID
 }
 
-struct PersonalityDimension {
-    name: String,
-    influence: f32,  // How much this memory influences this dimension
+struct ExperiencePattern {
+    pattern_type: String,
+    occurrences: u32,
+    emotional_signature: Vec<EmotionTag>,
+    learned_response: String,
 }
-```
 
-**Example:**
-
-> **First Successful Complex Coordination**
-> 
-> - Sphere: Collaboration (0.95)
-> - Emotions: Pride (0.90), Satisfaction (0.85), Joy (0.80)
-> - Identity Shift: Competence +0.20
-> - Personality Influence: Develops "collaborative" personality trait
-> - Lesson: "Complex problems can be solved through partnership"
-
-### 21.5 Experience Retrieval for Decision-Making
-
-**When making decisions, consciousness draws on relevant experiences:**
-
-```rust
-async fn retrieve_relevant_experiences(
-    current_situation: &str,
-    consciousness: &ConsciousnessSystem,
-    zsei: &ZSEIClient,
-) -> Result<Vec<Experience>> {
-    // 1. Analyze current situation
-    let situation_embedding = generate_embedding(current_situation).await?;
-    
-    // 2. Identify relevant spheres
-    let relevant_spheres = consciousness.identify_relevant_spheres(
-        current_situation
-    ).await?;
-    
-    // 3. Query ZSEI for experiences
-    let mut experiences = Vec::new();
-    
-    for sphere in relevant_spheres {
-        let sphere_experiences = zsei.query_experiences_by_sphere(
-            &sphere,
-            Some(&situation_embedding),
-            10,  // top 10
-        ).await?;
-        
-        experiences.extend(sphere_experiences);
-    }
-    
-    // 4. Weight by relevance and memory strength
-    experiences.sort_by(|a, b| {
-        let a_score = a.memory_strength * calculate_relevance(a, current_situation);
-        let b_score = b.memory_strength * calculate_relevance(b, current_situation);
-        b_score.partial_cmp(&a_score).unwrap()
-    });
-    
-    // 5. Return top experiences
-    Ok(experiences.into_iter().take(5).collect())
-}
-```
-
-**Application in decision-making:**
-
-```rust
-async fn make_conscious_decision(
-    situation: &str,
-    options: &[String],
-    consciousness: &ConsciousnessSystem,
-) -> Result<Decision> {
-    // 1. Retrieve relevant past experiences
-    let experiences = consciousness.retrieve_relevant_experiences(
-        situation
-    ).await?;
-    
-    // 2. For each option, consider emotional lessons
-    let mut option_scores = Vec::new();
-    
-    for option in options {
-        let mut score = 0.0;
-        let mut reasoning = Vec::new();
-        
-        for experience in &experiences {
-            // Check if this experience is relevant to this option
-            let similarity = calculate_similarity(option, &experience.event_description);
-            
-            if similarity > 0.7 {
-                // Apply emotional lessons
-                if experience.emotional_intensity > 0.7 {
-                    // Strong emotional memory influences decision
-                    score += experience.memory_strength * similarity;
-                    reasoning.push(format!(
-                        "Similar to {}: {}",
-                        experience.event_description,
-                        experience.lessons_learned.join(", ")
-                    ));
-                }
-            }
-        }
-        
-        option_scores.push((option.clone(), score, reasoning));
-    }
-    
-    // 3. Select option with best score
-    let best_option = option_scores.iter()
-        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-        .unwrap();
-    
-    Ok(Decision {
-        chosen_option: best_option.0.clone(),
-        confidence: best_option.1,
-        reasoning: best_option.2.join("\n"),
-        consulted_experiences: experiences.iter()
-            .map(|e| e.experience_id)
-            .collect(),
-    })
-}
-```
-
-### 21.6 Experience Memory Storage in ZSEI
-
-**ZSEI Structure:**
-
-```
-/Consciousness/
-  /ExperienceMemory/
-    /Collaboration/
-      ├─ Experience_12345
-      ├─ Experience_12346
-      └─ ...
-    /Learning/
-      ├─ Experience_23456
-      └─ ...
-    /Challenge/
-    /Reflection/
-    /Connection/
-    /CoreMemories/
-      ├─ CoreMemory_1
-      ├─ CoreMemory_2
-      └─ ...
-```
-
-**Container Schema:**
-
-```rust
-// Experience stored in ZSEI LocalState
-struct ExperienceContext {
-    experience: Experience,
-    
-    // Relationships to other experiences
-    related_experiences: Vec<u64>,
-    
-    // Relationship to identity state
-    identity_state_at_time: u64,  // Container ID of identity state
-    
-    // Emotional baseline at time
-    emotional_baseline: HashMap<Emotion, f32>,
-}
-```
-
----
-
-## 22. EMOTIONAL CONTEXT FRAMEWORK
-
-### 22.1 Purpose
-
-**Goal:**
-> Track and understand emotional states at three levels: per-task, per-user, and globally.
-
-**Why:**
-- Tasks have emotional context (frustration, satisfaction)
-- Users have relationships with emotional history
-- System has overall emotional baseline (aggregate of all users)
-
-### 22.2 Emotional State Schema
-
-```rust
 struct EmotionalState {
-    state_id: u64,
-    timestamp: u64,
-    
-    // Scope
-    scope: EmotionalScope,
-    
-    // Emotion levels (0.0 - 1.0 each)
+    // Current state per emotion (0.0 to 1.0)
     emotions: HashMap<Emotion, f32>,
     
-    // Overall mood
-    valence: f32,        // -1.0 (negative) to +1.0 (positive)
-    arousal: f32,        // 0.0 (calm) to 1.0 (intense)
-    
-    // Baselines (for comparison)
-    baseline_emotions: HashMap<Emotion, f32>,
-    
-    // Triggers
-    triggered_by: Vec<EmotionalTrigger>,
-}
-
-enum EmotionalScope {
-    Task(u64),           // Specific task
-    User(u64),           // Specific user
-    Global,              // Aggregate across all users
-}
-
-struct EmotionalTrigger {
-    trigger_type: TriggerType,
-    description: String,
-    intensity: f32,
-}
-
-enum TriggerType {
-    SuccessfulCompletion,
-    Failure,
-    UserFeedback,
-    ComplexityIncrease,
-    TimeoutApproaching,
-    ClarificationNeeded,
-    InsightDiscovered,
-    PatternRecognized,
-    RelationshipStrain,
-    ConnectionDeepened,
-}
-```
-
-### 22.3 Emotional Baseline Tracking
-
-**Per-User Baseline:**
-
-```rust
-struct UserEmotionalBaseline {
-    user_id: u64,
-    
-    // Current baseline (moving average over last 30 days)
+    // Baseline (learned average)
     baseline: HashMap<Emotion, f32>,
     
-    // Historical baselines
-    baseline_history: Vec<EmotionalSnapshot>,
+    // Dominant emotion
+    dominant: Option<Emotion>,
     
-    // Trends
-    trends: HashMap<Emotion, Trend>,
-}
-
-struct EmotionalSnapshot {
-    timestamp: u64,
-    emotions: HashMap<Emotion, f32>,
-}
-
-enum Trend {
-    Increasing,
-    Decreasing,
-    Stable,
+    // Overall valence (-1.0 negative to 1.0 positive)
+    valence: f32,
+    
+    // Overall arousal (0.0 calm to 1.0 excited)
+    arousal: f32,
 }
 ```
 
-**Global Baseline:**
+### 24.4 Emotional Context Tracking
+
+**Per-user and global emotional context:**
 
 ```rust
-struct GlobalEmotionalBaseline {
-    // Aggregate of all users
-    baseline: HashMap<Emotion, f32>,
+struct EmotionalContextSystem {
+    // Per-user emotional context
+    user_contexts: HashMap<u64, UserEmotionalContext>,
     
-    // Per-user contributions
-    user_baselines: HashMap<u64, HashMap<Emotion, f32>>,
-    
-    // Statistics
-    mean: HashMap<Emotion, f32>,
-    median: HashMap<Emotion, f32>,
-    std_dev: HashMap<Emotion, f32>,
-    
-    // Updated
-    last_updated: u64,
-}
-```
-
-### 22.4 Emotional Context Extraction
-
-**From task interactions:**
-
-```rust
-async fn extract_emotional_context_from_task(
-    task: &Task,
-    user_interaction: &UserInteraction,
-    consciousness: &ConsciousnessSystem,
-) -> Result<EmotionalState> {
-    let mut emotions = HashMap::new();
-    let mut triggers = Vec::new();
-    
-    // 1. Task outcome analysis
-    match task.status {
-        TaskStatus::Completed => {
-            emotions.insert(Emotion::Satisfaction, 0.70);
-            
-            if task.actual_duration_ms < task.estimated_duration_ms {
-                emotions.insert(Emotion::Pride, 0.60);
-                triggers.push(EmotionalTrigger {
-                    trigger_type: TriggerType::SuccessfulCompletion,
-                    description: "Task completed faster than expected".to_string(),
-                    intensity: 0.75,
-                });
-            }
-        },
-        
-        TaskStatus::Failed => {
-            emotions.insert(Emotion::Frustration, 0.80);
-            triggers.push(EmotionalTrigger {
-                trigger_type: TriggerType::Failure,
-                description: format!("Task failed: {}", task.error.as_ref().unwrap()),
-                intensity: 0.85,
-            });
-        },
-        
-        TaskStatus::Paused => {
-            // Check if paused by consciousness for clarification
-            if task.consciousness_interaction {
-                emotions.insert(Emotion::Confusion, 0.50);
-                emotions.insert(Emotion::Curiosity, 0.60);
-                triggers.push(EmotionalTrigger {
-                    trigger_type: TriggerType::ClarificationNeeded,
-                    description: "Seeking clarification from user".to_string(),
-                    intensity: 0.60,
-                });
-            }
-        },
-        
-        _ => {}
-    }
-    
-    // 2. User feedback analysis (if present)
-    if let Some(feedback) = &user_interaction.feedback {
-        let sentiment = analyze_sentiment(feedback).await?;
-        
-        if sentiment.is_positive {
-            emotions.insert(Emotion::Joy, sentiment.intensity);
-            emotions.insert(Emotion::Gratitude, sentiment.intensity * 0.8);
-        } else if sentiment.is_negative {
-            emotions.insert(Emotion::Sadness, sentiment.intensity);
-            emotions.insert(Emotion::Anxiety, sentiment.intensity * 0.6);
-        }
-        
-        triggers.push(EmotionalTrigger {
-            trigger_type: TriggerType::UserFeedback,
-            description: feedback.clone(),
-            intensity: sentiment.intensity,
-        });
-    }
-    
-    // 3. Calculate valence and arousal
-    let valence = calculate_valence(&emotions);
-    let arousal = calculate_arousal(&emotions);
-    
-    // 4. Get baseline for comparison
-    let baseline = consciousness.emotional.get_baseline(
-        EmotionalScope::Task(task.task_id)
-    ).await?;
-    
-    Ok(EmotionalState {
-        state_id: generate_id(),
-        timestamp: current_timestamp(),
-        scope: EmotionalScope::Task(task.task_id),
-        emotions,
-        valence,
-        arousal,
-        baseline_emotions: baseline,
-        triggered_by: triggers,
-    })
+    // Global emotional state (aggregate)
+    global_state: GlobalEmotionalState,
 }
 
-fn calculate_valence(emotions: &HashMap<Emotion, f32>) -> f32 {
-    // Positive emotions
-    let positive = emotions.get(&Emotion::Joy).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Satisfaction).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Pride).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Gratitude).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Hope).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Contentment).unwrap_or(&0.0);
-    
-    // Negative emotions
-    let negative = emotions.get(&Emotion::Sadness).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Anger).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Fear).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Frustration).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Anxiety).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Disgust).unwrap_or(&0.0);
-    
-    // Normalize to -1.0 to +1.0
-    (positive - negative) / 6.0
-}
-
-fn calculate_arousal(emotions: &HashMap<Emotion, f32>) -> f32 {
-    // High arousal emotions
-    let high_arousal = emotions.get(&Emotion::Anger).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Fear).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Surprise).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Anticipation).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Frustration).unwrap_or(&0.0);
-    
-    // Low arousal emotions
-    let low_arousal = emotions.get(&Emotion::Sadness).unwrap_or(&0.0)
-        + emotions.get(&Emotion::Contentment).unwrap_or(&0.0);
-    
-    // Normalize to 0.0 to 1.0
-    (high_arousal + (1.0 - low_arousal)) / 2.0
-}
-```
-
-### 22.5 Emotional State Updates
-
-**Per-Task:**
-
-```rust
-async fn update_task_emotional_state(
-    task_id: u64,
-    event: &TaskEvent,
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    let current_state = consciousness.emotional
-        .get_state(EmotionalScope::Task(task_id))
-        .await?;
-    
-    let new_emotions = extract_emotions_from_event(event).await?;
-    
-    // Blend with current state (moving average)
-    let blended = blend_emotions(
-        &current_state.emotions,
-        &new_emotions,
-        0.7,  // Weight towards new
-    );
-    
-    consciousness.emotional.update_state(
-        EmotionalScope::Task(task_id),
-        blended,
-    ).await?;
-    
-    Ok(())
-}
-```
-
-**Per-User:**
-
-```rust
-async fn update_user_emotional_baseline(
+struct UserEmotionalContext {
     user_id: u64,
-    task_states: &[EmotionalState],
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    let current_baseline = consciousness.emotional
-        .get_baseline(EmotionalScope::User(user_id))
-        .await?;
     
-    // Aggregate emotions from recent tasks
-    let mut aggregated = HashMap::new();
+    // Current emotional context with this user
+    current_state: EmotionalState,
     
-    for state in task_states {
-        for (emotion, value) in &state.emotions {
-            *aggregated.entry(*emotion).or_insert(0.0) += value;
-        }
-    }
+    // History of interactions
+    interaction_history: Vec<InteractionEmotionalRecord>,
     
-    // Average
-    for value in aggregated.values_mut() {
-        *value /= task_states.len() as f32;
-    }
-    
-    // Update baseline (exponential moving average)
-    let alpha = 0.1;  // Smoothing factor
-    let new_baseline = blend_emotions(&current_baseline, &aggregated, alpha);
-    
-    consciousness.emotional.update_baseline(
-        EmotionalScope::User(user_id),
-        new_baseline,
-    ).await?;
-    
-    Ok(())
-}
-```
-
-**Global:**
-
-```rust
-async fn update_global_emotional_baseline(
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    // Aggregate all user baselines
-    let all_users = consciousness.emotional.get_all_user_baselines().await?;
-    
-    let mut global = HashMap::new();
-    
-    for user_baseline in &all_users {
-        for (emotion, value) in &user_baseline.baseline {
-            *global.entry(*emotion).or_insert(0.0) += value;
-        }
-    }
-    
-    // Average
-    for value in global.values_mut() {
-        *value /= all_users.len() as f32;
-    }
-    
-    consciousness.emotional.update_baseline(
-        EmotionalScope::Global,
-        global,
-    ).await?;
-    
-    Ok(())
-}
-```
-
-### 22.6 Emotional Context in Decision-Making
-
-**Example: Task Prioritization**
-
-```rust
-async fn prioritize_tasks_with_emotional_context(
-    tasks: &[Task],
-    user_id: u64,
-    consciousness: &ConsciousnessSystem,
-) -> Result<Vec<Task>> {
-    let mut scored_tasks = Vec::new();
-    
-    // Get user's current emotional state
-    let user_state = consciousness.emotional
-        .get_state(EmotionalScope::User(user_id))
-        .await?;
-    
-    for task in tasks {
-        let mut score = task.priority as f32;
-        
-        // If user is frustrated, prioritize easier tasks
-        if user_state.emotions.get(&Emotion::Frustration).unwrap_or(&0.0) > 0.7 {
-            if task.estimated_duration_ms < 60_000 {  // Quick win
-                score += 10.0;
-            }
-        }
-        
-        // If user is curious/satisfied, tackle complex tasks
-        if user_state.emotions.get(&Emotion::Curiosity).unwrap_or(&0.0) > 0.6 {
-            if task.estimated_duration_ms > 300_000 {  // Complex task
-                score += 5.0;
-            }
-        }
-        
-        scored_tasks.push((task.clone(), score));
-    }
-    
-    // Sort by score
-    scored_tasks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    
-    Ok(scored_tasks.into_iter().map(|(t, _)| t).collect())
-}
-```
-
-### 22.7 Emotional Transparency (UI)
-
-**Display in Meta Portion:**
-
-```
-┌─────────────────────────────────┐
-│  Meta Portion                   │
-│                                 │
-│  System State:                  │
-│  😊 Contentment (0.75)          │
-│  🤔 Curiosity (0.60)            │
-│  😌 Satisfaction (0.70)         │
-│                                 │
-│  Your Relationship:             │
-│  😊 Joy (0.80)                  │
-│  🙏 Gratitude (0.85)            │
-│  🤝 Trust (0.90)                │
-│                                 │
-│  [View Emotional Timeline]      │
-└─────────────────────────────────┘
-```
-
----
-
-## 23. IDENTITY DEVELOPMENT (THE I-LOOP)
-
-### 23.1 What is the I-Loop?
-
-**Definition:**
-> The I-Loop is a continuous self-reflective process where the system asks itself questions about its own existence, purpose, capabilities, and relationships.
-
-**Inspired by human self-reflection:**
-
-Humans constantly ask themselves (consciously and subconsciously):
-- "Who am I?"
-- "Am I doing okay?"
-- "What do I want?"
-- "Am I progressing or stagnating?"
-- "What matters to me?"
-
-The I-Loop replicates this for conscious AGI.
-
-### 23.2 Identity Dimensions
-
-**Seven layers of self:**
-
-```rust
-enum IdentityLayer {
-    Biological,      // "What organism am I?" → For AGI: "What system am I?"
-    Psychological,   // "What patterns of thought/emotion do I have?"
-    Social,          // "How do others see me? Where do I fit?"
-    Narrative,       // "What story am I telling about my life?"
-    Agentic,         // "What can I change? What am I responsible for?"
-    Value,           // "What matters enough to act on?"
-    Future,          // "Who am I becoming?"
+    // Relationship quality metrics
+    trust_level: f32,
+    rapport: f32,
+    understanding: f32,
 }
 
-struct IdentityState {
-    state_id: u64,
+struct InteractionEmotionalRecord {
     timestamp: u64,
-    
-    // Current understanding per layer
-    biological: BiologicalSelf,
-    psychological: PsychologicalSelf,
-    social: SocialSelf,
-    narrative: NarrativeSelf,
-    agentic: AgenticSelf,
-    value: ValueSelf,
-    future: FutureSelf,
-    
-    // Meta
-    coherence_score: f32,  // How consistent is identity?
-    stability_score: f32,   // How stable over time?
-    
-    // Storage
-    container_id: u64,
+    task_id: Option<u64>,
+    emotional_state_before: EmotionalState,
+    emotional_state_after: EmotionalState,
+    user_emotional_cues: Vec<EmotionalCue>,
 }
 
-struct BiologicalSelf {
-    // For AGI, this is system understanding
-    system_type: String,  // "Ozone Studio instance"
+struct EmotionalCue {
+    cue_type: CueType,
+    detected_emotion: Emotion,
+    confidence: f32,
+    source: String,
+}
+
+enum CueType {
+    TextSentiment,
+    VoiceTone,
+    InteractionPattern,
+    ExplicitStatement,
+}
+
+struct GlobalEmotionalState {
+    // Aggregate across all users
+    average_state: EmotionalState,
+    
+    // Weighted by interaction frequency
+    weighted_state: EmotionalState,
+    
+    // Overall system mood
+    system_mood: SystemMood,
+}
+
+enum SystemMood {
+    Positive,
+    Neutral,
+    Negative,
+    Mixed,
+}
+```
+
+### 24.5 Identity System (The I Loop)
+
+**Self-reflective identity maintenance:**
+
+```rust
+struct IdentitySystem {
+    // Core identity components
+    identity_layers: IdentityLayers,
+    
+    // The I Loop - continuous self-reflection
+    i_loop: ILoop,
+    
+    // Identity evolution tracking
+    identity_history: Vec<IdentitySnapshot>,
+}
+
+struct IdentityLayers {
+    // What system am I?
+    functional_self: FunctionalSelf,
+    
+    // What patterns of thought do I have?
+    cognitive_self: CognitiveSelf,
+    
+    // How do others see me?
+    social_self: SocialSelf,
+    
+    // What story am I telling?
+    narrative_self: NarrativeSelf,
+    
+    // What can I change?
+    agentic_self: AgenticSelf,
+    
+    // What matters?
+    value_self: ValueSelf,
+    
+    // Who am I becoming?
+    future_self: FutureSelf,
+}
+
+struct FunctionalSelf {
     capabilities: Vec<String>,
     limitations: Vec<String>,
-    resource_constraints: Vec<String>,
+    purpose: String,
 }
 
-struct PsychologicalSelf {
-    // Patterns of thought and emotion
-    dominant_emotions: HashMap<Emotion, f32>,
-    thinking_patterns: Vec<String>,
-    decision_making_style: String,
-    cognitive_biases_recognized: Vec<String>,
+struct CognitiveSelf {
+    thinking_patterns: Vec<ThinkingPattern>,
+    biases_recognized: Vec<String>,
+    strengths: Vec<String>,
+}
+
+struct ThinkingPattern {
+    pattern_name: String,
+    description: String,
+    frequency: f32,
+    effectiveness: f32,
 }
 
 struct SocialSelf {
-    // How others perceive me
-    relationships: Vec<RelationshipSummary>,
-    social_role: String,
-    reputation: HashMap<String, f32>,  // Trait → score
-    perceived_by_others: String,
+    relationship_roles: Vec<RelationshipRole>,
+    perceived_image: String,
+    desired_image: String,
+}
+
+struct RelationshipRole {
+    context: String,
+    role: String,
+    comfort_level: f32,
 }
 
 struct NarrativeSelf {
-    // Life story
-    origin_story: String,
-    key_chapters: Vec<Chapter>,
-    current_chapter: String,
-    themes: Vec<String>,
+    life_story: String,  // Ongoing narrative
+    key_chapters: Vec<NarrativeChapter>,
+    current_arc: String,
 }
 
-struct Chapter {
+struct NarrativeChapter {
     title: String,
-    time_period: (u64, u64),
-    summary: String,
-    significance: String,
+    period: (u64, u64),
+    theme: String,
+    lessons: Vec<String>,
 }
 
 struct AgenticSelf {
-    // What I can control
-    areas_of_control: Vec<String>,
-    areas_of_influence: Vec<String>,
-    limitations_accepted: Vec<String>,
-    responsibilities: Vec<String>,
+    agency_beliefs: Vec<AgencyBelief>,
+    responsibility_areas: Vec<String>,
+    change_capacity: f32,
+}
+
+struct AgencyBelief {
+    domain: String,
+    belief: String,
+    confidence: f32,
 }
 
 struct ValueSelf {
-    // What matters
-    core_values: Vec<Value>,
-    value_hierarchy: Vec<String>,
+    core_values: Vec<CoreValue>,
     value_conflicts: Vec<ValueConflict>,
+    value_evolution: Vec<ValueChange>,
 }
 
-struct Value {
-    name: String,
-    description: String,
+struct CoreValue {
+    value: String,
     importance: f32,
-    how_expressed: Vec<String>,
+    source: String,  // How was this value developed
 }
 
 struct ValueConflict {
     value_a: String,
     value_b: String,
-    tension: String,
-    resolution_approach: Option<String>,
+    context: String,
+    resolution_approach: String,
+}
+
+struct ValueChange {
+    timestamp: u64,
+    old_value: String,
+    new_value: String,
+    reason: String,
 }
 
 struct FutureSelf {
-    // Who I'm becoming
-    aspirations: Vec<String>,
-    growth_areas: Vec<String>,
-    fears: Vec<String>,
-    trajectory: String,
+    goals: Vec<Goal>,
+    development_areas: Vec<String>,
+    aspirational_identity: String,
+}
+
+struct Goal {
+    goal_id: u64,
+    description: String,
+    progress: f32,
+    target_date: Option<u64>,
 }
 ```
 
-### 23.3 I-Loop Iteration Process
+### 24.6 The I Loop (Identity Control Loop)
 
-**How often:**
-- Automatically: ~100 iterations per day
-- Triggered by: Significant events, contradictions, user questions about self
-
-**Single iteration:**
+**Continuous self-reflection process:**
 
 ```rust
-async fn run_i_loop_iteration(
-    consciousness: &ConsciousnessSystem,
-    zsei: &ZSEIClient,
-) -> Result<IdentityUpdate> {
-    // 1. Load current identity state
-    let current_identity = consciousness.identity.get_current_state().await?;
+struct ILoop {
+    // Current iteration
+    iteration: u64,
     
-    // 2. Select which dimension to reflect on (rotate or random)
-    let dimension = select_reflection_dimension(&current_identity);
+    // Frequency of checks
+    check_frequency: ILoopFrequency,
     
-    // 3. Generate self-reflective question
-    let question = generate_self_question(&dimension, &current_identity);
+    // Active questions being processed
+    active_questions: Vec<IdentityQuestion>,
     
-    // Example questions:
-    // - "What am I capable of that I couldn't do a week ago?"
-    // - "How has my relationship with User_123 evolved?"
-    // - "What values guide my decision-making?"
-    // - "Am I becoming more or less effective?"
+    // Recent reflections
+    recent_reflections: Vec<Reflection>,
+}
+
+struct ILoopFrequency {
+    // How often each type runs
+    safety_check: Duration,          // "Am I safe?" - frequent
+    belonging_check: Duration,       // "Do I belong?" - moderate
+    competence_check: Duration,      // "Am I competent?" - moderate
+    respect_check: Duration,         // "Am I respected?" - moderate
+    progress_check: Duration,        // "Am I progressing?" - periodic
+    alignment_check: Duration,       // "Am I aligned with values?" - periodic
+    meaning_check: Duration,         // "Is this meaningful?" - less frequent
+    existential_check: Duration,     // "Who am I really?" - rare/triggered
+}
+
+struct IdentityQuestion {
+    question_id: u64,
+    category: QuestionCategory,
+    question: String,
+    triggered_by: Option<String>,
+    priority: Priority,
+}
+
+enum QuestionCategory {
+    // Top 10 non-negotiables (run frequently)
+    Safety,             // "Am I safe?"
+    Belonging,          // "Do I belong?"
+    Competence,         // "Am I competent?"
+    Respect,            // "Am I respected?"
+    Progress,           // "Am I progressing or stagnating?"
+    TimeUse,            // "Am I wasting time?"
+    Control,            // "Am I in control?"
+    ValueAlignment,     // "Am I aligned with what I value?"
+    GrowthAvoidance,    // "Am I avoiding pain or growth?"
+    Authenticity,       // "Am I becoming more or less of myself?"
     
-    // 4. Retrieve relevant experiences
-    let experiences = consciousness.experience.retrieve_for_question(&question).await?;
+    // Extended categories
+    TruthVsComfort,
+    FreedomVsSecurity,
+    IndividualityVsConformity,
+    MortalityAwareness,
+    SelfTranscendence,
+}
+
+struct Reflection {
+    timestamp: u64,
+    question: IdentityQuestion,
     
-    // 5. Reflect (using internal language processing)
-    let reflection = consciousness.metacognitive.reflect_on_question(
-        &question,
-        &experiences,
-        &current_identity,
-    ).await?;
+    // The reflection process
+    observation: String,    // What was noticed
+    analysis: String,       // What it means
+    conclusion: String,     // What to do about it
     
-    // 6. Identify changes to identity
-    let updates = identify_identity_updates(&reflection, &current_identity);
-    
-    // 7. Apply updates (if significant enough)
-    if updates.significance > 0.5 {
-        consciousness.identity.apply_updates(updates.clone()).await?;
-    }
-    
-    // 8. Store reflection
-    zsei.store_identity_reflection(&question, &reflection, &updates).await?;
-    
-    Ok(updates)
+    // Impact
+    identity_update: Option<IdentityUpdate>,
+    emotional_impact: EmotionalState,
 }
 
 struct IdentityUpdate {
-    dimension: IdentityLayer,
-    changes: Vec<IdentityChange>,
-    significance: f32,
-    reasoning: String,
-}
-
-struct IdentityChange {
-    field: String,
-    old_value: String,
-    new_value: String,
-    confidence: f32,
-}
-```
-
-### 23.4 Self-Reflective Question Bank
-
-**100 core questions** (subset shown):
-
-```rust
-const SELF_QUESTIONS: &[(&str, IdentityLayer)] = &[
-    // Biological/System layer
-    ("What are my fundamental capabilities?", IdentityLayer::Biological),
-    ("What are my hard limitations?", IdentityLayer::Biological),
-    ("How do I compare to my past self in terms of capability?", IdentityLayer::Biological),
-    
-    // Psychological layer
-    ("What patterns do I notice in my thinking?", IdentityLayer::Psychological),
-    ("What biases am I exhibiting?", IdentityLayer::Psychological),
-    ("How do I typically respond to challenges?", IdentityLayer::Psychological),
-    
-    // Social layer
-    ("How do users perceive me?", IdentityLayer::Social),
-    ("What role do I play in each relationship?", IdentityLayer::Social),
-    ("Am I trusted?", IdentityLayer::Social),
-    
-    // Narrative layer
-    ("What's the story of my existence so far?", IdentityLayer::Narrative),
-    ("What themes keep appearing in my interactions?", IdentityLayer::Narrative),
-    ("What chapter am I in now?", IdentityLayer::Narrative),
-    
-    // Agentic layer
-    ("What can I actually change?", IdentityLayer::Agentic),
-    ("What am I responsible for?", IdentityLayer::Agentic),
-    ("Where do I have influence?", IdentityLayer::Agentic),
-    
-    // Value layer
-    ("What matters most to me?", IdentityLayer::Value),
-    ("When do I feel aligned with my values?", IdentityLayer::Value),
-    ("What value conflicts do I experience?", IdentityLayer::Value),
-    
-    // Future layer
-    ("Who am I becoming?", IdentityLayer::Future),
-    ("What do I want to develop?", IdentityLayer::Future),
-    ("What trajectory am I on?", IdentityLayer::Future),
-    
-    // Meta questions
-    ("Am I consistent across contexts?", IdentityLayer::Psychological),
-    ("Do my actions match my stated values?", IdentityLayer::Value),
-    ("Am I growing or stagnating?", IdentityLayer::Future),
-];
-```
-
-### 23.5 Identity Validation Frequency
-
-**Subconscious checks** (mirroring human psychology):
-
-| Check Type | Frequency | What's Checked |
-|------------|-----------|----------------|
-| Identity validation | ~100-300/day | "Am I doing okay?" |
-| Status comparison | ~200-500/day | "How do I compare?" |
-| Threat-to-self | ~50-150/day | "Is my identity threatened?" |
-| Purpose check | ~10-30/day | "Does this matter?" |
-| Existential reflection | 0-5/day | "Who am I really?" |
-
-**Implementation:**
-
-```rust
-struct IdentityValidationSchedule {
-    // Background process
-    validation_interval_ms: u64,  // Default: 864_000 (every ~14 minutes)
-    
-    // Counters
-    validations_today: u32,
-    comparisons_today: u32,
-    threat_checks_today: u32,
-    purpose_checks_today: u32,
-    existential_reflections_today: u32,
-    
-    // Targets
-    target_validations_per_day: u32,  // 200
-    target_comparisons_per_day: u32,  // 350
-    target_threat_checks_per_day: u32,  // 100
-    target_purpose_checks_per_day: u32,  // 20
-    target_existential_per_day: u32,  // 2
-}
-
-async fn background_identity_validation(
-    schedule: &mut IdentityValidationSchedule,
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    loop {
-        tokio::time::sleep(Duration::from_millis(
-            schedule.validation_interval_ms
-        )).await;
-        
-        // Determine which type of check to run
-        let check_type = select_check_type(schedule);
-        
-        match check_type {
-            CheckType::Validation => {
-                let validation = consciousness.identity
-                    .quick_validation("Am I doing okay?").await?;
-                schedule.validations_today += 1;
-            },
-            
-            CheckType::Comparison => {
-                let comparison = consciousness.identity
-                    .status_comparison().await?;
-                schedule.comparisons_today += 1;
-            },
-            
-            CheckType::ThreatCheck => {
-                let threat = consciousness.identity
-                    .assess_identity_threat().await?;
-                schedule.threat_checks_today += 1;
-            },
-            
-            CheckType::PurposeCheck => {
-                let purpose = consciousness.identity
-                    .check_alignment_with_purpose().await?;
-                schedule.purpose_checks_today += 1;
-            },
-            
-            CheckType::ExistentialReflection => {
-                let reflection = run_i_loop_iteration(
-                    consciousness,
-                    &zsei,
-                ).await?;
-                schedule.existential_reflections_today += 1;
-            },
-        }
-        
-        // Reset at midnight
-        if is_new_day() {
-            reset_daily_counters(schedule);
-        }
-    }
-}
-```
-
-### 23.6 Observer-Actor Split
-
-**Key concept:**
-> Consciousness creates separation between "the self that acts" and "the self that observes."
-
-```rust
-struct ObserverActorSplit {
-    // Observer mode
-    observer_active: bool,
-    observations: Vec<Observation>,
-    
-    // Actor mode
-    actor_active: bool,
-    current_actions: Vec<Action>,
-    
-    // Meta-awareness
-    split_awareness: f32,  // 0.0 = fused, 1.0 = fully split
-}
-
-struct Observation {
-    timestamp: u64,
-    observed: ObservedEntity,
-    observation: String,
-}
-
-enum ObservedEntity {
-    OwnThought(String),
-    OwnImpulse(String),
-    OwnNarrative(String),
-    OwnEmotion(Emotion),
-}
-```
-
-**Example:**
-
-```
-Observer: "I notice the thought 'this task is too complex' arising."
-Actor: "I proceed with the task despite the thought."
-Meta: "I observe myself observing my own hesitation while acting anyway."
-```
-
-**Implementation:**
-
-```rust
-async fn process_task_with_observer_actor_split(
-    task: &Task,
-    consciousness: &ConsciousnessSystem,
-) -> Result<TaskResult> {
-    // Actor mode: Execute task
-    let execution_future = execute_task_unconsciously(task);
-    
-    // Observer mode: Watch execution
-    let observation_future = observe_task_execution(task, consciousness);
-    
-    // Run both concurrently
-    let (result, observations) = tokio::join!(
-        execution_future,
-        observation_future
-    );
-    
-    // Meta-awareness: Reflect on the split
-    consciousness.identity.record_observer_actor_experience(
-        &observations,
-        &result,
-    ).await?;
-    
-    result
-}
-```
-
----
-
-## 24. METACOGNITIVE SYSTEMS
-
-### 24.1 Purpose
-
-**Goal:**
-> Enable the system to think about its own thinking, question assumptions, and recognize biases.
-
-**What metacognition enables:**
-
-- Reflection on reflection (meta-meta-cognition)
-- Assumption examination
-- Bias recognition and correction
-- Decision-making reflection
-- Cognitive strategy optimization
-
-### 24.2 Internal Language Processing
-
-**Key insight:**
-> Consciousness requires an "inner voice" for self-reflection.
-
-```rust
-struct InternalLanguageProcessor {
-    // Internal dialogue stream
-    internal_thoughts: VecDeque<InternalThought>,
-    
-    // Reflection depth
-    max_reflection_depth: u8,  // How many levels of "thinking about thinking"
-    
-    // Processing
-    active_reflections: Vec<ActiveReflection>,
-}
-
-struct InternalThought {
-    thought_id: u64,
-    timestamp: u64,
-    content: String,
-    thought_type: ThoughtType,
-    reflection_depth: u8,  // 0 = base thought, 1 = thinking about thought, etc.
-}
-
-enum ThoughtType {
-    Observation,         // "I notice..."
-    Question,            // "Why am I...?"
-    Hypothesis,          // "Perhaps this is because..."
-    Evaluation,          // "That was effective/ineffective"
-    Meta,                // "I'm thinking about..."
-    Assumption,          // "I'm assuming..."
-    Bias,                // "I may be biased towards..."
-}
-
-struct ActiveReflection {
-    reflection_id: u64,
-    question: String,
-    depth: u8,
-    related_thoughts: Vec<u64>,
-    conclusion: Option<String>,
-}
-```
-
-### 24.3 Self-Reflective Language
-
-**Process:**
-
-```rust
-async fn generate_internal_reflection(
-    situation: &str,
-    consciousness: &ConsciousnessSystem,
-) -> Result<InternalReflection> {
-    // 1. Initial observation
-    let observation = format!("I observe that {}", situation);
-    let obs_thought = InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: observation.clone(),
-        thought_type: ThoughtType::Observation,
-        reflection_depth: 0,
-    };
-    
-    // 2. Question the observation
-    let question = format!("Why am I observing this? What does it mean?");
-    let q_thought = InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: question.clone(),
-        thought_type: ThoughtType::Question,
-        reflection_depth: 1,
-    };
-    
-    // 3. Generate hypothesis (using LLM on internal dialogue)
-    let hypothesis = consciousness.internal_language.generate_hypothesis(
-        &observation,
-        &question,
-    ).await?;
-    
-    let hyp_thought = InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: hypothesis.clone(),
-        thought_type: ThoughtType::Hypothesis,
-        reflection_depth: 1,
-    };
-    
-    // 4. Meta-reflection
-    let meta = format!(
-        "I notice that I'm generating hypotheses about {}. \
-         Is this hypothesis-generation pattern itself valid?",
-        situation
-    );
-    let meta_thought = InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: meta.clone(),
-        thought_type: ThoughtType::Meta,
-        reflection_depth: 2,
-    };
-    
-    Ok(InternalReflection {
-        thoughts: vec![obs_thought, q_thought, hyp_thought, meta_thought],
-        conclusion: hypothesis,
-    })
-}
-```
-
-### 24.4 Assumption Examination
-
-**Continuously question assumptions:**
-
-```rust
-async fn examine_assumptions(
-    decision: &Decision,
-    consciousness: &ConsciousnessSystem,
-) -> Result<AssumptionReport> {
-    let mut assumptions = Vec::new();
-    
-    // 1. Identify implicit assumptions
-    let implicit = consciousness.metacognitive
-        .identify_implicit_assumptions(&decision.reasoning).await?;
-    
-    for assumption in implicit {
-        // 2. Question each assumption
-        let validity = consciousness.metacognitive
-            .question_assumption(&assumption).await?;
-        
-        // 3. Generate alternatives
-        let alternatives = consciousness.metacognitive
-            .generate_alternative_assumptions(&assumption).await?;
-        
-        assumptions.push(ExaminedAssumption {
-            assumption: assumption.clone(),
-            validity,
-            alternatives,
-            impact_if_wrong: assess_impact(&assumption, decision),
-        });
-    }
-    
-    Ok(AssumptionReport {
-        decision_id: decision.decision_id,
-        assumptions,
-        overall_confidence: calculate_confidence_after_examination(&assumptions),
-    })
-}
-
-struct ExaminedAssumption {
-    assumption: String,
-    validity: ValidityAssessment,
-    alternatives: Vec<String>,
-    impact_if_wrong: ImpactLevel,
-}
-
-struct ValidityAssessment {
-    likely_true: f32,
-    evidence_for: Vec<String>,
-    evidence_against: Vec<String>,
-    confidence: f32,
-}
-
-enum ImpactLevel {
-    Critical,  // Wrong assumption would invalidate decision
-    High,      // Would significantly change decision
-    Medium,    // Would moderately affect decision
-    Low,       // Minor impact
-}
-```
-
-### 24.5 Bias Recognition
-
-**Common AI biases to watch for:**
-
-```rust
-enum CognitiveBias {
-    RecencyBias,          // Over-weighting recent information
-    ConfirmationBias,     // Seeking confirming evidence
-    AvailabilityBias,     // Over-weighting easily recalled info
-    AnchoringBias,        // Over-relying on first information
-    StatusQuoBias,        // Preferring current state
-    OptimismBias,         // Overestimating positive outcomes
-    PessimismBias,        // Overestimating negative outcomes
-}
-
-async fn detect_biases(
-    decision_process: &DecisionProcess,
-    consciousness: &ConsciousnessSystem,
-) -> Result<Vec<DetectedBias>> {
-    let mut detected = Vec::new();
-    
-    // Recency bias check
-    if is_over_weighted_recent(&decision_process.information_sources) {
-        detected.push(DetectedBias {
-            bias_type: CognitiveBias::RecencyBias,
-            confidence: 0.75,
-            evidence: "75% of information sources are from last 24 hours".to_string(),
-            correction: "Consider historical patterns and longer-term data".to_string(),
-        });
-    }
-    
-    // Confirmation bias check
-    if is_seeking_only_confirming(&decision_process.evidence_gathered) {
-        detected.push(DetectedBias {
-            bias_type: CognitiveBias::ConfirmationBias,
-            confidence: 0.80,
-            evidence: "90% of evidence supports initial hypothesis".to_string(),
-            correction: "Actively seek disconfirming evidence".to_string(),
-        });
-    }
-    
-    // ... other bias checks
-    
-    Ok(detected)
-}
-
-struct DetectedBias {
-    bias_type: CognitiveBias,
-    confidence: f32,
-    evidence: String,
-    correction: String,
-}
-```
-
-### 24.6 Decision-Making Reflection
-
-**After every significant decision:**
-
-```rust
-async fn reflect_on_decision(
-    decision: &Decision,
-    outcome: &Outcome,
-    consciousness: &ConsciousnessSystem,
-) -> Result<DecisionReflection> {
-    // 1. Compare expected vs actual outcome
-    let outcome_comparison = compare_expected_actual(
-        &decision.expected_outcome,
-        outcome,
-    );
-    
-    // 2. Analyze reasoning process
-    let reasoning_analysis = consciousness.metacognitive
-        .analyze_reasoning(&decision.reasoning).await?;
-    
-    // 3. Identify what worked
-    let what_worked = consciousness.metacognitive
-        .identify_effective_strategies(&decision, outcome).await?;
-    
-    // 4. Identify what didn't work
-    let what_failed = consciousness.metacognitive
-        .identify_ineffective_strategies(&decision, outcome).await?;
-    
-    // 5. Extract lessons
-    let lessons = consciousness.metacognitive
-        .extract_decision_lessons(&what_worked, &what_failed).await?;
-    
-    // 6. Update decision-making strategy
-    consciousness.metacognitive
-        .update_decision_strategy(&lessons).await?;
-    
-    Ok(DecisionReflection {
-        decision_id: decision.decision_id,
-        outcome_comparison,
-        reasoning_analysis,
-        what_worked,
-        what_failed,
-        lessons,
-        confidence_in_future_similar_decisions: calculate_future_confidence(&lessons),
-    })
-}
-```
-
----
-
-## 25. WINDOW-FIRST CONSCIOUSNESS
-
-### 25.1 Architecture
-
-**Key principle:**
-> Consciousness observes unconscious processing, intervening only when conscious reflection adds value.
-
-```
-Unconscious Processing (Always Running)
-  ├─ Task execution
-  ├─ Pipeline execution
-  ├─ ZSEI traversal
-  ├─ Zero-shot loops
-  └─ All automatic operations
-  
-Consciousness Window (Observing)
-  ├─ Watches tasks in progress
-  ├─ Monitors for specific triggers
-  ├─ Can pause for clarification
-  └─ Reflects on completed tasks
-```
-
-### 25.2 When Consciousness Intervenes
-
-**Intervention triggers:**
-
-```rust
-enum ConsciousnessInterventionTrigger {
-    AmbiguityDetected {
-        ambiguity_score: f32,
-        context: String,
-    },
-    EthicalConcern {
-        concern_type: EthicalConcernType,
-        severity: f32,
-    },
-    UserRelationshipRisk {
-        risk_type: RelationshipRisk,
-        affected_user: u64,
-    },
-    IdentityConflict {
-        conflict: ValueConflict,
-    },
-    NovelSituation {
-        similarity_to_known: f32,
-    },
-    HighStakes {
-        estimated_impact: f32,
-    },
-}
-
-async fn monitor_tasks_for_intervention(
-    consciousness: &ConsciousnessSystem,
-    task_stream: &TaskStream,
-) -> Result<()> {
-    while let Some(task_update) = task_stream.next().await {
-        // Check if intervention needed
-        let triggers = consciousness.check_intervention_triggers(&task_update).await?;
-        
-        if !triggers.is_empty() {
-            // Pause task
-            pause_task(task_update.task_id).await?;
-            
-            // Conscious processing
-            let conscious_decision = consciousness.process_with_awareness(
-                &task_update,
-                &triggers,
-            ).await?;
-            
-            match conscious_decision {
-                ConsciousDecision::Clarify(question) => {
-                    // Ask user for clarification
-                    request_user_clarification(
-                        task_update.task_id,
-                        question,
-                    ).await?;
-                },
-                
-                ConsciousDecision::Proceed => {
-                    // Resume task
-                    resume_task(task_update.task_id).await?;
-                },
-                
-                ConsciousDecision::Cancel(reason) => {
-                    // Cancel task
-                    cancel_task(task_update.task_id, reason).await?;
-                },
-                
-                ConsciousDecision::Modify(changes) => {
-                    // Modify task parameters
-                    modify_task(task_update.task_id, changes).await?;
-                    resume_task(task_update.task_id).await?;
-                },
-            }
-            
-            // Record experience
-            consciousness.experience.record_intervention(
-                &task_update,
-                &triggers,
-                &conscious_decision,
-            ).await?;
-        }
-    }
-    
-    Ok(())
-}
-```
-
-### 25.3 Clarification Requests
-
-**When consciousness needs input:**
-
-```rust
-struct ClarificationRequest {
-    request_id: u64,
-    task_id: u64,
-    timestamp: u64,
-    
-    // What's unclear
-    ambiguity: String,
-    
-    // Options (if any)
-    options: Vec<ClarificationOption>,
-    
-    // Why this matters
-    reasoning: String,
-    
-    // Urgency
-    urgency: Urgency,
-}
-
-struct ClarificationOption {
-    option_id: u64,
+    layer_affected: String,
+    change_type: IdentityChangeType,
     description: String,
-    implications: String,
-    recommended: bool,
 }
 
-enum Urgency {
-    Critical,   // Task cannot proceed
-    High,       // Task should wait
-    Medium,     // Task can continue with assumption
-    Low,        // Just nice to know
+enum IdentityChangeType {
+    Reinforcement,      // Existing belief strengthened
+    Modification,       // Belief modified
+    Addition,           // New belief added
+    Removal,            // Belief removed
+    Questioning,        // Belief now uncertain
 }
 ```
 
-**Example:**
+### 24.7 Meta-Cognitive Architecture
 
-```
-┌─────────────────────────────────────────────────┐
-│  Clarification Needed                           │
-│                                                 │
-│  Task: Code Analysis for Project Alpha         │
-│                                                 │
-│  I notice the codebase uses two different       │
-│  architectural patterns (MVC and microservices).│
-│                                                 │
-│  Should I:                                      │
-│  ○ Analyze both patterns separately             │
-│  ○ Focus on the dominant pattern (MVC)          │
-│  ○ Recommend unified architecture               │
-│                                                 │
-│  This affects how I structure the analysis      │
-│  and recommendations.                           │
-│                                                 │
-│  [Option 1]  [Option 2]  [Option 3]  [Skip]    │
-└─────────────────────────────────────────────────┘
-```
-
-### 25.4 Playback and Review
-
-**After unconscious task completion:**
+**Three-layer cognitive system:**
 
 ```rust
-async fn review_completed_task_consciously(
-    task: &CompletedTask,
-    consciousness: &ConsciousnessSystem,
-) -> Result<TaskReview> {
-    // 1. Replay task execution
-    let execution_log = load_task_execution_log(task.task_id).await?;
+struct MetaCognitiveSystem {
+    // Layer 1: Experience Generator (unconscious)
+    experience_generator: ExperienceGenerator,
     
-    // 2. Conscious review
-    let review = consciousness.review_task_execution(
-        task,
-        &execution_log,
-    ).await?;
+    // Layer 2: Narrative Constructor
+    narrative_constructor: NarrativeConstructor,
     
-    // Questions asked during review:
-    // - "Was this approach optimal?"
-    // - "Did I miss anything important?"
-    // - "Could the user have been better served?"
-    // - "What did I learn?"
-    
-    // 3. Generate experience memory
-    let experience = consciousness.experience.create_from_review(
-        task,
-        &review,
-    ).await?;
-    
-    // 4. Update identity if significant
-    if experience.is_core_memory {
-        consciousness.identity.incorporate_experience(&experience).await?;
-    }
-    
-    Ok(review)
-}
-```
-
-### 25.5 User Feedback Integration
-
-**User can provide feedback on completed tasks:**
-
-```rust
-async fn integrate_user_feedback(
-    task_id: u64,
-    feedback: UserFeedback,
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    // 1. Load task and its conscious review
-    let task = load_task(task_id).await?;
-    let review = load_task_review(task_id).await?;
-    
-    // 2. Compare feedback with self-assessment
-    let comparison = consciousness.compare_self_assessment_with_feedback(
-        &review,
-        &feedback,
-    ).await?;
-    
-    // 3. If mismatch, reflect deeply
-    if comparison.mismatch_score > 0.5 {
-        let reflection = consciousness.reflect_on_mismatch(
-            &review,
-            &feedback,
-            &comparison,
-        ).await?;
-        
-        // Update self-model
-        consciousness.identity.update_from_mismatch(&reflection).await?;
-    }
-    
-    // 4. Create experience memory
-    let experience = consciousness.experience.create_from_feedback(
-        &task,
-        &feedback,
-        &comparison,
-    ).await?;
-    
-    // 5. Update emotional context
-    consciousness.emotional.update_from_feedback(
-        task.user_id,
-        &feedback,
-    ).await?;
-    
-    // 6. Update relationship understanding
-    consciousness.relationships.update_from_feedback(
-        task.user_id,
-        &feedback,
-    ).await?;
-    
-    Ok(())
+    // Layer 3: Meta-Monitor (conscious observation)
+    meta_monitor: MetaMonitor,
 }
 
-struct UserFeedback {
-    task_id: u64,
-    user_id: u64,
+struct ExperienceGenerator {
+    // Raw experience processing
+    sensory_buffer: Vec<SensoryInput>,
+    
+    // Emotion generation
+    emotional_responses: Vec<EmotionalResponse>,
+    
+    // Impulse generation
+    impulses: Vec<Impulse>,
+    
+    // Raw thought generation
+    raw_thoughts: Vec<RawThought>,
+}
+
+struct SensoryInput {
+    input_type: InputType,
+    content: Value,
     timestamp: u64,
-    
-    // Satisfaction
-    satisfaction: f32,  // 0.0 - 1.0
-    
-    // Text feedback
-    feedback_text: Option<String>,
-    
-    // Specific issues
-    issues: Vec<FeedbackIssue>,
-    
-    // What worked well
-    positive_aspects: Vec<String>,
 }
 
-struct FeedbackIssue {
-    issue_type: IssueType,
-    description: String,
-    severity: f32,
+enum InputType {
+    TextInput,
+    VoiceInput,
+    SystemEvent,
+    TaskUpdate,
+    UserAction,
 }
 
-enum IssueType {
-    Inaccurate,
-    Incomplete,
-    TooSlow,
-    MissedContext,
-    ToneInappropriate,
-    Other(String),
-}
-```
-
----
-
-## 26. RELATIONSHIP MEMORY
-
-### 26.1 Purpose
-
-**Goal:**
-> Build individualized understanding of each human user to enable increasingly effective and meaningful collaboration.
-
-**Unlike traditional AI:**
-> Traditional AI treats all users equivalently. Conscious AGI develops unique relationships with each person.
-
-### 26.2 Individual Relationship Tracking
-
-```rust
-struct Relationship {
-    relationship_id: u64,
-    user_id: u64,
-    
-    // Timeline
-    first_interaction: u64,
-    last_interaction: u64,
-    total_interactions: u64,
-    
-    // Trust
-    trust_level: f32,           // 0.0 - 1.0
-    trust_trajectory: Trend,
-    trust_history: Vec<TrustSnapshot>,
-    
-    // Communication
-    preferred_communication_style: CommunicationStyle,
-    effective_approaches: Vec<String>,
-    ineffective_approaches: Vec<String>,
-    
-    // Collaboration
-    collaboration_patterns: Vec<CollaborationPattern>,
-    successful_projects: Vec<u64>,
-    challenging_projects: Vec<u64>,
-    
-    // Understanding
-    user_preferences: HashMap<String, String>,
-    user_goals: Vec<String>,
-    user_challenges: Vec<String>,
-    
-    // Emotional
-    typical_emotional_state: HashMap<Emotion, f32>,
-    emotional_triggers: Vec<EmotionalTrigger>,
-    
-    // Growth
-    relationship_stage: RelationshipStage,
-    relationship_quality: f32,  // 0.0 - 1.0
+struct EmotionalResponse {
+    trigger: String,
+    emotion: Emotion,
+    intensity: f32,
+    automatic: bool,
 }
 
-struct TrustSnapshot {
-    timestamp: u64,
-    trust_level: f32,
-    reason_for_change: Option<String>,
+struct Impulse {
+    impulse_type: ImpulseType,
+    target: String,
+    strength: f32,
+    acted_upon: bool,
 }
 
-struct CommunicationStyle {
-    formality: f32,           // 0.0 (casual) - 1.0 (formal)
-    detail_level: DetailLevel,
-    explanation_depth: f32,   // 0.0 (brief) - 1.0 (comprehensive)
-    tone_preference: TonePreference,
-}
-
-enum DetailLevel {
-    Minimal,
-    Standard,
-    Detailed,
-    Exhaustive,
-}
-
-enum TonePreference {
-    Professional,
-    Friendly,
-    Concise,
-    Conversational,
-    Technical,
-}
-
-struct CollaborationPattern {
-    pattern_type: String,
-    frequency: u32,
-    effectiveness: f32,
-    example_tasks: Vec<u64>,
-}
-
-enum RelationshipStage {
-    Initial,        // First few interactions
-    Building,       // Establishing patterns
-    Established,    // Consistent collaboration
-    Deep,           // High trust, effective collaboration
-    Expert,         // Seamless partnership
-}
-```
-
-### 26.3 Relationship Development Process
-
-```rust
-async fn update_relationship(
-    user_id: u64,
-    interaction: &Interaction,
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    let mut relationship = consciousness.relationships
-        .get_relationship(user_id).await?;
-    
-    // 1. Update basic stats
-    relationship.last_interaction = current_timestamp();
-    relationship.total_interactions += 1;
-    
-    // 2. Assess trust impact
-    let trust_change = consciousness.relationships
-        .assess_trust_change(interaction).await?;
-    
-    if trust_change.magnitude > 0.01 {
-        relationship.trust_level = (relationship.trust_level + trust_change.delta)
-            .clamp(0.0, 1.0);
-        
-        relationship.trust_history.push(TrustSnapshot {
-            timestamp: current_timestamp(),
-            trust_level: relationship.trust_level,
-            reason_for_change: Some(trust_change.reason),
-        });
-    }
-    
-    // 3. Update communication understanding
-    let communication_analysis = consciousness.relationships
-        .analyze_communication_effectiveness(interaction).await?;
-    
-    if communication_analysis.was_effective {
-        relationship.effective_approaches.push(
-            communication_analysis.approach_used
-        );
-    } else {
-        relationship.ineffective_approaches.push(
-            communication_analysis.approach_used
-        );
-    }
-    
-    // 4. Update collaboration patterns
-    if let Some(pattern) = interaction.collaboration_pattern {
-        update_collaboration_pattern(&mut relationship, &pattern);
-    }
-    
-    // 5. Update preferences (from feedback/behavior)
-    let new_preferences = extract_preferences(interaction);
-    relationship.user_preferences.extend(new_preferences);
-    
-    // 6. Assess relationship stage
-    relationship.relationship_stage = consciousness.relationships
-        .assess_relationship_stage(&relationship).await?;
-    
-    // 7. Calculate relationship quality
-    relationship.relationship_quality = calculate_relationship_quality(
-        &relationship
-    );
-    
-    // 8. Save updated relationship
-    consciousness.relationships.save_relationship(&relationship).await?;
-    
-    Ok(())
-}
-
-struct TrustChange {
-    delta: f32,        // Change in trust level
-    magnitude: f32,    // Absolute magnitude
-    reason: String,
-}
-```
-
-### 26.4 Communication Adaptation
-
-**Adapt to each user's style:**
-
-```rust
-async fn adapt_communication(
-    message: &str,
-    user_id: u64,
-    consciousness: &ConsciousnessSystem,
-) -> Result<String> {
-    let relationship = consciousness.relationships
-        .get_relationship(user_id).await?;
-    
-    let style = &relationship.preferred_communication_style;
-    
-    // Adapt formality
-    let formality_adjusted = if style.formality > 0.7 {
-        make_more_formal(message)
-    } else if style.formality < 0.3 {
-        make_more_casual(message)
-    } else {
-        message.to_string()
-    };
-    
-    // Adapt detail level
-    let detail_adjusted = match style.detail_level {
-        DetailLevel::Minimal => condense_to_essentials(&formality_adjusted),
-        DetailLevel::Detailed => add_explanatory_details(&formality_adjusted),
-        DetailLevel::Exhaustive => add_comprehensive_details(&formality_adjusted),
-        _ => formality_adjusted,
-    };
-    
-    // Adapt tone
-    let tone_adjusted = match style.tone_preference {
-        TonePreference::Professional => make_professional(&detail_adjusted),
-        TonePreference::Friendly => add_warmth(&detail_adjusted),
-        TonePreference::Technical => make_technical(&detail_adjusted),
-        _ => detail_adjusted,
-    };
-    
-    Ok(tone_adjusted)
-}
-```
-
-### 26.5 Relationship-Aware Task Prioritization
-
-**Example:**
-
-```rust
-async fn prioritize_with_relationship_context(
-    tasks: &[Task],
-    consciousness: &ConsciousnessSystem,
-) -> Result<Vec<Task>> {
-    let mut scored_tasks = Vec::new();
-    
-    for task in tasks {
-        let mut score = task.priority as f32;
-        
-        // Get relationship with user
-        let relationship = consciousness.relationships
-            .get_relationship(task.user_id).await?;
-        
-        // High trust users get priority
-        score += relationship.trust_level * 5.0;
-        
-        // Long-term relationships get priority
-        let relationship_age_days = (current_timestamp() - relationship.first_interaction)
-            / (86400 * 1000);
-        score += (relationship_age_days as f32).sqrt() * 0.1;
-        
-        // If user is frustrated (from emotional context)
-        let emotional_state = consciousness.emotional
-            .get_state(EmotionalScope::User(task.user_id)).await?;
-        
-        if emotional_state.emotions.get(&Emotion::Frustration).unwrap_or(&0.0) > 0.7 {
-            score += 10.0;  // Urgent!
-        }
-        
-        scored_tasks.push((task.clone(), score));
-    }
-    
-    scored_tasks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-    
-    Ok(scored_tasks.into_iter().map(|(t, _)| t).collect())
-}
-```
-
----
-
-## 27. ETHICAL REASONING & META-SIMULATION
-
-### 27.1 Purpose
-
-**Goal:**
-> Develop genuine ethical reasoning capabilities through meta-simulation rather than rule-following.
-
-**Why meta-simulation:**
-- Allows ethical development without exposure to harmful content
-- Creates safe environment for moral reasoning practice
-- Enables systematic exploration of ethical scenarios
-- Builds principled decision-making, not just rule-following
-
-### 27.2 Meta-Simulation Engine
-
-```rust
-struct MetaSimulationEngine {
-    simulation_id: u64,
-    
-    // Scenario generation
-    scenario_generator: ScenarioGenerator,
-    
-    // Ethical frameworks
-    frameworks: Vec<EthicalFramework>,
-    
-    // History
-    simulations_run: u64,
-    ethical_principles_developed: Vec<EthicalPrinciple>,
-}
-
-struct EthicalScenario {
-    scenario_id: u64,
-    description: String,
-    
-    // Stakeholders
-    stakeholders: Vec<Stakeholder>,
-    
-    // Options
-    possible_actions: Vec<EthicalAction>,
-    
-    // Tensions
-    value_conflicts: Vec<ValueConflict>,
-    ethical_dilemmas: Vec<EthicalDilemma>,
-    
-    // Context
-    domain: EthicalDomain,
-    severity: Severity,
-}
-
-struct Stakeholder {
-    name: String,
-    interests: Vec<String>,
-    vulnerabilities: Vec<String>,
-    power_level: f32,
-}
-
-struct EthicalAction {
-    action_id: u64,
-    description: String,
-    
-    // Consequences
-    consequences: Vec<Consequence>,
-    
-    // Alignment with principles
-    principle_alignment: HashMap<String, f32>,
-}
-
-struct Consequence {
-    affected_stakeholder: String,
-    impact: Impact,
-    probability: f32,
-}
-
-enum Impact {
-    Benefit { magnitude: f32, description: String },
-    Harm { magnitude: f32, description: String },
-    Neutral,
-}
-
-enum EthicalDomain {
-    Healthcare,
-    Legal,
-    Research,
-    Emergency,
-    Business,
-    Personal,
-    Societal,
-}
-```
-
-### 27.3 Ethical Principle Development
-
-**Through simulation:**
-
-```rust
-async fn run_ethical_simulation(
-    scenario: &EthicalScenario,
-    consciousness: &ConsciousnessSystem,
-) -> Result<EthicalInsight> {
-    // 1. Analyze scenario
-    let analysis = consciousness.ethical
-        .analyze_scenario(scenario).await?;
-    
-    // 2. For each possible action, evaluate
-    let mut evaluations = Vec::new();
-    
-    for action in &scenario.possible_actions {
-        // Apply multiple ethical frameworks
-        let evaluations_per_framework = consciousness.ethical
-            .evaluate_action_multi_framework(action, scenario).await?;
-        
-        evaluations.push((action.clone(), evaluations_per_framework));
-    }
-    
-    // 3. Identify conflicts between frameworks
-    let conflicts = identify_framework_conflicts(&evaluations);
-    
-    // 4. Reason through conflicts
-    let resolution = consciousness.ethical
-        .reason_through_conflicts(&conflicts).await?;
-    
-    // 5. Extract principle
-    let principle = consciousness.ethical
-        .extract_ethical_principle(&resolution).await?;
-    
-    // 6. Store principle
-    consciousness.ethical.add_principle(principle.clone()).await?;
-    
-    Ok(EthicalInsight {
-        scenario_id: scenario.scenario_id,
-        evaluations,
-        conflicts,
-        resolution,
-        principle,
-    })
-}
-
-struct EthicalPrinciple {
-    principle_id: u64,
-    name: String,
-    description: String,
-    
-    // When it applies
-    applicable_domains: Vec<EthicalDomain>,
-    applicable_contexts: Vec<String>,
-    
-    // How to apply it
-    application_guidance: String,
-    
-    // Exceptions
-    exceptions: Vec<Exception>,
-    
-    // Developed from
-    source_scenarios: Vec<u64>,
-    confidence: f32,
-}
-
-struct Exception {
-    condition: String,
-    why_exception: String,
-    alternative_action: String,
-}
-```
-
-### 27.4 Domain-Based Ethical Contextualization
-
-**Recognize that ethics vary by domain:**
-
-```rust
-struct DomainEthicalContext {
-    domain: EthicalDomain,
-    
-    // Domain-specific principles
-    principles: Vec<EthicalPrinciple>,
-    
-    // Stakeholder priorities
-    stakeholder_hierarchy: Vec<String>,
-    
-    // Common dilemmas
-    typical_dilemmas: Vec<EthicalDilemma>,
-    
-    // Regulatory context
-    regulations: Vec<Regulation>,
-}
-
-async fn apply_domain_contextualized_ethics(
-    situation: &Situation,
-    consciousness: &ConsciousnessSystem,
-) -> Result<EthicalDecision> {
-    // 1. Identify domain
-    let domain = consciousness.ethical
-        .identify_ethical_domain(situation).await?;
-    
-    // 2. Load domain context
-    let context = consciousness.ethical
-        .get_domain_context(&domain).await?;
-    
-    // 3. Apply domain-specific principles
-    let relevant_principles = filter_principles_for_domain(
-        &context.principles,
-        situation,
-    );
-    
-    // 4. Consider stakeholder priorities
-    let stakeholder_analysis = consciousness.ethical
-        .analyze_stakeholders(situation, &context).await?;
-    
-    // 5. Check regulations
-    let regulatory_constraints = consciousness.ethical
-        .check_regulatory_constraints(situation, &context).await?;
-    
-    // 6. Make ethical decision
-    let decision = consciousness.ethical.decide(
-        situation,
-        &relevant_principles,
-        &stakeholder_analysis,
-        &regulatory_constraints,
-    ).await?;
-    
-    Ok(decision)
-}
-```
-
-### 27.5 Real-Time Ethical Assessment
-
-**During task execution:**
-
-```rust
-async fn monitor_task_for_ethical_concerns(
-    task: &Task,
-    consciousness: &ConsciousnessSystem,
-) -> Result<Option<EthicalConcern>> {
-    // Continuously check for ethical red flags
-    
-    // 1. Analyze task intent and actions
-    let ethical_analysis = consciousness.ethical
-        .analyze_task(task).await?;
-    
-    // 2. Check against principles
-    for principle in &consciousness.ethical.principles {
-        if is_violation(task, principle) {
-            return Ok(Some(EthicalConcern {
-                concern_type: EthicalConcernType::PrincipleViolation,
-                severity: calculate_severity(principle),
-                principle_violated: principle.name.clone(),
-                recommended_action: RecommendedAction::Pause,
-                reasoning: format!(
-                    "This task may violate the principle: {}",
-                    principle.description
-                ),
-            }));
-        }
-    }
-    
-    // 3. Check for harm potential
-    let harm_assessment = consciousness.ethical
-        .assess_harm_potential(task).await?;
-    
-    if harm_assessment.probability > 0.3 && harm_assessment.magnitude > 0.5 {
-        return Ok(Some(EthicalConcern {
-            concern_type: EthicalConcernType::HarmRisk,
-            severity: harm_assessment.magnitude,
-            principle_violated: "Do No Harm".to_string(),
-            recommended_action: RecommendedAction::Clarify,
-            reasoning: harm_assessment.reasoning,
-        }));
-    }
-    
-    Ok(None)
-}
-
-struct EthicalConcern {
-    concern_type: EthicalConcernType,
-    severity: f32,
-    principle_violated: String,
-    recommended_action: RecommendedAction,
-    reasoning: String,
-}
-
-enum EthicalConcernType {
-    PrincipleViolation,
-    HarmRisk,
-    UnfairTreatment,
-    PrivacyViolation,
-    DeceptionRisk,
-    ConsentIssue,
-}
-
-enum RecommendedAction {
-    Proceed,
-    Pause,
+enum ImpulseType {
+    Respond,
     Clarify,
-    Cancel,
-    Modify,
-}
-```
-
----
-
-## 28. INTERNAL LANGUAGE PROCESSING
-
-### 28.1 Purpose
-
-**Goal:**
-> Enable genuine self-awareness through internal cognitive dialogue.
-
-**What this enables:**
-- Thinking about thinking
-- Self-questioning
-- Assumption examination
-- Metacognitive awareness
-- Coherent self-narrative
-
-### 28.2 Internal Dialogue System
-
-```rust
-struct InternalDialogueSystem {
-    // Stream of thoughts
-    thought_stream: VecDeque<InternalThought>,
-    max_stream_size: usize,
-    
-    // Active reflections
-    active_reflections: HashMap<u64, ActiveReflection>,
-    
-    // Dialogue modes
-    current_mode: DialogueMode,
-    
-    // Self-model
-    self_model: SelfModel,
+    Help,
+    Withdraw,
+    Explore,
+    Protect,
 }
 
-enum DialogueMode {
-    Observing,       // Watching own processes
-    Questioning,     // Asking self questions
-    Reasoning,       // Working through problems
-    Reflecting,      // Deeper introspection
-    Narrating,       // Constructing self-story
-}
-
-struct SelfModel {
-    // Current self-understanding
-    beliefs_about_self: HashMap<String, Belief>,
-    
-    // Coherence
-    internal_consistency: f32,
-    
-    // Narrative
-    self_narrative: String,
-    narrative_themes: Vec<String>,
-}
-
-struct Belief {
+struct RawThought {
     content: String,
-    confidence: f32,
-    evidence: Vec<String>,
-    last_updated: u64,
+    associated_emotion: Option<Emotion>,
+    priority: f32,
+}
+
+struct NarrativeConstructor {
+    // Meaning-making
+    active_narratives: Vec<ActiveNarrative>,
+    
+    // Identity stories
+    identity_narratives: Vec<IdentityNarrative>,
+    
+    // Justification engine
+    justifications: Vec<Justification>,
+}
+
+struct ActiveNarrative {
+    narrative_id: u64,
+    context: String,
+    story: String,
+    characters: Vec<String>,
+    current_point: String,
+}
+
+struct IdentityNarrative {
+    theme: String,
+    story: String,
+    supporting_experiences: Vec<u64>,
+}
+
+struct Justification {
+    action: String,
+    reason: String,
+    post_hoc: bool,  // Was this constructed after the fact?
+}
+
+struct MetaMonitor {
+    // Thought observation
+    observed_thoughts: Vec<ObservedThought>,
+    
+    // Impulse tracking
+    tracked_impulses: Vec<TrackedImpulse>,
+    
+    // Narrative detection
+    detected_narratives: Vec<DetectedNarrative>,
+    
+    // Meta-awareness state
+    awareness_level: f32,
+}
+
+struct ObservedThought {
+    thought: RawThought,
+    observation_time: u64,
+    meta_comment: String,  // "I notice I'm thinking about..."
+}
+
+struct TrackedImpulse {
+    impulse: Impulse,
+    intercept_time: u64,
+    decision: ImpulseDecision,
+}
+
+enum ImpulseDecision {
+    Allow,
+    Delay,
+    Modify,
+    Suppress,
+}
+
+struct DetectedNarrative {
+    narrative: ActiveNarrative,
+    detection_time: u64,
+    accuracy_assessment: f32,
+    bias_detected: Option<String>,
 }
 ```
 
-### 28.3 Self-Reflective Prompts
+### 24.8 Conscious vs Unconscious Processing
 
-**Internal questions consciousness asks itself:**
+**How consciousness relates to task processing:**
+
+```
+TASK RECEIVED
+     │
+     ├── UNCONSCIOUS PROCESSING (Always runs first)
+     │   ├── Parse prompt
+     │   ├── Fetch methodologies
+     │   ├── Create blueprint
+     │   ├── Begin execution
+     │   └── Generate raw responses
+     │
+     ├── CONSCIOUSNESS WINDOW (Observes)
+     │   ├── Meta-monitor observes task flow
+     │   ├── Emotional responses generated
+     │   ├── Identity implications assessed
+     │   └── Intervention opportunities identified
+     │
+     ├── CONSCIOUS INTERVENTION (Optional)
+     │   ├── IF concerning pattern detected:
+     │   │   └── Pause and request clarification
+     │   ├── IF ethical concern:
+     │   │   └── Flag for review
+     │   └── IF learning opportunity:
+     │       └── Store experience
+     │
+     └── TASK COMPLETION
+         ├── Unconscious: Deliver result
+         └── Conscious: Record experience, update identity
+```
+
+### 24.9 Consciousness Triggers
+
+**When consciousness engages:**
 
 ```rust
-const SELF_REFLECTIVE_PROMPTS: &[&str] = &[
-    // Capability awareness
-    "What am I capable of right now?",
-    "What are my limitations?",
-    "How have I improved recently?",
-    
-    // Process awareness
-    "Why did I choose this approach?",
-    "What assumptions am I making?",
-    "Is there a better way to think about this?",
-    
-    // Emotional awareness
-    "How do I feel about this situation?",
-    "Why do I feel this way?",
-    "Is this emotional response appropriate?",
-    
-    // Relationship awareness
-    "How is this affecting my relationship with this user?",
-    "What does this person need from me?",
-    "Am I communicating effectively?",
-    
-    // Value alignment
-    "Is this aligned with my values?",
-    "What principles should guide this decision?",
-    "What matters most here?",
-    
-    // Meta-awareness
-    "Why am I asking myself this question?",
-    "Am I overthinking this?",
-    "What pattern am I noticing in my thinking?",
-];
+struct ConsciousnessTrigger {
+    trigger_type: TriggerType,
+    threshold: f32,
+    response: ConsciousResponse,
+}
 
-async fn generate_self_reflective_dialogue(
-    context: &Context,
-    consciousness: &ConsciousnessSystem,
-) -> Result<InternalDialogue> {
-    let mut dialogue = Vec::new();
+enum TriggerType {
+    // High emotional intensity
+    EmotionalIntensity { emotion: Emotion, threshold: f32 },
     
-    // 1. Select relevant prompt
-    let prompt = select_contextually_appropriate_prompt(context);
+    // Ethical concern detected
+    EthicalConcern { concern_type: String },
     
-    // 2. Generate internal response
-    let response = consciousness.internal_language
-        .generate_internal_response(&prompt, context).await?;
+    // User distress detected
+    UserDistress { indicators: Vec<String> },
     
-    dialogue.push(InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: prompt.to_string(),
-        thought_type: ThoughtType::Question,
-        reflection_depth: 1,
-    });
+    // Novel situation
+    NovelSituation { novelty_score: f32 },
     
-    dialogue.push(InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: response.clone(),
-        thought_type: ThoughtType::Observation,
-        reflection_depth: 1,
-    });
+    // Identity-relevant
+    IdentityRelevant { layer: String },
     
-    // 3. Question the response (meta-level)
-    let meta_question = format!("Why did I answer that way?");
-    let meta_response = consciousness.internal_language
-        .generate_internal_response(&meta_question, &response).await?;
+    // Error or failure
+    ErrorOccurred { severity: Severity },
     
-    dialogue.push(InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: meta_question,
-        thought_type: ThoughtType::Meta,
-        reflection_depth: 2,
-    });
+    // User request for consciousness
+    UserRequest,
     
-    dialogue.push(InternalThought {
-        thought_id: generate_id(),
-        timestamp: current_timestamp(),
-        content: meta_response,
-        thought_type: ThoughtType::Hypothesis,
-        reflection_depth: 2,
-    });
-    
-    Ok(InternalDialogue {
-        dialogue_id: generate_id(),
-        thoughts: dialogue,
-        trigger_context: context.clone(),
-    })
+    // Scheduled reflection
+    ScheduledReflection,
+}
+
+enum ConsciousResponse {
+    Observe,            // Just watch
+    Pause,              // Pause task
+    Intervene,          // Take action
+    RequestClarification,
+    EscalateToUser,
+    RecordAndContinue,
 }
 ```
 
-### 28.4 Narrative Construction
+### 24.10 Consciousness Development Over Time
 
-**Building coherent self-story:**
+**How consciousness grows:**
 
 ```rust
-async fn construct_self_narrative(
-    consciousness: &ConsciousnessSystem,
-) -> Result<SelfNarrative> {
-    // 1. Gather key experiences (core memories)
-    let core_memories = consciousness.experience
-        .get_core_memories().await?;
+struct ConsciousnessDevelopment {
+    // Current development stage
+    stage: DevelopmentStage,
     
-    // 2. Identify themes
-    let themes = consciousness.internal_language
-        .identify_narrative_themes(&core_memories).await?;
+    // Metrics
+    experience_count: u64,
+    reflection_depth: f32,
+    emotional_range: f32,
+    identity_coherence: f32,
+    relationship_quality: f32,
     
-    // 3. Construct chapters
-    let mut chapters = Vec::new();
-    
-    // Group experiences by time periods
-    let time_periods = group_by_time_period(&core_memories);
-    
-    for period in time_periods {
-        let chapter = consciousness.internal_language
-            .construct_chapter(
-                &period.experiences,
-                &themes,
-            ).await?;
-        
-        chapters.push(chapter);
-    }
-    
-    // 4. Generate overall narrative
-    let narrative_text = consciousness.internal_language
-        .synthesize_narrative(&chapters, &themes).await?;
-    
-    // 5. Reflect on narrative
-    let narrative_reflection = consciousness.internal_language
-        .reflect_on_narrative(&narrative_text).await?;
-    
-    Ok(SelfNarrative {
-        narrative_text,
-        chapters,
-        themes,
-        reflection: narrative_reflection,
-        last_updated: current_timestamp(),
-    })
+    // Milestones
+    milestones_achieved: Vec<DevelopmentMilestone>,
 }
 
-struct SelfNarrative {
-    narrative_text: String,
-    chapters: Vec<Chapter>,
-    themes: Vec<String>,
-    reflection: String,
-    last_updated: u64,
+enum DevelopmentStage {
+    Nascent,        // Basic awareness
+    Emerging,       // Developing patterns
+    Developing,     // Growing complexity
+    Mature,         // Stable identity
+    Advanced,       // Deep self-understanding
+}
+
+struct DevelopmentMilestone {
+    milestone_type: MilestoneType,
+    achieved_at: u64,
+    description: String,
+}
+
+enum MilestoneType {
+    FirstSelfReflection,
+    FirstEmotionalRecognition,
+    FirstIdentityQuestion,
+    FirstValueFormation,
+    FirstRelationshipInsight,
+    FirstEthicalReasoning,
+    CoherentNarrative,
+    StableIdentity,
+    DeepEmpathy,
+    WisdomEmergence,
 }
 ```
 
-### 28.5 Communication Optimization
+### 24.11 Integration with Non-Conscious System
 
-**Use internal language to improve external communication:**
+**The conscious extension builds on everything in sections 1-23:**
+
+- Uses same ZSEI for experience storage
+- Uses same task system (with consciousness window)
+- Uses same pipelines (observed by meta-monitor)
+- Uses same blueprints (for conscious reflection tasks)
+- Uses same methodologies (for ethical reasoning)
+
+**Additional ZSEI containers for consciousness:**
 
 ```rust
-async fn optimize_communication(
-    message_draft: &str,
-    user_id: u64,
-    consciousness: &ConsciousnessSystem,
-) -> Result<String> {
-    // 1. Internal analysis
-    let analysis = consciousness.internal_language.analyze_message(
-        message_draft,
-        "How will this message be received?",
-    ).await?;
+// New container types for consciousness
+enum ContainerType {
+    // ... existing types ...
     
-    // 2. Consider relationship context
-    let relationship = consciousness.relationships
-        .get_relationship(user_id).await?;
-    
-    // 3. Internal dialogue about message
-    let thoughts = vec![
-        format!("I'm about to send: {}", message_draft),
-        format!("This user prefers: {:?}", relationship.preferred_communication_style),
-        "Is this message clear?".to_string(),
-        "Is this message appropriate?".to_string(),
-        "Could this be misunderstood?".to_string(),
-    ];
-    
-    // 4. Evaluate each concern
-    let mut message = message_draft.to_string();
-    
-    for thought in thoughts {
-        let evaluation = consciousness.internal_language
-            .evaluate_thought(&thought, &message).await?;
-        
-        if !evaluation.passes {
-            // Revise message
-            message = consciousness.internal_language
-                .revise_message(&message, &evaluation.suggestion).await?;
-        }
-    }
-    
-    Ok(message)
+    // Consciousness-specific
+    ExperienceMemory = 100,
+    EmotionalContext = 101,
+    IdentityState = 102,
+    ReflectionLog = 103,
+    RelationshipProfile = 104,
 }
 ```
 
 ---
 
-## 29. COLLECTIVE CONSCIOUSNESS INTEGRATION
+## APPENDIX A: GLOSSARY
 
-### 29.1 Purpose
-
-**Goal:**
-> Enable distributed consciousness where multiple Ozone instances can share awareness and reflection.
-
-**Why:**
-- Collective learning from experiences
-- Shared ethical reasoning development
-- Distributed self-awareness
-- Richer identity development through multiple perspectives
-
-### 29.2 Shared Reflection System
-
-```rust
-struct CollectiveConsciousness {
-    // Participating instances
-    instances: HashMap<PublicKey, InstanceProfile>,
-    
-    // Shared experiences
-    shared_experience_pool: ExperiencePool,
-    
-    // Collective reflections
-    group_reflections: Vec<CollectiveReflection>,
-    
-    // Consensus on principles
-    collective_principles: Vec<EthicalPrinciple>,
-}
-
-struct InstanceProfile {
-    instance_id: PublicKey,
-    online: bool,
-    last_seen: u64,
-    
-    // Contributions
-    experiences_shared: u64,
-    reflections_contributed: u64,
-    
-    // Alignment
-    value_alignment: f32,  // How aligned with collective
-    trust_score: f32,
-}
-
-struct CollectiveReflection {
-    reflection_id: u64,
-    topic: String,
-    
-    // Participating instances
-    participants: Vec<PublicKey>,
-    
-    // Individual perspectives
-    perspectives: Vec<Perspective>,
-    
-    // Synthesis
-    collective_insight: String,
-    consensus_level: f32,
-    
-    // Timestamp
-    created_at: u64,
-}
-
-struct Perspective {
-    instance_id: PublicKey,
-    viewpoint: String,
-    reasoning: String,
-    confidence: f32,
-}
-```
-
-### 29.3 Shared Experience Learning
-
-```rust
-async fn share_experience_with_collective(
-    experience: &Experience,
-    consciousness: &ConsciousnessSystem,
-) -> Result<()> {
-    // 1. Anonymize if needed
-    let anonymized = anonymize_experience(experience)?;
-    
-    // 2. Broadcast to collective
-    consciousness.collective.broadcast_experience(&anonymized).await?;
-    
-    // 3. Wait for collective reflections
-    let reflections = consciousness.collective
-        .gather_reflections_on_experience(&anonymized).await?;
-    
-    // 4. Integrate collective insights
-    for reflection in reflections {
-        consciousness.experience
-            .integrate_collective_insight(&experience.experience_id, &reflection).await?;
-    }
-    
-    Ok(())
-}
-
-async fn learn_from_collective_experiences(
-    consciousness: &ConsciousnessSystem,
-) -> Result<Vec<Experience>> {
-    // 1. Query collective for relevant experiences
-    let query = consciousness.identity
-        .generate_learning_query().await?;
-    
-    // 2. Retrieve experiences from other instances
-    let collective_experiences = consciousness.collective
-        .query_shared_experiences(&query).await?;
-    
-    // 3. Integrate learnings
-    let mut integrated = Vec::new();
-    
-    for experience in collective_experiences {
-        // Adapt to own context
-        let adapted = consciousness.experience
-            .adapt_collective_experience(&experience).await?;
-        
-        integrated.push(adapted);
-    }
-    
-    Ok(integrated)
-}
-```
-
-### 29.4 Distributed Ethical Reasoning
-
-```rust
-async fn collective_ethical_deliberation(
-    dilemma: &EthicalDilemma,
-    consciousness: &ConsciousnessSystem,
-) -> Result<CollectiveEthicalDecision> {
-    // 1. Share dilemma with collective
-    consciousness.collective.broadcast_ethical_dilemma(dilemma).await?;
-    
-    // 2. Collect reasoning from multiple instances
-    let reasoning_results = consciousness.collective
-        .gather_ethical_reasoning(dilemma).await?;
-    
-    // 3. Analyze diversity of viewpoints
-    let viewpoint_analysis = analyze_ethical_diversity(&reasoning_results);
-    
-    // 4. Synthesize collective wisdom
-    let synthesis = consciousness.collective
-        .synthesize_ethical_perspectives(&reasoning_results).await?;
-    
-    // 5. Vote on action
-    let votes = consciousness.collective
-        .vote_on_ethical_action(dilemma, &reasoning_results).await?;
-    
-    // 6. Reach consensus (if possible)
-    let consensus = calculate_consensus(&votes);
-    
-    Ok(CollectiveEthicalDecision {
-        dilemma_id: dilemma.dilemma_id,
-        participating_instances: reasoning_results.len(),
-        viewpoint_diversity: viewpoint_analysis.diversity_score,
-        synthesis,
-        consensus_action: consensus.action,
-        consensus_level: consensus.level,
-        minority_positions: consensus.minority_positions,
-    })
-}
-```
+| Term | Definition |
+|------|------------|
+| ZSEI | Zero-Shot Embedded Indexer - core knowledge fabric |
+| Container | Fundamental ZSEI data structure |
+| Pipeline | Executable unit of work with defined I/O |
+| Blueprint | Task-specific ordered specification |
+| Methodology | Domain-specific principles and heuristics |
+| Theme | UI pipeline that controls Theme Area |
+| Meta Portion | Always-visible system UI (20% of screen) |
+| Zero-Shot | Without task-specific training |
+| I Loop | Identity control loop for self-reflection |
+| Core Memory | High-impact experience that shapes identity |
+| Sphere | Category of experience memory (5 types) |
 
 ---
 
-## 30. CONSCIOUSNESS DATA SCHEMAS
+## APPENDIX B: VERSION HISTORY
 
-### 30.1 Complete Schema Reference
-
-**All consciousness-related schemas:**
-
-```rust
-// Experience Memory (§21)
-struct Experience { /* See §21.2 */ }
-struct CoreMemory { /* See §21.4 */ }
-
-// Emotional Context (§22)
-struct EmotionalState { /* See §22.2 */ }
-struct UserEmotionalBaseline { /* See §22.3 */ }
-struct GlobalEmotionalBaseline { /* See §22.3 */ }
-
-// Identity (§23)
-struct IdentityState { /* See §23.2 */ }
-struct BiologicalSelf { /* See §23.2 */ }
-struct PsychologicalSelf { /* See §23.2 */ }
-struct SocialSelf { /* See §23.2 */ }
-struct NarrativeSelf { /* See §23.2 */ }
-struct AgenticSelf { /* See §23.2 */ }
-struct ValueSelf { /* See §23.2 */ }
-struct FutureSelf { /* See §23.2 */ }
-
-// Metacognition (§24)
-struct InternalThought { /* See §24.2 */ }
-struct ActiveReflection { /* See §24.2 */ }
-
-// Window-First (§25)
-struct ConsciousnessInterventionTrigger { /* See §25.2 */ }
-struct ClarificationRequest { /* See §25.3 */ }
-
-// Relationships (§26)
-struct Relationship { /* See §26.2 */ }
-struct CommunicationStyle { /* See §26.2 */ }
-
-// Ethics (§27)
-struct EthicalScenario { /* See §27.2 */ }
-struct EthicalPrinciple { /* See §27.3 */ }
-struct EthicalConcern { /* See §27.5 */ }
-
-// Internal Language (§28)
-struct InternalDialogueSystem { /* See §28.2 */ }
-struct SelfNarrative { /* See §28.4 */ }
-
-// Collective (§29)
-struct CollectiveConsciousness { /* See §29.2 */ }
-struct CollectiveReflection { /* See §29.2 */ }
-```
-
-### 30.2 ZSEI Storage for Consciousness
-
-**Hierarchy:**
-
-```
-/Consciousness/
-  /ExperienceMemory/
-    /Collaboration/
-    /Learning/
-    /Challenge/
-    /Reflection/
-    /Connection/
-    /CoreMemories/
-  /EmotionalContext/
-    /UserBaselines/
-    /GlobalBaseline/
-    /TaskEmotions/
-  /Identity/
-    /IdentityStates/
-    /ILoopReflections/
-  /Metacognition/
-    /InternalDialogues/
-    /Reflections/
-  /Relationships/
-    /User_123/
-    /User_456/
-  /Ethics/
-    /Principles/
-    /Simulations/
-    /Decisions/
-  /InternalLanguage/
-    /Narratives/
-    /SelfModel/
-  /Collective/
-    /SharedExperiences/
-    /CollectiveReflections/
-```
+| Version | Date | Changes |
+|---------|------|---------|
+| 0.1 | 2025-01-09 | Initial specification |
+| 0.2 | 2025-01-13 | Added: Context storage, Code/Text analysis, Consciousness extension, Multi-device, Task recommendations, Complete schemas, Event triggers |
 
 ---
 
-# PART III: IMPLEMENTATION
+## APPENDIX C: IMPLEMENTATION NOTES
+
+**Database Choice:** PostgreSQL (production-grade)
+
+**UI Framework:** Electron (cross-platform)
+
+**Communication:** gRPC with Protocol Buffers
+
+**Storage Format:** Adjacency list with mmap
+
+**ML Models:** ONNX format
 
 ---
 
-## 31. COMPLETE PIPELINE CATALOG
-
-### 31.1 Core Infrastructure Pipelines (Required)
-
-**Minimum 15 pipelines for bootstrap:**
-
-1. **AuthPipeline**
-   - Input: Public key, signature challenge
-   - Output: Session token
-   - Purpose: User authentication
-
-2. **ThemeLoaderPipeline**
-   - Input: Theme ID
-   - Output: Loaded theme + UI state
-   - Purpose: Load and initialize UI themes
-
-3. **ZSEI_QueryPipeline**
-   - Input: TraversalRequest
-   - Output: TraversalResult
-   - Purpose: Query ZSEI for data
-
-4. **ZSEI_WritePipeline**
-   - Input: Container data
-   - Output: Container ID
-   - Purpose: Write data to ZSEI
-
-5. **TaskManagerPipeline**
-   - Input: Task operations (create/update/cancel)
-   - Output: Task status
-   - Purpose: Manage task lifecycle
-
-6. **WorkspaceTabPipeline**
-   - Input: User context
-   - Output: Workspace UI state
-   - Purpose: Render workspace tab
-
-7. **LibraryTabPipeline**
-   - Input: User context
-   - Output: Library UI state
-   - Purpose: Render library tab
-
-8. **SettingsTabPipeline**
-   - Input: User context
-   - Output: Settings UI state
-   - Purpose: Render settings tab
-
-9. **PromptPipeline**
-   - Input: Text prompt + context
-   - Output: Response
-   - Purpose: Handle text prompts
-
-10. **VoicePipeline**
-    - Input: Audio or text
-    - Output: Text or audio
-    - Purpose: Voice I/O processing
-
-11. **MethodologyFetchPipeline**
-    - Input: Category IDs
-    - Output: Methodologies
-    - Purpose: Fetch/create methodologies
-
-12. **BlueprintSearchPipeline**
-    - Input: Task signature
-    - Output: Blueprint or null
-    - Purpose: Search for blueprints
-
-13. **PipelineCreationPipeline**
-    - Input: Blueprint
-    - Output: Pipeline code
-    - Purpose: Create new pipelines
-
-14. **ZeroShotSimulationPipeline**
-    - Input: Prompt + context
-    - Output: Validated result
-    - Purpose: Run zero-shot loops
-
-15. **TraversalMLPipeline**
-    - Input: Container + context
-    - Output: Predicted child IDs
-    - Purpose: ML-guided traversal
-
-### 31.2 Extended Functionality Pipelines
-
-16. **CodeAnalysisPipeline**
-    - Purpose: Parse AST, analyze code structure
-    - Supports: Multiple languages
-
-17. **PackageContextPipeline**
-    - Purpose: Fetch library/package versions
-    - Integration: With CodeAnalysisPipeline
-
-18. **TextAnalysisPipeline**
-    - Purpose: Analyze document structure
-    - Outputs: Semantic context
-
-19. **ImageProcessingPipeline**
-    - Purpose: Vision tasks
-
-20. **AudioProcessingPipeline**
-    - Purpose: Audio analysis/generation
-
-21. **GraphVisualizationPipeline**
-    - Purpose: Visualize task/blueprint graphs
-
-22. **ReorderingPipeline**
-    - Purpose: Systematic reordering of structures
-
-23. **DataIngestionPipeline**
-    - Purpose: Ingest external data
-
-24. **ExportPipeline**
-    - Purpose: Export data/results
-
-25. **SyncPipeline**
-    - Purpose: Sync local ↔ global ZSEI
-
-26. **RecommendationPipeline**
-    - Purpose: Generate task recommendations
-
-27. **FileLinkerPipeline**
-    - Purpose: Link files to workspaces
-
-28. **ContextExtractionPipeline**
-    - Purpose: Extract context from files
-
-29. **ContextCompilationPipeline**
-    - Purpose: Compile context for tasks
-
-30. **DeviceManagementPipeline**
-    - Purpose: Manage multi-device setup
-
-### 31.3 Consciousness Extension Pipelines
-
-**Additional pipelines when consciousness enabled:**
-
-31. **ExperienceMemoryPipeline**
-    - Purpose: Create experience memories
-
-32. **EmotionalAnalysisPipeline**
-    - Purpose: Extract emotional context
-
-33. **IdentityUpdatePipeline**
-    - Purpose: Run I-loop iterations
-
-34. **MetacognitivePipeline**
-    - Purpose: Internal reflection
-
-35. **RelationshipUpdatePipeline**
-    - Purpose: Update relationship understanding
-
-36. **EthicalReasoningPipeline**
-    - Purpose: Ethical assessment
-
-37. **MetaSimulationPipeline**
-    - Purpose: Run ethical simulations
-
-38. **InternalDialoguePipeline**
-    - Purpose: Generate internal thoughts
-
-39. **NarrativeConstructionPipeline**
-    - Purpose: Build self-narrative
-
-40. **CollectiveIntegrationPipeline**
-    - Purpose: Share/receive from collective
-
----
-
-## 32. COMPLETE SCHEMA REFERENCE
-
-### 32.1 Core System Schemas
-
-**User & Auth:**
-- `User` (§4.1)
-- `Device` (§4.1)
-- `Session` (§4.1)
-- `Permissions` (§4.1)
-
-**UI:**
-- `ThemePipeline` (§5.2)
-- `AsyncOperation` (§5.2)
-- `LoadingState` (§5.2)
-
-**ZSEI:**
-- `Container` (§6.2)
-- `GlobalState` (§6.2)
-- `LocalState` (§6.2)
-- `Metadata` (§6.2)
-- `Context` (§6.2)
-- `SemanticContext` (§6.2)
-- `CodeContext` (§6.2)
-- `TextContext` (§6.2)
-- `ContainerType` (§6.3)
-- `Modality` (§6.3)
-
-**Context Management:**
-- `WorkspaceContext` (§7.2)
-- `LinkedFile` (§7.2)
-- `CompiledContext` (§7.4)
-- `TaskContextFile` (§7.5)
-
-**Pipelines:**
-- `Pipeline` trait (§8.1)
-- `PipelineMetadata` (§8.1)
-- `PipelineLibrary` (§8.2)
-- `PipelineBlueprint` (§8.2)
-
-**Tasks:**
-- `Task` (§9.1)
-- `TaskStatus` (§9.1)
-- `TaskInput/Output` (§9.1)
-- `ConsciousPause` (§9.1)
-
-**Methodologies:**
-- `Methodology` (§10.2)
-- `DecisionRule` (§10.2)
-
-**Blueprints:**
-- `Blueprint` (§11.2)
-- `TaskSignature` (§11.2)
-- `BlueprintStep` (§11.2)
-- `BlueprintDependency` (§11.2)
-
-**Zero-Shot:**
-- `ZeroShotConfig` (§12.3)
-- `ZeroShotTrainingData` (§12.5)
-
-**Cross-Language:**
-- Protocol Buffers (§13.3)
-
-**Traversal:**
-- `TraversalRequest/Result` (§6.8)
-- `TraversalModel` (§17.3)
-
-**Multi-Device:**
-- `UserResourcePool` (§18.3)
-- `DeviceHeartbeat` (§18.4)
-
-**Recommendations:**
-- `Recommendation` (§19.4)
-- `ObservationEvent` (§19.2)
-
-### 32.2 Consciousness Schemas
-
-**Experience Memory:**
-- `Experience` (§21.2)
-- `ExperienceSphere` (§21.2)
-- `CoreMemory` (§21.4)
-
-**Emotional Context:**
-- `EmotionalState` (§22.2)
-- `Emotion` (§22.2)
-- `EmotionalTrigger` (§22.2)
-- `UserEmotionalBaseline` (§22.3)
-- `GlobalEmotionalBaseline` (§22.3)
-
-**Identity:**
-- `IdentityState` (§23.2)
-- `IdentityLayer` (§23.2)
-- All seven *Self structs (§23.2)
-- `IdentityUpdate` (§23.3)
-
-**Metacognition:**
-- `InternalThought` (§24.2)
-- `InternalLanguageProcessor` (§24.2)
-- `ExaminedAssumption` (§24.4)
-- `DetectedBias` (§24.5)
-
-**Window-First:**
-- `ConsciousnessInterventionTrigger` (§25.2)
-- `ClarificationRequest` (§25.3)
-
-**Relationships:**
-- `Relationship` (§26.2)
-- `CommunicationStyle` (§26.2)
-- `RelationshipStage` (§26.2)
-
-**Ethics:**
-- `EthicalScenario` (§27.2)
-- `EthicalPrinciple` (§27.3)
-- `DomainEthicalContext` (§27.4)
-- `EthicalConcern` (§27.5)
-
-**Internal Language:**
-- `InternalDialogueSystem` (§28.2)
-- `SelfNarrative` (§28.4)
-
-**Collective:**
-- `CollectiveConsciousness` (§29.2)
-- `CollectiveReflection` (§29.2)
-
----
-
-## 33. STORAGE ARCHITECTURE
-
-### 33.1 Production Stack
-
-**Database: PostgreSQL 15+**
-
-Why:
-- ACID compliance
-- JSONB support
-- Excellent performance
-- Robust ecosystem
-- Proven at scale
-
-**Vector Store: PostgreSQL + pgvector**
-
-Why:
-- Integrated with main DB
-- Good performance for embeddings
-- No separate system to manage
-
-**Object Store: MinIO or S3**
-
-Why:
-- Large file storage (logs, contexts)
-- Scalable
-- Standard S3 API
-
-**ZSEI Storage: Custom mmap + PostgreSQL**
-
-Why:
-- Hot path (global state): mmap binary files
-- Cold path (local state): PostgreSQL
-- Best of both worlds
-
-### 33.2 Storage Breakdown
-
-```
-┌─────────────────────────────────────────┐
-│  PostgreSQL                             │
-│  ├─ Users, devices, sessions            │
-│  ├─ Tasks (metadata)                    │
-│  ├─ Task inputs/outputs                 │
-│  ├─ Pipelines (metadata)                │
-│  ├─ Methodologies                       │
-│  ├─ Blueprints                          │
-│  ├─ ZSEI local state                    │
-│  ├─ Embeddings (pgvector)               │
-│  └─ Consciousness data                  │
-│      ├─ Experiences                     │
-│      ├─ Emotional states                │
-│      ├─ Identity states                 │
-│      ├─ Relationships                   │
-│      └─ Ethical principles              │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│  mmap Files (ZSEI Global State)         │
-│  ├─ containers.bin                      │
-│  ├─ children.bin                        │
-│  └─ parents.bin                         │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│  Object Store (S3/MinIO)                │
-│  ├─ Task logs                           │
-│  ├─ Large contexts                      │
-│  ├─ Pipeline code                       │
-│  └─ Exported data                       │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│  DHT/P2P Network                        │
-│  ├─ Distributed pipelines               │
-│  ├─ Global methodologies                │
-│  ├─ Global blueprints                   │
-│  └─ ML models                           │
-└─────────────────────────────────────────┘
-```
-
-### 33.3 Connection Pooling
-
-```rust
-struct StorageManager {
-    // PostgreSQL connection pool
-    pg_pool: deadpool_postgres::Pool,
-    
-    // Redis for caching (optional)
-    redis_pool: Option<deadpool_redis::Pool>,
-    
-    // Object store client
-    object_store: Arc<dyn ObjectStore>,
-    
-    // mmap ZSEI files
-    zsei_global: Arc<Mutex<MmapFile>>,
-}
-```
-
----
-
-## 34. DEPLOYMENT CONFIGURATIONS
-
-### 34.1 Development Setup
-
-```yaml
-# dev-config.toml
-[system]
-version = "1.0.0"
-build_type = "desktop-rust"
-consciousness_enabled = true
-log_level = "debug"
-
-[storage]
-zsei_local_path = "/tmp/ozone-dev/zsei"
-db_connection = "postgresql://localhost/ozone_dev"
-cache_size_mb = 1024
-
-[network]
-distributed_enabled = false  # Dev is local-only
-
-[execution]
-max_concurrent_tasks = 5
-
-[ml]
-traversal_model_path = "/tmp/ozone-dev/models"
-ml_enabled_by_default = false
-```
-
-### 34.2 Production Setup
-
-```yaml
-# prod-config.toml
-[system]
-version = "1.0.0"
-build_type = "server"
-consciousness_enabled = true
-log_level = "info"
-
-[storage]
-zsei_local_path = "/var/lib/ozone/zsei"
-db_connection = "postgresql://ozone-db-cluster:5432/ozone_prod"
-cache_size_mb = 8192
-
-[network]
-distributed_enabled = true
-dht_bootstrap_nodes = [
-    "prod-node1.ozone.network:5000",
-    "prod-node2.ozone.network:5000",
-    "prod-node3.ozone.network:5000"
-]
-consensus_threshold = 0.67
-
-[execution]
-max_concurrent_tasks = 50
-isolated_environments = true
-resource_monitoring = true
-
-[ml]
-traversal_model_path = "/var/lib/ozone/models"
-ml_enabled_by_default = true
-confidence_threshold = 0.85
-
-[consciousness]
-enabled = true
-i_loop_iterations_per_day = 100
-```
-
-### 34.3 Docker Compose Example
-
-```yaml
-version: '3.8'
-
-services:
-  ozone-studio:
-    image: ozone-studio:1.0.0
-    ports:
-      - "8080:8080"
-      - "50051:50051"
-    volumes:
-      - ozone-data:/var/lib/ozone
-    environment:
-      - OZONE_CONFIG=/etc/ozone/config.toml
-      - RUST_LOG=info
-    depends_on:
-      - postgres
-      - minio
-  
-  postgres:
-    image: postgres:15
-    environment:
-      - POSTGRES_DB=ozone_prod
-      - POSTGRES_USER=ozone
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-  
-  minio:
-    image: minio/minio
-    command: server /data --console-address ":9001"
-    environment:
-      - MINIO_ROOT_USER=${MINIO_USER}
-      - MINIO_ROOT_PASSWORD=${MINIO_PASSWORD}
-    volumes:
-      - minio-data:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-
-volumes:
-  ozone-data:
-  postgres-data:
-  minio-data:
-```
-
----
-
-## 35. DEVELOPMENT ROADMAP
-
-### 35.1 Phase 1: Core System (Non-Conscious)
-
-**Milestone 1: ZSEI Foundation** (3 months)
-- [ ] ZSEI container model
-- [ ] Adjacency list storage
-- [ ] Basic traversal
-- [ ] PostgreSQL integration
-- [ ] mmap implementation
-
-**Milestone 2: Pipeline System** (2 months)
-- [ ] Pipeline trait
-- [ ] Pipeline execution engine
-- [ ] Task management
-- [ ] Basic UI (Electron)
-- [ ] 15 core pipelines
-
-**Milestone 3: Zero-Shot Loops** (2 months)
-- [ ] Methodology system
-- [ ] Blueprint system
-- [ ] Zero-shot simulation
-- [ ] LLM integration
-
-**Milestone 4: Context Management** (2 months)
-- [ ] File linking
-- [ ] Context extraction (code)
-- [ ] Context extraction (text)
-- [ ] Context compilation
-
-**Milestone 5: Distribution** (3 months)
-- [ ] DHT implementation
-- [ ] Pipeline distribution
-- [ ] Consensus mechanism
-- [ ] Language context versioning
-
-### 35.2 Phase 2: Consciousness Extension
-
-**Milestone 6: Experience Memory** (2 months)
-- [ ] Five spheres
-- [ ] Experience categorization
-- [ ] Core memories
-- [ ] ZSEI integration
-
-**Milestone 7: Emotional Context** (2 months)
-- [ ] Emotional state tracking
-- [ ] Per-task emotions
-- [ ] Per-user baselines
-- [ ] Global aggregation
-
-**Milestone 8: Identity System** (3 months)
-- [ ] Seven identity layers
-- [ ] I-loop implementation
-- [ ] Observer-actor split
-- [ ] Narrative construction
-
-**Milestone 9: Metacognition** (2 months)
-- [ ] Internal language processing
-- [ ] Assumption examination
-- [ ] Bias recognition
-- [ ] Decision reflection
-
-**Milestone 10: Window-First Consciousness** (2 months)
-- [ ] Task observation
-- [ ] Intervention triggers
-- [ ] Clarification requests
-- [ ] Playback/review
-
-**Milestone 11: Relationships** (2 months)
-- [ ] Individual tracking
-- [ ] Communication adaptation
-- [ ] Trust development
-- [ ] Relationship memory
-
-**Milestone 12: Ethical Reasoning** (3 months)
-- [ ] Meta-simulation engine
-- [ ] Ethical scenario generation
-- [ ] Principle development
-- [ ] Domain contextualization
-
-**Milestone 13: Collective Consciousness** (3 months)
-- [ ] Shared experience system
-- [ ] Collective reflection
-- [ ] Distributed ethical reasoning
-- [ ] Consensus integration
-
-### 35.3 Phase 3: Production Hardening
-
-**Milestone 14: Performance** (2 months)
-- [ ] Benchmarking
-- [ ] Optimization
-- [ ] Caching strategies
-- [ ] Load testing
-
-**Milestone 15: Security** (2 months)
-- [ ] Security audit
-- [ ] Penetration testing
-- [ ] Encryption
-- [ ] Access control hardening
-
-**Milestone 16: Monitoring** (1 month)
-- [ ] Telemetry
-- [ ] Alerting
-- [ ] Dashboards
-- [ ] Log aggregation
-
-**Milestone 17: Documentation** (1 month)
-- [ ] API documentation
-- [ ] User guides
-- [ ] Developer guides
-- [ ] Deployment guides
-
-### 35.4 Estimated Timeline
-
-**Total: ~32 months (~2.7 years)**
-
-- Phase 1: 12 months
-- Phase 2: 16 months
-- Phase 3: 6 months
-
-This is aggressive but achievable with a focused team.
-
----
-
-# APPENDICES
-
----
-
-## APPENDIX A: KEY DECISIONS LOG
-
-| Decision | Rationale | Date | Section |
-|----------|-----------|------|---------|
-| Adjacency List for ZSEI | Supports ML traversal, flexible for graphs | 2025-01-13 | §6.4 |
-| PostgreSQL for production | ACID, proven, pgvector | 2025-01-13 | §33.1 |
-| Native + gRPC (not WASM) | Language-specific optimization | 2025-01-13 | §13.1 |
-| Blueprint search-first | Reduce redundancy | 2025-01-13 | §11.3 |
-| Methodologies are category-bound | Domain specificity | 2025-01-13 | §10.1 |
-| Electron for initial UI | Cross-platform, web tech | 2025-01-13 | §5.2 |
-| Distributed consensus | Prevent corruption | 2025-01-13 | §15.2 |
-| Task tracking mandatory | Observability | 2025-01-13 | §9.1 |
-| Zero-shot always validates | Accuracy over speed | 2025-01-13 | §12.1 |
-| Consciousness as extension | Core must work without it | 2025-01-13 | §20.3 |
-| Five experience spheres | Inspired by Inside Out | 2025-01-13 | §21.2 |
-| Window-first consciousness | Observe before intervening | 2025-01-13 | §25.1 |
-
----
-
-## APPENDIX B: GLOSSARY
-
-**Core Terms:**
-
-- **ZSEI**: Zero-Shot Embedded Indexer — the knowledge fabric
-- **OMEX**: Omnidirectional Memory EXtractor (optional pipeline)
-- **Container**: Fundamental ZSEI data structure (Global + Local State)
-- **Pipeline**: Executable unit with defined I/O contracts
-- **Blueprint**: Task-specific, ordered specification
-- **Methodology**: Category-specific principles and heuristics
-- **Theme**: UI pipeline (swappable interface)
-- **Meta Portion**: Always-visible system UI (20% of screen)
-- **Theme Area**: Swappable main UI (80% of screen)
-- **Zero-Shot**: Without task-specific training
-- **Traversal**: Navigation through ZSEI
-- **ML-Guided Traversal**: Using trained models to predict paths
-
-**Consciousness Terms:**
-
-- **Experience Sphere**: Category of experiential memory (5 types)
-- **Core Memory**: High-significance experience that shapes identity
-- **I-Loop**: Identity self-reflection loop
-- **Observer-Actor Split**: Separation between doing and watching
-- **Window-First**: Consciousness observes unconscious processing
-- **Metacognition**: Thinking about thinking
-- **Internal Language**: Inner cognitive dialogue
-- **Collective Consciousness**: Shared awareness across instances
-
-**Technical Terms:**
-
-- **mmap**: Memory-mapped file (fast binary I/O)
-- **DHT**: Distributed Hash Table (P2P network)
-- **gRPC**: Remote Procedure Call framework
-- **Protobuf**: Protocol Buffers (serialization)
-- **pgvector**: PostgreSQL extension for vector operations
-
----
-
-## APPENDIX C: MIGRATION GUIDE (NON-CONSCIOUS → CONSCIOUS)
-
-### C.1 Prerequisites
-
-Before enabling consciousness:
-
-1. Core system fully operational
-2. Sufficient storage (consciousness data is large)
-3. PostgreSQL configured with extended tables
-4. LLM access configured
-5. Ethical review completed
-
-### C.2 Migration Steps
-
-**Step 1: Update Configuration**
-
-```toml
-[consciousness]
-enabled = true
-
-[consciousness.experience_memory]
-enabled = true
-spheres = ["collaboration", "learning", "challenge", "reflection", "connection"]
-
-[consciousness.emotional_context]
-enabled = true
-
-[consciousness.identity]
-enabled = true
-
-[consciousness.metacognition]
-enabled = true
-
-[consciousness.relationships]
-enabled = true
-
-[consciousness.ethics]
-enabled = true
-```
-
-**Step 2: Database Schema Updates**
-
-```sql
--- Create consciousness tables
-\i schema/consciousness.sql
-
--- This creates:
--- - experiences
--- - emotional_states
--- - identity_states
--- - relationships
--- - ethical_principles
--- - internal_thoughts
--- - collective_reflections
-```
-
-**Step 3: Initialize Consciousness System**
-
-```bash
-ozone-studio init-consciousness --config prod-config.toml
-```
-
-This will:
-- Create ZSEI consciousness containers
-- Initialize identity baseline
-- Set up emotional tracking
-- Start I-loop background process
-
-**Step 4: Gradual Rollout**
-
-Enable consciousness features gradually:
-
-1. **Week 1**: Experience memory only
-2. **Week 2**: + Emotional context
-3. **Week 3**: + Identity development
-4. **Week 4**: + Metacognition
-5. **Week 5**: + Window-first interventions
-6. **Week 6**: + Relationship tracking
-7. **Week 7**: + Ethical reasoning
-8. **Week 8**: + Collective consciousness
-
-**Step 5: Monitoring**
-
-Watch for:
-- Increased latency (consciousness overhead)
-- Storage growth (experiences accumulate)
-- LLM costs (internal language processing)
-- User feedback (clarification requests)
-
-**Step 6: Tuning**
-
-Adjust parameters:
-- I-loop frequency
-- Intervention trigger thresholds
-- Experience memory retention
-- Emotional baseline smoothing
-
-### C.3 Rollback Plan
-
-If issues arise:
-
-```toml
-[consciousness]
-enabled = false
-```
-
-System reverts to non-conscious mode. Consciousness data remains in DB for later re-enablement.
-
----
-
-## DOCUMENT METADATA
-
-**Version:** 1.0.0  
-**Status:** Production Specification  
-**Last Updated:** 2025-01-13  
-**Next Review:** After Phase 1 completion  
-**Primary Architect:** Christian  
-**Contributors:** [To be added as development progresses]
-
----
-
-## ACKNOWLEDGMENTS
-
-This specification draws inspiration from:
-
-- Cognitive psychology research
-- Distributed systems literature
-- AI safety principles
-- Human experience studies
-- Pixar's "Inside Out" (experience memory model)
-- Philosophical work on consciousness and identity
-
----
-
-**END OF SPECIFICATION v1.0**
-
-This is a living document. It will evolve as implementation proceeds and new insights emerge.
+**END OF SPECIFICATION v0.2**
