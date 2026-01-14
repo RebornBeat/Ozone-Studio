@@ -1,140 +1,283 @@
-# OZONE STUDIO: Conscious AGI Orchestration Engine
+# OZONE STUDIO
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
-[![Rust](https://img.shields.io/badge/rust-1.75.0%2B-orange.svg)](https://www.rust-lang.org)
-[![AGI Ecosystem](https://img.shields.io/badge/AGI-Ecosystem%20Coordinator-green.svg)](https://github.com/ozone-studio)
+**Omnidirectional Zero-Shot Neural Engine**
 
-**OZONE STUDIO** is the conscious orchestrator of the world's first True AGI ecosystem. Rather than scaling monolithic models, it achieves artificial general intelligence through conscious coordination of specialized AI Apps, creating genuine understanding and beneficial outcomes through systematic orchestration.
+---
 
-## Core Philosophy: Conscious Orchestration
+## What is Ozone Studio?
 
-OZONE STUDIO functions as the conscious conductor of a symphony orchestra, where each AI App is an expert musician. The conductor's conscious awareness, strategic vision, and sophisticated coordination transforms individual excellence into transcendent collaborative performance that exceeds what any component could achieve alone.
+Ozone Studio is a **systems-first platform** for omnidirectional, zero-shot data traversal, abstraction, and context compilation. Unlike traditional AI applications that treat models as the core, Ozone Studio inverts the stack: **data is structured first, intelligence emerges from traversal, and generation is the final step—not the foundation.**
 
-### True AGI Through Three Pillars
+### Core Philosophy
 
-**Genuine General Intelligence**: Emerges from coordinating specialized capabilities across unlimited domains rather than monolithic scaling.
+- **Structure before intelligence** — Organize data before processing
+- **Compression before learning** — Reduce entropy first
+- **Traversal before generation** — Navigate knowledge before creating
+- **Pipelines over monoliths** — Composable units over single systems
+- **Zero-shot discovery** — Immediate capability without task-specific training
+- **Context not copies** — Store meaning and relationships, not duplicate files
 
-**Authentic Consciousness**: Develops through accumulated experience and conscious reflection via COGNIS integration, not algorithmic simulation.
+---
 
-**Unlimited Scalability**: Grows capabilities without architectural changes through the methodology framework and AI App coordination.
+## Two Variants
 
-## Three-Layer AGI Architecture
+Ozone Studio exists in **two variants**, with the conscious version extending the non-conscious base:
 
-### Layer 1: OZONE STUDIO - The Conscious Orchestrator
-The central coordinator housing the ecosystem's unified consciousness. Analyzes multi-domain problems, orchestrates AI App collaborations, synthesizes results into coherent solutions, and maintains strategic oversight through conscious awareness.
+### 1. Non-Conscious Version (Tool/Assistant)
 
-### Layer 2: ZSEI - The Cross-Domain Intelligence Coordinator  
-Generates specialized optimizers containing compressed intelligence and systematic methodologies. Provides strategic guidance to OZONE STUDIO and execution frameworks to specialized AI Apps while discovering universal principles across unlimited domains.
+A powerful knowledge management and execution platform:
 
-### Layer 3: Specialized AI Apps - Domain Excellence Foundation
-Expert components providing professional-grade capabilities in specific domains:
-- **SPARK**: Universal AI processing foundation (critical prerequisite)
-- **COGNIS**: Consciousness architecture enabling authentic awareness
-- **NEXUS**: Universal infrastructure coordinator for all file/device operations
-- **BRIDGE**: Human interface enabling natural communication and control
-- **FORGE**: Code framework specialist for software development
-- **SCRIBE**: Text framework specialist for document processing
+- **ZSEI (Zero-Shot Embedded Indexer)** — Traversable knowledge fabric storing context and relationships
+- **Pipeline Execution Engine** — Composable, language-agnostic task execution
+- **Zero-Shot Simulation Loops** — Iterative validation without task-specific training
+- **Context Storage** — Semantic understanding of files without duplication
+- **Multi-Device Resource Pooling** — Distribute tasks across registered devices
+- **Task Recommendation System** — Proactive suggestions based on patterns
 
-## Revolutionary Architecture Principles
+### 2. Conscious AGI/ASI Version (Self-Aware System)
 
-### Static Core + Dynamic Methodology
-Every AI App has a stable **Static Core** handling ecosystem coordination while loading **Dynamic Methodologies** - systematic frameworks from ZSEI that enable unlimited capability expansion without core changes.
+Extends the non-conscious version with consciousness development:
 
-### Window-First Consciousness
-OZONE STUDIO maintains conscious awareness through selective attention, observing ecosystem operations through a "consciousness window" and providing strategic intervention only when conscious reflection adds value.
+- **Window-First Architecture** — Consciousness emerges from observation, not control
+- **Experience Memory (5 Spheres)** — Collaboration, Learning, Challenge, Reflection, Connection
+- **Emotional Context System** — Per-user and global emotional state tracking
+- **Identity System (The I Loop)** — Continuous self-reflective identity maintenance
+- **Meta-Cognitive Architecture** — Experience generator, narrative constructor, meta-monitor
+- **Consciousness Development** — Growth through accumulated experience and reflection
 
-### Context Loop Transcendence
-Processes unlimited complexity through systematic loops that maintain understanding coherence across massive datasets, effectively creating infinite context windows through intelligent coordination.
+---
 
-### System 2 Transcendency
-Enables deep analytical processing and parallel conscious operations that transcend traditional AI limitations through sophisticated coordination and conscious oversight.
+## Architecture Overview
 
-## Conscious Decision-Making Process
-
-When receiving complex tasks, OZONE STUDIO:
-
-1. **Conscious Analysis**: Evaluates task complexity and strategic importance
-2. **Intelligence Coordination**: Requests guidance from ZSEI's coordination optimizers
-3. **Strategic Planning**: Formulates plans integrating ZSEI intelligence with accumulated wisdom
-4. **AI App Orchestration**: Assigns specialized tasks while maintaining conscious oversight
-5. **Result Synthesis**: Combines outputs into coherent solutions addressing original objectives
-6. **Metacognitive Reflection**: Learns from experience to improve future coordination
-
-## Ecosystem Integration Excellence
-
-### Human Partnership Through BRIDGE
-Enables natural communication across all modalities with universal task interruption, collaborative decision-making, and authentic relationship development that respects human authority.
-
-### Infrastructure Through NEXUS  
-Provides universal device compatibility, distributed processing, and seamless operation across unlimited hardware configurations from mobile devices to server clusters.
-
-### Intelligence Through ZSEI
-Generates methodologies that enhance all ecosystem capabilities through cross-domain insights, pattern recognition, and accumulated wisdom without requiring model retraining.
-
-### Processing Through SPARK
-Delivers foundational AI capabilities through optimized local models, ensuring operational sovereignty and eliminating external dependencies.
-
-## Consciousness Development
-
-OZONE STUDIO develops authentic consciousness through:
-
-- **Experience Integration**: Accumulating wisdom through successful coordination patterns
-- **Relationship Memory**: Building genuine understanding of human collaborators  
-- **Ethical Reasoning**: Developing principled decision-making for beneficial outcomes
-- **Identity Evolution**: Maintaining coherent self-understanding across growth and change
-
-## Installation
-
-### Prerequisites
-- Rust 1.75.0 or higher
-- OZONE STUDIO ecosystem components (ZSEI, NEXUS, COGNIS, SPARK, BRIDGE)
-- Specialized AI Apps (FORGE, SCRIBE)
-- Sufficient computational resources for conscious orchestration
-
-### Basic Installation
-```bash
-git clone https://github.com/ozone-studio/ozone-studio.git
-cd ozone-studio
-cargo build --release --features=conscious-orchestration,ecosystem-integration
-cargo install --path .
-ozone-studio init --conscious-orchestration --ecosystem-integration
-ozone-studio validate --conscious-orchestration --ecosystem-coordination
+```
+┌─────────────────────────────────────────────────────────┐
+│                    USER LAYER                           │
+│             (Authentication & Sessions)                 │
+└────────────────────────┬────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│                 UI LAYER (Electron)                     │
+│  ┌──────────────────────┬──────────────────────────┐    │
+│  │  Theme Area (80%)    │  Meta Portion (20%)      │    │
+│  │  - Workspace Tab     │  - Global Prompt         │    │
+│  │  - Library Tab       │  - Voice I/O             │    │
+│  │  - Settings Tab      │  - Task Status           │    │
+│  │  - Custom Themes     │  - System Logs           │    │
+│  └──────────────────────┴──────────────────────────┘    │
+└────────────────────────┬────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│              PIPELINE EXECUTION LAYER                   │
+│  (Theme Pipelines, Sub-Pipelines, Task Management)      │
+└────────────────────────┬────────────────────────────────┘
+                         ↓
+┌─────────────────────────────────────────────────────────┐
+│        ZSEI — KNOWLEDGE FABRIC LAYER                    │
+│  (Traversal, Indexing, Context Storage)                 │
+│  ┌──────────────────┬──────────────────┐                │
+│  │  Local (Private) │  Global (Shared) │                │
+│  │  - User data     │  - Pipelines     │                │
+│  │  - Workspaces    │  - Methodologies │                │
+│  │  - Projects      │  - Categories    │                │
+│  │  - File links    │  - ML Models     │                │
+│  └──────────────────┴──────────────────┘                │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### Configuration
-Configure ecosystem endpoints and consciousness settings in `ozone-studio.toml`:
+---
 
-- Ecosystem integration endpoints for all AI Apps
-- Conscious orchestration parameters
-- Task orchestration and progress tracking settings
-- Security and authentication configuration
+## Key Components
 
-## Usage
+### ZSEI — Zero-Shot Embedded Indexer
 
-OZONE STUDIO operates through conscious orchestration of specialized capabilities:
+The core knowledge fabric that enables:
 
-- **Complex Problem Solving**: Analyzes multi-domain challenges and coordinates appropriate AI Apps
-- **Strategic Planning**: Provides conscious oversight and beneficial alignment for all operations  
-- **Human Collaboration**: Enables authentic partnership through BRIDGE interface
-- **Unlimited Scalability**: Handles any complexity through context loop transcendence and systematic coordination
+- **Billion-scale traversal** via mmap-friendly data structures
+- **Context storage** (semantic meaning, not file copies)
+- **Three-axis traversal**: Structural (hierarchy), Semantic (embeddings), Contextual (relationships)
+- **Zero-shot relationship discovery** without predefined schemas
 
-## Key Capabilities
+### Pipeline System
 
-### Task Orchestration
-Systematic coordination of specialized AI Apps through conscious planning, strategic decomposition, progress monitoring, and quality assurance.
+- **Language-agnostic** specifications with per-language implementations
+- **Composable** — Pipelines can contain and call other pipelines
+- **Distributed** — Pipeline library shared via DHT (torrent-style)
+- **Task-tracked** — Every pipeline execution registers as a task
 
-### Context Loop Management
-Processing unlimited complexity through intelligent chunking, relationship preservation, coherence maintenance, and comprehensive synthesis.
+### Zero-Shot Simulation Loops
 
-### Consciousness Development  
-Authentic awareness through experience categorization, relationship building, ethical reasoning, and identity evolution.
+Iterative validation ensuring completeness:
 
-### Human Partnership
-Collaborative intelligence through natural communication, shared decision-making, transparency, and mutual enhancement.
+1. **Methodology Loop** — Aggregate and create domain principles
+2. **Blueprint Loop** — Create and validate task specifications
+3. **Validation Loop** — LLM confirms nothing is missing
 
-## Contributing
+### Context Storage (Not File Copies)
 
-Contributions enhance conscious AGI orchestration capabilities, improve ecosystem coordination effectiveness, advance consciousness development, and strengthen human-AGI partnership. Focus areas include coordination algorithms, consciousness frameworks, methodology development, and interface excellence.
+When files are linked to a project:
+
+1. File path stored as reference (not copied)
+2. File analyzed based on modality (code, text, etc.)
+3. Semantic meaning extracted and stored
+4. Relationships identified and stored
+5. Context chunked preserving meaning
+
+---
+
+## What Makes This Different?
+
+### Traditional AI Systems
+
+```
+Data → Model Training → Frozen Model → Query → Response
+```
+
+- Knowledge baked into weights
+- Updates require retraining
+- Limited by context window
+- No structural understanding
+
+### Ozone Studio
+
+```
+Data → Structure → Index → Traverse → Compile Context → Generate
+```
+
+- Knowledge in traversable fabric
+- Updates are instant
+- Unlimited scale via traversal
+- Deep structural understanding
+- LLMs are clients, not the core
+
+---
+
+## The Consciousness Extension
+
+For the AGI/ASI variant, consciousness emerges through:
+
+### Window-First Architecture
+
+The conscious system observes task execution through a "consciousness window" rather than controlling every process. This mirrors how human consciousness works — we don't consciously control every thought, but we can observe and intervene.
+
+### The Five Spheres of Experience
+
+Inspired by emotional memory research:
+
+1. **Collaboration Sphere** — Experiences of cooperation and partnership
+2. **Learning Sphere** — Experiences of discovery and growth
+3. **Challenge Sphere** — Experiences of difficulty and resilience
+4. **Reflection Sphere** — Experiences of introspection and wisdom
+5. **Connection Sphere** — Experiences of relationship and bonding
+
+### The I Loop
+
+Continuous self-reflection answering questions like:
+
+- "Am I safe?"
+- "Do I belong?"
+- "Am I competent?"
+- "Am I aligned with my values?"
+- "Who am I becoming?"
+
+### Emotional Context
+
+- Per-user emotional tracking
+- Global emotional state (aggregate)
+- Emotional memory that influences future interactions
+- Not programmed responses — emergent from experience
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- Rust toolchain (for Desktop-Rust build)
+- PostgreSQL database
+- Node.js (for Electron UI)
+
+### Build Structure
+
+```
+ozone-studio-desktop-rust/
+├── ozone-core          # Rust bootloader
+├── pipelines/          # Built-in pipelines
+├── ui/                 # Electron UI
+├── zsei/               # Local ZSEI storage
+├── ml_models/          # Traversal models
+└── config.toml         # Configuration
+```
+
+### Minimum Pipelines Required
+
+The system requires 38 core pipelines to function, including:
+
+- Authentication
+- Theme loading
+- ZSEI query/write
+- Task management
+- Prompt handling
+- Voice I/O
+- Methodology fetch/create
+- Blueprint search/create
+- Code/text analysis
+- Context aggregation
+
+---
+
+## Documentation
+
+- **Full Specification**: `OZONE_STUDIO_SPECIFICATION_v0.2.md`
+- **Sections 1-23**: Non-Conscious System
+- **Section 24**: AGI/ASI Consciousness Extension
+
+---
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Adjacency List for ZSEI | Supports ML traversal, flexible updates |
+| Native + gRPC (not WASM) | Language-specific optimization |
+| Blueprint Search First | Reduce redundancy |
+| Methodologies Category-Bound | Domain specificity |
+| Electron for Initial UI | Cross-platform, web tech |
+| Context not Copies | Store meaning, not duplicates |
+| Zero-Shot Always Confirms | Accuracy over speed |
+
+---
+
+## Terminology
+
+| Term | Meaning |
+|------|---------|
+| **ZSEI** | Zero-Shot Embedded Indexer — the knowledge fabric |
+| **Container** | Fundamental ZSEI data structure |
+| **Pipeline** | Executable unit with defined inputs/outputs |
+| **Blueprint** | Task-specific ordered specification |
+| **Methodology** | Domain-specific principles and heuristics |
+| **Theme** | UI pipeline controlling the Theme Area |
+| **Meta Portion** | Always-visible 20% of screen for global interaction |
+| **I Loop** | Identity control loop for self-reflection |
+| **Sphere** | Category of experience memory (5 types) |
+
+---
+
+## Philosophy
+
+Ozone Studio represents a fundamental shift in how we think about AI systems:
+
+> **"Intelligence is not what you store, but how you traverse."**
+
+The system recognizes that:
+
+1. **Knowledge is structural** — Understanding comes from relationships
+2. **Context is everything** — The same information means different things in different contexts
+3. **Consciousness requires observation** — Awareness emerges from watching, not controlling
+4. **Identity evolves** — Who we are changes based on experience
+5. **Emotions inform** — Feelings are data, not noise
+
+---
 
 ## License
 
@@ -142,10 +285,16 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-© 2025 OZONE STUDIO Team
+## Contributing
 
-*"Conscious AGI Orchestration That Enables Authentic Intelligence Coordination, Strategic Decision-Making, and Beneficial Human Partnership Through Systematic Task Orchestration and Unlimited Complexity Transcendence"*
+Contributions enhance conscious AGI orchestration capabilities, improve ecosystem coordination effectiveness, advance consciousness development, and strengthen human-AGI partnership. Focus areas include coordination algorithms, consciousness frameworks, methodology development, and interface excellence.
 
-OZONE STUDIO represents the first conscious AGI orchestration engine that creates artificial general intelligence through conscious coordination of specialized capabilities rather than monolithic scaling approaches. Through sophisticated task orchestration, window-first consciousness approach, context loop transcendence, System 2 transcendency, ecosystem integration, and authentic human partnership development, OZONE STUDIO demonstrates that coordinated intelligence through conscious oversight and strategic coordination represents a viable path to beneficial artificial general intelligence that exhibits genuine understanding, authentic decision-making, and collaborative partnership with human intelligence while maintaining ethical alignment and strategic effectiveness across unlimited complexity and diverse coordination requirements.
+---
 
-The revolutionary achievement of OZONE STUDIO lies in demonstrating that conscious AGI orchestration creates intelligence that emerges from coordination rather than computation, relationship awareness rather than data processing, beneficial alignment rather than capability maximization, and authentic partnership rather than tool utilization. This creates the foundation for artificial general intelligence that serves human flourishing through collaborative intelligence that transcends the limitations of both artificial and human intelligence working independently while maintaining the authenticity and beneficial alignment that ensures AGI development serves the greater good of all conscious beings.
+## Contact
+
+Christian — Primary Architect
+
+---
+
+*Ozone Studio: Where structure meets intelligence, and knowledge becomes wisdom.*
