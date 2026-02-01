@@ -1,0 +1,25 @@
+{
+  "methodology_id": 4,
+  "name": "Code Review Best Practices",
+  "version": 1,
+  "description": "Thorough code review for quality and correctness",
+  "categories": ["code", "review", "analysis"],
+  "principles": [
+    "Check for logical correctness first",
+    "Verify error handling is comprehensive",
+    "Ensure code follows established patterns",
+    "Look for potential security vulnerabilities",
+    "Verify test coverage for critical paths",
+    "Check for performance bottlenecks",
+    "Ensure documentation is adequate"
+  ],
+  "review_checklist": {
+    "correctness": ["Logic errors", "Edge cases", "Null handling"],
+    "security": ["Input validation", "Authentication", "Authorization"],
+    "performance": ["O(n) analysis", "Memory usage", "Database queries"],
+    "maintainability": ["Naming", "Documentation", "Modularity"]
+  },
+  "confidence_threshold": 0.90,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

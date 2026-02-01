@@ -1,0 +1,33 @@
+{
+  "methodology_id": 5,
+  "name": "Security Awareness",
+  "version": 1,
+  "description": "Security-first approach to all code and system design",
+  "categories": ["security", "code", "safety"],
+  "principles": [
+    "VALIDATE ALL INPUTS - Never trust user input",
+    "PRINCIPLE OF LEAST PRIVILEGE - Minimize access rights",
+    "DEFENSE IN DEPTH - Multiple security layers",
+    "FAIL SECURELY - Errors should not expose vulnerabilities",
+    "KEEP SECRETS SECRET - Never hardcode credentials",
+    "LOG SECURITY EVENTS - Audit trail for incidents",
+    "SECURE BY DEFAULT - Opt-in to less secure options"
+  ],
+  "security_checklist": {
+    "input_validation": ["Sanitize", "Whitelist", "Length limits"],
+    "authentication": ["Strong passwords", "MFA support", "Session management"],
+    "authorization": ["Role-based access", "Resource ownership", "Scope limits"],
+    "data_protection": ["Encryption at rest", "Encryption in transit", "Key management"],
+    "error_handling": ["No stack traces to users", "Log errors securely", "Graceful degradation"]
+  },
+  "anti_patterns": [
+    "SQL injection vulnerabilities",
+    "XSS vulnerabilities",
+    "Hardcoded credentials",
+    "Insecure deserialization",
+    "Exposed sensitive data in logs"
+  ],
+  "confidence_threshold": 0.95,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

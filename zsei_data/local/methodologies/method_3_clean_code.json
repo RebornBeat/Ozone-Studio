@@ -1,0 +1,41 @@
+{
+  "methodology_id": 3,
+  "name": "Clean Code Principles",
+  "version": 1,
+  "description": "Write maintainable, readable, and efficient code",
+  "categories": ["code", "development", "quality"],
+  "principles": [
+    "MINIMIZE REDUNDANCY - No duplicate code, extract common patterns",
+    "SINGLE RESPONSIBILITY - Each function/class does one thing well",
+    "CLEAR NAMING - Names should reveal intent without comments",
+    "SMALL FUNCTIONS - Functions should be short and focused",
+    "DRY (Don't Repeat Yourself) - Eliminate duplication aggressively",
+    "PROPER ERROR HANDLING - Handle errors explicitly and gracefully",
+    "COMPREHENSIVE DOCUMENTATION - Docstrings for all public APIs",
+    "TYPE SAFETY - Use types to prevent runtime errors",
+    "MINIMAL DEPENDENCIES - Only import what's needed",
+    "CONSISTENT STYLE - Follow language conventions"
+  ],
+  "code_metrics": {
+    "max_function_length": 50,
+    "max_cyclomatic_complexity": 10,
+    "max_nesting_depth": 3,
+    "min_comment_ratio": 0.1
+  },
+  "guidelines": {
+    "functions": "One level of abstraction per function",
+    "classes": "Small, focused, single-purpose",
+    "modules": "High cohesion, low coupling",
+    "tests": "Write tests alongside code"
+  },
+  "anti_patterns": [
+    "God classes that do everything",
+    "Magic numbers without constants",
+    "Deep nesting (arrow anti-pattern)",
+    "Long parameter lists",
+    "Commented-out code"
+  ],
+  "confidence_threshold": 0.95,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

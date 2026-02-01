@@ -1,0 +1,209 @@
+syntax = "proto3";
+
+package ozone;
+
+// ============================================================================
+// OZONE STUDIO gRPC SERVICE
+// Main communication interface between Electron UI and Rust backend
+// ============================================================================
+
+service OzoneService {
+    // Authentication
+    rpc RequestChallenge(ChallengeRequest) returns (ChallengeResponse);
+    rpc Authenticate(AuthRequest) returns (AuthResponse);
+    rpc Logout(LogoutRequest) returns (LogoutResponse);
+    
+    // Pipeline execution
+    rpc ExecutePipeline(PipelineRequest) returns (PipelineResponse);
+    rpc StreamPipeline(PipelineRequest) returns (stream PipelineEvent);
+    
+    // Task management
+    rpc CreateTask(CreateTaskRequest) returns (TaskResponse);
+    rpc GetTask(GetTaskRequest) returns (TaskResponse);
+    rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+    rpc CancelTask(CancelTaskRequest) returns (TaskResponse);
+    
+    // ZSEI queries
+    rpc QueryZSEI(ZSEIQueryRequest) returns (ZSEIQueryResponse);
+    rpc WriteZSEI(ZSEIWriteRequest) returns (ZSEIWriteResponse);
+    
+    // Config
+    rpc GetConfig(GetConfigRequest) returns (ConfigResponse);
+    rpc UpdateConfig(UpdateConfigRequest) returns (ConfigResponse);
+    
+    // Health
+    rpc HealthCheck(HealthRequest) returns (HealthResponse);
+}
+
+// ============================================================================
+// AUTHENTICATION
+// ============================================================================
+
+message ChallengeRequest {
+    bytes public_key = 1;
+}
+
+message ChallengeResponse {
+    bytes challenge = 1;
+    uint64 expires_at = 2;
+}
+
+message AuthRequest {
+    bytes public_key = 1;
+    bytes signature = 2;
+}
+
+message AuthResponse {
+    bool success = 1;
+    string session_token = 2;
+    uint64 user_id = 3;
+    uint64 device_id = 4;
+    uint64 expires_at = 5;
+    string error = 6;
+}
+
+message LogoutRequest {
+    string session_token = 1;
+}
+
+message LogoutResponse {
+    bool success = 1;
+}
+
+// ============================================================================
+// PIPELINE EXECUTION
+// ============================================================================
+
+message PipelineRequest {
+    uint64 pipeline_id = 1;
+    string input_json = 2;  // JSON-encoded PipelineInput
+    string session_token = 3;
+}
+
+message PipelineResponse {
+    bool success = 1;
+    uint64 task_id = 2;
+    string output_json = 3;  // JSON-encoded PipelineOutput
+    string error = 4;
+}
+
+message PipelineEvent {
+    uint64 task_id = 1;
+    string event_type = 2;  // "progress", "log", "complete", "error"
+    string data_json = 3;
+}
+
+// ============================================================================
+// TASK MANAGEMENT
+// ============================================================================
+
+message CreateTaskRequest {
+    uint64 pipeline_id = 1;
+    string input_json = 2;
+    string session_token = 3;
+}
+
+message GetTaskRequest {
+    uint64 task_id = 1;
+    string session_token = 2;
+}
+
+message ListTasksRequest {
+    string status_filter = 1;  // "queued", "running", "completed", "failed"
+    uint32 limit = 2;
+    uint32 offset = 3;
+    string session_token = 4;
+}
+
+message ListTasksResponse {
+    repeated TaskInfo tasks = 1;
+    uint32 total_count = 2;
+}
+
+message CancelTaskRequest {
+    uint64 task_id = 1;
+    string session_token = 2;
+}
+
+message TaskResponse {
+    bool success = 1;
+    TaskInfo task = 2;
+    string error = 3;
+}
+
+message TaskInfo {
+    uint64 task_id = 1;
+    uint64 pipeline_id = 2;
+    string pipeline_name = 3;
+    string status = 4;
+    float progress = 5;
+    uint64 created_at = 6;
+    uint64 started_at = 7;
+    uint64 completed_at = 8;
+    string error = 9;
+}
+
+// ============================================================================
+// ZSEI QUERIES
+// ============================================================================
+
+message ZSEIQueryRequest {
+    string query_type = 1;
+    string query_json = 2;  // Type-specific query data
+    string session_token = 3;
+}
+
+message ZSEIQueryResponse {
+    bool success = 1;
+    string result_json = 2;  // JSON-encoded ZSEIQueryResult
+    string error = 3;
+}
+
+message ZSEIWriteRequest {
+    string operation = 1;  // "create", "update", "delete"
+    string data_json = 2;
+    string session_token = 3;
+}
+
+message ZSEIWriteResponse {
+    bool success = 1;
+    uint64 container_id = 2;
+    uint32 version = 3;
+    string error = 4;
+}
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+message GetConfigRequest {
+    string section = 1;  // Empty for all, or "zsei", "pipelines", "ui", etc.
+    string session_token = 2;
+}
+
+message UpdateConfigRequest {
+    string section = 1;
+    string config_json = 2;
+    string session_token = 3;
+}
+
+message ConfigResponse {
+    bool success = 1;
+    string config_json = 2;
+    string error = 3;
+}
+
+// ============================================================================
+// HEALTH
+// ============================================================================
+
+message HealthRequest {}
+
+message HealthResponse {
+    bool healthy = 1;
+    string version = 2;
+    uint64 uptime_secs = 3;
+    uint32 active_tasks = 4;
+    uint32 connected_peers = 5;
+    string zsei_status = 6;
+}

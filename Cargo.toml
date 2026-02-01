@@ -1,0 +1,88 @@
+[package]
+name = "ozone-studio"
+version = "0.3.0"
+edition = "2021"
+authors = ["Christian Liz-Fonts <admin@ozonestudio.xyz>"]
+description = "Omnidirectional Zero-Shot Neural Engine"
+license = "MIT"
+repository = "https://github.com/RebornBeat/Ozone-Studio"
+homepage = "https://github.com/RebornBeat/Ozone-Studio"
+
+[lib]
+name = "ozone_studio"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ozone-studio"
+path = "src/main.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+tokio-stream = "0.1"
+
+# Web framework
+axum = { version = "0.7", features = ["ws"] }
+tower-http = { version = "0.5", features = ["cors"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+
+# Hex encoding
+hex = "0.4"
+
+# gRPC (optional, for proto compilation)
+tonic = { version = "0.10", optional = true }
+prost = { version = "0.12", optional = true }
+
+# Cryptography
+blake3 = "1.5"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+rand = "0.8"
+
+# Memory mapping
+memmap2 = "0.9"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# UUID
+uuid = { version = "1.6", features = ["v4", "serde"] }
+
+# HTTP client (for external references)
+reqwest = { version = "0.11", features = ["json"] }
+
+# Configuration
+config = "0.14"
+
+# Regex for pattern matching
+regex = "1.10"
+
+# Lazy static for global state
+lazy_static = "1.4"
+
+# IPC with Electron
+tauri = { version = "1.5", optional = true }
+
+[build-dependencies]
+tonic-build = { version = "0.10", optional = true }
+
+[features]
+default = []
+consciousness = []
+tauri-app = ["tauri"]
+grpc = ["tonic", "prost", "tonic-build"]
+
+[profile.release]
+opt-level = 3
+lto = true

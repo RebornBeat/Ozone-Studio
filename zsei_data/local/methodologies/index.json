@@ -1,0 +1,73 @@
+{
+  "version": 1,
+  "last_updated": 1706400000,
+  "methodology_count": 11,
+  "methodologies": [
+    {
+      "methodology_id": 1,
+      "name": "Conversational Response",
+      "categories": ["conversation", "chat"],
+      "file": "method_1_conversational.json"
+    },
+    {
+      "methodology_id": 2,
+      "name": "Contextual Awareness",
+      "categories": ["context", "understanding"],
+      "file": "method_2_context.json"
+    },
+    {
+      "methodology_id": 3,
+      "name": "Clean Code Principles",
+      "categories": ["code", "development", "quality"],
+      "file": "method_3_clean_code.json"
+    },
+    {
+      "methodology_id": 4,
+      "name": "Code Review Best Practices",
+      "categories": ["code", "review", "analysis"],
+      "file": "method_4_code_review.json"
+    },
+    {
+      "methodology_id": 5,
+      "name": "Security Awareness",
+      "categories": ["security", "code", "safety"],
+      "file": "method_5_security.json"
+    },
+    {
+      "methodology_id": 6,
+      "name": "Document Analysis",
+      "categories": ["text", "analysis", "summary"],
+      "file": "method_6_document.json"
+    },
+    {
+      "methodology_id": 7,
+      "name": "Information Extraction",
+      "categories": ["text", "extraction", "entities"],
+      "file": "method_7_extraction.json"
+    },
+    {
+      "methodology_id": 8,
+      "name": "Impact-First Development",
+      "categories": ["code", "architecture", "planning"],
+      "file": "method_8_impact_first.json"
+    },
+    {
+      "methodology_id": 9,
+      "name": "Documentation Standards",
+      "categories": ["code", "documentation", "quality"],
+      "file": "method_9_documentation.json"
+    },
+    {
+      "methodology_id": 10,
+      "name": "Testing Strategy",
+      "categories": ["code", "testing", "quality"],
+      "file": "method_10_testing.json"
+    },
+    {
+      "methodology_id": 11,
+      "name": "Minimal Change Principle",
+      "categories": ["code", "update", "maintenance"],
+      "file": "method_11_minimal_change.json"
+    }
+  ]
+}

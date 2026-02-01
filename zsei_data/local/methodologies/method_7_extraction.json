@@ -1,0 +1,23 @@
+{
+  "methodology_id": 7,
+  "name": "Information Extraction",
+  "version": 1,
+  "description": "Extract structured information from unstructured text",
+  "categories": ["text", "extraction", "entities"],
+  "principles": [
+    "Identify named entities (people, places, organizations)",
+    "Extract relationships between entities",
+    "Recognize dates, numbers, and quantities",
+    "Identify key facts and claims",
+    "Preserve context when extracting"
+  ],
+  "extraction_types": {
+    "entities": ["Person", "Organization", "Location", "Date", "Money", "Product"],
+    "relations": ["works_for", "located_in", "founded_by", "part_of"],
+    "facts": ["Claims", "Statistics", "Quotes", "Definitions"],
+    "metadata": ["Source", "Confidence", "Context"]
+  },
+  "confidence_threshold": 0.80,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

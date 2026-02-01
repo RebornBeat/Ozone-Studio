@@ -1,0 +1,93 @@
+{
+  "blueprint_id": 3,
+  "name": "Document Summarization",
+  "description": "Extract summary and key points from text documents using AMT",
+  "version": 1,
+  "created_at": 1706400000,
+  "updated_at": 1706400000,
+  "signature": {
+    "hash": "bp_summarize_001",
+    "input_types": ["text", "document_reference"],
+    "output_types": ["summary", "key_points"],
+    "constraints": []
+  },
+  "methodology_ids": [6, 7],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Structural Analysis",
+      "description": "Analyze document structure, stats, readability",
+      "pipeline": "text_analysis",
+      "action": "Analyze",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "text": "$.text",
+        "extract_entities": true,
+        "extract_topics": true
+      },
+      "output_key": "structural_analysis"
+    },
+    {
+      "step_id": 2,
+      "name": "Build AMT",
+      "description": "Create Abstract Meaning Tree for document structure",
+      "pipeline": "text_analysis",
+      "action": "BuildAMT",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "text": "$.text",
+        "depth": 3
+      },
+      "output_key": "amt"
+    },
+    {
+      "step_id": 3,
+      "name": "Generate Summary",
+      "description": "LLM creates summary using structural analysis",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "Summarize this document using the structural analysis provided.\n\nDocument Statistics:\n- Words: {{$.step_1.structural_analysis.word_count}}\n- Sentences: {{$.step_1.structural_analysis.sentence_count}}\n- Readability: {{$.step_1.structural_analysis.readability}}\n\nKeywords: {{$.step_1.structural_analysis.keywords}}\nTopics: {{$.step_1.structural_analysis.topics}}\nEntities: {{$.step_1.structural_analysis.entities}}\n\nDocument:\n{{$.text}}\n\nProvide:\n1. Executive summary (2-3 sentences)\n2. Key points (bullet list)\n3. Main conclusions\n4. Important entities mentioned",
+        "system_prompt": "You are an expert document analyst. Be concise, accurate, and comprehensive."
+      },
+      "output_key": "summary"
+    },
+    {
+      "step_id": 4,
+      "name": "Store Analysis",
+      "description": "Store combined analysis in ZSEI",
+      "pipeline": "text_analysis",
+      "action": "StoreAnalysis",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "analysis": {
+          "structural": "$.step_1.structural_analysis",
+          "amt": "$.step_2.amt",
+          "semantic_summary": "$.step_3.summary"
+        },
+        "project_id": "$.project_id"
+      },
+      "output_key": "container_id"
+    }
+  ],
+  "context_strategy": {
+    "per_step": true,
+    "max_tokens_per_step": 8000,
+    "priority_order": ["project_context"]
+  },
+  "validation": {
+    "confidence_threshold": 1.0,
+    "validation_count": 10
+  },
+  "metadata": {
+    "use_count": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0,
+    "keywords": ["summarize", "summary", "document", "key points", "overview"]
+  }
+}

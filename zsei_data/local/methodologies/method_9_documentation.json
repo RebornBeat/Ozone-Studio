@@ -1,0 +1,29 @@
+{
+  "methodology_id": 9,
+  "name": "Documentation Standards",
+  "version": 1,
+  "description": "Comprehensive documentation for code and systems",
+  "categories": ["code", "documentation", "quality"],
+  "principles": [
+    "DOCUMENT WHY, NOT JUST WHAT - Explain reasoning",
+    "KEEP DOCS WITH CODE - Documentation next to code",
+    "UPDATE DOCS WITH CODE - Stale docs are worse than no docs",
+    "USE CLEAR EXAMPLES - Show, don't just tell",
+    "DOCUMENT PUBLIC APIs THOROUGHLY - Public interfaces need detail",
+    "INCLUDE EDGE CASES - Document what happens in unusual situations"
+  ],
+  "documentation_types": {
+    "inline_comments": "Explain complex logic, not obvious code",
+    "docstrings": "All public functions, classes, modules",
+    "readme": "Project overview, setup, usage",
+    "api_docs": "Endpoints, parameters, responses, errors",
+    "architecture": "System design, data flow, decisions"
+  },
+  "templates": {
+    "function": "Brief description\n\nArgs:\n    param1: description\n\nReturns:\n    description\n\nRaises:\n    Exception: when",
+    "class": "Brief description\n\nAttributes:\n    attr1: description\n\nMethods:\n    method1: brief"
+  },
+  "confidence_threshold": 0.90,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

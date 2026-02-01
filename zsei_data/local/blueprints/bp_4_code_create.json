@@ -1,0 +1,132 @@
+{
+  "blueprint_id": 4,
+  "name": "Code Creation from Specification",
+  "description": "Generate new code based on requirements using impact-first approach",
+  "version": 1,
+  "created_at": 1706400000,
+  "updated_at": 1706400000,
+  "signature": {
+    "hash": "bp_code_create_001",
+    "input_types": ["specification", "requirements"],
+    "output_types": ["code", "documentation"],
+    "constraints": []
+  },
+  "methodology_ids": [3, 8, 9, 10],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Build Requirements AMT",
+      "description": "Create Abstract Meaning Tree from requirements to understand full scope",
+      "pipeline": "text_analysis",
+      "action": "BuildAMT",
+      "context_groups": ["project_context"],
+      "requires_llm": false,
+      "input_mapping": {
+        "text": "$.specification",
+        "depth": 4
+      },
+      "output_key": "requirements_amt"
+    },
+    {
+      "step_id": 2,
+      "name": "Identify Most Impactful Files",
+      "description": "Determine optimal file creation order for maximum relationship coverage",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context", "dependency_graph"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "Based on this specification, determine the optimal file creation order.\n\nPRINCIPLES:\n1. Start with files that create the most relationships/dependencies\n2. Group related files together\n3. Build top-down by groups\n4. Minimize redundancy\n5. Ensure clean code architecture\n\nRequirements AMT:\n{{$.step_1.requirements_amt}}\n\nExisting project files (if any):\n{{$.project_files}}\n\nLanguage: {{$.language}}\n\nReturn JSON:\n{\n  \"file_groups\": [\n    {\n      \"group_name\": \"core\",\n      \"files\": [\"file1.rs\", \"file2.rs\"],\n      \"reason\": \"These establish core types used everywhere\"\n    }\n  ],\n  \"creation_order\": [\"group1\", \"group2\"],\n  \"dependencies\": {\n    \"file1.rs\": [],\n    \"file2.rs\": [\"file1.rs\"]\n  }\n}",
+        "system_prompt": "You are an expert software architect. Design for minimal code, maximum functionality, clean architecture."
+      },
+      "output_key": "file_plan"
+    },
+    {
+      "step_id": 3,
+      "name": "Generate Code for Group",
+      "description": "Create code for each file group, one group at a time",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context", "code_style"],
+      "requires_llm": true,
+      "loop": {
+        "over": "$.step_2.file_plan.file_groups",
+        "variable": "current_group",
+        "wait_for_graph_update": true
+      },
+      "input_mapping": {
+        "prompt": "Generate complete, production-ready code for these files:\n\nGroup: {{$.current_group.group_name}}\nFiles: {{$.current_group.files}}\nReason: {{$.current_group.reason}}\n\nSpecification:\n{{$.specification}}\n\nDependencies (already created):\n{{$.created_files}}\n\nPRINCIPLES:\n- Clean code with minimal redundancy\n- Comprehensive documentation (docstrings, comments)\n- Proper error handling\n- Follow {{$.language}} best practices\n- Type safety where applicable\n\nReturn complete code for each file with clear file separators.",
+        "system_prompt": "You are an expert {{$.language}} developer. Write production-ready code."
+      },
+      "output_key": "generated_code"
+    },
+    {
+      "step_id": 4,
+      "name": "Analyze Generated Code",
+      "description": "Structural analysis of each generated file",
+      "pipeline": "code_analysis",
+      "action": "Analyze",
+      "context_groups": [],
+      "requires_llm": false,
+      "loop": {
+        "over": "$.step_3.generated_code.files",
+        "variable": "current_file"
+      },
+      "input_mapping": {
+        "code": "$.current_file.content",
+        "language": "$.language",
+        "file_path": "$.current_file.path"
+      },
+      "output_key": "code_analysis"
+    },
+    {
+      "step_id": 5,
+      "name": "Update Dependency Graph",
+      "description": "Update project dependency graph with new files",
+      "pipeline": "code_analysis",
+      "action": "UpdateGraph",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "file_ref_id": "$.step_4.container_id",
+        "change_type": "created"
+      },
+      "output_key": "graph_updated"
+    },
+    {
+      "step_id": 6,
+      "name": "Store Analysis",
+      "description": "Store analysis results in ZSEI",
+      "pipeline": "code_analysis",
+      "action": "StoreAnalysis",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "analysis": "$.step_4.code_analysis",
+        "project_id": "$.project_id"
+      },
+      "output_key": "storage_result"
+    }
+  ],
+  "context_strategy": {
+    "per_step": true,
+    "max_tokens_per_step": 16000,
+    "priority_order": ["project_context", "dependency_graph", "code_style"],
+    "group_by_relevance": true
+  },
+  "graph_integration": {
+    "update_on_file_create": true,
+    "update_on_file_modify": true,
+    "wait_for_graph_update": true
+  },
+  "validation": {
+    "confidence_threshold": 1.0,
+    "validation_count": 10
+  },
+  "metadata": {
+    "use_count": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0,
+    "keywords": ["create", "code", "generate", "implement", "build", "new"]
+  }
+}

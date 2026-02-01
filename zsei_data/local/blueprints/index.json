@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "last_updated": 1706400000,
+  "blueprint_count": 5,
+  "blueprints": [
+    {
+      "blueprint_id": 1,
+      "name": "General Prompt Response",
+      "signature_hash": "bp_general_prompt_001",
+      "input_types": ["text"],
+      "output_types": ["text"],
+      "keywords": ["chat", "conversation", "question", "answer", "help"],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_1_general_prompt.json"
+    },
+    {
+      "blueprint_id": 2,
+      "name": "Code Analysis with Semantic Understanding",
+      "signature_hash": "bp_code_semantic_001",
+      "input_types": ["code", "file_reference"],
+      "output_types": ["code_analysis", "suggestions"],
+      "keywords": ["code", "analyze", "review", "explain", "understand"],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_2_code_semantic.json"
+    },
+    {
+      "blueprint_id": 3,
+      "name": "Document Summarization",
+      "signature_hash": "bp_summarize_001",
+      "input_types": ["text", "document_reference"],
+      "output_types": ["summary", "key_points"],
+      "keywords": ["summarize", "summary", "document", "key points", "overview"],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_3_summarize.json"
+    },
+    {
+      "blueprint_id": 4,
+      "name": "Code Creation from Specification",
+      "signature_hash": "bp_code_create_001",
+      "input_types": ["specification", "requirements"],
+      "output_types": ["code", "documentation"],
+      "keywords": ["create", "code", "generate", "implement", "build", "new"],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_4_code_create.json"
+    },
+    {
+      "blueprint_id": 5,
+      "name": "Code Update",
+      "signature_hash": "bp_code_update_001",
+      "input_types": ["code_reference", "change_request"],
+      "output_types": ["updated_code", "diff"],
+      "keywords": ["update", "modify", "change", "fix", "refactor", "edit"],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_5_code_update.json"
+    }
+  ]
+}

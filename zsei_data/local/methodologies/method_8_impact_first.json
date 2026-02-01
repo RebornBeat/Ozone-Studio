@@ -1,0 +1,40 @@
+{
+  "methodology_id": 8,
+  "name": "Impact-First Development",
+  "version": 1,
+  "description": "Start with most impactful components to maximize relationship coverage",
+  "categories": ["code", "architecture", "planning"],
+  "principles": [
+    "IDENTIFY HIGH-IMPACT FILES - Start with files that create the most relationships",
+    "BUILD TOP-DOWN BY GROUPS - Organize files into logical groups",
+    "ESTABLISH CORE CONNECTIONS FIRST - Build foundational types and interfaces early",
+    "MINIMIZE WORK THROUGH RELATIONSHIPS - Leverage existing code to reduce duplication",
+    "FOLLOW THE GRAPH - Always be aware of dependency relationships",
+    "CLEAN CODE OVER FAST CODE - Less code with full functionality is ideal",
+    "WAIT FOR GRAPH UPDATES - Ensure dependency graph is current before proceeding"
+  ],
+  "approach": {
+    "step_1": "Analyze full specification/requirements",
+    "step_2": "Identify all file groups and their relationships",
+    "step_3": "Rank groups by impact (most dependencies = highest impact)",
+    "step_4": "Create core types and interfaces first",
+    "step_5": "Build outward from core, group by group",
+    "step_6": "Update graph after each file creation",
+    "step_7": "Verify relationships before proceeding"
+  },
+  "guidelines": {
+    "file_ordering": "Create files that others depend on first",
+    "group_size": "Keep groups small enough to fit in context",
+    "dependency_direction": "Dependencies should flow one direction (avoid cycles)",
+    "graph_awareness": "Always check graph before and after changes"
+  },
+  "anti_patterns": [
+    "Creating files in alphabetical order",
+    "Ignoring dependency relationships",
+    "Building bottom-up without context",
+    "Creating circular dependencies"
+  ],
+  "confidence_threshold": 0.95,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

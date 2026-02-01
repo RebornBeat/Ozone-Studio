@@ -1,0 +1,81 @@
+{
+  "blueprint_id": 2,
+  "name": "Code Analysis with Semantic Understanding",
+  "description": "Structural code analysis followed by LLM semantic understanding",
+  "version": 1,
+  "created_at": 1706400000,
+  "updated_at": 1706400000,
+  "signature": {
+    "hash": "bp_code_semantic_001",
+    "input_types": ["code", "file_reference"],
+    "output_types": ["code_analysis", "suggestions"],
+    "constraints": []
+  },
+  "methodology_ids": [3, 4, 5],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Structural Analysis",
+      "description": "Parse code structure - functions, classes, imports, complexity",
+      "pipeline": "code_analysis",
+      "action": "Analyze",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "code": "$.code",
+        "language": "$.language"
+      },
+      "output_key": "structural_analysis"
+    },
+    {
+      "step_id": 2,
+      "name": "Semantic Analysis",
+      "description": "LLM understands code purpose, patterns, and provides suggestions",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "Analyze this {{$.language}} code and explain its purpose, identify patterns, and suggest improvements.\n\nFunctions found: {{$.step_1.structural_analysis.functions}}\nClasses found: {{$.step_1.structural_analysis.classes}}\nComplexity metrics: {{$.step_1.structural_analysis.complexity}}\nDependencies: {{$.step_1.structural_analysis.imports}}\n\nCode:\n```{{$.language}}\n{{$.code}}\n```\n\nProvide:\n1. Purpose summary\n2. Design patterns identified\n3. Improvement suggestions\n4. Potential issues",
+        "system_prompt": "You are an expert code reviewer. Analyze code thoroughly and provide actionable insights. Return structured JSON.",
+        "response_format": "json"
+      },
+      "output_key": "semantic_analysis"
+    },
+    {
+      "step_id": 3,
+      "name": "Store Analysis",
+      "description": "Store combined analysis in ZSEI",
+      "pipeline": "code_analysis",
+      "action": "StoreAnalysis",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "analysis": {
+          "language": "$.language",
+          "structural": "$.step_1.structural_analysis",
+          "semantic_summary": "$.step_2.semantic_analysis.purpose",
+          "patterns_detected": "$.step_2.semantic_analysis.patterns",
+          "suggestions": "$.step_2.semantic_analysis.suggestions"
+        },
+        "project_id": "$.project_id"
+      },
+      "output_key": "container_id"
+    }
+  ],
+  "context_strategy": {
+    "per_step": true,
+    "max_tokens_per_step": 8000,
+    "priority_order": ["project_context"]
+  },
+  "validation": {
+    "confidence_threshold": 1.0,
+    "validation_count": 10
+  },
+  "metadata": {
+    "use_count": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0,
+    "keywords": ["code", "analyze", "review", "explain", "understand"]
+  }
+}

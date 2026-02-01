@@ -1,0 +1,135 @@
+{
+  "blueprint_id": 5,
+  "name": "Code Update",
+  "description": "Modify existing code with graph awareness to prevent breaking changes",
+  "version": 1,
+  "created_at": 1706400000,
+  "updated_at": 1706400000,
+  "signature": {
+    "hash": "bp_code_update_001",
+    "input_types": ["code_reference", "change_request"],
+    "output_types": ["updated_code", "diff"],
+    "constraints": []
+  },
+  "methodology_ids": [3, 8, 11],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Load Existing Code Analysis",
+      "description": "Get current code and its structural analysis from ZSEI",
+      "pipeline": "code_analysis",
+      "action": "AnalyzeFile",
+      "context_groups": ["project_context"],
+      "requires_llm": false,
+      "input_mapping": {
+        "file_ref_id": "$.file_ref_id"
+      },
+      "output_key": "current_analysis"
+    },
+    {
+      "step_id": 2,
+      "name": "Get Dependency Graph",
+      "description": "Load full project dependency graph to understand impacts",
+      "pipeline": "code_analysis",
+      "action": "GetDependencyGraph",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "project_id": "$.project_id"
+      },
+      "output_key": "dependency_graph"
+    },
+    {
+      "step_id": 3,
+      "name": "Analyze Change Impact",
+      "description": "Determine what files and functions will be affected",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "Analyze this change request and determine the full impact.\n\nCurrent file: {{$.file_path}}\nLanguage: {{$.step_1.current_analysis.language}}\n\nCurrent code structure:\n- Functions: {{$.step_1.current_analysis.functions}}\n- Classes: {{$.step_1.current_analysis.classes}}\n- Imports: {{$.step_1.current_analysis.imports}}\n- Dependencies: {{$.step_1.current_analysis.dependencies}}\n\nDependency graph (files that depend on this):\n{{$.step_2.dependency_graph}}\n\nChange request:\n{{$.change_request}}\n\nAnalyze and return JSON:\n{\n  \"affected_files\": [\"file1.rs\", \"file2.rs\"],\n  \"affected_functions\": [\"fn_name1\", \"fn_name2\"],\n  \"breaking_changes\": true/false,\n  \"risk_level\": \"low|medium|high\",\n  \"changes_needed\": {\n    \"primary_file\": \"description of changes\",\n    \"dependent_files\": {}\n  },\n  \"recommendations\": []\n}",
+        "system_prompt": "You are an expert code analyst. Identify all potential impacts of code changes. Prioritize stability."
+      },
+      "output_key": "impact_analysis"
+    },
+    {
+      "step_id": 4,
+      "name": "Generate Updated Code",
+      "description": "Create the modified code with minimal, targeted changes",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["project_context", "code_style"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "Apply this change to the code with MINIMAL modifications.\n\nOriginal code:\n```{{$.step_1.current_analysis.language}}\n{{$.original_code}}\n```\n\nChange request:\n{{$.change_request}}\n\nImpact analysis:\n{{$.step_3.impact_analysis}}\n\nPRINCIPLES:\n- Make ONLY the changes necessary\n- Maintain existing code style\n- Preserve documentation\n- Update affected tests if any\n- Add comments explaining changes\n\nReturn the COMPLETE updated file (not just the diff).",
+        "system_prompt": "You are an expert developer. Make targeted, minimal changes that solve the problem."
+      },
+      "output_key": "updated_code"
+    },
+    {
+      "step_id": 5,
+      "name": "Re-analyze Updated Code",
+      "description": "Structural analysis of updated code",
+      "pipeline": "code_analysis",
+      "action": "Analyze",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "code": "$.step_4.updated_code",
+        "language": "$.step_1.current_analysis.language",
+        "file_path": "$.file_path"
+      },
+      "output_key": "updated_analysis"
+    },
+    {
+      "step_id": 6,
+      "name": "Update Dependency Graph",
+      "description": "Update graph to reflect code changes",
+      "pipeline": "code_analysis",
+      "action": "UpdateGraph",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "file_ref_id": "$.file_ref_id",
+        "change_type": "modified"
+      },
+      "output_key": "graph_updated"
+    },
+    {
+      "step_id": 7,
+      "name": "Store Updated Analysis",
+      "description": "Store updated analysis in ZSEI",
+      "pipeline": "code_analysis",
+      "action": "StoreAnalysis",
+      "context_groups": [],
+      "requires_llm": false,
+      "input_mapping": {
+        "analysis": "$.step_5.updated_analysis",
+        "project_id": "$.project_id"
+      },
+      "output_key": "storage_result"
+    }
+  ],
+  "context_strategy": {
+    "per_step": true,
+    "max_tokens_per_step": 12000,
+    "priority_order": ["project_context", "code_style"],
+    "group_by_relevance": true
+  },
+  "graph_integration": {
+    "update_on_file_create": true,
+    "update_on_file_modify": true,
+    "wait_for_graph_update": true
+  },
+  "validation": {
+    "confidence_threshold": 1.0,
+    "validation_count": 10
+  },
+  "metadata": {
+    "use_count": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0,
+    "keywords": ["update", "modify", "change", "fix", "refactor", "edit"]
+  }
+}

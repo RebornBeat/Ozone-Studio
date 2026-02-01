@@ -1,0 +1,39 @@
+# PromptPipeline - Pipeline #9
+# The core LLM interface that handles all model interactions
+# Supports: API (Claude, OpenAI, etc.), GGUF (llama.cpp), ONNX (local)
+
+[pipeline]
+id = 9
+name = "PromptPipeline"
+version = "0.3.0"
+description = "Handles all LLM interactions with support for multiple model types"
+
+[pipeline.input_schema]
+fields = [
+    { name = "prompt", type = "Text", required = true, description = "The prompt to send to the LLM" },
+    { name = "system_prompt", type = "Text", required = false, description = "Optional system prompt" },
+    { name = "context", type = "Array", required = false, description = "Context container IDs for RAG" },
+    { name = "model_override", type = "Text", required = false, description = "Override configured model" },
+    { name = "temperature", type = "Float", required = false, description = "Sampling temperature" },
+    { name = "max_tokens", type = "Number", required = false, description = "Maximum tokens to generate" },
+    { name = "stream", type = "Bool", required = false, description = "Whether to stream response" },
+]
+
+[pipeline.output_schema]
+fields = [
+    { name = "response", type = "Text", required = true, description = "LLM response" },
+    { name = "model_used", type = "Text", required = true, description = "Model that was used" },
+    { name = "tokens_used", type = "Number", required = false, description = "Tokens consumed" },
+    { name = "finish_reason", type = "Text", required = false, description = "Why generation stopped" },
+]
+
+[pipeline.execution]
+flow = "Sequential"
+timeout_secs = 300
+retryable = true
+max_retries = 2
+
+# Sub-pipelines this can invoke
+[pipeline.sub_pipelines]
+context_aggregation = 21  # ContextAggregationPipeline for RAG
+text_analysis = 20        # TextAnalysisPipeline for response analysis

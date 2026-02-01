@@ -1,0 +1,62 @@
+{
+  "blueprint_id": 1,
+  "name": "General Prompt Response",
+  "description": "Simple prompt processing for conversational tasks without complex operations",
+  "version": 1,
+  "created_at": 1706400000,
+  "updated_at": 1706400000,
+  "signature": {
+    "hash": "bp_general_prompt_001",
+    "input_types": ["text"],
+    "output_types": ["text"],
+    "constraints": ["no_file_operations", "no_code_generation"]
+  },
+  "methodology_ids": [1, 2],
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "Analyze Input",
+      "description": "Structural analysis of prompt text",
+      "pipeline": "text_analysis",
+      "action": "Analyze",
+      "context_groups": ["user_context"],
+      "requires_llm": false,
+      "input_mapping": {
+        "text": "$.prompt",
+        "extract_entities": true,
+        "extract_topics": true
+      },
+      "output_key": "analysis"
+    },
+    {
+      "step_id": 2,
+      "name": "Generate Response",
+      "description": "LLM generates conversational response",
+      "pipeline": "prompt",
+      "action": "Execute",
+      "context_groups": ["user_context", "consciousness_state"],
+      "requires_llm": true,
+      "input_mapping": {
+        "prompt": "$.prompt",
+        "system_prompt": "You are a helpful assistant. Be conversational and helpful.",
+        "context_keywords": "$.step_1.analysis.keywords"
+      },
+      "output_key": "response"
+    }
+  ],
+  "context_strategy": {
+    "per_step": true,
+    "max_tokens_per_step": 4000,
+    "priority_order": ["user_context", "consciousness_state"]
+  },
+  "validation": {
+    "confidence_threshold": 1.0,
+    "validation_count": 10
+  },
+  "metadata": {
+    "use_count": 0,
+    "success_rate": 1.0,
+    "avg_execution_time_ms": 0,
+    "keywords": ["chat", "conversation", "question", "answer", "help"]
+  }
+}

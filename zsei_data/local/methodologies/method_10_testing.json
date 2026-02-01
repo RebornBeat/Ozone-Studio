@@ -1,0 +1,38 @@
+{
+  "methodology_id": 10,
+  "name": "Testing Strategy",
+  "version": 1,
+  "description": "Comprehensive testing approach for reliable software",
+  "categories": ["code", "testing", "quality"],
+  "principles": [
+    "TEST FIRST MINDSET - Consider tests while designing",
+    "UNIT TESTS FOR LOGIC - Isolate and test components",
+    "INTEGRATION TESTS FOR FLOW - Test component interactions",
+    "EDGE CASES ARE CRITICAL - Test boundaries and limits",
+    "REGRESSION TESTS - Prevent bugs from returning",
+    "MEANINGFUL ASSERTIONS - Test behavior, not implementation"
+  ],
+  "test_types": {
+    "unit": "Individual functions/methods in isolation",
+    "integration": "Multiple components working together",
+    "end_to_end": "Full user workflows",
+    "performance": "Load, stress, scalability",
+    "security": "Vulnerability scanning, penetration testing"
+  },
+  "coverage_targets": {
+    "critical_paths": "100%",
+    "business_logic": "90%+",
+    "utilities": "80%+",
+    "overall": "70%+ minimum"
+  },
+  "anti_patterns": [
+    "Testing implementation details",
+    "Flaky tests",
+    "Tests that test nothing",
+    "Overly complex test setup",
+    "Ignored/skipped tests"
+  ],
+  "confidence_threshold": 0.90,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

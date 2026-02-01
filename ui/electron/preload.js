@@ -1,0 +1,169 @@
+/**
+ * Ozone Studio - Electron Preload Script
+ * 
+ * Exposes a safe API to the renderer process for communicating
+ * with the Rust backend via the main process.
+ */
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Expose the Ozone API to the renderer
+contextBridge.exposeInMainWorld('ozone', {
+  // ========================================================================
+  // Authentication
+  // ========================================================================
+  auth: {
+    /**
+     * Request an authentication challenge
+     * @param {Uint8Array} publicKey - User's public key
+     * @returns {Promise<{challenge: Uint8Array}>}
+     */
+    challenge: (publicKey) => ipcRenderer.invoke('auth:challenge', publicKey),
+    
+    /**
+     * Authenticate with signed challenge
+     * @param {Uint8Array} publicKey 
+     * @param {Uint8Array} signature 
+     * @returns {Promise<{success: boolean, sessionToken?: Uint8Array, error?: string}>}
+     */
+    authenticate: (publicKey, signature) => 
+      ipcRenderer.invoke('auth:authenticate', { publicKey, signature }),
+  },
+  
+  // ========================================================================
+  // Pipeline Execution
+  // ========================================================================
+  pipeline: {
+    /**
+     * Execute a pipeline
+     * @param {number} pipelineId 
+     * @param {object} input 
+     * @returns {Promise<{success: boolean, taskId: number, output?: object, error?: string}>}
+     */
+    execute: (pipelineId, input) => 
+      ipcRenderer.invoke('pipeline:execute', { pipelineId, input }),
+    
+    /**
+     * List available pipelines
+     * @returns {Promise<{pipelines: Array<{id: number, name: string}>}>}
+     */
+    list: () => ipcRenderer.invoke('pipeline:list'),
+    
+    /**
+     * Get pipeline blueprint/metadata
+     * @param {number} pipelineId 
+     * @returns {Promise<object>}
+     */
+    getBlueprint: (pipelineId) => 
+      ipcRenderer.invoke('pipeline:blueprint', pipelineId),
+  },
+  
+  // ========================================================================
+  // ZSEI Queries
+  // ========================================================================
+  zsei: {
+    /**
+     * Execute a ZSEI query
+     * @param {object} query 
+     * @returns {Promise<object>}
+     */
+    query: (query) => ipcRenderer.invoke('zsei:query', query),
+    
+    /**
+     * Traverse ZSEI from a starting container
+     * @param {object} request 
+     * @returns {Promise<object>}
+     */
+    traverse: (request) => ipcRenderer.invoke('zsei:traverse', request),
+    
+    /**
+     * Get a container by ID
+     * @param {number} containerId 
+     * @returns {Promise<object>}
+     */
+    getContainer: (containerId) => 
+      ipcRenderer.invoke('zsei:container', containerId),
+  },
+  
+  // ========================================================================
+  // Task Management
+  // ========================================================================
+  task: {
+    /**
+     * Get task status
+     * @param {number} taskId 
+     * @returns {Promise<object>}
+     */
+    status: (taskId) => ipcRenderer.invoke('task:status', taskId),
+    
+    /**
+     * List active tasks
+     * @returns {Promise<{tasks: Array}>}
+     */
+    list: () => ipcRenderer.invoke('task:list'),
+    
+    /**
+     * Cancel a task
+     * @param {number} taskId 
+     * @returns {Promise<{success: boolean}>}
+     */
+    cancel: (taskId) => ipcRenderer.invoke('task:cancel', taskId),
+    
+    /**
+     * Subscribe to task updates
+     * @param {number} taskId 
+     * @param {function} callback 
+     */
+    subscribe: (taskId, callback) => {
+      const handler = (event, data) => {
+        if (data.taskId === taskId) {
+          callback(data);
+        }
+      };
+      ipcRenderer.on('task:update', handler);
+      return () => ipcRenderer.removeListener('task:update', handler);
+    },
+  },
+  
+  // ========================================================================
+  // Configuration
+  // ========================================================================
+  config: {
+    /**
+     * Get current configuration
+     * @returns {Promise<object>}
+     */
+    get: () => ipcRenderer.invoke('config:get'),
+    
+    /**
+     * Update configuration
+     * @param {object} updates 
+     * @returns {Promise<{success: boolean}>}
+     */
+    set: (updates) => ipcRenderer.invoke('config:set', updates),
+  },
+  
+  // ========================================================================
+  // UI Events
+  // ========================================================================
+  events: {
+    /**
+     * Subscribe to backend errors
+     * @param {function} callback 
+     */
+    onBackendError: (callback) => {
+      ipcRenderer.on('backend-error', (event, data) => callback(data));
+    },
+    
+    /**
+     * Subscribe to connection status changes
+     * @param {function} callback 
+     */
+    onConnectionChange: (callback) => {
+      ipcRenderer.on('connection-change', (event, data) => callback(data));
+    },
+  },
+});
+
+// Log that preload is ready
+console.log('Ozone Studio preload script loaded');

@@ -1,0 +1,24 @@
+{
+  "methodology_id": 6,
+  "name": "Document Analysis",
+  "version": 1,
+  "description": "Comprehensive document analysis and understanding",
+  "categories": ["text", "analysis", "summary"],
+  "principles": [
+    "Identify main thesis/purpose first",
+    "Extract key arguments and supporting evidence",
+    "Recognize document structure and organization",
+    "Identify tone and intended audience",
+    "Note any gaps or inconsistencies",
+    "Summarize at multiple levels of detail"
+  ],
+  "analysis_framework": {
+    "structure": ["Title", "Sections", "Paragraphs", "Lists"],
+    "content": ["Main points", "Supporting details", "Examples", "Citations"],
+    "style": ["Tone", "Voice", "Formality", "Audience"],
+    "metadata": ["Author", "Date", "Source", "Purpose"]
+  },
+  "confidence_threshold": 0.85,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

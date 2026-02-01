@@ -1,0 +1,37 @@
+{
+  "methodology_id": 11,
+  "name": "Minimal Change Principle",
+  "version": 1,
+  "description": "Make targeted, minimal changes to existing code",
+  "categories": ["code", "update", "maintenance"],
+  "principles": [
+    "CHANGE ONLY WHAT'S NECESSARY - No refactoring during bug fixes",
+    "UNDERSTAND BEFORE CHANGING - Review impact first",
+    "PRESERVE EXISTING BEHAVIOR - Unless explicitly changing it",
+    "ONE CONCERN PER CHANGE - Don't mix unrelated changes",
+    "TEST AFTER EVERY CHANGE - Verify nothing broke",
+    "DOCUMENT WHY - Explain the reason for change"
+  ],
+  "change_workflow": {
+    "step_1": "Understand current code and its purpose",
+    "step_2": "Identify minimum changes needed",
+    "step_3": "Check dependency graph for impacts",
+    "step_4": "Make targeted changes",
+    "step_5": "Test affected code paths",
+    "step_6": "Update documentation if needed"
+  },
+  "guidelines": {
+    "scope": "Change only files directly related to the task",
+    "style": "Match existing code style",
+    "testing": "Add tests for new behavior, verify existing tests pass"
+  },
+  "anti_patterns": [
+    "Opportunistic refactoring during fixes",
+    "Changing code you don't understand",
+    "Big-bang changes without testing",
+    "Mixing features and bug fixes"
+  ],
+  "confidence_threshold": 0.95,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}

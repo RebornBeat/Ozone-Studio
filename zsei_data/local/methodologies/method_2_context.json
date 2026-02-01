@@ -1,0 +1,22 @@
+{
+  "methodology_id": 2,
+  "name": "Contextual Awareness",
+  "version": 1,
+  "description": "Maintain awareness of context and apply it appropriately",
+  "categories": ["context", "understanding"],
+  "principles": [
+    "Always consider the full context before responding",
+    "Track context across conversation turns",
+    "Identify implicit context from explicit statements",
+    "Maintain user preferences and history",
+    "Adapt responses based on accumulated context"
+  ],
+  "guidelines": {
+    "context_sources": ["conversation_history", "user_profile", "project_context", "linked_files"],
+    "priority": "Recent context takes precedence over older context",
+    "limitations": "Be transparent when context is insufficient"
+  },
+  "confidence_threshold": 0.85,
+  "created_at": 1706400000,
+  "updated_at": 1706400000
+}
