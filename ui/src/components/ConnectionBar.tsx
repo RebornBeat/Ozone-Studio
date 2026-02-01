@@ -19,8 +19,12 @@ interface ConnectionStats {
   syncStatus: 'synced' | 'syncing' | 'out_of_sync';
 }
 
-export function ConnectionBar() {
-  const { isConnected, executePipeline } = useOzoneStore();
+interface ConnectionBarProps {
+  backendError?: string | null;
+}
+
+export function ConnectionBar({ backendError }: ConnectionBarProps) {
+  const { isConnected } = useOzoneStore();
   const [stats, setStats] = useState<ConnectionStats>({
     networkStatus: 'connecting',
     peerCount: 0,
@@ -29,24 +33,31 @@ export function ConnectionBar() {
     syncStatus: 'syncing',
   });
 
-  // Periodically fetch connection stats
+  // Update status based on connection
   useEffect(() => {
+    setStats(prev => ({
+      ...prev,
+      networkStatus: isConnected ? 'connected' : 'disconnected',
+      syncStatus: isConnected ? 'synced' : 'out_of_sync',
+    }));
+  }, [isConnected]);
+
+  // Periodically fetch connection stats (only if connected)
+  useEffect(() => {
+    if (!isConnected || !window.ozone) return;
+    
     async function fetchStats() {
       try {
         // Query ZSEI for stats
-        const result = await window.ozone.zsei.query({
+        const result = await window.ozone?.zsei.query({
           type: 'GetStats',
         });
         
         // In real implementation, parse result
-        // For now, use mock data
-        setStats({
-          networkStatus: isConnected ? 'connected' : 'disconnected',
-          peerCount: 0, // Network disabled by default
-          contributions: 0,
+        setStats(prev => ({
+          ...prev,
           zseiDepth: 3,
-          syncStatus: 'synced',
-        });
+        }));
       } catch (err) {
         console.warn('Failed to fetch stats:', err);
       }
@@ -78,7 +89,7 @@ export function ConnectionBar() {
   return (
     <header className="connection-bar">
       {/* Network Status */}
-      <div className="connection-item">
+      <div className="connection-item" title={backendError || ''}>
         <span
           className="status-indicator"
           style={{ backgroundColor: getStatusColor(stats.networkStatus) }}
@@ -87,7 +98,19 @@ export function ConnectionBar() {
           {stats.networkStatus === 'connected' ? 'Online' : 
            stats.networkStatus === 'connecting' ? 'Connecting...' : 'Offline'}
         </span>
+        {backendError && (
+          <span className="error-badge" title={backendError}>⚠️</span>
+        )}
       </div>
+
+      {/* Backend Status (when disconnected) */}
+      {!isConnected && backendError && (
+        <div className="connection-item error-item">
+          <span className="item-label" style={{ color: '#f87171' }}>
+            {backendError}
+          </span>
+        </div>
+      )}
 
       {/* Peer Count */}
       <div className="connection-item">

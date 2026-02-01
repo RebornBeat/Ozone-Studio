@@ -1,14 +1,17 @@
 /**
  * HomeDashboard Theme - Default boot theme
  * 
- * Based on Section 27 of the specification.
+ * OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine
+ * A Collective AGI Framework with Optional Consciousness
  * 
- * This is the starting theme shown after authentication.
+ * This is the starting theme shown after initialization.
  * It provides:
  * - Quick access to recent workspaces/projects
  * - Task recommendations (via TaskRecommendationPipeline)
  * - ZSEI exploration starting point
  * - Quick actions for common operations
+ * 
+ * NO MOCK DATA - all content comes from backend or shows empty states
  */
 
 import React, { useEffect, useState } from 'react';
@@ -33,76 +36,94 @@ const QUICK_ACTIONS: QuickAction[] = [
     id: 'new-workspace',
     name: 'New Workspace',
     description: 'Create a new workspace',
-    pipelineId: 6, // WorkspaceTabPipeline
+    pipelineId: 6,
     icon: '📁',
   },
   {
     id: 'browse-library',
     name: 'Browse Library',
     description: 'Explore pipelines and methodologies',
-    pipelineId: 7, // LibraryTabPipeline
+    pipelineId: 7,
     icon: '📚',
   },
   {
     id: 'link-file',
     name: 'Link File',
     description: 'Link a file to ZSEI',
-    pipelineId: 30, // FileLinkPipeline
+    pipelineId: 30,
     icon: '📎',
   },
   {
     id: 'link-url',
     name: 'Link URL',
     description: 'Link a URL to ZSEI',
-    pipelineId: 31, // URLLinkPipeline
+    pipelineId: 31,
     icon: '🔗',
   },
   {
     id: 'link-package',
     name: 'Link Package',
     description: 'Link an npm/pip/cargo package',
-    pipelineId: 32, // PackageLinkPipeline
+    pipelineId: 32,
     icon: '📦',
   },
   {
     id: 'view-tasks',
     name: 'View Tasks',
     description: 'See all tasks and their status',
-    pipelineId: 36, // TaskViewerPipeline
+    pipelineId: 36,
     icon: '📋',
   },
 ];
 
 export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
-  const { executePipeline, activeTasks } = useOzoneStore();
+  const { executePipeline, activeTasks, isConnected, systemStats, consciousnessEnabled } = useOzoneStore();
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [recentWorkspaces, setRecentWorkspaces] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // Load dashboard data on mount
+  // Load dashboard data on mount (only if connected)
   useEffect(() => {
+    if (!isConnected || !window.ozone) {
+      setLoading(false);
+      return;
+    }
+    
     async function loadDashboard() {
       setLoading(true);
       try {
-        // Get task recommendations (TaskRecommendationPipeline)
-        await executePipeline(23, {});
+        // Get task recommendations
+        try {
+          await executePipeline(23, {});
+        } catch (e) {
+          console.warn('Task recommendations not available');
+        }
         
         // Query recent workspaces from ZSEI
-        const result = await window.ozone.zsei.query({
-          type: 'GetUserWorkspaces',
-          user_id: 1, // Current user
-        });
+        try {
+          const result = await window.ozone!.zsei.query({
+            type: 'GetUserWorkspaces',
+            limit: 5,
+          });
+          if (result && Array.isArray((result as any).workspaces)) {
+            setRecentWorkspaces((result as any).workspaces);
+          }
+        } catch (e) {
+          console.warn('Could not load workspaces');
+        }
         
-        // Mock data for now
-        setRecommendations([
-          { id: 1, title: 'Review pending changes', priority: 'high' },
-          { id: 2, title: 'Complete documentation', priority: 'medium' },
-        ]);
-        
-        setRecentWorkspaces([
-          { id: 1, name: 'Project Alpha', lastAccess: Date.now() - 3600000 },
-          { id: 2, name: 'Research Notes', lastAccess: Date.now() - 86400000 },
-        ]);
+        // Query recommendations from ZSEI
+        try {
+          const result = await window.ozone!.zsei.query({
+            type: 'GetTaskRecommendations',
+            limit: 5,
+          });
+          if (result && Array.isArray((result as any).recommendations)) {
+            setRecommendations((result as any).recommendations);
+          }
+        } catch (e) {
+          console.warn('Could not load recommendations');
+        }
       } catch (err) {
         console.error('Failed to load dashboard:', err);
       } finally {
@@ -111,10 +132,15 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
     }
     
     loadDashboard();
-  }, [executePipeline]);
+  }, [executePipeline, isConnected]);
 
   // Handle quick action
   const handleQuickAction = async (action: QuickAction) => {
+    if (!isConnected) {
+      console.warn('Backend not connected - cannot execute action');
+      return;
+    }
+    
     try {
       await executePipeline(action.pipelineId, { action: action.id });
     } catch (err) {
@@ -129,7 +155,9 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
         return (
           <div className="tab-content workspace-tab">
             <h2>Recent Workspaces</h2>
-            {recentWorkspaces.length === 0 ? (
+            {!isConnected ? (
+              <p className="empty-state offline">Connect to backend to view workspaces</p>
+            ) : recentWorkspaces.length === 0 ? (
               <p className="empty-state">No recent workspaces. Create one to get started!</p>
             ) : (
               <ul className="workspace-list">
@@ -177,11 +205,15 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
             <div className="settings-sections">
               <section className="settings-section">
                 <h3>Model Configuration</h3>
-                <p>Configure LLM models (API, GGUF, ONNX)</p>
+                <p>Configure LLM models (Local GGUF, API fallback)</p>
               </section>
               <section className="settings-section">
-                <h3>Network</h3>
-                <p>P2P network and sync settings</p>
+                <h3>P2P Network</h3>
+                <p>Peer-to-peer network and sync settings</p>
+              </section>
+              <section className="settings-section">
+                <h3>Consciousness System</h3>
+                <p>Enable/disable consciousness features (I-Loop, emotional processing)</p>
               </section>
               <section className="settings-section">
                 <h3>UI Preferences</h3>
@@ -210,7 +242,43 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
       {/* Welcome Section */}
       <section className="dashboard-welcome">
         <h1>Welcome to Ozone Studio</h1>
-        <p>Your zero-shot knowledge orchestration platform</p>
+        <p className="tagline">Omnidirectional Zero-Shot Neural Engine</p>
+        <p className="subtitle">A Collective AGI Framework{consciousnessEnabled && ' with Consciousness'}</p>
+        
+        {/* Connection Status Banner */}
+        {!isConnected && (
+          <div className="connection-banner offline">
+            <span className="banner-icon">⚠️</span>
+            <span className="banner-text">Backend not connected. Start the Ozone Studio backend to enable full functionality.</span>
+          </div>
+        )}
+      </section>
+
+      {/* Collective Stats (the focus!) */}
+      <section className="dashboard-collective">
+        <h2>🌐 Collective Ecosystem</h2>
+        <div className="collective-stats">
+          <div className="stat-card">
+            <span className="stat-value">{systemStats.totalContributions.toLocaleString()}</span>
+            <span className="stat-label">Total Contributions</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{systemStats.peerCount}</span>
+            <span className="stat-label">Connected Peers</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{systemStats.methodologiesShared}</span>
+            <span className="stat-label">Methodologies</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-value">{systemStats.blueprintsShared}</span>
+            <span className="stat-label">Blueprints</span>
+          </div>
+          <div className="stat-card highlight">
+            <span className="stat-value">{systemStats.myContributions}</span>
+            <span className="stat-label">Your Contributions</span>
+          </div>
+        </div>
       </section>
 
       {/* Quick Actions */}
@@ -220,8 +288,9 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
           {QUICK_ACTIONS.map((action) => (
             <button
               key={action.id}
-              className="quick-action-card"
+              className={`quick-action-card ${!isConnected ? 'disabled' : ''}`}
               onClick={() => handleQuickAction(action)}
+              disabled={!isConnected}
             >
               <span className="action-icon">{action.icon}</span>
               <span className="action-name">{action.name}</span>
@@ -231,8 +300,8 @@ export function HomeDashboard({ themeData, activeTab }: HomeDashboardProps) {
         </div>
       </section>
 
-      {/* Recommendations */}
-      {recommendations.length > 0 && (
+      {/* Recommendations (only if connected and have data) */}
+      {isConnected && recommendations.length > 0 && (
         <section className="dashboard-recommendations">
           <h2>Recommended Tasks</h2>
           <ul className="recommendation-list">

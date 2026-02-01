@@ -127,11 +127,14 @@ impl OzoneRuntime {
     }
     
     /// Start the runtime (gRPC server for UI communication)
-    pub async fn start(&self) -> Result<(), OzoneError> {
+    pub async fn start(self) -> Result<(), OzoneError> {
         tracing::info!("Starting Ozone Studio runtime");
         
+        // Wrap self in Arc<RwLock<...>> for sharing with server handlers
+        let runtime = Arc::new(RwLock::new(self));
+        
         // Start integrity monitoring
-        let integrity = self.integrity.clone();
+        let integrity = runtime.read().await.integrity.clone();
         tokio::spawn(async move {
             if let Err(e) = integrity.write().await.start_monitoring().await {
                 tracing::error!("Integrity monitoring failed: {}", e);
@@ -139,7 +142,7 @@ impl OzoneRuntime {
         });
         
         // Start gRPC server
-        grpc::start_server(self).await?;
+        grpc::start_server(runtime).await?;
         
         Ok(())
     }

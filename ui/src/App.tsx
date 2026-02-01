@@ -1,25 +1,26 @@
 /**
  * Ozone Studio - Main React Application
  * 
- * Based on Section 5 & 27 of the specification.
+ * OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine
+ * A Collective AGI Framework with Optional Consciousness
  * 
- * The UI works WITH pipelines, not replacing them:
- * - ThemePipeline controls the main content area
- * - MetaPortion is always accessible (prompt, voice, tasks, home)
- * - ConnectionBar shows network status
+ * The UI emphasizes:
+ * - Collective Contributions (the ecosystem grows together)
+ * - AGI-first design with Consciousness as optional feature
+ * - Production-ready with graceful offline handling
  */
 
 import React, { useEffect, useState } from 'react';
 import { useOzoneStore } from './services/store';
 import { MetaPortion } from './components/MetaPortion';
 import { ThemeArea } from './components/ThemeArea';
-import { ConnectionBar } from './components/ConnectionBar';
+import { StatusBar } from './components/StatusBar';
 import './App.css';
 
 // TypeScript declaration for the ozone API exposed by preload
 declare global {
   interface Window {
-    ozone: {
+    ozone?: {
       auth: {
         challenge: (publicKey: Uint8Array) => Promise<{ challenge: Uint8Array }>;
         authenticate: (publicKey: Uint8Array, signature: Uint8Array) => Promise<{ success: boolean; sessionToken?: Uint8Array; error?: string }>;
@@ -39,107 +40,184 @@ declare global {
         get: () => Promise<object>;
         set: (updates: object) => Promise<{ success: boolean }>;
       };
+      system: {
+        getStats: () => Promise<SystemStats>;
+      };
       events: {
         onBackendError: (callback: (data: object) => void) => void;
-        onConnectionChange: (callback: (data: object) => void) => void;
+        onConnectionChange: (callback: (data: { connected: boolean }) => void) => void;
+        onStatsUpdate: (callback: (data: SystemStats) => void) => void;
       };
     };
   }
 }
 
+export interface SystemStats {
+  // Connection
+  backendConnected: boolean;
+  p2pEnabled: boolean;
+  peerCount: number;
+  
+  // Collective Contributions (the focus!)
+  totalContributions: number;
+  myContributions: number;
+  methodologiesShared: number;
+  blueprintsShared: number;
+  findingsShared: number;
+  
+  // ZSEI
+  zseiContainers: number;
+  zseiDepth: number;
+  
+  // Consciousness (optional feature)
+  consciousnessEnabled: boolean;
+  consciousnessState?: string;
+  iLoopStatus?: string;
+  
+  // System
+  uptime: number;
+  memoryUsage: number;
+  activeTaskCount: number;
+}
+
 /**
  * Main Application Component
  * 
- * Layout (§5.1):
+ * Layout:
  * ┌─────────────────────────────────────────────────────────────┐
- * │                     Connection Bar                          │
+ * │                      Header Bar                              │
+ * │  OZONE STUDIO | AGI Framework | [Consciousness: ON/OFF]     │
  * ├───────────────┬─────────────────────────────────────────────┤
  * │               │                                             │
  * │  Meta Portion │              Theme Area                     │
  * │  (20% width)  │         (Pipeline-driven UI)                │
  * │               │                                             │
- * │  - Prompt     │                                             │
- * │  - Voice      │                                             │
+ * │  - Home       │  - Workspaces                               │
+ * │  - Prompt     │  - Pipeline outputs                         │
+ * │  - Voice      │  - Task results                             │
  * │  - Tasks      │                                             │
- * │  - Home       │                                             │
  * │               │                                             │
- * └───────────────┴─────────────────────────────────────────────┘
+ * ├───────────────┴─────────────────────────────────────────────┤
+ * │                      Status Bar (BOTTOM)                     │
+ * │  [●] Online | Peers: 42 | Contributions: 1,234 | ZSEI: 3   │
+ * └─────────────────────────────────────────────────────────────┘
  */
 function App() {
   const { 
     isConnected, 
-    isAuthenticated, 
     currentTheme,
     metaPortionWidth,
+    consciousnessEnabled,
     initializeApp,
+    setConnectionStatus,
+    setSystemStats,
   } = useOzoneStore();
   
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Initialize the application
     async function init() {
       try {
         setLoading(true);
         
-        // Load configuration
-        const config = await window.ozone.config.get();
+        // Check if we're in Electron with backend available
+        if (!window.ozone) {
+          console.warn('Running without backend - limited functionality');
+          setConnectionStatus(false);
+          await initializeApp({});
+          setLoading(false);
+          return;
+        }
         
-        // Initialize store with config
-        await initializeApp(config);
+        // Try to connect to backend
+        try {
+          const config = await window.ozone.config.get();
+          await initializeApp(config);
+          setConnectionStatus(true);
+          
+          // Fetch initial system stats
+          if (window.ozone.system?.getStats) {
+            const stats = await window.ozone.system.getStats();
+            setSystemStats(stats);
+          }
+        } catch (configErr) {
+          console.warn('Backend not available:', configErr);
+          setConnectionStatus(false);
+          await initializeApp({});
+        }
         
-        // Subscribe to backend errors
-        window.ozone.events.onBackendError((data: any) => {
-          setError(`Backend error: ${data.code}`);
-        });
-        
-        // Subscribe to connection changes
-        window.ozone.events.onConnectionChange((data: any) => {
-          console.log('Connection changed:', data);
-        });
+        // Subscribe to events
+        if (window.ozone?.events) {
+          window.ozone.events.onBackendError((data: any) => {
+            console.error('Backend error:', data);
+          });
+          
+          window.ozone.events.onConnectionChange((data) => {
+            setConnectionStatus(data.connected);
+          });
+          
+          if (window.ozone.events.onStatsUpdate) {
+            window.ozone.events.onStatsUpdate((stats) => {
+              setSystemStats(stats);
+            });
+          }
+        }
         
         setLoading(false);
       } catch (err) {
-        console.error('Failed to initialize:', err);
-        setError('Failed to connect to Ozone Studio backend');
+        console.error('Initialization failed:', err);
+        setConnectionStatus(false);
         setLoading(false);
       }
     }
     
     init();
-  }, [initializeApp]);
+  }, [initializeApp, setConnectionStatus, setSystemStats]);
 
-  // Loading state
+  // Brief loading splash
   if (loading) {
     return (
       <div className="app-loading">
+        <div className="loading-logo">
+          <span className="logo-icon">◎</span>
+          <span className="logo-text">OZONE</span>
+        </div>
         <div className="loading-spinner" />
-        <h2>Initializing Ozone Studio...</h2>
-        <p>Connecting to backend services</p>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="app-error">
-        <h2>Connection Error</h2>
-        <p>{error}</p>
-        <button onClick={() => window.location.reload()}>
-          Retry
-        </button>
+        <p className="loading-subtitle">Omnidirectional Zero-Shot Neural Engine</p>
       </div>
     );
   }
 
   return (
     <div className="app">
-      {/* Connection Bar - Always visible at top */}
-      <ConnectionBar />
+      {/* Header Bar */}
+      <header className="header-bar">
+        <div className="header-brand">
+          <span className="brand-icon">◎</span>
+          <span className="brand-name">OZONE STUDIO</span>
+          <span className="brand-version">v0.3</span>
+        </div>
+        
+        <div className="header-tagline">
+          Omnidirectional Zero-Shot Neural Engine
+        </div>
+        
+        <div className="header-features">
+          <div className={`feature-badge ${consciousnessEnabled ? 'active' : 'inactive'}`}>
+            <span className="badge-icon">{consciousnessEnabled ? '🧠' : '○'}</span>
+            <span className="badge-label">Consciousness</span>
+            <span className="badge-status">{consciousnessEnabled ? 'ON' : 'OFF'}</span>
+          </div>
+          
+          <div className={`feature-badge ${isConnected ? 'active' : 'inactive'}`}>
+            <span className="badge-icon">{isConnected ? '🌐' : '○'}</span>
+            <span className="badge-label">P2P Network</span>
+            <span className="badge-status">{isConnected ? 'ON' : 'OFF'}</span>
+          </div>
+        </div>
+      </header>
       
-      {/* Main content area */}
+      {/* Main Content Area */}
       <div className="app-content">
         {/* Meta Portion - Always accessible */}
         <MetaPortion width={metaPortionWidth} />
@@ -147,6 +225,9 @@ function App() {
         {/* Theme Area - Pipeline-driven content */}
         <ThemeArea theme={currentTheme} />
       </div>
+      
+      {/* Status Bar - BOTTOM (Shows Collective Contributions) */}
+      <StatusBar />
     </div>
   );
 }

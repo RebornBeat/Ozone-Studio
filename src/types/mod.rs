@@ -31,7 +31,7 @@ pub use task::{Task, TaskStatus, TaskExecutionState, TaskInput, TaskOutput, Reso
 pub use task::{LogEntry, LogLevel, TaskError, ExecutionStatus};
 
 // Pipeline types  
-pub use pipeline::{PipelineDefinition, PipelineInput, PipelineOutput, PipelineBlueprint};
+pub use pipeline::{PipelineInput, PipelineOutput, PipelineBlueprint};
 pub use pipeline::{BuiltinPipeline, ExecutionContext, Schema, BlueprintSpec, ExecutionFlow, ConsensusStatus};
 
 // ZSEI types

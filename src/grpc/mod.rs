@@ -278,8 +278,8 @@ async fn get_task(
     match task_mgr.get_task(req.task_id).await {
         Some(task) => Json(Some(TaskInfo {
             task_id: task.task_id,
-            pipeline_id: task.pipeline_used.unwrap_or(0),
-            pipeline_name: task.blueprint_name.clone().unwrap_or_default(),
+            pipeline_id: task.pipeline_used,
+            pipeline_name: format!("Pipeline #{}", task.pipeline_used),
             status: format!("{:?}", task.status),
             progress: task.progress,
             created_at: task.created_at,
@@ -308,8 +308,8 @@ async fn list_tasks(
     Json(TaskListResponse {
         tasks: tasks.into_iter().map(|t| TaskInfo {
             task_id: t.task_id,
-            pipeline_id: t.pipeline_used.unwrap_or(0),
-            pipeline_name: t.blueprint_name.clone().unwrap_or_default(),
+            pipeline_id: t.pipeline_used,
+            pipeline_name: format!("Pipeline #{}", t.pipeline_used),
             status: format!("{:?}", t.status),
             progress: t.progress,
             created_at: t.created_at,

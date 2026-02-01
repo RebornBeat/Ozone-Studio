@@ -29,14 +29,20 @@ const THEME_REGISTRY: Record<string, React.ComponentType<any>> = {
 };
 
 export function ThemeArea({ theme }: ThemeAreaProps) {
-  const { executePipeline, activeTab } = useOzoneStore();
+  const { executePipeline, activeTab, isConnected } = useOzoneStore();
   const [themeData, setThemeData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load theme data when theme changes
+  // Load theme data when theme changes (only if connected)
   useEffect(() => {
     async function loadTheme() {
+      // Skip pipeline execution if not connected - use built-in theme
+      if (!isConnected || !window.ozone) {
+        setThemeData({ theme, loaded: true, offline: true });
+        return;
+      }
+      
       setLoading(true);
       setError(null);
       
@@ -46,18 +52,18 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
         
         // In a real implementation, we'd wait for the task to complete
         // and retrieve the theme data from the task output
-        // For now, we'll use the built-in theme
         setThemeData({ theme, loaded: true });
       } catch (err) {
-        console.error('Failed to load theme:', err);
-        setError('Failed to load theme');
+        console.warn('Failed to load theme via pipeline:', err);
+        // Fall back to built-in theme
+        setThemeData({ theme, loaded: true, fallback: true });
       } finally {
         setLoading(false);
       }
     }
     
     loadTheme();
-  }, [theme, executePipeline]);
+  }, [theme, executePipeline, isConnected]);
 
   // Get the theme component
   const ThemeComponent = THEME_REGISTRY[theme];

@@ -4,9 +4,13 @@
  * Uses Zustand for simple, effective state management.
  * The store does NOT replace pipeline logic - it only tracks UI state
  * and coordinates with pipelines via the ozone API.
+ * 
+ * KEY PRINCIPLE: No mock data. All values start at 0/empty and are
+ * populated from the actual backend when connected.
  */
 
 import { create } from 'zustand';
+import { SystemStats } from '../App';
 
 // ============================================================================
 // Types
@@ -26,9 +30,16 @@ interface UIState {
   isAuthenticated: boolean;
   sessionToken: Uint8Array | null;
   
+  // System stats (from backend - NO mock data)
+  systemStats: SystemStats;
+  
   // UI configuration
   currentTheme: string;
   metaPortionWidth: number;
+  
+  // Features
+  consciousnessEnabled: boolean;
+  p2pEnabled: boolean;
   
   // Active tasks
   activeTasks: Task[];
@@ -49,6 +60,10 @@ interface UIActions {
   // Initialization
   initializeApp: (config: any) => Promise<void>;
   
+  // Connection
+  setConnectionStatus: (connected: boolean) => void;
+  setSystemStats: (stats: Partial<SystemStats>) => void;
+  
   // Authentication
   authenticate: () => Promise<void>;
   logout: () => void;
@@ -65,19 +80,43 @@ interface UIActions {
   setActiveTab: (tab: UIState['activeTab']) => void;
   setTheme: (theme: string) => void;
   setSelectedModel: (model: string) => void;
+  setConsciousnessEnabled: (enabled: boolean) => void;
 }
+
+// Default system stats - ALL ZEROS (no mock data!)
+const defaultSystemStats: SystemStats = {
+  backendConnected: false,
+  p2pEnabled: false,
+  peerCount: 0,
+  totalContributions: 0,
+  myContributions: 0,
+  methodologiesShared: 0,
+  blueprintsShared: 0,
+  findingsShared: 0,
+  zseiContainers: 0,
+  zseiDepth: 0,
+  consciousnessEnabled: false,
+  consciousnessState: undefined,
+  iLoopStatus: undefined,
+  uptime: 0,
+  memoryUsage: 0,
+  activeTaskCount: 0,
+};
 
 // ============================================================================
 // Store
 // ============================================================================
 
 export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
-  // Initial state
+  // Initial state - NO mock data
   isConnected: false,
   isAuthenticated: false,
   sessionToken: null,
+  systemStats: defaultSystemStats,
   currentTheme: 'home_dashboard',
   metaPortionWidth: 20,
+  consciousnessEnabled: false,
+  p2pEnabled: false,
   activeTasks: [],
   promptInput: '',
   promptHistory: [],
@@ -87,32 +126,58 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   
   // Actions
   initializeApp: async (config: any) => {
-    // Extract UI config
+    // Extract configuration
     const uiConfig = config.ui || {};
     const modelConfig = config.models || {};
+    const featuresConfig = config.features || {};
     
     set({
-      isConnected: true,
       currentTheme: uiConfig.theme || 'home_dashboard',
       metaPortionWidth: uiConfig.meta_portion_width_percent || 20,
-      selectedModel: modelConfig.api_model || 'claude-sonnet-4-20250514',
+      selectedModel: modelConfig.api_model || modelConfig.local_model_path || 'claude-sonnet-4-20250514',
       availableModels: modelConfig.available_models || [],
+      consciousnessEnabled: featuresConfig.consciousness_enabled || false,
+      p2pEnabled: featuresConfig.p2p_enabled || false,
     });
     
-    // Load theme via ThemeLoader pipeline (id: 2)
-    const { executePipeline } = get();
-    try {
-      await executePipeline(2, { theme: uiConfig.theme || 'home_dashboard' });
-    } catch (err) {
-      console.warn('Failed to load theme:', err);
+    // Load theme via ThemeLoader pipeline (id: 2) - only if connected
+    if (window.ozone) {
+      const { executePipeline } = get();
+      try {
+        await executePipeline(2, { theme: uiConfig.theme || 'home_dashboard' });
+      } catch (err) {
+        console.warn('Failed to load theme:', err);
+      }
     }
   },
   
+  setConnectionStatus: (connected: boolean) => {
+    set({ 
+      isConnected: connected,
+      systemStats: {
+        ...get().systemStats,
+        backendConnected: connected,
+      },
+    });
+  },
+  
+  setSystemStats: (stats: Partial<SystemStats>) => {
+    set({
+      systemStats: {
+        ...get().systemStats,
+        ...stats,
+      },
+    });
+  },
+  
   authenticate: async () => {
-    // This would use actual crypto keys in production
-    // For now, we'll simulate authentication
+    if (!window.ozone) {
+      console.warn('Backend not connected - cannot authenticate');
+      return;
+    }
+    
     try {
-      const publicKey = new Uint8Array(32); // Placeholder
+      const publicKey = new Uint8Array(32); // Would use actual keys in production
       const result = await window.ozone.auth.authenticate(publicKey, new Uint8Array(64));
       
       if (result.success && result.sessionToken) {
@@ -134,11 +199,14 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   },
   
   executePipeline: async (pipelineId: number, input: object) => {
-    // Execute pipeline via ozone API
+    if (!window.ozone) {
+      console.warn('Backend not connected - cannot execute pipeline');
+      throw new Error('Backend not connected');
+    }
+    
     const result = await window.ozone.pipeline.execute(pipelineId, input);
     
     if (result.success) {
-      // Add to active tasks
       const task: Task = {
         id: result.taskId,
         pipelineId,
@@ -149,6 +217,10 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       
       set((state) => ({
         activeTasks: [...state.activeTasks, task],
+        systemStats: {
+          ...state.systemStats,
+          activeTaskCount: state.systemStats.activeTaskCount + 1,
+        },
       }));
       
       return result.taskId;
@@ -158,11 +230,22 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   },
   
   updateTaskStatus: (taskId: number, status: Task['status'], progress = 0) => {
-    set((state) => ({
-      activeTasks: state.activeTasks.map((task) =>
+    set((state) => {
+      const newTasks = state.activeTasks.map((task) =>
         task.id === taskId ? { ...task, status, progress } : task
-      ),
-    }));
+      );
+      
+      // Update active task count
+      const runningCount = newTasks.filter(t => t.status === 'running' || t.status === 'queued').length;
+      
+      return {
+        activeTasks: newTasks,
+        systemStats: {
+          ...state.systemStats,
+          activeTaskCount: runningCount,
+        },
+      };
+    });
   },
   
   setPromptInput: (input: string) => {
@@ -170,7 +253,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   },
   
   submitPrompt: async () => {
-    const { promptInput, executePipeline, selectedModel } = get();
+    const { promptInput, executePipeline, selectedModel, isConnected } = get();
     
     if (!promptInput.trim()) return;
     
@@ -179,6 +262,11 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       promptHistory: [...state.promptHistory, promptInput],
       promptInput: '',
     }));
+    
+    if (!isConnected) {
+      console.warn('Backend not connected - prompt not executed');
+      return;
+    }
     
     // Execute PromptPipeline (id: 9) with the input
     try {
@@ -194,12 +282,14 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   setActiveTab: (tab: UIState['activeTab']) => {
     set({ activeTab: tab });
     
+    if (!window.ozone) return;
+    
     // Execute corresponding tab pipeline
     const { executePipeline } = get();
     const tabPipelineMap: Record<UIState['activeTab'], number> = {
-      workspace: 6,  // WorkspaceTabPipeline
-      library: 7,    // LibraryTabPipeline
-      settings: 8,   // SettingsTabPipeline
+      workspace: 6,
+      library: 7,
+      settings: 8,
     };
     
     executePipeline(tabPipelineMap[tab], {}).catch(console.warn);
@@ -208,7 +298,8 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   setTheme: (theme: string) => {
     set({ currentTheme: theme });
     
-    // Execute ThemeLoader pipeline
+    if (!window.ozone) return;
+    
     const { executePipeline } = get();
     executePipeline(2, { theme }).catch(console.warn);
   },
@@ -216,7 +307,22 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   setSelectedModel: (model: string) => {
     set({ selectedModel: model });
     
-    // Update config
-    window.ozone.config.set({ models: { api_model: model } }).catch(console.warn);
+    if (window.ozone) {
+      window.ozone.config.set({ models: { api_model: model } }).catch(console.warn);
+    }
+  },
+  
+  setConsciousnessEnabled: (enabled: boolean) => {
+    set({ 
+      consciousnessEnabled: enabled,
+      systemStats: {
+        ...get().systemStats,
+        consciousnessEnabled: enabled,
+      },
+    });
+    
+    if (window.ozone) {
+      window.ozone.config.set({ features: { consciousness_enabled: enabled } }).catch(console.warn);
+    }
   },
 }));

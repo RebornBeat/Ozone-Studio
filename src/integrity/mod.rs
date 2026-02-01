@@ -111,8 +111,8 @@ impl IntegrityMonitor {
             .unwrap()
             .as_secs();
         
-        let mut issues_found = Vec::new();
-        let mut repairs_made = Vec::new();
+        let mut issues_found: Vec<String> = Vec::new();
+        let mut repairs_made: Vec<String> = Vec::new();
         let mut containers_checked = 0u32;
         
         // Check all versioned containers
@@ -150,12 +150,12 @@ impl IntegrityMonitor {
         
         let result = IntegrityCheckResult {
             check_type: IntegrityCheckType::Full,
-            passed: issues_found == 0,
-            score: if issues_found == 0 { 1.0 } else { 1.0 - (issues_found as f32 / containers_checked as f32).min(1.0) },
+            passed: issues_found.is_empty(),
+            score: if issues_found.is_empty() { 1.0 } else { 1.0 - (issues_found.len() as f32 / containers_checked as f32).min(1.0) },
             timestamp: now,
             containers_checked,
-            issues_found,
-            repairs_made,
+            issues_found: issues_found.len() as u32,
+            repairs_made: repairs_made.len() as u32,
             issues: Vec::new(),
         };
         

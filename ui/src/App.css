@@ -1,10 +1,13 @@
 /**
  * Ozone Studio - Base Styles
  * 
+ * OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine
+ * A Collective AGI Framework with Optional Consciousness
+ * 
  * Design principles:
- * - Clean, professional aesthetic
- * - Focus on content (pipeline output)
- * - Accessible and responsive
+ * - Clean, professional aesthetic befitting an AGI platform
+ * - Emphasis on COLLECTIVE CONTRIBUTIONS
+ * - Status bar at BOTTOM showing ecosystem health
  */
 
 /* Reset & Base */
@@ -15,17 +18,26 @@
 }
 
 :root {
-  --color-bg: #0f172a;
-  --color-bg-secondary: #1e293b;
-  --color-bg-tertiary: #334155;
+  --color-bg: #0a0f1c;
+  --color-bg-secondary: #111827;
+  --color-bg-tertiary: #1f2937;
+  --color-bg-elevated: #263044;
   --color-text: #f1f5f9;
   --color-text-secondary: #94a3b8;
+  --color-text-muted: #64748b;
   --color-accent: #3b82f6;
   --color-accent-hover: #2563eb;
+  --color-accent-glow: rgba(59, 130, 246, 0.3);
   --color-success: #4ade80;
   --color-warning: #fbbf24;
   --color-error: #f87171;
-  --color-border: #475569;
+  --color-border: #374151;
+  --color-border-subtle: #1f2937;
+  
+  /* AGI/Consciousness accent colors */
+  --color-consciousness: #a855f7;
+  --color-p2p: #06b6d4;
+  --color-contribution: #f59e0b;
   
   --font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
@@ -39,6 +51,9 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  
+  --header-height: 48px;
+  --status-height: 36px;
 }
 
 body {
@@ -63,15 +78,35 @@ body {
   overflow: hidden;
 }
 
-/* Loading & Error States */
-.app-loading,
-.app-error {
+/* Loading State */
+.app-loading {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   height: 100vh;
   gap: var(--space-md);
+  background: linear-gradient(135deg, var(--color-bg) 0%, #0f172a 100%);
+}
+
+.loading-logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: 2.5rem;
+  font-weight: 700;
+}
+
+.logo-icon {
+  color: var(--color-accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.logo-text {
+  background: linear-gradient(135deg, var(--color-accent), var(--color-consciousness));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .loading-spinner {
@@ -83,59 +118,218 @@ body {
   animation: spin 1s linear infinite;
 }
 
+.loading-subtitle {
+  color: var(--color-text-secondary);
+  font-size: 0.9rem;
+  letter-spacing: 0.5px;
+}
+
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
 
-/* Connection Bar */
-.connection-bar {
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================================
+   HEADER BAR - Top bar with branding and feature toggles
+   ============================================================================ */
+.header-bar {
   display: flex;
   align-items: center;
-  gap: var(--space-lg);
-  padding: var(--space-sm) var(--space-md);
-  background-color: var(--color-bg-secondary);
+  height: var(--header-height);
+  padding: 0 var(--space-md);
+  background: linear-gradient(90deg, var(--color-bg-secondary) 0%, var(--color-bg-tertiary) 100%);
   border-bottom: 1px solid var(--color-border);
 }
 
-.connection-item {
+.header-brand {
   display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  font-size: 0.85rem;
+  gap: var(--space-sm);
 }
 
-.status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-}
-
-.item-icon {
-  font-size: 1rem;
-}
-
-.item-value {
-  font-weight: 600;
-}
-
-.item-label {
-  color: var(--color-text-secondary);
-}
-
-.connection-title {
-  margin-left: auto;
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-xs);
-}
-
-.title-text {
-  font-weight: 600;
+.brand-icon {
+  font-size: 1.5rem;
   color: var(--color-accent);
 }
 
-.title-version {
+.brand-name {
+  font-weight: 700;
+  font-size: 1.1rem;
+  letter-spacing: 1px;
+  color: var(--color-text);
+}
+
+.brand-version {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding: 2px 6px;
+  background: var(--color-bg);
+  border-radius: var(--radius-sm);
+}
+
+.header-tagline {
+  margin-left: var(--space-lg);
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.5px;
+}
+
+.header-features {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-md);
+}
+
+.feature-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 4px 10px;
+  border-radius: var(--radius-md);
   font-size: 0.75rem;
+  transition: all 0.2s;
+}
+
+.feature-badge.active {
+  background: var(--color-bg);
+  border: 1px solid var(--color-success);
+}
+
+.feature-badge.inactive {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  opacity: 0.6;
+}
+
+.badge-icon {
+  font-size: 1rem;
+}
+
+.badge-label {
+  color: var(--color-text-secondary);
+}
+
+.badge-status {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.feature-badge.active .badge-status {
+  color: var(--color-success);
+}
+
+/* ============================================================================
+   STATUS BAR - Bottom bar showing COLLECTIVE CONTRIBUTIONS
+   ============================================================================ */
+.status-bar {
+  display: flex;
+  align-items: center;
+  height: var(--status-height);
+  padding: 0 var(--space-md);
+  background: var(--color-bg-secondary);
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8rem;
+  gap: var(--space-sm);
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 0 var(--space-sm);
+  position: relative;
+}
+
+.status-item.primary {
+  background: linear-gradient(90deg, var(--color-bg-tertiary), transparent);
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
+}
+
+.status-indicator {
+  font-size: 0.7rem;
+}
+
+.status-icon {
+  font-size: 0.9rem;
+}
+
+.status-value {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.status-value.highlight {
+  color: var(--color-contribution);
+  font-size: 1rem;
+}
+
+.status-label {
+  color: var(--color-text-secondary);
+}
+
+.status-sublabel {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  margin-left: var(--space-xs);
+}
+
+.status-text {
+  color: var(--color-text);
+}
+
+.status-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-border);
+}
+
+.status-spacer {
+  flex: 1;
+}
+
+/* Contribution breakdown hover popup */
+.contribution-breakdown {
+  display: none;
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-xs);
+  min-width: 200px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  z-index: 100;
+}
+
+.status-contributions:hover .contribution-breakdown {
+  display: block;
+}
+
+.breakdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-xs) 0;
+}
+
+.breakdown-icon {
+  font-size: 1rem;
+}
+
+.breakdown-value {
+  font-weight: 600;
+  min-width: 50px;
+}
+
+.breakdown-label {
   color: var(--color-text-secondary);
 }
 
@@ -484,4 +678,190 @@ body {
 
 .recommendation-item.priority-low {
   border-left: 3px solid var(--color-success);
+}
+
+/* ============================================================================
+   COLLECTIVE ECOSYSTEM SECTION - The heart of Ozone's vision
+   ============================================================================ */
+.dashboard-collective {
+  margin: var(--space-xl) 0;
+  padding: var(--space-lg);
+  background: linear-gradient(135deg, var(--color-bg-secondary) 0%, var(--color-bg-tertiary) 100%);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+}
+
+.dashboard-collective h2 {
+  margin-bottom: var(--space-lg);
+  font-size: 1.3rem;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.collective-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-md);
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-md);
+  background: var(--color-bg);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-subtle);
+  transition: all 0.2s;
+}
+
+.stat-card:hover {
+  border-color: var(--color-accent);
+  transform: translateY(-2px);
+}
+
+.stat-card.highlight {
+  background: linear-gradient(135deg, var(--color-bg) 0%, rgba(59, 130, 246, 0.1) 100%);
+  border-color: var(--color-accent);
+}
+
+.stat-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.stat-card.highlight .stat-value {
+  color: var(--color-accent);
+}
+
+.stat-label {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-top: var(--space-xs);
+}
+
+/* Connection Banner */
+.connection-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-md);
+  font-size: 0.9rem;
+}
+
+.connection-banner.offline {
+  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+}
+
+.connection-banner.online {
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid var(--color-success);
+  color: var(--color-success);
+}
+
+.banner-icon {
+  font-size: 1.2rem;
+}
+
+/* Welcome Section Updates */
+.dashboard-welcome .tagline {
+  font-size: 1.1rem;
+  color: var(--color-accent);
+  margin-bottom: var(--space-xs);
+  letter-spacing: 0.5px;
+}
+
+.dashboard-welcome .subtitle {
+  color: var(--color-text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Disabled Quick Actions */
+.quick-action-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-action-card.disabled:hover {
+  border-color: var(--color-border);
+  transform: none;
+}
+
+/* Empty States */
+.empty-state {
+  color: var(--color-text-secondary);
+  text-align: center;
+  padding: var(--space-lg);
+}
+
+.empty-state.offline {
+  color: var(--color-warning);
+}
+
+/* Library and Settings Sections */
+.library-sections,
+.settings-sections {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-md);
+}
+
+.library-section,
+.settings-section {
+  padding: var(--space-md);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+}
+
+.library-section h3,
+.settings-section h3 {
+  font-size: 1rem;
+  margin-bottom: var(--space-xs);
+  color: var(--color-text);
+}
+
+.library-section p,
+.settings-section p {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .header-bar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: var(--space-sm);
+  }
+  
+  .header-tagline {
+    display: none;
+  }
+  
+  .header-features {
+    width: 100%;
+    justify-content: center;
+    margin-top: var(--space-sm);
+  }
+  
+  .status-bar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: var(--space-sm);
+  }
+  
+  .status-contributions .status-label {
+    display: none;
+  }
+  
+  .collective-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
