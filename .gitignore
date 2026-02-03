@@ -1,0 +1,9 @@
+# --- Root-level ignores ---
+/BitNet/
+/llama.cpp/
+/target/
+
+# --- UI ignores ---
+/ui/node_modules/
+/ui/dist-electron/
+/ui/dist/

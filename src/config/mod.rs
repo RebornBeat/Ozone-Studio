@@ -34,13 +34,16 @@ pub struct OzoneConfig {
     /// UI configuration
     pub ui: UIConfig,
     
-    /// Consciousness configuration (if enabled)
-    #[cfg(feature = "consciousness")]
+    /// Consciousness configuration (enable/disable at runtime via config.toml)
     #[serde(default)]
     pub consciousness: ConsciousnessConfig,
     
     /// Model configuration (for prompt pipeline)
     pub models: ModelConfig,
+    
+    /// Voice configuration (for speech input)
+    #[serde(default)]
+    pub voice: VoiceConfig,
 }
 
 impl Default for OzoneConfig {
@@ -55,9 +58,9 @@ impl Default for OzoneConfig {
             network: NetworkConfig::default(),
             grpc: GrpcConfig::default(),
             ui: UIConfig::default(),
-            #[cfg(feature = "consciousness")]
             consciousness: ConsciousnessConfig::default(),
             models: ModelConfig::default(),
+            voice: VoiceConfig::default(),
         }
     }
 }
@@ -93,6 +96,8 @@ impl OzoneConfig {
 pub struct GeneralConfig {
     pub data_dir: String,
     pub log_level: String,
+    #[serde(default)]
+    pub setup_complete: bool,
 }
 
 impl Default for GeneralConfig {
@@ -100,6 +105,7 @@ impl Default for GeneralConfig {
         Self {
             data_dir: "zsei_data".into(),
             log_level: "info".into(),
+            setup_complete: false,
         }
     }
 }
@@ -273,8 +279,7 @@ impl Default for UIConfig {
     }
 }
 
-/// Consciousness configuration (if enabled)
-#[cfg(feature = "consciousness")]
+/// Consciousness configuration (enable/disable at runtime via config.toml)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConsciousnessConfig {
     pub enabled: bool,
@@ -290,11 +295,10 @@ pub struct ConsciousnessConfig {
     pub playback_enabled: bool,
 }
 
-#[cfg(feature = "consciousness")]
 impl Default for ConsciousnessConfig {
     fn default() -> Self {
         Self {
-            enabled: false,
+            enabled: false,  // Disabled by default, enable in config.toml
             emotional_system_enabled: true,
             experience_memory_enabled: true,
             identity_system_enabled: true,
@@ -338,15 +342,17 @@ impl Default for ModelConfig {
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
             api_model: Some("claude-sonnet-4-20250514".into()),
             local_model_path: None,
-            context_length: 100000,
+            context_length: 8192,  // Default, overridden by per-model setting
             gpu_layers: None,
             allow_user_selection: true,
             available_models: vec![
                 AvailableModel {
-                    name: "Claude Sonnet".into(),
+                    name: "Claude Sonnet (API)".into(),
                     model_type: "api".into(),
                     identifier: "claude-sonnet-4-20250514".into(),
+                    context_length: 200000,
                 },
+                // Local models are added by user via UI or config
             ],
         }
     }
@@ -358,4 +364,42 @@ pub struct AvailableModel {
     pub name: String,
     pub model_type: String,
     pub identifier: String,
+    /// Model-specific context length (overrides global setting when this model is active)
+    #[serde(default = "default_context_length")]
+    pub context_length: usize,
+}
+
+fn default_context_length() -> usize {
+    8192
+}
+
+/// Voice configuration for speech input
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceConfig {
+    /// Voice backend: "whisper_rs" (integrated), "whisper_cpp" (standalone), "api"
+    pub backend: String,
+    
+    /// Path to whisper model file (for whisper_rs or whisper_cpp)
+    pub whisper_model_path: Option<String>,
+    
+    /// Path to whisper-cli binary (for whisper_cpp backend)
+    pub whisper_cpp_path: Option<String>,
+    
+    /// API endpoint for voice transcription (if using API backend)
+    pub api_endpoint: Option<String>,
+    
+    /// API key environment variable (if using API backend)
+    pub api_key_env: Option<String>,
+}
+
+impl Default for VoiceConfig {
+    fn default() -> Self {
+        Self {
+            backend: "whisper_rs".into(),  // Integrated by default
+            whisper_model_path: None,  // User sets via UI
+            whisper_cpp_path: Some("/usr/local/bin/whisper-cli".into()),
+            api_endpoint: None,
+            api_key_env: None,
+        }
+    }
 }

@@ -51,7 +51,7 @@ pub enum ProposalType {
     CategoryRename,
     CategoryMove,
     MLModelUpdate,
-    #[cfg(feature = "consciousness")]
+    
     EthicalPrinciple,
 }
 

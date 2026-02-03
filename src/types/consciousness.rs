@@ -528,3 +528,30 @@ pub struct ClarificationRequest {
     pub required: bool,
     pub default_if_no_response: Option<GateDecision>,
 }
+
+// ============================================================================
+// §42 NARRATIVE & IDENTITY
+// ============================================================================
+
+/// Narrative fragment for consciousness storytelling (§42)
+/// Used in experience replay and self-model construction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NarrativeFragment {
+    pub id: u64,
+    pub content: String,
+    pub emotion: String,
+    pub significance: f32,
+    pub timestamp: u64,
+}
+
+impl Default for NarrativeFragment {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            content: String::new(),
+            emotion: "neutral".to_string(),
+            significance: 0.0,
+            timestamp: 0,
+        }
+    }
+}

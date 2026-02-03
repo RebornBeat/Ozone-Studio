@@ -13,8 +13,6 @@ pub mod external;
 pub mod integrity;
 pub mod consensus;
 pub mod ui;
-
-#[cfg(feature = "consciousness")]
 pub mod consciousness;
 
 // Re-export commonly used types to simplify imports
@@ -202,7 +200,6 @@ pub enum OzoneError {
     #[error("Server error: {0}")]
     ServerError(String),
     
-    #[cfg(feature = "consciousness")]
     #[error("Consciousness error: {0}")]
     ConsciousnessError(String),
 }

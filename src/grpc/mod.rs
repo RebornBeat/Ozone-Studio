@@ -138,6 +138,18 @@ pub struct ConfigResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConfigSetRequest {
+    pub updates: serde_json::Value,
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConfigSetResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 // ============================================================================
 // Route Handlers
 // ============================================================================
@@ -376,6 +388,76 @@ async fn get_config(
     })
 }
 
+async fn set_config(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ConfigSetRequest>,
+) -> Json<ConfigSetResponse> {
+    // Get config path
+    let config_path = std::env::var("OZONE_CONFIG")
+        .unwrap_or_else(|_| "config.toml".to_string());
+    
+    // Read current config
+    let mut runtime = state.runtime.write().await;
+    
+    // Apply updates from request
+    if let Some(updates) = req.updates.as_object() {
+        // Handle setup_complete flag
+        if let Some(setup_complete) = updates.get("setup_complete") {
+            if let Some(val) = setup_complete.as_bool() {
+                runtime.config.general.setup_complete = val;
+            }
+        }
+        
+        // Handle model updates
+        if let Some(models) = updates.get("models") {
+            if let Ok(model_config) = serde_json::from_value(models.clone()) {
+                runtime.config.models = model_config;
+            }
+        }
+        
+        // Handle consciousness updates
+        if let Some(consciousness) = updates.get("consciousness") {
+            if let Some(enabled) = consciousness.get("enabled").and_then(|v| v.as_bool()) {
+                runtime.config.consciousness.enabled = enabled;
+            }
+        }
+        
+        // Handle voice updates
+        if let Some(voice) = updates.get("voice") {
+            if let Ok(voice_config) = serde_json::from_value(voice.clone()) {
+                runtime.config.voice = voice_config;
+            }
+        }
+        
+        // Handle UI updates
+        if let Some(ui) = updates.get("ui") {
+            if let Ok(ui_config) = serde_json::from_value(ui.clone()) {
+                runtime.config.ui = ui_config;
+            }
+        }
+    }
+    
+    // Save config to file
+    match toml::to_string_pretty(&runtime.config) {
+        Ok(config_str) => {
+            match std::fs::write(&config_path, &config_str) {
+                Ok(_) => Json(ConfigSetResponse {
+                    success: true,
+                    error: None,
+                }),
+                Err(e) => Json(ConfigSetResponse {
+                    success: false,
+                    error: Some(format!("Failed to write config: {}", e)),
+                }),
+            }
+        }
+        Err(e) => Json(ConfigSetResponse {
+            success: false,
+            error: Some(format!("Failed to serialize config: {}", e)),
+        }),
+    }
+}
+
 async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
@@ -440,6 +522,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/list", post(list_tasks))
         .route("/zsei/query", post(query_zsei))
         .route("/config/get", post(get_config))
+        .route("/config/set", post(set_config))
         .route("/ws", get(websocket_handler))
         .layer(cors)
         .with_state(state);

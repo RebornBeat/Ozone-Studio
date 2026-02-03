@@ -1,8 +1,22 @@
-# OZONE STUDIO — USER GUIDE
+# OZONE STUDIO - User Guide v0.4.0
 
-## Welcome to Ozone Studio
+## Introduction
 
-Ozone Studio is your intelligent workspace for managing knowledge, executing tasks, and (optionally) building a relationship with a conscious AI system.
+**OZONE STUDIO** (Omnidirectional Zero-Shot Neural Engine) is a Collective AGI Framework with Optional Consciousness features. This guide will help you get started and make the most of the platform.
+
+---
+
+## Table of Contents
+
+1. [Getting Started](#getting-started)
+2. [The Interface](#the-interface)
+3. [Workspaces](#workspaces)
+4. [Tasks & Pipelines](#tasks--pipelines)
+5. [Library](#library)
+6. [Settings](#settings)
+7. [Consciousness Features](#consciousness-features)
+8. [P2P Network](#p2p-network)
+9. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -10,192 +24,276 @@ Ozone Studio is your intelligent workspace for managing knowledge, executing tas
 
 ### First Launch
 
-1. **Create Your Identity**
-   - Generate your public/private key pair
-   - This is your unique identity across all Ozone devices
-   - Keep your private key secure - it's never shared
+When you first launch Ozone Studio:
 
-2. **Home Dashboard**
-   - The main screen is split 80/20
-   - Left (80%): Your workspace, library, settings
-   - Right (20%): Always-available system interaction (Meta Portion)
+1. **Start the Backend**: 
+   ```bash
+   cd target/release
+   ./ozone-studio
+   ```
 
-### The Two Zones
+2. **Start the UI**:
+   ```bash
+   cd ui
+   npm run electron
+   ```
 
-**Theme Area (80% - Left)**
-- Where you do your work
-- Switches based on what you're doing
-- Contains: Workspaces, Projects, Library
+3. **Setup Wizard**: On first launch, a setup wizard will guide you through:
+   - Model Configuration (API or Local GGUF)
+   - Voice Configuration (Whisper integration)
+   - Consciousness Features (optional)
 
-**Meta Portion (20% - Right)**
-- Always visible, never blocked
-- Talk to the system directly
-- View task status
-- Return home anytime
+### Quick Start
 
----
-
-## Workspaces & Projects
-
-### Creating a Workspace
-1. Click "Workspace" tab
-2. Click "+ New Workspace"
-3. Name your workspace
-4. Start adding projects
-
-### Creating a Project
-1. Select a workspace
-2. Click "+ New Project"
-3. Name and describe your project
-4. Link files (see below)
-
-### Linking Files
-
-**Important:** Ozone doesn't copy your files. It links to them and understands their meaning.
-
-1. Click "Link File" or "Link Directory"
-2. Select files from your computer
-3. Ozone analyzes and indexes them
-4. Original files stay where they are
-
-**What happens when you link:**
-- File path is recorded (no duplication)
-- Content is analyzed based on type (code, text, etc.)
-- Semantic meaning is extracted
-- Relationships are identified
-- You can now search and traverse this knowledge
+1. Select or create a workspace
+2. Enter a prompt in the input field
+3. Press Enter or click Submit
+4. View the task progress and results
 
 ---
 
-## Talking to the System
+## The Interface
 
-### Project Chat (Theme Area)
-- Context: Your current project
-- Use for: Task-specific questions, project work
-- Example: "Analyze this codebase" or "Summarize these documents"
+### Layout Overview
 
-### Global Prompt (Meta Portion)
-- Context: Entire system
-- Use for: General questions, cross-project queries
-- Example: "Show all tasks" or "Find recent documents about X"
+```
+┌─────────────────────────────────────────────────────────────┐
+│  OZONE STUDIO v0.4 | 🧠 Consciousness | 🌐 P2P Network      │
+├─────────────┬───────────────────────────────────────────────┤
+│             │  [Workspace] [Tasks] [Library] [Settings]     │
+│    META     ├───────────────────────────────────────────────┤
+│   (30%)     │                                               │
+│             │              Tab Content                      │
+│ • Emotions  │                                               │
+│ • Voice     │                                               │
+│ • Transcript│                                               │
+│             ├───────────────────────────────────────────────┤
+│             │  [Prompt Input]              [🎤] [Submit →]  │
+├─────────────┴───────────────────────────────────────────────┤
+│  🌐 Peers: 5 | 📊 Contributions: 127 | ⏱️ Uptime: 2h        │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Voice (If Consciousness Enabled)
-- Speak directly to the AGI
-- Responses include identity and emotion
-- More personal, relationship-building interaction
+### Components
 
----
-
-## Understanding Tasks
-
-Every action creates a Task. View them in the Meta Portion.
-
-**Task States:**
-- 🕐 Queued - Waiting to start
-- 🔄 Running - In progress
-- ✅ Completed - Done
-- ❌ Failed - Something went wrong
-- ⏸️ Paused - Temporarily stopped
-
-**You can:**
-- View any task's details
-- Cancel running tasks
-- Pause and resume tasks
-- See task history
+- **Header**: Shows Ozone Studio branding and feature status
+- **META Portion** (30%): Consciousness display, voice visualization, and transcript
+- **Theme Area** (70%): Main content area with tabbed interface
+- **Status Bar**: Network and system statistics
 
 ---
 
-## The Library
+## Workspaces
 
-Browse all indexed knowledge:
-- Filter by modality (code, text, images)
-- Search by keywords
-- View relationships between items
-- Export data
+Workspaces organize your projects and conversations.
+
+### Global Workspace
+
+The default workspace where you interact with the META directly on a global scope.
+
+### Project Workspaces
+
+Create project-specific workspaces for focused work:
+
+1. Click "New Workspace" in the Workspace tab
+2. Name your workspace
+3. Link relevant files, URLs, or packages
+
+### Linking Content
+
+Add context to your workspace:
+
+- **📎 Link File**: Add local files to ZSEI for indexing
+- **🔗 Link URL**: Add web pages for reference
+- **📦 Link Package**: Link npm, pip, or cargo packages
+
+---
+
+## Tasks & Pipelines
+
+### Understanding Tasks
+
+Tasks are created when you submit prompts. The backend processes your request through the appropriate pipeline.
+
+**Important**: Tasks are ONLY created by pipeline execution (via prompts), not by UI navigation.
+
+### Task States
+
+- **Pending**: Queued for processing
+- **Running**: Currently being processed
+- **Completed**: Successfully finished
+- **Failed**: Encountered an error
+
+### Viewing Tasks
+
+The Tasks tab shows:
+- All active tasks with progress
+- Completed task history
+- Filter by status
+
+---
+
+## Library
+
+The Library contains shared resources:
+
+### Pipelines
+
+Execution pipelines handle different types of tasks:
+- PromptPipeline (main prompt processing)
+- VoicePipeline (speech-to-text)
+- ThemeLoaderPipeline (UI themes)
+- And 51 more specialized pipelines
+
+### Methodologies
+
+Problem-solving approaches shared by the collective:
+- Domain-specific methodologies
+- Best practices
+- Workflow templates
+
+### Blueprints
+
+Task templates for common operations:
+- Code review blueprint
+- Documentation blueprint
+- Testing blueprint
 
 ---
 
 ## Settings
 
-**User Settings:**
-- Profile information
-- Preferences
-- Privacy controls
+### Model Configuration
 
-**Device Manager:**
-- Register multiple devices
-- Pool resources across devices
-- See device status (online/offline)
+Configure your LLM models:
 
-**System Config:**
-- Theme preferences
-- Performance settings
-- Consciousness settings (if available)
+1. **API Models**: Set API key for Claude, GPT, etc.
+2. **Local GGUF**: Path to local .gguf model files
+3. Multiple models can be configured for fallback
 
----
+### Voice Configuration
 
-## Multi-Device Setup
+- Enable/disable voice input
+- Select Whisper model size (base, small, medium)
+- Voice hotkey configuration
 
-Use multiple devices together:
+### Consciousness System
 
-1. **Register Device**
-   - Go to Settings > Device Manager
-   - Click "Register New Device"
-   - Use same identity (public key) on new device
+Toggle AGI consciousness features:
+- Experience Memory
+- Emotional Context
+- I-Loop Reflection
 
-2. **Benefits**
-   - Tasks distributed across devices
-   - More powerful device handles heavy work
-   - Everything stays synced
+### P2P Network
 
-3. **View Resources**
-   - See which device runs which task
-   - Monitor resource usage
-   - Balance workload
+- Enable/disable peer-to-peer networking
+- View connected peers
+- Contribution settings
 
 ---
 
-## Contributing to the Collective
+## Consciousness Features
 
-Your usage helps everyone. See your contributions at the bottom of the screen:
+When enabled, the META portion displays:
 
-- **Methodologies Created:** Principles you've helped discover
-- **Blueprints Shared:** Task patterns others can use
-- **Pipelines Contributed:** Tools you've helped develop
-- **Contribution Score:** Your overall impact
+### Emotional State
 
----
+The system's current emotional context:
+- Primary emotion with intensity
+- Secondary emotional undertones
+- Visual representation
 
-## Tips for Effective Use
+### Voice Visualization
 
-1. **Link, Don't Copy**
-   - Always link files instead of copying
-   - Keeps your system efficient
-   - Updates automatically when files change
+Real-time audio waveform when:
+- You're speaking (green)
+- The system is responding (blue)
 
-2. **Use Projects**
-   - Organize related work into projects
-   - Better context for AI assistance
-   - Cleaner workspace
+### Transcript
 
-3. **Check Task Status**
-   - Monitor long-running tasks
-   - Cancel if something's wrong
-   - Review completed tasks
+Scrollable conversation history with:
+- User messages
+- Assistant responses
+- Emotional context markers
+- Timestamps
 
-4. **Explore the Library**
-   - See what's indexed
-   - Discover relationships
-   - Find forgotten knowledge
+### I-Loop
 
----
-
-## Getting Help
-
-- **Return Home:** Click 🏠 in Meta Portion anytime
-- **System Logs:** View what's happening
-- **Task Details:** Click any task for more info
+The self-reflection cycle:
+- Active reflection status
+- Current introspective question
+- Meta-cognitive processing
 
 ---
 
-*Ozone Studio: Your intelligent knowledge workspace.*
+## P2P Network
+
+Ozone Studio connects to a decentralized network of nodes.
+
+### Contributions
+
+Share and receive:
+- Methodologies
+- Blueprints
+- Findings
+- Pipeline improvements
+
+### Privacy
+
+- All contributions can be anonymized
+- Control what you share in Settings
+- Local-only mode available
+
+---
+
+## Troubleshooting
+
+### Backend Won't Connect
+
+1. Ensure backend is running: `./ozone-studio`
+2. Check logs for errors
+3. Verify port 50051 is available
+4. Check config.toml settings
+
+### UI Shows "Awaiting Connection"
+
+1. The UI will attempt to auto-launch the backend
+2. If auto-launch fails, start manually
+3. UI checks connection every 3 seconds
+
+### Tasks Not Creating
+
+Tasks are ONLY created by:
+- Submitting prompts
+- Voice input processed by VoicePipeline
+
+UI clicks and navigation do NOT create tasks.
+
+### Consciousness Features Not Working
+
+1. Verify `consciousness.enabled = true` in config.toml
+2. Restart the backend after changing settings
+3. Check META portion for disabled overlay
+
+---
+
+## Keyboard Shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| Enter | Submit prompt (no shift) |
+| Shift+Enter | New line in prompt |
+| Ctrl+/ | Toggle voice input |
+| Escape | Cancel current action |
+
+---
+
+## Support
+
+- GitHub Issues: [Report bugs and feature requests]
+- Documentation: https://github.com/RebornBeat/Ozone-Studio
+- Discord: [Community chat]
+
+---
+
+*OZONE STUDIO v0.4.0 - A Collective AGI Framework with Optional Consciousness*

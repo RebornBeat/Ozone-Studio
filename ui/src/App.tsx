@@ -1,23 +1,18 @@
 /**
- * Ozone Studio - Main React Application
+ * Ozone Studio - Main React Application v0.4.0
  * 
  * OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine
  * A Collective AGI Framework with Optional Consciousness
- * 
- * The UI emphasizes:
- * - Collective Contributions (the ecosystem grows together)
- * - AGI-first design with Consciousness as optional feature
- * - Production-ready with graceful offline handling
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useOzoneStore } from './services/store';
 import { MetaPortion } from './components/MetaPortion';
 import { ThemeArea } from './components/ThemeArea';
 import { StatusBar } from './components/StatusBar';
 import './App.css';
 
-// TypeScript declaration for the ozone API exposed by preload
+// TypeScript declarations
 declare global {
   interface Window {
     ozone?: {
@@ -37,76 +32,73 @@ declare global {
         list: () => Promise<{ tasks: Array<object> }>;
       };
       config: {
-        get: () => Promise<object>;
+        get: () => Promise<any>;
         set: (updates: object) => Promise<{ success: boolean }>;
       };
       system: {
         getStats: () => Promise<SystemStats>;
+        isFirstLaunch: () => Promise<boolean>;
+        markSetupComplete: () => Promise<{ success: boolean }>;
+        selectFile: (options?: { filters?: string[] }) => Promise<string | null>;
       };
       events: {
         onBackendError: (callback: (data: object) => void) => void;
         onConnectionChange: (callback: (data: { connected: boolean }) => void) => void;
+        onConnectionCountdown: (callback: (data: CountdownData) => void) => void;
+        onBackendLaunchStatus: (callback: (data: LaunchStatus) => void) => void;
         onStatsUpdate: (callback: (data: SystemStats) => void) => void;
       };
     };
   }
 }
 
+interface CountdownData {
+  secondsUntilRetry: number;
+  willAutoLaunch: boolean;
+  hasAttemptedLaunch: boolean;
+}
+
+interface LaunchStatus {
+  success: boolean;
+  message?: string;
+  error?: string;
+  path?: string;
+}
+
 export interface SystemStats {
-  // Connection
   backendConnected: boolean;
   p2pEnabled: boolean;
   peerCount: number;
-  
-  // Collective Contributions (the focus!)
   totalContributions: number;
   myContributions: number;
   methodologiesShared: number;
   blueprintsShared: number;
   findingsShared: number;
-  
-  // ZSEI
   zseiContainers: number;
   zseiDepth: number;
-  
-  // Consciousness (optional feature)
   consciousnessEnabled: boolean;
   consciousnessState?: string;
   iLoopStatus?: string;
-  
-  // System
   uptime: number;
   memoryUsage: number;
   activeTaskCount: number;
 }
 
-/**
- * Main Application Component
- * 
- * Layout:
- * ┌─────────────────────────────────────────────────────────────┐
- * │                      Header Bar                              │
- * │  OZONE STUDIO | AGI Framework | [Consciousness: ON/OFF]     │
- * ├───────────────┬─────────────────────────────────────────────┤
- * │               │                                             │
- * │  Meta Portion │              Theme Area                     │
- * │  (20% width)  │         (Pipeline-driven UI)                │
- * │               │                                             │
- * │  - Home       │  - Workspaces                               │
- * │  - Prompt     │  - Pipeline outputs                         │
- * │  - Voice      │  - Task results                             │
- * │  - Tasks      │                                             │
- * │               │                                             │
- * ├───────────────┴─────────────────────────────────────────────┤
- * │                      Status Bar (BOTTOM)                     │
- * │  [●] Online | Peers: 42 | Contributions: 1,234 | ZSEI: 3   │
- * └─────────────────────────────────────────────────────────────┘
- */
+// Setup Wizard Types
+interface SetupConfig {
+  modelType: 'api' | 'local' | null;
+  apiKey: string;
+  localModelPath: string;
+  localModelType: 'gguf' | 'bitnet' | 'other';
+  voiceEnabled: boolean;
+  whisperModel: string;
+  consciousnessEnabled: boolean;
+}
+
 function App() {
   const { 
     isConnected, 
     currentTheme,
-    metaPortionWidth,
     consciousnessEnabled,
     initializeApp,
     setConnectionStatus,
@@ -114,67 +106,171 @@ function App() {
   } = useOzoneStore();
   
   const [loading, setLoading] = useState(true);
+  const [countdown, setCountdown] = useState<CountdownData | null>(null);
+  const [launchStatus, setLaunchStatus] = useState<LaunchStatus | null>(null);
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [setupStep, setSetupStep] = useState(0);
+  const [setupErrors, setSetupErrors] = useState<string[]>([]);
+  const [setupConfig, setSetupConfig] = useState<SetupConfig>({
+    modelType: null,
+    apiKey: '',
+    localModelPath: '',
+    localModelType: 'gguf',
+    voiceEnabled: false,
+    whisperModel: 'base',
+    consciousnessEnabled: false,
+  });
+
+  // Try to connect to backend
+  const tryConnect = async (): Promise<boolean> => {
+    if (!window.ozone) return false;
+    
+    try {
+      const config = await window.ozone.config.get();
+      await initializeApp(config);
+      setConnectionStatus(true);
+      
+      if (window.ozone.system?.getStats) {
+        const stats = await window.ozone.system.getStats();
+        setSystemStats(stats);
+      }
+      
+      // Check if first launch
+      if (window.ozone.system?.isFirstLaunch) {
+        const isFirst = await window.ozone.system.isFirstLaunch();
+        setShowSetupWizard(isFirst);
+      }
+      
+      return true;
+    } catch (err) {
+      return false;
+    }
+  };
 
   useEffect(() => {
     async function init() {
-      try {
-        setLoading(true);
-        
-        // Check if we're in Electron with backend available
-        if (!window.ozone) {
-          console.warn('Running without backend - limited functionality');
-          setConnectionStatus(false);
-          await initializeApp({});
-          setLoading(false);
-          return;
-        }
-        
-        // Try to connect to backend
-        try {
-          const config = await window.ozone.config.get();
-          await initializeApp(config);
-          setConnectionStatus(true);
-          
-          // Fetch initial system stats
-          if (window.ozone.system?.getStats) {
-            const stats = await window.ozone.system.getStats();
-            setSystemStats(stats);
-          }
-        } catch (configErr) {
-          console.warn('Backend not available:', configErr);
-          setConnectionStatus(false);
-          await initializeApp({});
-        }
-        
-        // Subscribe to events
-        if (window.ozone?.events) {
-          window.ozone.events.onBackendError((data: any) => {
-            console.error('Backend error:', data);
-          });
-          
-          window.ozone.events.onConnectionChange((data) => {
-            setConnectionStatus(data.connected);
-          });
-          
-          if (window.ozone.events.onStatsUpdate) {
-            window.ozone.events.onStatsUpdate((stats) => {
-              setSystemStats(stats);
-            });
-          }
-        }
-        
+      setLoading(true);
+      
+      if (!window.ozone) {
+        console.warn('Running in browser mode - no backend API');
         setLoading(false);
-      } catch (err) {
-        console.error('Initialization failed:', err);
-        setConnectionStatus(false);
-        setLoading(false);
+        return;
       }
+      
+      // Subscribe to events
+      if (window.ozone.events) {
+        window.ozone.events.onConnectionChange((data) => {
+          setConnectionStatus(data.connected);
+          if (data.connected) {
+            tryConnect();
+          }
+        });
+        
+        window.ozone.events.onConnectionCountdown?.((data) => {
+          setCountdown(data);
+        });
+        
+        window.ozone.events.onBackendLaunchStatus?.((data) => {
+          setLaunchStatus(data);
+        });
+        
+        window.ozone.events.onBackendError?.((data: any) => {
+          console.error('Backend error:', data);
+        });
+        
+        window.ozone.events.onStatsUpdate?.((stats) => {
+          setSystemStats(stats);
+        });
+      }
+      
+      const connected = await tryConnect();
+      setLoading(false);
     }
     
     init();
-  }, [initializeApp, setConnectionStatus, setSystemStats]);
+  }, []);
 
-  // Brief loading splash
+  // Setup wizard validation
+  const validateSetupStep = (): boolean => {
+    const errors: string[] = [];
+    
+    if (setupStep === 0) {
+      // Model configuration
+      if (!setupConfig.modelType) {
+        errors.push('Please select a model type');
+      } else if (setupConfig.modelType === 'api' && !setupConfig.apiKey.trim()) {
+        errors.push('Please enter an API key');
+      } else if (setupConfig.modelType === 'local' && !setupConfig.localModelPath.trim()) {
+        errors.push('Please select or enter a model file path');
+      }
+    }
+    
+    setSetupErrors(errors);
+    return errors.length === 0;
+  };
+
+  // Handle file selection for local model
+  const handleSelectModelFile = async () => {
+    if (window.ozone?.system?.selectFile) {
+      const path = await window.ozone.system.selectFile({
+        filters: ['.gguf', '.bin', '.safetensors']
+      });
+      if (path) {
+        setSetupConfig(prev => ({ ...prev, localModelPath: path }));
+      }
+    }
+  };
+
+  // Navigate setup wizard
+  const handleSetupNext = () => {
+    if (validateSetupStep()) {
+      if (setupStep < 3) {
+        setSetupStep(setupStep + 1);
+      }
+    }
+  };
+
+  const handleSetupBack = () => {
+    if (setupStep > 0) {
+      setSetupStep(setupStep - 1);
+      setSetupErrors([]);
+    }
+  };
+
+  // Complete setup wizard
+  const completeSetup = async () => {
+    try {
+      if (window.ozone?.config?.set) {
+        await window.ozone.config.set({
+          setup_complete: true,
+          models: {
+            model_type: setupConfig.modelType,
+            api_key: setupConfig.modelType === 'api' ? setupConfig.apiKey : undefined,
+            local_model_path: setupConfig.modelType === 'local' ? setupConfig.localModelPath : undefined,
+            local_model_type: setupConfig.localModelType,
+          },
+          voice: {
+            enabled: setupConfig.voiceEnabled,
+            whisper_model: setupConfig.whisperModel,
+          },
+          consciousness: {
+            enabled: setupConfig.consciousnessEnabled,
+          },
+        });
+      }
+      
+      if (window.ozone?.system?.markSetupComplete) {
+        await window.ozone.system.markSetupComplete();
+      }
+      
+      setShowSetupWizard(false);
+    } catch (err) {
+      console.error('Setup completion failed:', err);
+      setSetupErrors(['Failed to save configuration. Please try again.']);
+    }
+  };
+
+  // Loading splash
   if (loading) {
     return (
       <div className="app-loading">
@@ -188,14 +284,300 @@ function App() {
     );
   }
 
+  // Connecting screen with countdown
+  if (!isConnected) {
+    return (
+      <div className="app-connecting">
+        <div className="connecting-logo">
+          <span className="logo-icon pulse">◎</span>
+          <span className="logo-text">OZONE STUDIO</span>
+        </div>
+        <div className="loading-spinner" />
+        <p className="connecting-status">Awaiting connection to OZONE STUDIO Backend...</p>
+        
+        {countdown && !countdown.hasAttemptedLaunch && countdown.secondsUntilRetry > 0 && (
+          <p className="connecting-countdown">
+            Auto-launching backend in <span className="countdown-number">{countdown.secondsUntilRetry}</span> seconds...
+          </p>
+        )}
+        
+        {countdown && countdown.hasAttemptedLaunch && (
+          <p className="connecting-hint">
+            {launchStatus?.success 
+              ? 'Backend launched. Waiting for initialization...'
+              : launchStatus?.error || 'Waiting for manual backend start...'
+            }
+          </p>
+        )}
+        
+        <div className="connecting-instructions">
+          <p>Start the backend manually:</p>
+          <code>cd target/release && ./ozone-studio</code>
+        </div>
+      </div>
+    );
+  }
+
+  // Setup Wizard
+  if (showSetupWizard) {
+    return (
+      <div className="setup-wizard">
+        <div className="setup-container">
+          <div className="setup-header">
+            <span className="logo-icon">◎</span>
+            <h1>Welcome to OZONE STUDIO</h1>
+            <p>Let's configure your environment</p>
+          </div>
+          
+          <div className="setup-progress">
+            <div className={`progress-step ${setupStep >= 0 ? 'active' : ''} ${setupStep > 0 ? 'complete' : ''}`}>
+              <span className="step-number">1</span>
+              <span className="step-label">Model</span>
+            </div>
+            <div className={`progress-step ${setupStep >= 1 ? 'active' : ''} ${setupStep > 1 ? 'complete' : ''}`}>
+              <span className="step-number">2</span>
+              <span className="step-label">Voice</span>
+            </div>
+            <div className={`progress-step ${setupStep >= 2 ? 'active' : ''} ${setupStep > 2 ? 'complete' : ''}`}>
+              <span className="step-number">3</span>
+              <span className="step-label">Features</span>
+            </div>
+            <div className={`progress-step ${setupStep >= 3 ? 'active' : ''}`}>
+              <span className="step-number">4</span>
+              <span className="step-label">Done</span>
+            </div>
+          </div>
+          
+          {setupErrors.length > 0 && (
+            <div className="setup-errors">
+              {setupErrors.map((error, i) => (
+                <p key={i} className="error-message">⚠️ {error}</p>
+              ))}
+            </div>
+          )}
+          
+          <div className="setup-content">
+            {setupStep === 0 && (
+              <div className="setup-step">
+                <h2>🤖 Model Configuration</h2>
+                <p>Choose how OZONE will process your prompts:</p>
+                
+                <div className="model-type-selection">
+                  <button 
+                    className={`model-type-btn ${setupConfig.modelType === 'api' ? 'selected' : ''}`}
+                    onClick={() => setSetupConfig(prev => ({ ...prev, modelType: 'api' }))}
+                  >
+                    <span className="btn-icon">🌐</span>
+                    <span className="btn-title">API Model</span>
+                    <span className="btn-desc">Claude, GPT, or other API services</span>
+                  </button>
+                  
+                  <button 
+                    className={`model-type-btn ${setupConfig.modelType === 'local' ? 'selected' : ''}`}
+                    onClick={() => setSetupConfig(prev => ({ ...prev, modelType: 'local' }))}
+                  >
+                    <span className="btn-icon">💻</span>
+                    <span className="btn-title">Local Model</span>
+                    <span className="btn-desc">Run models on your own hardware</span>
+                  </button>
+                </div>
+                
+                {setupConfig.modelType === 'api' && (
+                  <div className="model-config-section">
+                    <label>API Key</label>
+                    <input 
+                      type="password"
+                      placeholder="Enter your API key"
+                      value={setupConfig.apiKey}
+                      onChange={(e) => setSetupConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                    />
+                    <p className="config-hint">Supports: Anthropic Claude, OpenAI GPT, and compatible APIs</p>
+                  </div>
+                )}
+                
+                {setupConfig.modelType === 'local' && (
+                  <div className="model-config-section">
+                    <label>Model Type</label>
+                    <div className="local-model-types">
+                      <button 
+                        className={`local-type-btn ${setupConfig.localModelType === 'gguf' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, localModelType: 'gguf' }))}
+                      >
+                        GGUF (llama.cpp)
+                      </button>
+                      <button 
+                        className={`local-type-btn ${setupConfig.localModelType === 'bitnet' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, localModelType: 'bitnet' }))}
+                      >
+                        BitNet (1-bit)
+                      </button>
+                      <button 
+                        className={`local-type-btn ${setupConfig.localModelType === 'other' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, localModelType: 'other' }))}
+                      >
+                        Other
+                      </button>
+                    </div>
+                    
+                    <label>Model File</label>
+                    <div className="file-input-group">
+                      <input 
+                        type="text"
+                        placeholder="Path to model file (.gguf, .bin, etc.)"
+                        value={setupConfig.localModelPath}
+                        onChange={(e) => setSetupConfig(prev => ({ ...prev, localModelPath: e.target.value }))}
+                      />
+                      <button className="browse-btn" onClick={handleSelectModelFile}>
+                        Browse...
+                      </button>
+                    </div>
+                    <p className="config-hint">
+                      {setupConfig.localModelType === 'gguf' && 'Recommended: Llama 3, Mistral, or Phi-3 in GGUF format'}
+                      {setupConfig.localModelType === 'bitnet' && 'BitNet models offer fast 1-bit inference'}
+                      {setupConfig.localModelType === 'other' && 'Ensure the model format is compatible with your runtime'}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="setup-buttons">
+                  <button className="setup-next" onClick={handleSetupNext} disabled={!setupConfig.modelType}>
+                    Continue →
+                  </button>
+                </div>
+              </div>
+            )}
+            
+            {setupStep === 1 && (
+              <div className="setup-step">
+                <h2>🎤 Voice Configuration</h2>
+                <p>Enable voice input for hands-free interaction (optional)</p>
+                
+                <div className="voice-toggle">
+                  <label className="toggle-label">
+                    <input 
+                      type="checkbox"
+                      checked={setupConfig.voiceEnabled}
+                      onChange={(e) => setSetupConfig(prev => ({ ...prev, voiceEnabled: e.target.checked }))}
+                    />
+                    <span className="toggle-text">Enable Voice Input</span>
+                  </label>
+                </div>
+                
+                {setupConfig.voiceEnabled && (
+                  <div className="voice-config-section">
+                    <label>Whisper Model Size</label>
+                    <select 
+                      value={setupConfig.whisperModel}
+                      onChange={(e) => setSetupConfig(prev => ({ ...prev, whisperModel: e.target.value }))}
+                    >
+                      <option value="tiny">Tiny (~75MB) - Fastest, lower accuracy</option>
+                      <option value="base">Base (~150MB) - Good balance</option>
+                      <option value="small">Small (~500MB) - Better accuracy</option>
+                      <option value="medium">Medium (~1.5GB) - High accuracy</option>
+                      <option value="large">Large (~3GB) - Best accuracy</option>
+                    </select>
+                    <p className="config-hint">Larger models are more accurate but require more resources</p>
+                  </div>
+                )}
+                
+                <div className="setup-buttons">
+                  <button className="setup-back" onClick={handleSetupBack}>← Back</button>
+                  <button className="setup-next" onClick={handleSetupNext}>Continue →</button>
+                </div>
+              </div>
+            )}
+            
+            {setupStep === 2 && (
+              <div className="setup-step">
+                <h2>🧠 Consciousness Features</h2>
+                <p>Enable AGI-like consciousness features (optional, can enable later)</p>
+                
+                <div className="consciousness-toggle">
+                  <label className="toggle-label">
+                    <input 
+                      type="checkbox"
+                      checked={setupConfig.consciousnessEnabled}
+                      onChange={(e) => setSetupConfig(prev => ({ ...prev, consciousnessEnabled: e.target.checked }))}
+                    />
+                    <span className="toggle-text">Enable Consciousness System</span>
+                  </label>
+                </div>
+                
+                <div className="consciousness-features">
+                  <h4>When enabled, includes:</h4>
+                  <ul>
+                    <li>🎭 Emotional Context - Responses with emotional awareness</li>
+                    <li>📚 Experience Memory - Learning from interactions</li>
+                    <li>🔄 I-Loop Reflection - Self-improvement cycle</li>
+                    <li>🤝 Relationship Development - Personalized interactions</li>
+                    <li>⚖️ Ethical Framework - Value-aligned responses</li>
+                  </ul>
+                </div>
+                
+                <p className="feature-note">
+                  💡 You can always enable or disable this later in Settings
+                </p>
+                
+                <div className="setup-buttons">
+                  <button className="setup-back" onClick={handleSetupBack}>← Back</button>
+                  <button className="setup-next" onClick={handleSetupNext}>Continue →</button>
+                </div>
+              </div>
+            )}
+            
+            {setupStep === 3 && (
+              <div className="setup-step">
+                <h2>✅ Setup Complete!</h2>
+                <p>Your configuration summary:</p>
+                
+                <div className="setup-summary">
+                  <div className="summary-item">
+                    <span className="summary-label">Model:</span>
+                    <span className="summary-value">
+                      {setupConfig.modelType === 'api' ? 'API Model' : 
+                       `Local ${setupConfig.localModelType.toUpperCase()}`}
+                    </span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Voice Input:</span>
+                    <span className="summary-value">
+                      {setupConfig.voiceEnabled ? `Enabled (${setupConfig.whisperModel})` : 'Disabled'}
+                    </span>
+                  </div>
+                  <div className="summary-item">
+                    <span className="summary-label">Consciousness:</span>
+                    <span className="summary-value">
+                      {setupConfig.consciousnessEnabled ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                </div>
+                
+                <p className="summary-note">
+                  All settings can be changed anytime in the Settings tab.
+                </p>
+                
+                <div className="setup-buttons">
+                  <button className="setup-back" onClick={handleSetupBack}>← Back</button>
+                  <button className="setup-complete" onClick={completeSetup}>
+                    Start Using OZONE STUDIO →
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Main UI
   return (
     <div className="app">
-      {/* Header Bar */}
       <header className="header-bar">
         <div className="header-brand">
           <span className="brand-icon">◎</span>
           <span className="brand-name">OZONE STUDIO</span>
-          <span className="brand-version">v0.3</span>
+          <span className="brand-version">v0.4</span>
         </div>
         
         <div className="header-tagline">
@@ -204,29 +586,24 @@ function App() {
         
         <div className="header-features">
           <div className={`feature-badge ${consciousnessEnabled ? 'active' : 'inactive'}`}>
-            <span className="badge-icon">{consciousnessEnabled ? '🧠' : '○'}</span>
+            <span className="badge-icon">🧠</span>
             <span className="badge-label">Consciousness</span>
             <span className="badge-status">{consciousnessEnabled ? 'ON' : 'OFF'}</span>
           </div>
           
-          <div className={`feature-badge ${isConnected ? 'active' : 'inactive'}`}>
-            <span className="badge-icon">{isConnected ? '🌐' : '○'}</span>
+          <div className="feature-badge active">
+            <span className="badge-icon">🌐</span>
             <span className="badge-label">P2P Network</span>
-            <span className="badge-status">{isConnected ? 'ON' : 'OFF'}</span>
+            <span className="badge-status">ON</span>
           </div>
         </div>
       </header>
       
-      {/* Main Content Area */}
       <div className="app-content">
-        {/* Meta Portion - Always accessible */}
-        <MetaPortion width={metaPortionWidth} />
-        
-        {/* Theme Area - Pipeline-driven content */}
+        <MetaPortion width={30} />
         <ThemeArea theme={currentTheme} />
       </div>
       
-      {/* Status Bar - BOTTOM (Shows Collective Contributions) */}
       <StatusBar />
     </div>
   );

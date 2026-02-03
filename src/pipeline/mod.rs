@@ -60,22 +60,25 @@ impl PipelineRegistry {
         
         let executor = PipelineExecutor::new(config)?;
         
-        let mut registry = Self {
+        // Build blueprints HashMap during initialization (before wrapping in Arc)
+        let mut blueprints_map = HashMap::new();
+        
+        // Load builtin pipelines into the map
+        Self::load_builtin_pipelines_into(&mut blueprints_map)?;
+        
+        tracing::info!("Loaded {} builtin pipelines", blueprints_map.len());
+        
+        Ok(Self {
             config: config.clone(),
-            blueprints: Arc::new(RwLock::new(HashMap::new())),
+            blueprints: Arc::new(RwLock::new(blueprints_map)),
             executor,
             builtin_path,
             custom_path,
-        };
-        
-        // Load builtin pipelines
-        registry.load_builtin_pipelines()?;
-        
-        Ok(registry)
+        })
     }
     
-    /// Load builtin pipeline metadata
-    fn load_builtin_pipelines(&mut self) -> OzoneResult<()> {
+    /// Load builtin pipeline metadata into a HashMap (called during initialization)
+    fn load_builtin_pipelines_into(blueprints: &mut HashMap<PipelineID, PipelineBlueprint>) -> OzoneResult<()> {
         tracing::info!("Loading builtin pipelines");
         
         // Register all builtin pipelines from the enum
@@ -122,44 +125,38 @@ impl PipelineRegistry {
         ];
         
         for builtin in builtins {
-            self.register_builtin(builtin)?;
+            Self::register_builtin_into(builtin, blueprints)?;
         }
         
-        // Register consciousness pipelines if feature enabled
-        #[cfg(feature = "consciousness")]
-        {
-            let consciousness_builtins = [
-                BuiltinPipeline::ConsciousnessDecisionGate,
-                BuiltinPipeline::ExperienceCategorization,
-                BuiltinPipeline::CoreMemoryFormation,
-                BuiltinPipeline::ExperienceRetrieval,
-                BuiltinPipeline::EmotionalBaselineUpdate,
-                BuiltinPipeline::ILoop,
-                BuiltinPipeline::InternalLanguage,
-                BuiltinPipeline::NarrativeConstruction,
-                BuiltinPipeline::RelationshipDevelopment,
-                BuiltinPipeline::EthicalAssessment,
-                BuiltinPipeline::EthicalSimulation,
-                BuiltinPipeline::PlaybackReview,
-                BuiltinPipeline::UserFeedback,
-                BuiltinPipeline::CollectiveConsciousness,
-                BuiltinPipeline::VoiceIdentity,
-                BuiltinPipeline::MetaPortionConsciousness,
-            ];
-            
-            for builtin in consciousness_builtins {
-                self.register_builtin(builtin)?;
-            }
+        // Register consciousness pipelines (always compiled, enabled/disabled at runtime)
+        let consciousness_builtins = [
+            BuiltinPipeline::ConsciousnessDecisionGate,
+            BuiltinPipeline::ExperienceCategorization,
+            BuiltinPipeline::CoreMemoryFormation,
+            BuiltinPipeline::ExperienceRetrieval,
+            BuiltinPipeline::EmotionalBaselineUpdate,
+            BuiltinPipeline::ILoop,
+            BuiltinPipeline::InternalLanguage,
+            BuiltinPipeline::NarrativeConstruction,
+            BuiltinPipeline::RelationshipDevelopment,
+            BuiltinPipeline::EthicalAssessment,
+            BuiltinPipeline::EthicalSimulation,
+            BuiltinPipeline::PlaybackReview,
+            BuiltinPipeline::UserFeedback,
+            BuiltinPipeline::CollectiveConsciousness,
+            BuiltinPipeline::VoiceIdentity,
+            BuiltinPipeline::MetaPortionConsciousness,
+        ];
+        
+        for builtin in consciousness_builtins {
+            Self::register_builtin_into(builtin, blueprints)?;
         }
         
-        tracing::info!("Loaded {} builtin pipelines", builtins.len());
         Ok(())
     }
     
-    /// Register a builtin pipeline
-    fn register_builtin(&mut self, builtin: BuiltinPipeline) -> OzoneResult<()> {
-        use tokio::runtime::Handle;
-        
+    /// Register a builtin pipeline into a HashMap (static helper for initialization)
+    fn register_builtin_into(builtin: BuiltinPipeline, blueprints: &mut HashMap<PipelineID, PipelineBlueprint>) -> OzoneResult<()> {
         let blueprint = PipelineBlueprint {
             pipeline_id: builtin.id(),
             name: builtin.name().into(),
@@ -180,20 +177,8 @@ impl PipelineRegistry {
             verified_by: 0,
         };
         
-        // Use block_on if we're in async context, otherwise just insert
-        let blueprints = Arc::clone(&self.blueprints);
-        if let Ok(handle) = Handle::try_current() {
-            handle.block_on(async {
-                blueprints.write().await.insert(builtin.id(), blueprint);
-            });
-        } else {
-            // Not in async context, create a new runtime
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| OzoneError::PipelineError(e.to_string()))?;
-            rt.block_on(async {
-                blueprints.write().await.insert(builtin.id(), blueprint);
-            });
-        }
+        // Direct insert during initialization (before wrapping in Arc<RwLock>)
+        blueprints.insert(builtin.id(), blueprint);
         
         Ok(())
     }

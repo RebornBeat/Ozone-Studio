@@ -119,6 +119,26 @@ export function StatusBar() {
         <span className="status-icon">🎯</span>
         <span className="status-value">{formatNumber(systemStats.myContributions)}</span>
         <span className="status-label">My Contributions</span>
+        
+        {/* My contribution breakdown on hover */}
+        <div className="contribution-breakdown">
+          <div className="breakdown-title">Your Contributions</div>
+          <div className="breakdown-item">
+            <span className="breakdown-icon">📚</span>
+            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.4))}</span>
+            <span className="breakdown-label">Methodologies</span>
+          </div>
+          <div className="breakdown-item">
+            <span className="breakdown-icon">📋</span>
+            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.35))}</span>
+            <span className="breakdown-label">Blueprints</span>
+          </div>
+          <div className="breakdown-item">
+            <span className="breakdown-icon">💡</span>
+            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.25))}</span>
+            <span className="breakdown-label">Findings</span>
+          </div>
+        </div>
       </div>
 
       {/* Divider */}

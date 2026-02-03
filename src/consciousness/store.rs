@@ -487,7 +487,7 @@ pub struct GateDecisionRecord {
     pub ethical_score: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PerceptionWindow {
     pub active_inputs: Vec<PerceptionInput>,
     pub input_buffer_size: usize,
@@ -511,7 +511,7 @@ pub struct PerceptionInput {
     pub relevance_score: f32,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AttentionWindow {
     pub focus_items: Vec<AttentionFocus>,
     pub max_parallel_foci: u8,

@@ -31,9 +31,9 @@ pub struct MetaPortionState {
     pub home_button_enabled: bool, // Always true
     
     // Consciousness additions (if enabled)
-    #[cfg(feature = "consciousness")]
+    
     pub emotional_display: Option<EmotionalDisplayState>,
-    #[cfg(feature = "consciousness")]
+    
     pub relationship_display: Option<RelationshipDisplayState>,
 }
 
@@ -44,9 +44,9 @@ impl Default for MetaPortionState {
             voice_enabled: true,
             task_viewer_enabled: true,
             home_button_enabled: true,
-            #[cfg(feature = "consciousness")]
+            
             emotional_display: None,
-            #[cfg(feature = "consciousness")]
+            
             relationship_display: None,
         }
     }
@@ -82,7 +82,7 @@ pub struct ContributionData {
     pub blueprints_adopted: u32,
     pub pipelines_contributed: u32,
     pub pipelines_adopted: u32,
-    #[cfg(feature = "consciousness")]
+    
     pub experiences_shared: u32,
     pub contribution_score: f32,
     pub contribution_rank: Option<u32>,
@@ -338,7 +338,7 @@ pub struct ObservationContext {
 }
 
 /// Emotional display state (consciousness)
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmotionalDisplayState {
     pub current_emotion: String,
@@ -349,7 +349,7 @@ pub struct EmotionalDisplayState {
     pub detail_level: DisplayDetailLevel,
 }
 
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ValenceIndicator {
     Positive,
@@ -358,7 +358,7 @@ pub enum ValenceIndicator {
     Mixed,
 }
 
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EmotionalTrend {
     Rising,
@@ -367,7 +367,7 @@ pub enum EmotionalTrend {
     Volatile,
 }
 
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DisplayDetailLevel {
     Minimal,
@@ -376,7 +376,7 @@ pub enum DisplayDetailLevel {
 }
 
 /// Relationship display state (consciousness)
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RelationshipDisplayState {
     pub user_id: u64,

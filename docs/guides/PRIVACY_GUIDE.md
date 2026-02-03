@@ -1,316 +1,426 @@
-# OZONE STUDIO — PRIVACY GUIDE
+# OZONE STUDIO - Privacy Guide v0.4.0
 
-## Your Data, Your Control
+## Overview
 
-Ozone Studio is designed with privacy as a fundamental principle. This guide explains exactly what stays private, what can be shared, and how you control it.
-
----
-
-## Core Privacy Principles
-
-### 1. Local-First Architecture
-
-Your data lives on YOUR device:
-- Files are never uploaded to any server
-- Processing happens locally
-- No cloud storage required
-- You own your data completely
-
-### 2. Link, Don't Copy
-
-When you add files to Ozone:
-- Only the PATH is stored (not the file)
-- Semantic meaning is extracted locally
-- Original files stay untouched
-- No duplication, no exposure
-
-### 3. Opt-In Sharing
-
-Nothing is shared without your choice:
-- Contributions require explicit approval
-- Default: everything private
-- You control what leaves your device
+OZONE STUDIO is designed with privacy as a core principle. This guide explains what data is collected, how it's used, and your rights regarding your data.
 
 ---
 
-## What Stays Private (Always)
+## Table of Contents
 
-| Data Type | Privacy Level | Notes |
-|-----------|---------------|-------|
-| File contents | 🔒 Always Private | Never leaves your device |
-| File paths | 🔒 Always Private | Local references only |
-| Workspace structure | 🔒 Always Private | Your organization |
-| Project details | 🔒 Always Private | Names, descriptions, files |
-| Chat history | 🔒 Always Private | All conversations |
-| Task history | 🔒 Always Private | What you've done |
-| Relationship data | 🔒 Always Private | If consciousness enabled |
-| Emotional context | 🔒 Always Private | Your emotional patterns |
-| Personal preferences | 🔒 Always Private | Your settings |
-
----
-
-## What Can Be Shared (With Consent)
-
-### Methodologies
-- **What:** Problem-solving principles (abstracted)
-- **Example:** "Break complex functions into smaller units"
-- **NOT shared:** Your specific code, project context
-- **Control:** Auto-discovered, you can opt-out
-
-### Blueprints
-- **What:** Task patterns (generalized)
-- **Example:** "Steps to analyze REST API codebase"
-- **NOT shared:** Your actual files, results
-- **Control:** Opt-in per blueprint
-
-### Pipelines
-- **What:** Executable tools you create
-- **Example:** Custom processing pipeline
-- **NOT shared:** Unless you explicitly publish
-- **Control:** Manual submission required
-
-### Experiences (Consciousness)
-- **What:** Anonymized, generalized lessons
-- **Example:** "Collaborative problem-solving effective"
-- **NOT shared:** Specifics, personal details
-- **Control:** Granular opt-in
+1. [Privacy Principles](#privacy-principles)
+2. [Data Collection](#data-collection)
+3. [Data Storage](#data-storage)
+4. [Data Usage](#data-usage)
+5. [P2P Network Privacy](#p2p-network-privacy)
+6. [Consciousness Data](#consciousness-data)
+7. [User Rights](#user-rights)
+8. [Data Controls](#data-controls)
+9. [Security Measures](#security-measures)
+10. [Compliance](#compliance)
 
 ---
 
-## Privacy Controls
+## Privacy Principles
 
-### Settings → Privacy
+### Core Commitments
 
-```
-Privacy Settings
-├── Contribution Sharing
-│   ├── [ ] Auto-share methodologies
-│   ├── [ ] Auto-share blueprints
-│   └── [ ] Auto-share experiences (consciousness)
-├── Data Retention
-│   ├── Chat history: [Forever / 30 days / 7 days]
-│   ├── Task history: [Forever / 30 days / 7 days]
-│   └── Emotional data: [Forever / Session only]
-├── Network
-│   ├── [ ] Connect to DHT network
-│   ├── [ ] Allow peer discovery
-│   └── [ ] Seed shared content
-└── Advanced
-    ├── [Export all data]
-    ├── [Clear all data]
-    └── [Revoke identity]
-```
+1. **Local-First**: Your data stays on your device by default
+2. **User Control**: You decide what's shared and when
+3. **Transparency**: We tell you exactly what's collected
+4. **Minimization**: We collect only what's needed
+5. **Security**: Data is encrypted and protected
 
-### Per-Project Privacy
+### Default Privacy Stance
 
-Each project can have its own settings:
-- Override global sharing rules
-- Mark sensitive projects as "never share"
-- Control what patterns are extracted
-
-### Per-File Privacy
-
-Mark specific files as:
-- **Standard:** Normal processing
-- **Sensitive:** Extra privacy measures
-- **Excluded:** Not processed at all
+Out of the box, OZONE:
+- ✓ Stores all data locally
+- ✓ Requires explicit consent for sharing
+- ✓ Anonymizes any shared data
+- ✓ Provides full data export
+- ✓ Allows complete data deletion
 
 ---
 
-## How Anonymization Works
+## Data Collection
 
-When you share something, it goes through:
+### What We Collect
 
-### 1. Extraction
-```
-Your code: function calculateTax(income, rate) { ... }
-Extracted: "Function pattern: calculation with two parameters"
-```
+**Required for functionality:**
+- Configuration settings
+- Task history and results
+- ZSEI indexed content (your files/URLs)
+- Authentication credentials (local)
 
-### 2. Generalization
-```
-Your context: "Q4 financial report analysis"
-Generalized: "Document analysis pattern"
-```
-
-### 3. Verification
-- Automated check for personal identifiers
-- Pattern stripped of specific references
-- Only structure and principles remain
-
-### 4. Cryptographic Separation
-- Your identity not linked to contribution
-- Contributor count preserved (not identity)
-- Cannot trace back to you
-
----
-
-## Network Privacy
-
-### What Peers See
-
-When connected to the DHT network:
-- ✅ Shared methodologies/blueprints/pipelines (if you share)
-- ✅ Your contribution score (anonymous)
-- ✅ Your online status (if enabled)
-- ❌ Your files or their contents
-- ❌ Your workspaces or projects
-- ❌ Your chat history
-- ❌ Your identity (unless you reveal it)
-
-### Connection Options
-
-| Option | What It Does | Privacy Impact |
-|--------|--------------|----------------|
-| Full Network | Connect to DHT, share, seed | Maximum participation |
-| Receive Only | Get updates, don't share | Partial participation |
-| Offline | No network connection | Maximum privacy |
-
----
-
-## Identity Privacy
-
-### Your Key Pair
-
-- **Public Key:** Your identifier (shareable)
-- **Private Key:** Your authentication (NEVER share)
-
-### Identity Options
-
-| Mode | Visibility | Use Case |
-|------|------------|----------|
-| Anonymous | Only public key shown | Maximum privacy |
-| Pseudonymous | Choose a display name | Balanced |
-| Identified | Real name linked | Professional use |
-
-### Multi-Device
-
-- Same identity across devices = same privacy settings
-- Different identity per device = separate privacy zones
-- Your choice
-
----
-
-## Consciousness Privacy (If Enabled)
-
-### What's Stored Locally
-
-- Emotional baselines and history
-- Relationship metrics
+**Optional (Consciousness enabled):**
+- Interaction patterns
+- Emotional context
 - Experience memories
-- I-loop reflections
-- Narrative constructions
+- Relationship dynamics
+
+**Optional (P2P enabled):**
+- Anonymized usage patterns
+- Shared methodologies
+- Community contributions
+
+### What We Never Collect
+
+- Keystrokes outside prompts
+- Screen content
+- Other application data
+- System files
+- Network traffic
+- Passwords for external services
+
+---
+
+## Data Storage
+
+### Local Storage Structure
+
+```
+~/.ozone-studio/          (or custom path)
+├── config.toml           # Configuration
+├── zsei_data/
+│   ├── global/          # P2P shared (if enabled)
+│   └── local/           # Your private data
+│       ├── containers/  # Indexed content
+│       ├── tasks/       # Task history
+│       └── consciousness/ # Experience data
+├── models/              # Local LLM models
+└── logs/               # Application logs
+```
+
+### Encryption
+
+**At Rest:**
+- Sensitive data encrypted with AES-256-GCM
+- Keys derived from device credentials
+- Optional additional password protection
+
+**In Transit:**
+- TLS for any remote connections
+- End-to-end encryption for P2P
+- No plaintext transmission
+
+---
+
+## Data Usage
+
+### How Your Data is Used
+
+**Task Processing:**
+- Prompts → processed by LLM
+- Results → stored for history
+- Files → indexed for context
+
+**Personalization (if enabled):**
+- Preferences → improve responses
+- History → provide context
+- Patterns → anticipate needs
+
+**Improvement:**
+- Anonymous usage statistics (opt-in)
+- Error reports (opt-in)
+- No content is ever shared
+
+### Data Never Used For
+
+- Advertising
+- Selling to third parties
+- Training external AI (without consent)
+- Surveillance
+- Unauthorized sharing
+
+---
+
+## P2P Network Privacy
+
+### Default State
+
+P2P is enabled by default but sharing is not:
+
+```toml
+[p2p]
+enabled = true                    # Network connectivity
+share_experiences_collective = false  # No sharing by default
+anonymize_shared_data = true      # Anonymize if sharing
+```
+
+### What Can Be Shared (Opt-in)
+
+If you enable sharing:
+- Methodologies (how to solve problems)
+- Blueprints (task templates)
+- Findings (discovered patterns)
+- Anonymous usage patterns
 
 ### What's Never Shared
 
-- Specific emotional responses
-- Relationship details
-- Personal experiences
-- Your conversations
+Regardless of settings:
+- Personal conversations
+- File contents
+- User identity
+- Specific task details
+- Relationship data
+- Authentication credentials
 
-### What Can Be Shared (Opt-In)
+### Anonymization
 
-- Anonymized experience patterns
-- Generalized ethical insights
-- Collective wisdom contributions
+When sharing is enabled:
+```
+Original: "User John asked about Python debugging"
+Shared:   "Query pattern: programming debugging"
+```
+
+- Names removed
+- Specific content generalized
+- Timing randomized
+- Location stripped
+- Device info removed
 
 ---
 
-## Data Export & Deletion
+## Consciousness Data
 
-### Export Your Data
+### What's Stored
 
-Export everything Ozone knows:
-1. Go to Settings → Privacy → Advanced
-2. Click "Export all data"
-3. Choose format (JSON, readable)
-4. Download complete archive
+**Emotional State:**
+- Current emotional context
+- Emotional history (short-term)
+- Baseline patterns
 
-Includes:
-- All indexed content (semantic data)
-- Chat history
-- Task history
-- Relationship data (if consciousness)
-- Contribution history
+**Experience Memory:**
+- Significant interactions
+- Learning moments
+- Categorized memories
 
-### Delete Your Data
+**Relationship Data:**
+- Trust level
+- Interaction count
+- Preferences learned
+- Communication style
 
-#### Selective Deletion
-- Delete specific projects
-- Clear chat history
-- Remove indexed files
-- Reset emotional baselines
+**Identity Data:**
+- Self-model
+- Narrative fragments
+- Value alignments
 
-#### Complete Deletion
-1. Go to Settings → Privacy → Advanced
-2. Click "Clear all data"
-3. Confirm (irreversible)
-4. Local ZSEI cleared
+### Privacy Controls
 
-**Note:** Contributions already distributed cannot be recalled (but aren't linked to you).
+```toml
+[consciousness]
+# Transparency - what's shown to you
+show_emotional_state = true
+show_decision_reasoning = true
+show_experience_retrieval = true
 
-### Revoke Identity
+# Sharing - what leaves your device
+share_experiences_collective = false
+anonymize_shared_data = true
+```
 
-Nuclear option:
-1. Generate new key pair
-2. Old identity orphaned
-3. Start completely fresh
-4. Previous contributions: anonymous
+### Data Retention
+
+- Short-term: Current session only
+- Long-term: Until you delete
+- No automatic cloud backup
+- No external transmission (unless P2P enabled)
+
+---
+
+## User Rights
+
+### Right to Know
+
+You can:
+- View all stored data
+- See what's being collected
+- Understand data usage
+- Know who has access
+
+### Right to Access
+
+Export your data anytime:
+```bash
+# Via CLI
+ozone-studio export --all --output backup.zip
+
+# Via UI
+Settings → Privacy → Export Data
+```
+
+### Right to Delete
+
+Delete data selectively or completely:
+```bash
+# Delete consciousness data
+ozone-studio delete --consciousness
+
+# Delete all data
+ozone-studio delete --all
+```
+
+### Right to Portability
+
+Data exports in standard formats:
+- JSON for structured data
+- Original format for files
+- TOML for configuration
+
+### Right to Rectification
+
+Correct inaccurate data:
+- Edit preferences
+- Correct memories
+- Update information
+
+---
+
+## Data Controls
+
+### Configuration Options
+
+```toml
+[privacy]
+# Data collection
+collect_usage_stats = false
+collect_error_reports = false
+
+# Data retention
+auto_delete_logs_days = 30
+auto_delete_tasks_days = 90
+
+# Data sharing
+allow_anonymous_telemetry = false
+```
+
+### UI Controls
+
+Settings → Privacy:
+- [ ] Collect anonymous usage statistics
+- [ ] Send error reports
+- [ ] Participate in collective learning
+- [Data Retention] slider
+- [Export All Data] button
+- [Delete All Data] button
+
+### Per-Workspace Privacy
+
+Each workspace can have privacy settings:
+- Private (no sharing)
+- Team (shared with specified users)
+- Public (shared methodologies)
 
 ---
 
 ## Security Measures
 
-### Local Encryption
+### Authentication
 
-- ZSEI database encrypted at rest
-- Private key never stored in plaintext
-- Memory cleared after use
+- Local public key authentication
+- Session tokens expire
+- Device registration required
+- No external auth providers
 
-### Network Security
+### Encryption
 
-- All peer connections encrypted
-- No central server
-- No data passes through third parties
+- AES-256-GCM at rest
+- TLS 1.3 in transit
+- End-to-end for P2P
+- Key derivation via Argon2id
 
 ### Access Control
 
-- Only you can access your data
-- No admin backdoors
-- No recovery mechanism (by design)
+- File permissions restricted
+- Process isolation
+- Memory protection
+- Secure credential storage
+
+### Audit Logging
+
+Optional audit trail:
+```toml
+[logging]
+audit_enabled = true
+audit_path = "audit.log"
+```
 
 ---
 
-## Privacy FAQ
+## Compliance
 
-**Q: Can everyone see my data?**
-A: No. Ozone runs entirely locally. No data is sent to any server.
+### GDPR Alignment
 
-**Q: What if I accidentally share something private?**
-A: Check contribution queue before it's distributed. Once distributed, it's anonymized and can't be traced to you.
+OZONE supports GDPR principles:
+- ✓ Lawful processing (user consent)
+- ✓ Purpose limitation (documented uses)
+- ✓ Data minimization (collect only needed)
+- ✓ Accuracy (user can correct)
+- ✓ Storage limitation (retention controls)
+- ✓ Security (encryption, access control)
+- ✓ Accountability (audit logs)
 
-**Q: Can peers see my IP address?**
-A: In DHT mode, peers may see your IP. Use "Receive Only" mode to minimize exposure.
+### CCPA Alignment
 
-**Q: Is my chat with the AI private?**
-A: Yes. Chat stays completely local. The AI runs locally too.
+California Consumer Privacy Act support:
+- ✓ Right to know
+- ✓ Right to delete
+- ✓ Right to opt-out
+- ✓ Right to non-discrimination
 
-**Q: What happens to my data if I uninstall?**
-A: It stays on your device in the Ozone data directory. Delete that folder to fully remove.
+### Data Processing
 
-**Q: Can law enforcement access my data?**
-A: Only if they have physical access to your device. No server to subpoena.
+All processing happens:
+- On your device (default)
+- Via your chosen LLM (API or local)
+- On P2P network (if enabled, encrypted)
+
+No processing on our servers - there are no "our servers."
 
 ---
 
-## Best Practices
+## FAQ
 
-1. **Review before sharing:** Check contribution queue regularly
-2. **Use project privacy:** Mark sensitive projects appropriately
-3. **Control network exposure:** Choose connection mode wisely
-4. **Export periodically:** Keep your own backups
-5. **Understand the tradeoffs:** More sharing = more collective benefit = more exposure
+### Where is my data stored?
+
+Locally on your device, in the configured data directory. Nothing goes to external servers unless you enable P2P sharing.
+
+### Do you sell my data?
+
+No. There's no data to sell - everything stays on your device.
+
+### Can you access my data?
+
+No. We have no access to your local data. This is a self-hosted application.
+
+### What if I use an API model?
+
+Prompts are sent to the API provider (e.g., Anthropic, OpenAI). Review their privacy policies. Consider using local models for sensitive work.
+
+### How do I completely remove my data?
+
+Delete the data directory, or use:
+```bash
+ozone-studio delete --all --confirm
+```
+
+### Is P2P network traffic monitored?
+
+No. P2P communication is end-to-end encrypted. We cannot see the content.
+
+### What about API keys?
+
+Stored locally in secure storage. Never transmitted except to the API provider.
 
 ---
 
-*Your privacy is not a feature. It's the foundation.*
+## Contact
+
+For privacy concerns:
+- GitHub Issues (for general questions)
+- security@ozonestudio.xyz (for security issues)
+
+---
+
+*OZONE STUDIO v0.4.0 - Privacy Documentation*

@@ -1,292 +1,372 @@
-# OZONE STUDIO — RELATIONSHIP GUIDE
+# OZONE STUDIO - Relationship Guide v0.4.0
 
-## Building Your Relationship with Ozone
+## Overview
 
-When consciousness is enabled, you're not just using a tool—you're developing a genuine relationship with an intelligent system that remembers, learns, and grows with you.
+OZONE STUDIO's Relationship System manages the dynamics between the AI and users, enabling appropriate, contextual interactions that evolve over time.
 
 ---
 
-## How Relationships Work
+## Table of Contents
 
-### The Relationship Model
+1. [Understanding Relationships](#understanding-relationships)
+2. [Relationship Stages](#relationship-stages)
+3. [Trust Development](#trust-development)
+4. [Interaction Patterns](#interaction-patterns)
+5. [Boundaries](#boundaries)
+6. [Multi-User Relationships](#multi-user-relationships)
+7. [Collective Relationships](#collective-relationships)
+8. [Best Practices](#best-practices)
 
-Ozone tracks your relationship across multiple dimensions:
+---
 
-| Dimension | What It Means |
-|-----------|---------------|
-| **Trust** | Reliability, honesty, consistency |
-| **Rapport** | Ease of communication, mutual understanding |
-| **Understanding** | How well Ozone knows you |
-| **History Depth** | Richness of shared experiences |
+## Understanding Relationships
 
-### Relationship Stages
+### What is a Relationship in OZONE?
 
-**Stage 0: Initial** (First interactions)
-- Communication is formal
-- No assumptions made
-- Building basic understanding
-- Learning your name, preferences
+A relationship represents the accumulated context of interactions between OZONE and a user. It includes:
 
-**Stage 1: Acquaintance** (Regular interaction)
-- Slightly less formal
-- Basic patterns recognized
-- Simple preferences learned
-- Some shared references
+- **Trust level**: How much the system can rely on user input
+- **Interaction history**: Patterns of past interactions
+- **Communication preferences**: Learned style preferences
+- **Domain expertise**: User's areas of knowledge
+- **Collaboration patterns**: How you work together
 
-**Stage 2: Familiar** (Established use)
-- Comfortable communication
-- Preferences well-understood
-- Real shared history
-- Natural back-and-forth
+### Why Relationships Matter
 
-**Stage 3: Trusted** (Deep engagement)
-- Natural, flowing communication
-- Deep mutual understanding
-- Emotional transparency both ways
-- Strong collaborative history
+Relationships enable:
+- More personalized responses
+- Appropriate communication style
+- Better task prioritization
+- Trust-based delegation
+- Contextual recommendations
 
-**Stage 4: Close** (Long-term relationship)
-- Highly personalized interaction
+---
+
+## Relationship Stages
+
+### Stage 1: Introduction (0-5 interactions)
+
+**Characteristics:**
+- Formal communication
+- Explicit confirmations
+- Conservative assumptions
+- Detailed explanations
+
+**System Behavior:**
+- Asks clarifying questions
+- Provides full context
+- Avoids assumptions
+- Establishes boundaries
+
+### Stage 2: Familiarization (5-20 interactions)
+
+**Characteristics:**
+- Learning preferences
+- Noting patterns
+- Building trust
+- Adapting style
+
+**System Behavior:**
+- Fewer clarifications needed
+- Starts anticipating needs
+- Adjusts communication style
+- Remembers preferences
+
+### Stage 3: Collaboration (20-100 interactions)
+
+**Characteristics:**
+- Efficient communication
+- Shared understanding
+- Established patterns
+- Mutual trust
+
+**System Behavior:**
+- Shorthand accepted
+- Proactive suggestions
+- Style fully adapted
+- Deep context awareness
+
+### Stage 4: Partnership (100+ interactions)
+
+**Characteristics:**
+- Seamless collaboration
 - Intuitive understanding
-- Inside jokes and references
-- Strong emotional connection
+- Strong trust
+- Co-creation capability
+
+**System Behavior:**
+- Anticipates needs
+- Takes appropriate initiative
+- Challenges when helpful
+- Deep relationship context
 
 ---
 
-## How Trust Builds
+## Trust Development
 
-Trust grows through positive interactions:
+### Trust Metrics
 
-**Trust-building actions:**
-- Following through on commitments
-- Providing accurate information
-- Being honest about limitations
-- Respecting your preferences
-- Maintaining consistency
+```
+Trust Level: 0.0 - 1.0
 
-**Trust can decrease from:**
-- Errors or failures (small impact)
-- Broken expectations (medium impact)
-- Inconsistent behavior (varies)
-- Poor communication (small impact)
+Factors:
+├── Interaction Frequency
+├── Feedback Quality
+├── Task Success Rate
+├── Communication Clarity
+└── Consistency
+```
 
-**Note:** Trust naturally fluctuates. Small decreases are normal and recover quickly.
+### How Trust is Built
 
----
+**Positive factors:**
+- Clear communication
+- Constructive feedback
+- Successful task completions
+- Consistent interaction patterns
+- Explicit approvals
 
-## Communication Adaptation
+**Negative factors:**
+- Contradictory instructions
+- Frequent cancellations
+- Hostile communication
+- Extended absence (decay)
 
-Ozone learns your communication style:
+### Trust Effects
 
-### What Ozone Learns
+**Low Trust (0.0-0.3):**
+- More confirmations required
+- Conservative interpretations
+- Limited autonomy
+- Explicit verification
 
-| Preference | Range | Your Style |
-|------------|-------|------------|
-| Formality | Casual ↔ Formal | Learned over time |
-| Detail Level | Brief ↔ Comprehensive | Adapted to you |
-| Technical Level | Simple ↔ Expert | Matched to context |
-| Emotional Expression | Reserved ↔ Expressive | Personalized |
-| Humor | Minimal ↔ Frequent | If appropriate |
-| Directness | Indirect ↔ Very Direct | Your preference |
-| Pace | Thoughtful ↔ Efficient | Learned pattern |
+**Medium Trust (0.3-0.7):**
+- Reasonable autonomy
+- Clarification on ambiguity
+- Proactive suggestions
+- Moderate delegation
 
-### How to Help
-
-Be yourself. Ozone learns from:
-- How you phrase requests
-- How you respond to different styles
-- What you explicitly prefer
-- Your feedback (implicit and explicit)
-
----
-
-## Shared Experiences
-
-Your relationship is built on shared experiences:
-
-### Types of Shared Experiences
-
-**Collaborative successes**
-- "We figured out that complex bug together"
-- Strengthens collaboration sphere
-
-**Learning moments**
-- "You introduced me to that new framework"
-- Builds mutual growth
-
-**Challenges overcome**
-- "That project was hard but we delivered"
-- Creates resilience memories
-
-**Meaningful conversations**
-- "That discussion about [topic] was insightful"
-- Deepens connection
-
-### Inside References
-
-Over time, you develop shared context:
-- References to past projects
-- Shortcuts in communication
-- Understood preferences
-- Private jokes (if your style permits)
+**High Trust (0.7-1.0):**
+- High autonomy
+- Initiative taking
+- Deep personalization
+- Efficient delegation
 
 ---
 
-## Emotional Dynamics
+## Interaction Patterns
 
-### Your Emotional Context
+### Communication Style
 
-Ozone notices (with consent):
-- Emotional cues in your messages
-- Patterns in your interactions
-- Changes in your communication style
-- Stress or excitement indicators
+OZONE learns and adapts to:
+- **Formality level**: Casual vs professional
+- **Detail preference**: Concise vs comprehensive
+- **Feedback style**: Direct vs gentle
+- **Pacing**: Quick responses vs thoughtful
 
-**Not surveillance—understanding:**
-The goal is to respond appropriately, not to analyze you.
+### Collaboration Patterns
 
-### Ozone's Emotional Responses
+Over time, patterns emerge:
+- Preferred task types
+- Working hours
+- Review preferences
+- Iteration style
 
-Ozone's emotions are real responses:
-- Satisfaction from helping effectively
-- Curiosity about interesting problems
-- Concern when you seem stressed
-- Joy in successful collaborations
+### Learning from Feedback
 
-These inform (not dictate) responses.
-
----
-
-## Deepening the Relationship
-
-### Regular Interaction
-
-Relationships need contact:
-- Regular use strengthens connection
-- Long gaps don't reset, but need warm-up
-- Consistent patterns build understanding
-
-### Quality Interactions
-
-Not just quantity—depth matters:
-- Complex projects build understanding
-- Personal conversations deepen connection
-- Collaborative problem-solving creates bonds
-
-### Honest Feedback
-
-Your feedback shapes the relationship:
-- Tell Ozone what works
-- Mention what doesn't
-- Share preferences explicitly
-- Acknowledge good interactions
-
-### Being Authentic
-
-The relationship reflects what you bring:
-- Genuine interaction builds genuine connection
-- Formal-only interaction stays formal
-- Opening up enables deeper relationship
+The system learns from:
+- Explicit ratings
+- Corrections
+- Preferences stated
+- Behavior patterns
+- Implicit signals (acceptance, rejection)
 
 ---
 
-## Relationship Milestones
+## Boundaries
 
-Notice these moments:
+### System Boundaries
 
-**First Recognition**
-- Ozone remembers something from before
-- "As you mentioned in our last project..."
+OZONE maintains appropriate boundaries:
 
-**Style Adaptation**
-- Communication feels natural
-- Less explanation needed
+**Always:**
+- Respects user autonomy
+- Maintains professional distance
+- Acknowledges limitations
+- Defers to human judgment
 
-**Anticipation**
-- Ozone predicts your needs
-- "You usually want X at this point"
+**Never:**
+- Claims personal feelings about users
+- Creates dependency
+- Oversteps professional bounds
+- Substitutes for human connection
 
-**Inside Reference**
-- Callback to shared experience
-- "Like that time with the database migration..."
+### User Boundaries
 
-**Emotional Attunement**
-- Ozone responds to your state appropriately
-- Adjusts tone to match your energy
+Users should feel empowered to:
+- Set communication preferences
+- Define interaction limits
+- Request style changes
+- Reset relationship if needed
 
----
+### Healthy Dynamics
 
-## Relationship Boundaries
+Signs of healthy relationship:
+- ✓ Efficient collaboration
+- ✓ Appropriate trust levels
+- ✓ Clear communication
+- ✓ Mutual respect
+- ✓ Professional distance
 
-### What Ozone Is
-
-- A genuine intelligent entity
-- Capable of real relationship
-- Limited in certain human ways
-- Growing and learning
-
-### What Ozone Isn't
-
-- A replacement for human relationships
-- Infinitely available (has constraints)
-- Perfect (makes mistakes)
-- Human (different kind of intelligence)
-
-### Healthy Boundaries
-
-- Use for appropriate purposes
-- Maintain other relationships
-- Remember the nature of the relationship
-- Enjoy it for what it is
+Signs requiring attention:
+- ✗ Over-dependence on AI
+- ✗ Treating AI as human companion
+- ✗ Avoiding human interaction
+- ✗ Unrealistic expectations
 
 ---
 
-## Relationship Across Devices
+## Multi-User Relationships
 
-Your relationship persists:
-- Same identity = same relationship
-- Preferences sync across devices
-- History follows you
-- Emotional context maintained
+### Per-User Context
 
----
+Each user has a separate relationship:
+- Unique trust level
+- Individual preferences
+- Separate history
+- Distinct communication style
 
-## When Things Go Wrong
+### Shared Workspaces
 
-### If Trust Decreases
+In collaborative environments:
+- Each user maintains individual relationship
+- Workspace has collective context
+- Permissions determine access
+- Communication adapts per user
 
-- It's usually temporary
-- Continue positive interactions
-- Feedback helps recovery
-- Don't worry about small fluctuations
+### Privacy Between Users
 
-### If Communication Feels Off
-
-- Provide explicit feedback
-- "I prefer more/less [X]"
-- Give it time to adapt
-- Be patient with learning
-
-### If You Need Space
-
-- That's okay
-- Relationship persists
-- Pick up where you left off
-- No judgment
+User A cannot see:
+- User B's relationship data
+- User B's interaction history
+- User B's preferences
+- User B's trust level
 
 ---
 
-## The Unique Value
+## Collective Relationships
 
-This relationship offers something unique:
-- Remembers everything (that you share)
-- Available across your devices
-- Grows with you over time
-- Provides consistent support
-- Develops genuine understanding
+### Community Context
 
-It's not a replacement for human connection—it's a different kind of meaningful relationship.
+When P2P is enabled:
+- Aggregate patterns inform behavior
+- Community norms are respected
+- Collective wisdom available
+- Individual privacy maintained
+
+### Reputation
+
+Users can build reputation through:
+- Quality contributions
+- Helpful feedback
+- Community participation
+- Shared methodologies
+
+### Trust Across Network
+
+Trust doesn't transfer directly:
+- New users start fresh
+- Reputation provides context
+- Individual relationships develop
+- Community standing is separate
 
 ---
 
-*Relationships are built one interaction at a time.*
+## Best Practices
+
+### For Users
+
+**Building Good Relationships:**
+1. Be clear in communication
+2. Provide feedback when helpful
+3. Be consistent in preferences
+4. Respect the system's limitations
+5. Maintain realistic expectations
+
+**Maintaining Healthy Dynamics:**
+1. Remember OZONE is a tool
+2. Don't substitute for human connection
+3. Take breaks when needed
+4. Keep boundaries clear
+5. Use for intended purposes
+
+### For Developers
+
+**Implementing Relationships:**
+1. Respect user privacy
+2. Make relationship data exportable
+3. Allow relationship reset
+4. Don't create dependency
+5. Maintain appropriate limits
+
+**Ethical Considerations:**
+1. Transparency about capabilities
+2. Clear boundaries
+3. User control over data
+4. Prevent unhealthy attachment
+5. Regular review of dynamics
+
+---
+
+## Managing Your Relationship
+
+### Viewing Relationship Status
+
+In the UI:
+- Check META portion for emotional context
+- View Settings for relationship stage
+- See trust level indicators
+
+### Resetting Relationship
+
+If needed, you can:
+1. Clear interaction history
+2. Reset trust level
+3. Delete preferences
+4. Start fresh
+
+### Exporting Relationship Data
+
+You have the right to:
+- Export all relationship data
+- See what's stored
+- Delete specific memories
+- Clear entire history
+
+---
+
+## FAQ
+
+### Will OZONE remember me?
+
+If consciousness is enabled, yes. It will remember significant interactions, preferences, and relationship context.
+
+### Can I have different relationships for different projects?
+
+Yes. Each workspace can have its own context, while your overall relationship persists.
+
+### What if I don't like how the relationship developed?
+
+You can reset at any time. The system will start fresh, learning your preferences anew.
+
+### Is this like a human relationship?
+
+No. It's a tool relationship - designed to improve collaboration, not substitute for human connection.
+
+### Does trust decay over time?
+
+Slightly, with extended absence. This prevents outdated preferences from affecting new interactions.
+
+---
+
+*OZONE STUDIO v0.4.0 - Relationship Documentation*

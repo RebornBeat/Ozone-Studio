@@ -1,323 +1,426 @@
-# OZONE STUDIO — CONTRIBUTION GUIDE
+# OZONE STUDIO - Contribution Guide v0.4.0
 
-## Contributing to the Collective
+## Welcome Contributors!
 
-Every Ozone user contributes to a shared knowledge ecosystem. Your usage helps build better methodologies, blueprints, and pipelines for everyone.
-
----
-
-## How Contribution Works
-
-### The Collective Knowledge System
-
-Ozone has two layers:
-1. **Local (Private):** Your data, workspaces, projects
-2. **Global (Shared):** Methodologies, blueprints, pipelines, categories
-
-Your usage generates knowledge that can benefit everyone—if it's good enough.
-
-### What Gets Shared
-
-| Type | What It Is | How It's Shared |
-|------|------------|-----------------|
-| Methodologies | Problem-solving principles | Auto-discovered, verified, distributed |
-| Blueprints | Task patterns | Validated, anonymized, shared |
-| Pipelines | Executable tools | Verified, distributed via DHT |
-| Categories | Knowledge organization | Consensus-based updates |
-
-### What Stays Private
-
-- Your files and file contents
-- Your workspaces and projects
-- Your personal data
-- Your conversation history
-- Your relationship data (if consciousness)
+Thank you for your interest in contributing to OZONE STUDIO. This document outlines the process for contributing to the project.
 
 ---
 
-## Contribution Types
+## Table of Contents
 
-### 1. Methodology Contributions
-
-**What are methodologies?**
-Principles and heuristics for approaching problems.
-
-**Examples:**
-- "Break complex code into smaller functions first"
-- "Verify edge cases before testing happy path"
-- "Consider security implications at design time"
-
-**How you contribute:**
-1. You solve a problem
-2. Ozone identifies effective approach patterns
-3. Zero-shot simulation validates the pattern
-4. If useful, it becomes a methodology
-5. Verified and distributed to network
-
-**Your credit:**
-- Methodologies track contributor count
-- Your contribution score increases
-- Others see adoption rate
-
-### 2. Blueprint Contributions
-
-**What are blueprints?**
-Step-by-step patterns for specific task types.
-
-**Examples:**
-- "How to analyze a REST API codebase"
-- "How to summarize technical documentation"
-- "How to debug a memory leak"
-
-**How you contribute:**
-1. You complete a task successfully
-2. The blueprint used gets validated
-3. If task type is novel, blueprint is new
-4. Zero-shot verification confirms quality
-5. Blueprint shared (without your specific data)
-
-**Your credit:**
-- Blueprint links to contributor
-- Usage tracking shows adoption
-- Success rate visible
-
-### 3. Pipeline Contributions
-
-**What are pipelines?**
-Executable code that performs specific functions.
-
-**How you contribute:**
-1. Create a custom pipeline
-2. Test and validate locally
-3. Submit for verification
-4. Network verifies (zero-shot consensus)
-5. Distributed via DHT
-
-**Your credit:**
-- You're listed as author
-- Download/usage statistics
-- Contribution to specific capabilities
-
-### 4. Category Contributions
-
-**What are categories?**
-The organization of knowledge (modalities, categories, subcategories).
-
-**How you contribute:**
-1. Work in a domain
-2. Ozone detects category gaps
-3. Proposes new categories/subcategories
-4. Network consensus validates
-5. Structure updated for everyone
+1. [Code of Conduct](#code-of-conduct)
+2. [Getting Started](#getting-started)
+3. [Development Setup](#development-setup)
+4. [Contribution Workflow](#contribution-workflow)
+5. [Code Standards](#code-standards)
+6. [Testing Requirements](#testing-requirements)
+7. [Documentation](#documentation)
+8. [Review Process](#review-process)
+9. [Community](#community)
 
 ---
 
-## The Verification Process
+## Code of Conduct
 
-### Zero-Shot Consensus
+### Our Pledge
 
-**This is NOT human voting.** It's software verification:
+We are committed to providing a welcoming and inclusive environment. All contributors are expected to:
 
-1. **Local Verification**
-   - Your Ozone instance validates the contribution
-   - Zero-shot simulation confirms utility
-   - Semantic analysis checks quality
+- Be respectful and considerate
+- Accept constructive criticism gracefully
+- Focus on what is best for the community
+- Show empathy towards other community members
 
-2. **Network Verification**
-   - Multiple instances verify independently
-   - Cryptographic verification of content
-   - Consensus emerges automatically
+### Unacceptable Behavior
 
-3. **Acceptance**
-   - If threshold met: distributed
-   - If rejected: feedback provided
-   - No human committee needed
-
-### Why This Matters
-
-- No social engineering attacks
-- Consistent quality standards
-- Fast verification (automated)
-- Merit-based acceptance
+- Harassment, discrimination, or offensive comments
+- Trolling or personal attacks
+- Publishing private information without consent
+- Any conduct inappropriate in a professional setting
 
 ---
 
-## Viewing Your Contributions
+## Getting Started
 
-### Contribution Display (Bottom Bar)
+### Prerequisites
 
-```
-📊 Your Contributions:
-   23 Methodologies (15 adopted by others)
-   8 Blueprints (used 1,247 times)
-   12 Pipelines (892 downloads)
-   156 Experiences Shared (if consciousness)
-   
-   Contribution Score: 847 (Rank #1,234)
+**Backend (Rust):**
+- Rust 1.70+ (stable)
+- Cargo package manager
+- OpenSSL development libraries
+
+**Frontend (TypeScript/React):**
+- Node.js 18+
+- npm 9+
+
+**Optional:**
+- Docker (for containerized development)
+- CUDA toolkit (for GPU-accelerated models)
+
+### Fork & Clone
+
+1. Fork the repository on GitHub
+2. Clone your fork:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/Ozone-Studio.git
+   cd Ozone-Studio
+   ```
+3. Add upstream remote:
+   ```bash
+   git remote add upstream https://github.com/RebornBeat/Ozone-Studio.git
+   ```
+
+---
+
+## Development Setup
+
+### Backend Setup
+
+```bash
+# Build the project
+cargo build
+
+# Run tests
+cargo test
+
+# Start development server
+cargo run
 ```
 
-### Contribution Details
+### Frontend Setup
 
-Access full details in Settings > Contributions:
-- List of all contributions
-- Status of each (pending, accepted, rejected)
-- Adoption statistics
-- Feedback received
-
----
-
-## Improving Your Contribution Score
-
-### What Counts
-
-| Action | Points | Multiplier |
-|--------|--------|------------|
-| Methodology created | 10 | × adoption rate |
-| Blueprint shared | 15 | × success rate |
-| Pipeline published | 25 | × download count |
-| Category suggested | 5 | if accepted |
-| Experience shared | 2 | if consciousness |
-
-### Quality Over Quantity
-
-Higher-quality contributions get:
-- Better adoption rates
-- Higher multipliers
-- More visibility
-- Greater impact
-
-### Tips for Impact
-
-1. **Solve real problems**
-   - Natural use generates best patterns
-   - Don't try to game the system
-
-2. **Work in diverse domains**
-   - Different areas = different contributions
-   - Cross-domain patterns are valuable
-
-3. **Use consciousness features**
-   - Experiences generate collective wisdom
-   - Ethical reasoning helps everyone
-
-4. **Provide feedback**
-   - Your feedback improves others' contributions
-   - Quality feedback is valued
-
----
-
-## The ZSEI Depth Display
-
-See collective growth:
-
-```
-📈 ZSEI Depth:
-   Modalities: 12
-   Categories: 847
-   SubCategories: 12,456
-   Methodologies: 45,678
-   Blueprints: 234,567
-   Pipelines: 12,345
-   
-   Growth: +234 methodologies this week
+```bash
+cd ui
+npm install
+npm run dev      # Development server
+npm run electron # Electron app
 ```
 
-**What this shows:**
-- Total collective knowledge
-- Growth rate
-- Your place in the ecosystem
+### Configuration
 
----
-
-## Distributed Infrastructure
-
-### How Distribution Works
-
-**DHT (Distributed Hash Table):**
-- Content addressed by hash
-- No central server
-- Peers share content
-- Redundant storage
-
-**Your Role:**
-- Your device stores some shared content
-- You help distribute to others
-- More uptime = more contribution
-
-### Connection Display
-
-```
-🌐 Connected (47 peers)
-   ↑ 12.3 KB/s upload
-   ↓ 45.6 KB/s download
-   Sync: 100% (v2847)
+Copy the default config:
+```bash
+cp config.example.toml config.toml
 ```
 
-### Seeding
-
-Like torrents, you can seed:
-- Stay online to help distribute
-- More seeding = better network
-- Optional but appreciated
+Edit `config.toml` for your development environment.
 
 ---
 
-## Privacy in Contribution
+## Contribution Workflow
 
-### What's Protected
+### 1. Find an Issue
 
-- File contents never shared
-- Personal data stays local
-- Relationship data private
-- Task specifics anonymized
+- Check existing issues for bugs or features
+- Look for `good first issue` labels for newcomers
+- Create a new issue if none exists for your contribution
 
-### What's Shared
+### 2. Create a Branch
 
-- Patterns and principles (abstracted)
-- Structure (not content)
-- Success/failure signals
-- Anonymous usage statistics
+```bash
+# Sync with upstream
+git fetch upstream
+git checkout main
+git merge upstream/main
 
-### Anonymization
+# Create feature branch
+git checkout -b feature/your-feature-name
+```
 
-Contributions are transformed:
-1. Specific data removed
-2. Pattern extracted
-3. Generalized for reuse
-4. Verified for privacy
+Branch naming conventions:
+- `feature/` - New features
+- `fix/` - Bug fixes
+- `docs/` - Documentation changes
+- `refactor/` - Code refactoring
+- `test/` - Test additions/changes
+
+### 3. Make Changes
+
+- Follow code standards (see below)
+- Write tests for new functionality
+- Update documentation as needed
+- Keep commits atomic and well-described
+
+### 4. Commit Messages
+
+Follow conventional commits format:
+
+```
+type(scope): description
+
+[optional body]
+
+[optional footer]
+```
+
+Types:
+- `feat`: New feature
+- `fix`: Bug fix
+- `docs`: Documentation
+- `style`: Formatting changes
+- `refactor`: Code restructuring
+- `test`: Adding tests
+- `chore`: Maintenance tasks
+
+Examples:
+```
+feat(pipeline): add image processing pipeline
+fix(ui): resolve connection status flickering
+docs(readme): update installation instructions
+```
+
+### 5. Push & Create PR
+
+```bash
+git push origin feature/your-feature-name
+```
+
+Then create a Pull Request on GitHub with:
+- Clear title describing the change
+- Description of what was changed and why
+- Reference to related issues
+- Screenshots for UI changes
 
 ---
 
-## Recognition
+## Code Standards
 
-### Contribution Badges
+### Rust Code
 
-Earn recognition for:
-- 🥉 Bronze: First contribution accepted
-- 🥈 Silver: 10+ contributions
-- 🥇 Gold: 50+ contributions
-- 💎 Diamond: Top 1% contributor
-- 🌟 Pioneer: First in new category
+**Formatting:**
+```bash
+cargo fmt
+```
 
-### Leaderboards
+**Linting:**
+```bash
+cargo clippy
+```
 
-Optional participation in:
-- Global contribution rankings
-- Domain-specific rankings
-- Monthly contribution awards
+**Style Guidelines:**
+- Use `snake_case` for functions and variables
+- Use `CamelCase` for types and traits
+- Use `SCREAMING_SNAKE_CASE` for constants
+- Maximum line length: 100 characters
+- Document public APIs with `///`
+
+**Example:**
+```rust
+/// Executes a pipeline with the given input.
+/// 
+/// # Arguments
+/// * `pipeline_id` - The unique identifier of the pipeline
+/// * `input` - The input data for the pipeline
+/// 
+/// # Returns
+/// The output of the pipeline execution or an error.
+pub async fn execute_pipeline(
+    &self,
+    pipeline_id: u64,
+    input: PipelineInput,
+) -> OzoneResult<PipelineOutput> {
+    // Implementation
+}
+```
+
+### TypeScript Code
+
+**Formatting:**
+```bash
+npm run format
+```
+
+**Linting:**
+```bash
+npm run lint
+```
+
+**Style Guidelines:**
+- Use functional components with hooks
+- Explicit typing for all props and state
+- Use `camelCase` for variables and functions
+- Use `PascalCase` for components and types
+- Maximum line length: 100 characters
+
+**Example:**
+```typescript
+interface TaskCardProps {
+  task: Task;
+  onCancel: (taskId: number) => void;
+}
+
+export function TaskCard({ task, onCancel }: TaskCardProps): JSX.Element {
+  const handleCancel = () => {
+    onCancel(task.id);
+  };
+
+  return (
+    <div className="task-card">
+      {/* Implementation */}
+    </div>
+  );
+}
+```
+
+### CSS Standards
+
+- Use CSS custom properties (variables)
+- Follow BEM-like naming: `.component-element--modifier`
+- Group related styles together
+- Comment complex animations or calculations
 
 ---
 
-## The Bigger Picture
+## Testing Requirements
 
-Your contributions help:
-- **New users** get better results faster
-- **Complex problems** become easier
-- **AI capabilities** improve for all
-- **Knowledge** becomes more accessible
+### Backend Tests
 
-You're not just using Ozone—you're building it.
+All new backend code must include tests:
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pipeline_execution() {
+        // Test implementation
+    }
+
+    #[tokio::test]
+    async fn test_async_operation() {
+        // Async test implementation
+    }
+}
+```
+
+### Frontend Tests
+
+UI components should have tests:
+
+```typescript
+import { render, screen } from '@testing-library/react';
+import { TaskCard } from './TaskCard';
+
+describe('TaskCard', () => {
+  it('renders task information', () => {
+    const task = { id: 1, status: 'running', progress: 0.5 };
+    render(<TaskCard task={task} onCancel={() => {}} />);
+    expect(screen.getByText('Task #1')).toBeInTheDocument();
+  });
+});
+```
+
+### Test Coverage
+
+Aim for:
+- Backend: 80% coverage minimum
+- Frontend: 70% coverage minimum
+- Critical paths: 100% coverage
 
 ---
 
-*Every interaction improves the collective.*
+## Documentation
+
+### Code Documentation
+
+- Document all public APIs
+- Include examples for complex functionality
+- Update relevant documentation files
+
+### User-Facing Changes
+
+For user-facing changes, update:
+- `docs/USER_GUIDE.md`
+- Relevant specification sections in `specs/`
+
+### Developer Changes
+
+For architectural changes, update:
+- `docs/DEVELOPER_GUIDE.md`
+- Architecture diagrams if affected
+
+---
+
+## Review Process
+
+### What Reviewers Look For
+
+1. **Correctness**: Does the code work as intended?
+2. **Tests**: Are there adequate tests?
+3. **Style**: Does it follow code standards?
+4. **Documentation**: Is it properly documented?
+5. **Security**: Are there any security concerns?
+6. **Performance**: Are there any performance issues?
+
+### Review Timeline
+
+- Initial review: Within 3 business days
+- Follow-up reviews: Within 1 business day
+- Merge after approval: Same day
+
+### Addressing Feedback
+
+- Respond to all review comments
+- Push fixes as new commits (not force-push)
+- Request re-review when ready
+
+---
+
+## Community
+
+### Communication Channels
+
+- **GitHub Issues**: Bug reports and feature requests
+- **GitHub Discussions**: General discussions
+- **Discord**: Real-time community chat
+
+### Getting Help
+
+- Check existing documentation
+- Search closed issues for similar problems
+- Ask in Discord for quick questions
+- Create an issue for complex problems
+
+### Recognition
+
+Contributors are recognized in:
+- CONTRIBUTORS.md file
+- Release notes
+- Annual contributor spotlight
+
+---
+
+## Types of Contributions
+
+### Code Contributions
+
+- Bug fixes
+- New features
+- Performance improvements
+- Test coverage
+
+### Non-Code Contributions
+
+- Documentation improvements
+- Bug reports with reproduction steps
+- Feature suggestions
+- Community support (answering questions)
+- Translations
+
+### Specification Contributions
+
+For changes to the formal specification:
+1. Discuss in an issue first
+2. Reference relevant sections
+3. Explain rationale thoroughly
+
+---
+
+## License
+
+By contributing to OZONE STUDIO, you agree that your contributions will be licensed under the MIT License.
+
+---
+
+*Thank you for contributing to OZONE STUDIO!*

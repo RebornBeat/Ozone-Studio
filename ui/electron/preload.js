@@ -144,6 +144,29 @@ contextBridge.exposeInMainWorld('ozone', {
   },
   
   // ========================================================================
+  // System
+  // ========================================================================
+  system: {
+    /**
+     * Get system stats
+     * @returns {Promise<object>}
+     */
+    getStats: () => ipcRenderer.invoke('system:getStats'),
+    
+    /**
+     * Check if this is first launch (needs setup wizard)
+     * @returns {Promise<boolean>}
+     */
+    isFirstLaunch: () => ipcRenderer.invoke('system:isFirstLaunch'),
+    
+    /**
+     * Mark setup as complete
+     * @returns {Promise<{success: boolean}>}
+     */
+    markSetupComplete: () => ipcRenderer.invoke('system:markSetupComplete'),
+  },
+  
+  // ========================================================================
   // UI Events
   // ========================================================================
   events: {
@@ -161,6 +184,30 @@ contextBridge.exposeInMainWorld('ozone', {
      */
     onConnectionChange: (callback) => {
       ipcRenderer.on('connection-change', (event, data) => callback(data));
+    },
+    
+    /**
+     * Subscribe to connection countdown (before auto-launch)
+     * @param {function} callback - {secondsUntilRetry, willAutoLaunch, hasAttemptedLaunch}
+     */
+    onConnectionCountdown: (callback) => {
+      ipcRenderer.on('connection-countdown', (event, data) => callback(data));
+    },
+    
+    /**
+     * Subscribe to backend launch status
+     * @param {function} callback - {success, message?, error?}
+     */
+    onBackendLaunchStatus: (callback) => {
+      ipcRenderer.on('backend-launch-status', (event, data) => callback(data));
+    },
+    
+    /**
+     * Subscribe to system stats updates
+     * @param {function} callback
+     */
+    onStatsUpdate: (callback) => {
+      ipcRenderer.on('stats-update', (event, data) => callback(data));
     },
   },
 });

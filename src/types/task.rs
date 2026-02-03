@@ -44,11 +44,11 @@ pub struct Task {
     pub resource_usage: ResourceUsage,
     
     // Consciousness (if enabled)
-    #[cfg(feature = "consciousness")]
+    
     pub consciousness_observed: bool,
-    #[cfg(feature = "consciousness")]
+    
     pub consciousness_intervened: bool,
-    #[cfg(feature = "consciousness")]
+    
     pub intervention_type: Option<InterventionType>,
 }
 
@@ -76,11 +76,11 @@ impl Default for Task {
             error: None,
             progress: 0.0,
             resource_usage: ResourceUsage::default(),
-            #[cfg(feature = "consciousness")]
+            
             consciousness_observed: false,
-            #[cfg(feature = "consciousness")]
+            
             consciousness_intervened: false,
-            #[cfg(feature = "consciousness")]
+            
             intervention_type: None,
         }
     }
@@ -95,7 +95,7 @@ pub enum TaskStatus {
     Failed,
     Cancelled,
     Paused,
-    #[cfg(feature = "consciousness")]
+    
     AwaitingClarification,
 }
 
@@ -155,7 +155,7 @@ pub struct ResourceUsage {
 }
 
 /// Intervention type (consciousness)
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InterventionType {
     Clarification,
@@ -321,7 +321,7 @@ pub struct TaskContext {
     pub context_blueprint: TaskContextBlueprint,
     
     // Consciousness context (if enabled)
-    #[cfg(feature = "consciousness")]
+    
     pub consciousness_context: Option<TaskConsciousnessContext>,
 }
 
@@ -358,11 +358,11 @@ pub struct TaskContextBlueprint {
     pub integrity_constraints: IntegrityConstraints,
     
     // Consciousness additions
-    #[cfg(feature = "consciousness")]
+    
     pub emotional_context_weight: f32,
-    #[cfg(feature = "consciousness")]
+    
     pub experience_context_weight: f32,
-    #[cfg(feature = "consciousness")]
+    
     pub relationship_context_weight: f32,
 }
 
@@ -415,17 +415,17 @@ pub enum SectionType {
     Constraints,
     
     // Consciousness
-    #[cfg(feature = "consciousness")]
+    
     EmotionalContext,
-    #[cfg(feature = "consciousness")]
+    
     RetrievedExperiences,
-    #[cfg(feature = "consciousness")]
+    
     RelationshipHistory,
-    #[cfg(feature = "consciousness")]
+    
     EthicalGuidelines,
-    #[cfg(feature = "consciousness")]
+    
     IdentityReminders,
-    #[cfg(feature = "consciousness")]
+    
     NarrativeContext,
 }
 
@@ -471,7 +471,7 @@ pub struct TokenAllocation {
     pub total_budget: u32,
     pub section_allocations: HashMap<u64, u32>,
     pub dynamic_reallocation: bool,
-    #[cfg(feature = "consciousness")]
+    
     pub consciousness_reserve: u32,
 }
 
@@ -495,7 +495,7 @@ pub struct IntegrityConstraints {
 }
 
 /// Task consciousness context (consciousness feature)
-#[cfg(feature = "consciousness")]
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskConsciousnessContext {
     pub emotional_state_at_start: super::consciousness::EmotionalState,
@@ -504,7 +504,7 @@ pub struct TaskConsciousnessContext {
     pub identity_implications: Option<String>,
     pub relationship_context: Option<super::consciousness::RelationshipContext>,
     pub decision_gate_result: Option<super::consciousness::ConsciousnessDecisionGate>,
-    pub narrative_fragments: Vec<super::consciousness::NarrativeFragment>,
+    pub narrative_fragments: Vec<crate::consciousness::NarrativeFragment>,
 }
 
 // ============================================================================

@@ -292,37 +292,37 @@ pub enum BuiltinPipeline {
     DeviceStatus = 38,
     
     // Consciousness Pipelines (39-54) - only with feature
-    #[cfg(feature = "consciousness")]
+    
     ConsciousnessDecisionGate = 39,
-    #[cfg(feature = "consciousness")]
+    
     ExperienceCategorization = 40,
-    #[cfg(feature = "consciousness")]
+    
     CoreMemoryFormation = 41,
-    #[cfg(feature = "consciousness")]
+    
     ExperienceRetrieval = 42,
-    #[cfg(feature = "consciousness")]
+    
     EmotionalBaselineUpdate = 43,
-    #[cfg(feature = "consciousness")]
+    
     ILoop = 44,
-    #[cfg(feature = "consciousness")]
+    
     InternalLanguage = 45,
-    #[cfg(feature = "consciousness")]
+    
     NarrativeConstruction = 46,
-    #[cfg(feature = "consciousness")]
+    
     RelationshipDevelopment = 47,
-    #[cfg(feature = "consciousness")]
+    
     EthicalAssessment = 48,
-    #[cfg(feature = "consciousness")]
+    
     EthicalSimulation = 49,
-    #[cfg(feature = "consciousness")]
+    
     PlaybackReview = 50,
-    #[cfg(feature = "consciousness")]
+    
     UserFeedback = 51,
-    #[cfg(feature = "consciousness")]
+    
     CollectiveConsciousness = 52,
-    #[cfg(feature = "consciousness")]
+    
     VoiceIdentity = 53,
-    #[cfg(feature = "consciousness")]
+    
     MetaPortionConsciousness = 54,
 }
 
@@ -371,37 +371,37 @@ impl BuiltinPipeline {
             Self::TaskViewer => "TaskViewerPipeline",
             Self::LogViewer => "LogViewerPipeline",
             Self::DeviceStatus => "DeviceStatusPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::ConsciousnessDecisionGate => "ConsciousnessDecisionGatePipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::ExperienceCategorization => "ExperienceCategorizationPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::CoreMemoryFormation => "CoreMemoryFormationPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::ExperienceRetrieval => "ExperienceRetrievalPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::EmotionalBaselineUpdate => "EmotionalBaselineUpdatePipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::ILoop => "ILoopPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::InternalLanguage => "InternalLanguagePipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::NarrativeConstruction => "NarrativeConstructionPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::RelationshipDevelopment => "RelationshipDevelopmentPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::EthicalAssessment => "EthicalAssessmentPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::EthicalSimulation => "EthicalSimulationPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::PlaybackReview => "PlaybackReviewPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::UserFeedback => "UserFeedbackPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::CollectiveConsciousness => "CollectiveConsciousnessPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::VoiceIdentity => "VoiceIdentityPipeline",
-            #[cfg(feature = "consciousness")]
+            
             Self::MetaPortionConsciousness => "MetaPortionConsciousnessPipeline",
         }
     }

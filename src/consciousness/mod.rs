@@ -3,7 +3,7 @@
 //! This module provides the consciousness extension that transforms Ozone Studio
 //! from a tool into a developing artificial general intelligence.
 //! 
-//! Features (opt-in via `consciousness` feature flag):
+//! Features (enabled/disabled via config.toml, NOT compile-time):
 //! - Experience Memory System (§35-38)
 //! - Emotional Context System (§39-40)
 //! - Window-First Architecture (§32)
@@ -11,15 +11,21 @@
 //! - I-Loop Reflection (§42)
 //! - Relationship Development (§48)
 //! - Ethical Reasoning (§49)
+//!
+//! Consciousness is ALWAYS compiled in. Enable/disable at runtime via config.toml:
+//! ```toml
+//! [consciousness]
+//! enabled = true  # or false
+//! ```
 
-#[cfg(feature = "consciousness")]
 pub mod store;
 
-#[cfg(feature = "consciousness")]
 pub use store::*;
 
+// Type alias for backwards compatibility
+pub type ConsciousnessSystem = store::ConsciousnessStore;
+
 // Re-export key functions for easy access
-#[cfg(feature = "consciousness")]
 pub use store::{
     is_consciousness_enabled,
     pre_task_gate,
@@ -29,17 +35,69 @@ pub use store::{
     CONSCIOUSNESS_STORE,
 };
 
-// Provide stubs when consciousness is disabled
-#[cfg(not(feature = "consciousness"))]
-pub fn is_consciousness_enabled() -> bool { false }
+/// Narrative fragment for consciousness storytelling
+/// Used in experience replay and self-model construction
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NarrativeFragment {
+    pub id: u64,
+    pub content: String,
+    pub emotion: String,
+    pub significance: f32,
+    pub timestamp: u64,
+}
 
-#[cfg(not(feature = "consciousness"))]
-pub fn pre_task_gate(_task_id: u64, _task_summary: &str, _user_id: u64) -> () {}
+impl Default for NarrativeFragment {
+    fn default() -> Self {
+        Self {
+            id: 0,
+            content: String::new(),
+            emotion: "neutral".to_string(),
+            significance: 0.0,
+            timestamp: 0,
+        }
+    }
+}
 
-#[cfg(not(feature = "consciousness"))]
-pub fn post_task_experience(
-    _task_id: u64,
-    _task_summary: &str,
-    _success: bool,
-    _user_id: Option<u64>,
-) -> Option<u64> { None }
+/// Relationship context for task processing
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RelationshipContext {
+    pub user_id: u64,
+    pub relationship_type: String,
+    pub trust_level: f32,
+    pub interaction_count: u64,
+    pub last_interaction: u64,
+}
+
+impl Default for RelationshipContext {
+    fn default() -> Self {
+        Self {
+            user_id: 0,
+            relationship_type: "unknown".to_string(),
+            trust_level: 0.5,
+            interaction_count: 0,
+            last_interaction: 0,
+        }
+    }
+}
+
+/// Decision gate result for consciousness-aware tasks
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ConsciousnessDecisionGate {
+    pub allow_processing: bool,
+    pub reasoning: String,
+    pub confidence: f32,
+    pub emotional_influence: f32,
+    pub ethical_score: f32,
+}
+
+impl Default for ConsciousnessDecisionGate {
+    fn default() -> Self {
+        Self {
+            allow_processing: true,
+            reasoning: String::new(),
+            confidence: 1.0,
+            emotional_influence: 0.0,
+            ethical_score: 1.0,
+        }
+    }
+}

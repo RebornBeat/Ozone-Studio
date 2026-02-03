@@ -100,11 +100,11 @@ impl TaskManager {
             error: None,
             progress: 0.0,
             resource_usage: ResourceUsage::default(),
-            #[cfg(feature = "consciousness")]
+            
             consciousness_observed: false,
-            #[cfg(feature = "consciousness")]
+            
             consciousness_intervened: false,
-            #[cfg(feature = "consciousness")]
+            
             intervention_type: None,
         };
         

@@ -10,6 +10,7 @@
 //! - Pipeline system for composable, executable units
 //! - Task management for tracking all computation
 //! - Network layer for P2P sync of methodologies, blueprints, findings
+//! - Consciousness system for AGI capabilities (enabled via config)
 //! - UI layer (Electron) for user interaction
 //!
 //! # Core Principles
@@ -33,8 +34,6 @@ pub mod config;
 pub mod integrity;
 pub mod grpc;
 pub mod network;
-
-#[cfg(feature = "consciousness")]
 pub mod consciousness;
 
 // Re-exports
@@ -70,8 +69,7 @@ pub struct OzoneRuntime {
     /// Current session
     pub session: Arc<RwLock<Option<types::auth::Session>>>,
     
-    /// Consciousness system (if enabled)
-    #[cfg(feature = "consciousness")]
+    /// Consciousness system (enabled/disabled via config.toml)
     pub consciousness: Option<Arc<RwLock<consciousness::ConsciousnessSystem>>>,
 }
 
@@ -102,13 +100,14 @@ impl OzoneRuntime {
         );
         network.initialize().await?;
         
-        // Initialize consciousness if enabled
-        #[cfg(feature = "consciousness")]
+        // Initialize consciousness if enabled in config
         let consciousness = if config.consciousness.enabled {
+            tracing::info!("Consciousness system: ENABLED");
             Some(Arc::new(RwLock::new(
-                consciousness::ConsciousnessSystem::new(&config.consciousness)?
+                consciousness::ConsciousnessSystem::new()
             )))
         } else {
+            tracing::info!("Consciousness system: DISABLED (enable in config.toml)");
             None
         };
         
@@ -121,7 +120,6 @@ impl OzoneRuntime {
             integrity: Arc::new(RwLock::new(integrity)),
             network: Arc::new(RwLock::new(network)),
             session: Arc::new(RwLock::new(None)),
-            #[cfg(feature = "consciousness")]
             consciousness,
         })
     }
@@ -194,17 +192,33 @@ impl OzoneRuntime {
     pub async fn query_zsei(&self, query: types::zsei::ZSEIQuery) -> Result<types::zsei::ZSEIQueryResult, OzoneError> {
         self.zsei.read().await.query(query).await
     }
+    
+    /// Check if consciousness is enabled
+    pub fn is_consciousness_enabled(&self) -> bool {
+        self.consciousness.is_some()
+    }
 }
 
-/// Initialize logging
+/// Initialize logging with default settings
 pub fn init_logging() {
+    init_logging_with_level("info");
+}
+
+/// Initialize logging with specified level
+pub fn init_logging_with_level(level: &str) {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+    
+    let env_filter = std::env::var("RUST_LOG")
+        .unwrap_or_else(|_| format!("ozone_studio={},hyper=warn,tonic=warn", level));
     
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "ozone_studio=info".into()),
+                .unwrap_or_else(|_| env_filter.into()),
         )
-        .with(tracing_subscriber::fmt::layer())
+        .with(tracing_subscriber::fmt::layer()
+            .with_target(true)
+            .with_thread_ids(false)
+            .with_file(false))
         .init();
 }
