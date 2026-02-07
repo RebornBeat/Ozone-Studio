@@ -166,11 +166,11 @@ export const CORE_TAB_DEFINITIONS: Array<{
 function createDynamicTabComponent(pipelineId: number): React.ComponentType<any> {
   return function DynamicTab(props: any) {
     return (
-      <DynamicPipelineUI>
+      <DynamicPipelineUI
         pipelineId={pipelineId}
         initialData={props.initialData}
         onClose={props.onClose}
-      </>
+      />
     );
   };
 }
