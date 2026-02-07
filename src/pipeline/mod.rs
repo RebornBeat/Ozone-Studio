@@ -78,84 +78,41 @@ impl PipelineRegistry {
     }
     
     /// Load builtin pipeline metadata into a HashMap (called during initialization)
+    /// Uses PIPELINE_INFO from registry as the single source of truth
     fn load_builtin_pipelines_into(blueprints: &mut HashMap<PipelineID, PipelineBlueprint>) -> OzoneResult<()> {
-        tracing::info!("Loading builtin pipelines");
+        tracing::info!("Loading builtin pipelines from registry");
         
-        // Register all builtin pipelines from the enum
-        // The actual implementation lives in pipelines/ directory
-        let builtins = [
-            BuiltinPipeline::Auth,
-            BuiltinPipeline::ThemeLoader,
-            BuiltinPipeline::ZSEIQuery,
-            BuiltinPipeline::ZSEIWrite,
-            BuiltinPipeline::TaskManager,
-            BuiltinPipeline::WorkspaceTab,
-            BuiltinPipeline::LibraryTab,
-            BuiltinPipeline::SettingsTab,
-            BuiltinPipeline::Prompt,
-            BuiltinPipeline::Voice,
-            BuiltinPipeline::MethodologyFetch,
-            BuiltinPipeline::MethodologyCreate,
-            BuiltinPipeline::BlueprintSearch,
-            BuiltinPipeline::BlueprintCreate,
-            BuiltinPipeline::PipelineCreation,
-            BuiltinPipeline::ZeroShotSimulation,
-            BuiltinPipeline::TraversalML,
-            BuiltinPipeline::CodeAnalysis,
-            BuiltinPipeline::PackageContext,
-            BuiltinPipeline::TextAnalysis,
-            BuiltinPipeline::ContextAggregation,
-            BuiltinPipeline::GraphVisualization,
-            BuiltinPipeline::TaskRecommendation,
-            BuiltinPipeline::Reordering,
-            BuiltinPipeline::BrowserNavigation,
-            BuiltinPipeline::IntegrityCheck,
-            BuiltinPipeline::Consensus,
-            BuiltinPipeline::ExternalReference,
-            BuiltinPipeline::PackageRelationship,
-            BuiltinPipeline::FileLink,
-            BuiltinPipeline::URLLink,
-            BuiltinPipeline::PackageLink,
-            BuiltinPipeline::Sync,
-            BuiltinPipeline::DeviceRegister,
-            BuiltinPipeline::HomeReturn,
-            BuiltinPipeline::TaskViewer,
-            BuiltinPipeline::LogViewer,
-            BuiltinPipeline::DeviceStatus,
-        ];
-        
-        for builtin in builtins {
-            Self::register_builtin_into(builtin, blueprints)?;
-        }
-        
-        // Register consciousness pipelines (always compiled, enabled/disabled at runtime)
-        let consciousness_builtins = [
-            BuiltinPipeline::ConsciousnessDecisionGate,
-            BuiltinPipeline::ExperienceCategorization,
-            BuiltinPipeline::CoreMemoryFormation,
-            BuiltinPipeline::ExperienceRetrieval,
-            BuiltinPipeline::EmotionalBaselineUpdate,
-            BuiltinPipeline::ILoop,
-            BuiltinPipeline::InternalLanguage,
-            BuiltinPipeline::NarrativeConstruction,
-            BuiltinPipeline::RelationshipDevelopment,
-            BuiltinPipeline::EthicalAssessment,
-            BuiltinPipeline::EthicalSimulation,
-            BuiltinPipeline::PlaybackReview,
-            BuiltinPipeline::UserFeedback,
-            BuiltinPipeline::CollectiveConsciousness,
-            BuiltinPipeline::VoiceIdentity,
-            BuiltinPipeline::MetaPortionConsciousness,
-        ];
-        
-        for builtin in consciousness_builtins {
-            Self::register_builtin_into(builtin, blueprints)?;
+        // Use PIPELINE_INFO from registry - THE SOURCE OF TRUTH
+        // This avoids hardcoding pipeline lists multiple times
+        for (id, info) in registry::PIPELINE_INFO.iter() {
+            let blueprint = PipelineBlueprint {
+                pipeline_id: *id,
+                name: info.name.clone(),
+                version: crate::types::SemVer::default(),
+                author: Vec::new(), // System
+                description: info.description.clone(),
+                specification: crate::types::pipeline::BlueprintSpec {
+                    input_schema: Schema::default(),
+                    output_schema: Schema::default(),
+                    dependencies: Vec::new(),
+                    sub_pipelines: Vec::new(),
+                    execution_flow: crate::types::pipeline::ExecutionFlow::Sequential(Vec::new()),
+                },
+                implementations: Vec::new(),
+                content_hash: [0u8; 32],
+                peers: Vec::new(),
+                consensus_status: crate::types::pipeline::ConsensusStatus::Accepted,
+                verified_by: 0,
+            };
+            blueprints.insert(*id, blueprint);
         }
         
         Ok(())
     }
     
-    /// Register a builtin pipeline into a HashMap (static helper for initialization)
+    /// DEPRECATED: Use PIPELINE_INFO from registry instead
+    /// Kept for backward compatibility
+    #[deprecated(note = "Use registry::PIPELINE_INFO instead")]
     fn register_builtin_into(builtin: BuiltinPipeline, blueprints: &mut HashMap<PipelineID, PipelineBlueprint>) -> OzoneResult<()> {
         let blueprint = PipelineBlueprint {
             pipeline_id: builtin.id(),

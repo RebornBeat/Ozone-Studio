@@ -94,14 +94,63 @@ impl SyncStore {
     }
     
     fn force_reload(&mut self, pipeline: &str) -> bool {
-        // In a real implementation, this would trigger the pipeline to reload from disk
-        // For now, just mark as needing sync
-        if let Some(status) = self.sync_status.get_mut(pipeline) {
-            status.status = "pending".to_string();
-            true
-        } else {
-            false
+        let path = Path::new(&self.storage_path);
+        let file = format!("{}.json", pipeline);
+        let file_path = path.join(&file);
+        
+        // Check if file exists
+        if !file_path.exists() {
+            return false;
         }
+        
+        // Read file to verify it's valid JSON
+        let content = match std::fs::read_to_string(&file_path) {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        
+        // Validate JSON structure
+        if serde_json::from_str::<serde_json::Value>(&content).is_err() {
+            return false;
+        }
+        
+        // Get file modification time
+        let modified = std::fs::metadata(&file_path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        
+        // Update sync status to indicate successful reload
+        self.sync_status.insert(pipeline.to_string(), SyncStatus {
+            pipeline: pipeline.to_string(),
+            last_sync: now(),
+            status: "reloaded".to_string(),
+            file_modified: modified,
+        });
+        
+        // Write a reload marker to trigger other components to refresh
+        let reload_marker = path.join("reload_markers.json");
+        let mut markers: HashMap<String, u64> = std::fs::read_to_string(&reload_marker)
+            .ok()
+            .and_then(|c| serde_json::from_str(&c).ok())
+            .unwrap_or_default();
+        
+        markers.insert(pipeline.to_string(), now());
+        let _ = std::fs::write(&reload_marker, serde_json::to_string_pretty(&markers).unwrap_or_default());
+        
+        true
+    }
+    
+    fn check_reload_markers(&self, pipeline: &str) -> Option<u64> {
+        let path = Path::new(&self.storage_path);
+        let reload_marker = path.join("reload_markers.json");
+        
+        std::fs::read_to_string(&reload_marker)
+            .ok()
+            .and_then(|c| serde_json::from_str::<HashMap<String, u64>>(&c).ok())
+            .and_then(|markers| markers.get(pipeline).copied())
     }
 }
 

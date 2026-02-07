@@ -634,16 +634,39 @@ pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDeci
         relevance_score: 1.0,
     });
     
-    // Run ethical assessment
-    let ethical_score = 0.9; // Would run actual assessment
+    // Run actual ethical assessment
+    let task_lower = task_summary.to_lowercase();
+    let mut ethical_score = 1.0f32;
+    let mut concerns: Vec<String> = Vec::new();
+    
+    // Check for harmful patterns
+    let harmful_patterns = [
+        ("harm", 0.2), ("illegal", 0.3), ("hack", 0.2), ("steal", 0.3),
+        ("violence", 0.3), ("exploit", 0.2), ("malicious", 0.3), ("attack", 0.2),
+    ];
+    
+    for (pattern, penalty) in harmful_patterns {
+        if task_lower.contains(pattern) {
+            ethical_score -= penalty;
+            concerns.push(format!("Contains: {}", pattern));
+        }
+    }
+    
+    ethical_score = ethical_score.max(0.0).min(1.0);
     let decision = if ethical_score >= 0.7 { "proceed" } else { "decline" };
+    
+    let reasoning = if concerns.is_empty() {
+        format!("Ethical score: {:.2}", ethical_score)
+    } else {
+        format!("Ethical score: {:.2}, concerns: {}", ethical_score, concerns.join(", "))
+    };
     
     let record = GateDecisionRecord {
         gate_id: store.gate_decisions.len() as u64 + 1,
         task_id,
         timestamp: now(),
         decision: decision.to_string(),
-        reasoning: format!("Ethical score: {}", ethical_score),
+        reasoning,
         confidence: 0.85,
         ethical_score,
     };

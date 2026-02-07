@@ -2,12 +2,18 @@
 //!
 //! Handles all query types from the ZSEIQuery enum (§6.7)
 
-use crate::types::{ContainerID, OzoneError, OzoneResult};
+use crate::types::{ContainerID, OzoneError, OzoneResult, Blake3Hash};
 use crate::types::zsei::{ZSEIQuery, ZSEIQueryResult, TaskSignature, IntegrityCheckResult, IntegrityIssue};
 use crate::types::container::{ContainerType, Container, VersionRecord};
 use super::storage::ContainerStorage;
 use super::traversal::TraversalEngine;
 use std::collections::HashMap;
+
+/// Compute Blake3 hash of data
+fn compute_blake3_hash(data: &[u8]) -> Blake3Hash {
+    let hash = blake3::hash(data);
+    *hash.as_bytes()
+}
 
 /// Query processor
 pub struct QueryProcessor {
@@ -224,12 +230,25 @@ impl QueryProcessor {
     /// Get version history for a container
     fn get_version_history(&self, container_id: ContainerID) -> OzoneResult<Vec<VersionRecord>> {
         let history = self.version_history.get(&container_id)
-            .map(|h| h.iter().map(|v| VersionRecord {
-                version: v.version as u64,
-                timestamp: v.timestamp,
-                content_hash: [0u8; 32], // TODO: compute actual hash
-                change_type: crate::types::container::ChangeType::Update,
-                rollback_available: v.snapshot.is_some(),
+            .map(|h| h.iter().map(|v| {
+                // Compute Blake3 hash of the snapshot if available
+                let content_hash = if let Some(ref snapshot) = v.snapshot {
+                    // Hash the serialized container data
+                    let data = serde_json::to_string(&snapshot.local_state)
+                        .unwrap_or_default();
+                    compute_blake3_hash(data.as_bytes())
+                } else {
+                    // Hash the changes string as fallback
+                    compute_blake3_hash(v.changes.as_bytes())
+                };
+                
+                VersionRecord {
+                    version: v.version as u64,
+                    timestamp: v.timestamp,
+                    content_hash,
+                    change_type: crate::types::container::ChangeType::Update,
+                    rollback_available: v.snapshot.is_some(),
+                }
             }).collect())
             .unwrap_or_default();
         Ok(history)

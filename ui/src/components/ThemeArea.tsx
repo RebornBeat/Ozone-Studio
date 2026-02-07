@@ -6,67 +6,168 @@
  * Key principle: The ThemeArea does NOT contain hardcoded UI logic.
  * Instead, it renders what the ThemeLoaderPipeline provides.
  * 
- * Each theme is loaded by the ThemeLoaderPipeline (id: 2),
- * which returns the UI structure to render.
+ * Tab Injection Architecture:
+ * - ThemeLoader (Pipeline #2) manages which tabs are displayed
+ * - ALL tabs (including core) use dynamic JS loading - NO COMPILED COMPONENTS
+ * - Core tabs are injected on startup, never uninjected
+ * - Non-core tabs are injected during task execution, uninjected on completion
+ * 
+ * NO REBUILD NEEDED when adding new pipeline UIs!
+ * Each pipeline's UI is a JS file loaded at runtime.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useOzoneStore } from '../services/store';
 
-// Import theme components
-import { HomeDashboard } from '../themes/home_dashboard/HomeDashboard';
+// Import theme container
+import { HomeDashboard, InjectedTab } from '../themes/home_dashboard/HomeDashboard';
+
+// Import pipeline UI system - ALL DYNAMIC, registry-based
+import { 
+  createCoreTabs,
+  createDynamicTab,
+  hasPipelineUI,
+  getPipelineName,
+  getPipelineIcon,
+  CORE_TAB_DEFINITIONS,
+} from '../pipeline-ui';
 
 interface ThemeAreaProps {
   theme: string;
 }
 
-// Theme component registry - maps theme names to components
-// These are the built-in themes loaded at startup
-const THEME_REGISTRY: Record<string, React.ComponentType<any>> = {
-  'home_dashboard': HomeDashboard,
-  // Additional themes would be registered here
-  // Custom themes from pipelines would be dynamically loaded
-};
-
 export function ThemeArea({ theme }: ThemeAreaProps) {
-  const { executePipeline, activeTab, isConnected } = useOzoneStore();
-  const [themeData, setThemeData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
+  const { 
+    isConnected, 
+    activeTasks,
+    consciousnessEnabled,
+    setConsciousnessEnabled 
+  } = useOzoneStore();
+  
+  // Tab injection state
+  const [injectedTabs, setInjectedTabs] = useState<InjectedTab[]>([]);
+  const [activeTabId, setActiveTabId] = useState<string>('workspace');
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Load theme data when theme changes (only if connected)
+  // Initialize core tabs on mount
   useEffect(() => {
-    async function loadTheme() {
-      // Skip pipeline execution if not connected - use built-in theme
-      if (!isConnected || !window.ozone) {
-        setThemeData({ theme, loaded: true, offline: true });
-        return;
+    initializeCoreTabs();
+  }, []);
+
+  // Initialize core tabs - ALL use dynamic loading
+  const initializeCoreTabs = useCallback(() => {
+    const tabs = createCoreTabs();
+    setInjectedTabs(tabs);
+    setLoading(false);
+  }, []);
+
+  // Inject a new tab for any pipeline - FULLY DYNAMIC
+  const injectTab = useCallback(async (
+    pipelineId: number,
+    options?: {
+      id?: string;
+      label?: string;
+      icon?: string;
+      makeActive?: boolean;
+      initialData?: any;
+    }
+  ) => {
+    // Check if already injected
+    const tabId = options?.id || `pipeline-${pipelineId}`;
+    const existingTab = injectedTabs.find(t => t.id === tabId);
+    if (existingTab) {
+      if (options?.makeActive) {
+        setActiveTabId(existingTab.id);
       }
-      
-      setLoading(true);
-      setError(null);
-      
-      try {
-        // Execute ThemeLoaderPipeline to get theme data
-        const taskId = await executePipeline(2, { theme });
-        
-        // In a real implementation, we'd wait for the task to complete
-        // and retrieve the theme data from the task output
-        setThemeData({ theme, loaded: true });
-      } catch (err) {
-        console.warn('Failed to load theme via pipeline:', err);
-        // Fall back to built-in theme
-        setThemeData({ theme, loaded: true, fallback: true });
-      } finally {
-        setLoading(false);
-      }
+      return;
     }
     
-    loadTheme();
-  }, [theme, executePipeline, isConnected]);
+    // Create dynamic tab
+    const newTab = await createDynamicTab(pipelineId, options);
+    if (newTab) {
+      setInjectedTabs(prev => [...prev, newTab]);
+      if (options?.makeActive) {
+        setActiveTabId(newTab.id);
+      }
+    } else {
+      console.warn(`Pipeline ${pipelineId} has no UI module`);
+    }
+  }, [injectedTabs]);
 
-  // Get the theme component
-  const ThemeComponent = THEME_REGISTRY[theme];
+  // Uninject a tab (for non-core pipelines when task completes)
+  const uninjectTab = useCallback((tabId: string) => {
+    setInjectedTabs(prev => {
+      const tab = prev.find(t => t.id === tabId);
+      // Don't uninject core tabs
+      if (tab?.isCore) {
+        console.warn('Cannot uninject core tab:', tabId);
+        return prev;
+      }
+      return prev.filter(t => t.id !== tabId);
+    });
+    
+    // If the closed tab was active, switch to first tab
+    if (activeTabId === tabId) {
+      setActiveTabId(injectedTabs[0]?.id || 'workspace');
+    }
+  }, [activeTabId, injectedTabs]);
+
+  // Handle tab change
+  const handleTabChange = useCallback((tabId: string) => {
+    setActiveTabId(tabId);
+  }, []);
+
+  // Handle tab close
+  const handleTabClose = useCallback((tabId: string) => {
+    uninjectTab(tabId);
+  }, [uninjectTab]);
+
+  // Update task badge on Tasks tab
+  useEffect(() => {
+    const runningCount = activeTasks.filter(t => 
+      t.status === 'running' || t.status === 'queued'
+    ).length;
+    
+    setInjectedTabs(prev => prev.map(tab => {
+      if (tab.id === 'tasks') {
+        return { ...tab, badge: runningCount > 0 ? runningCount : undefined };
+      }
+      return tab;
+    }));
+  }, [activeTasks]);
+
+  // Expose injection functions globally for ThemeLoader and TaskManager hooks
+  useEffect(() => {
+    (window as any).__ozoneThemeArea = {
+      injectTab,
+      uninjectTab,
+      setActiveTab: setActiveTabId,
+      getInjectedTabs: () => injectedTabs,
+      // Called by TaskManager when a step has pipeline UI
+      onStepActive: async (pipelineId: number, stepData: any) => {
+        const hasUI = await hasPipelineUI(pipelineId);
+        if (hasUI) {
+          await injectTab(pipelineId, {
+            makeActive: true,
+            initialData: stepData,
+          });
+        }
+      },
+      // Called by TaskManager when a step completes
+      onStepComplete: (pipelineId: number) => {
+        // Only uninject if not a core tab
+        const isCore = CORE_TAB_DEFINITIONS.some(d => d.pipelineId === pipelineId);
+        if (!isCore) {
+          uninjectTab(`pipeline-${pipelineId}`);
+        }
+      },
+    };
+    
+    return () => {
+      delete (window as any).__ozoneThemeArea;
+    };
+  }, [injectTab, uninjectTab, injectedTabs]);
 
   // Loading state
   if (loading) {
@@ -91,23 +192,14 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
     );
   }
 
-  // Unknown theme
-  if (!ThemeComponent) {
-    return (
-      <main className="theme-area theme-unknown">
-        <h2>Unknown Theme</h2>
-        <p>Theme "{theme}" is not registered.</p>
-        <p>Available themes: {Object.keys(THEME_REGISTRY).join(', ')}</p>
-      </main>
-    );
-  }
-
-  // Render the theme component
+  // Render HomeDashboard with injected tabs
   return (
     <main className="theme-area">
-      <ThemeComponent 
-        themeData={themeData}
-        activeTab={activeTab}
+      <HomeDashboard
+        injectedTabs={injectedTabs}
+        activeTabId={activeTabId}
+        onTabChange={handleTabChange}
+        onTabClose={handleTabClose}
       />
     </main>
   );

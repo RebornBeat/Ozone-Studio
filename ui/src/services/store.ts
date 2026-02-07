@@ -71,6 +71,9 @@ interface UIActions {
   // Pipeline execution
   executePipeline: (pipelineId: number, input: object) => Promise<number>;
   
+  // Orchestration (full 14-stage flow)
+  orchestratePrompt: (prompt: string, projectId?: number, workspaceId?: number) => Promise<any>;
+  
   // Task management
   updateTaskStatus: (taskId: number, status: Task['status'], progress?: number) => void;
   
@@ -177,8 +180,27 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
     }
     
     try {
-      const publicKey = new Uint8Array(32); // Would use actual keys in production
-      const result = await window.ozone.auth.authenticate(publicKey, new Uint8Array(64));
+      // Generate device-based authentication keys
+      // In production, these would be derived from secure device storage
+      const deviceId = await window.ozone.system?.getDeviceId?.() || 'default-device';
+      const deviceIdBytes = new TextEncoder().encode(deviceId);
+      
+      // Create a deterministic public key from device ID (simplified for demo)
+      // In production, use proper key derivation (e.g., HKDF)
+      const publicKey = new Uint8Array(32);
+      for (let i = 0; i < 32; i++) {
+        publicKey[i] = deviceIdBytes[i % deviceIdBytes.length] ^ (i * 7);
+      }
+      
+      // Create signature (in production, sign with actual private key)
+      const signature = new Uint8Array(64);
+      const timestamp = Date.now();
+      const timestampBytes = new TextEncoder().encode(timestamp.toString());
+      for (let i = 0; i < 64; i++) {
+        signature[i] = (publicKey[i % 32] ^ timestampBytes[i % timestampBytes.length]) & 0xFF;
+      }
+      
+      const result = await window.ozone.auth.authenticate(publicKey, signature);
       
       if (result.success && result.sessionToken) {
         set({
@@ -253,7 +275,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   },
   
   submitPrompt: async () => {
-    const { promptInput, executePipeline, selectedModel, isConnected } = get();
+    const { promptInput, orchestratePrompt, isConnected } = get();
     
     if (!promptInput.trim()) return;
     
@@ -268,14 +290,84 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       return;
     }
     
-    // Execute PromptPipeline (id: 9) with the input
+    // Use the orchestrator for full 14-stage flow
     try {
+      await orchestratePrompt(promptInput);
+    } catch (err) {
+      console.error('Prompt orchestration failed:', err);
+    }
+  },
+  
+  /**
+   * Orchestrate a prompt through the full 14-stage flow
+   * This is the proper way to execute prompts - NOT directly calling pipeline 9
+   */
+  orchestratePrompt: async (prompt: string, projectId?: number, workspaceId?: number) => {
+    const { consciousnessEnabled, selectedModel } = get();
+    
+    if (!window.ozone) {
+      throw new Error('Backend not connected');
+    }
+    
+    // Check if orchestrator is available
+    if (window.ozone.orchestrate) {
+      // Get user_id from auth session if available, fallback to device ID
+      const userId = window.ozone.auth?.getCurrentUserId?.() ?? 1;
+      const deviceId = window.ozone.system?.getDeviceId?.() ?? 1;
+      
+      // Use the orchestrator endpoint
+      const result = await window.ozone.orchestrate({
+        prompt,
+        project_id: projectId,
+        workspace_id: workspaceId,
+        user_id: userId,
+        device_id: deviceId,
+        consciousness_enabled: consciousnessEnabled,
+        token_budget: 100000,
+        model_config: {
+          model_identifier: selectedModel,
+        },
+      });
+      
+      if (!result.success) {
+        throw new Error(result.error || 'Orchestration failed');
+      }
+      
+      // Update system stats with stage info
+      set((state) => ({
+        systemStats: {
+          ...state.systemStats,
+          activeTaskCount: state.systemStats.activeTaskCount + 1,
+        },
+      }));
+      
+      return result;
+    } else {
+      // Fallback to direct pipeline execution if orchestrator not available
+      console.warn('Orchestrator not available, falling back to direct pipeline execution');
+      const { executePipeline } = get();
+      
+      // First aggregate context if we have a project
+      let aggregatedContext = '';
+      if (projectId) {
+        try {
+          const contextResult = await window.ozone.pipeline.execute(21, {
+            action: 'ForProject',
+            project_id: projectId,
+            token_budget: 50000,
+          });
+          aggregatedContext = contextResult?.context?.context_text || '';
+        } catch (err) {
+          console.warn('Context aggregation failed:', err);
+        }
+      }
+      
+      // Execute prompt pipeline with context
       await executePipeline(9, {
-        prompt: promptInput,
+        prompt,
+        aggregated_context: aggregatedContext,
         model: selectedModel,
       });
-    } catch (err) {
-      console.error('Prompt execution failed:', err);
     }
   },
   

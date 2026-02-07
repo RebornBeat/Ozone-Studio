@@ -10,7 +10,7 @@
  * IMPORTANT: UI navigation does NOT create tasks. Only PromptPipeline creates tasks.
  */
 
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const http = require('http');
 const { spawn } = require('child_process');
@@ -284,20 +284,25 @@ ipcMain.handle('config:set', async (event, updates) => {
 ipcMain.handle('system:getStats', async () => {
   requireConnection();
   const health = await backendRequest('GET', '/health');
+  const configResult = await backendRequest('POST', '/config/get', { session_token: '' });
+  const config = configResult.config || {};
+  
   return {
     backendConnected: true,
-    p2pEnabled: true,
-    peerCount: 0,
-    totalContributions: 0,
-    myContributions: 0,
-    methodologiesShared: 0,
-    blueprintsShared: 0,
-    findingsShared: 0,
-    zseiContainers: 1,
-    zseiDepth: 0,
-    consciousnessEnabled: false,
+    p2pEnabled: config.p2p?.enabled ?? true,
+    peerCount: config.p2p?.peer_count ?? 0,
+    totalContributions: config.stats?.total_contributions ?? 0,
+    myContributions: config.stats?.my_contributions ?? 0,
+    methodologiesShared: config.stats?.methodologies_shared ?? 0,
+    blueprintsShared: config.stats?.blueprints_shared ?? 0,
+    findingsShared: config.stats?.findings_shared ?? 0,
+    zseiContainers: config.stats?.zsei_containers ?? 1,
+    zseiDepth: config.stats?.zsei_depth ?? 0,
+    consciousnessEnabled: config.consciousness?.enabled ?? false,
+    consciousnessState: config.consciousness?.enabled ? 'Active' : undefined,
+    iLoopStatus: config.consciousness?.enabled ? 'Running' : undefined,
     uptime: health.uptime_secs || 0,
-    memoryUsage: 0,
+    memoryUsage: process.memoryUsage().heapUsed / process.memoryUsage().heapTotal * 100,
     activeTaskCount: health.active_tasks || 0,
   };
 });
@@ -318,6 +323,52 @@ ipcMain.handle('system:markSetupComplete', async () => {
     updates: { setup_complete: true },
     session_token: '' 
   });
+});
+
+// File selection dialog
+ipcMain.handle('system:selectFile', async (event, options) => {
+  const filters = [];
+  if (options?.filters && options.filters.length > 0) {
+    filters.push({
+      name: 'Model Files',
+      extensions: options.filters.map(f => f.replace('.', ''))
+    });
+  }
+  filters.push({ name: 'All Files', extensions: ['*'] });
+  
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openFile'],
+    filters: filters
+  });
+  
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  
+  return result.filePaths[0];
+});
+
+// Check which whisper models are installed
+ipcMain.handle('system:checkWhisperModels', async () => {
+  const whisperDir = path.join(app.getPath('userData'), 'whisper');
+  const modelNames = ['tiny', 'base', 'small', 'medium', 'large'];
+  const installed = [];
+  
+  try {
+    if (fs.existsSync(whisperDir)) {
+      const files = fs.readdirSync(whisperDir);
+      for (const name of modelNames) {
+        // Check for various whisper model file patterns
+        if (files.some(f => f.includes(`ggml-${name}`) || f.includes(`whisper-${name}`))) {
+          installed.push(name);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Could not check whisper models:', err);
+  }
+  
+  return installed;
 });
 
 // Authentication
@@ -356,6 +407,21 @@ ipcMain.handle('pipeline:list', async () => {
       { id: 11, name: 'SettingsPipeline' },
     ],
   };
+});
+
+// v0.4.0 - Pipeline Registry - THE SINGLE SOURCE OF TRUTH
+ipcMain.handle('pipeline:registry', async () => {
+  requireConnection();
+  return await backendRequest('POST', '/pipeline/registry', { session_token: '' });
+});
+
+// v0.4.0 - Get Pipeline UI Component (component.js content)
+ipcMain.handle('pipeline:ui-component', async (event, pipelineId) => {
+  requireConnection();
+  return await backendRequest('POST', '/pipeline/ui-component', { 
+    pipeline_id: pipelineId,
+    session_token: '' 
+  });
 });
 
 // Task management - ONLY retrieves tasks, UI NEVER creates tasks directly

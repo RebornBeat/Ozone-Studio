@@ -56,6 +56,19 @@ contextBridge.exposeInMainWorld('ozone', {
      */
     getBlueprint: (pipelineId) => 
       ipcRenderer.invoke('pipeline:blueprint', pipelineId),
+    
+    /**
+     * v0.4.0 - Get full pipeline registry (THE SINGLE SOURCE OF TRUTH)
+     * @returns {Promise<{success: boolean, registry: Array<{id, name, folder_name, category, has_ui, is_tab, description}>}>}
+     */
+    getRegistry: () => ipcRenderer.invoke('pipeline:registry'),
+    
+    /**
+     * v0.4.0 - Get pipeline UI component.js content
+     * @param {number} pipelineId 
+     * @returns {Promise<{success: boolean, component_js?: string, error?: string}>}
+     */
+    getUIComponent: (pipelineId) => ipcRenderer.invoke('pipeline:ui-component', pipelineId),
   },
   
   // ========================================================================
@@ -164,6 +177,19 @@ contextBridge.exposeInMainWorld('ozone', {
      * @returns {Promise<{success: boolean}>}
      */
     markSetupComplete: () => ipcRenderer.invoke('system:markSetupComplete'),
+    
+    /**
+     * Open file selection dialog
+     * @param {object} options - {filters?: string[]}
+     * @returns {Promise<string|null>}
+     */
+    selectFile: (options) => ipcRenderer.invoke('system:selectFile', options),
+    
+    /**
+     * Check which whisper models are installed
+     * @returns {Promise<string[]>} - Array of installed model names
+     */
+    checkWhisperModels: () => ipcRenderer.invoke('system:checkWhisperModels'),
   },
   
   // ========================================================================

@@ -193,14 +193,80 @@ impl ZSEIInterface {
     
     /// Load child IDs for a container
     fn load_child_ids(&self, container_id: u64, count: u32) -> Result<Vec<u64>, String> {
-        // Children are stored in a separate file with an index
-        let children_path = format!("{}/global/children.bin", self.storage_path);
-        
-        if !std::path::Path::new(&children_path).exists() {
+        if count == 0 {
             return Ok(vec![]);
         }
         
-        // For now, return empty - full implementation reads from indexed children file
+        // Children are stored in a separate file with an index
+        // Binary layout: [index_entries...][child_id_blocks...]
+        // Index entry: [container_id:8][offset:8][count:4]
+        let children_path = format!("{}/global/children.bin", self.storage_path);
+        
+        if !std::path::Path::new(&children_path).exists() {
+            // Try JSON fallback for compatibility
+            let json_path = format!("{}/global/children_{}.json", self.storage_path, container_id);
+            if std::path::Path::new(&json_path).exists() {
+                let content = std::fs::read_to_string(&json_path)
+                    .map_err(|e| format!("Failed to read children JSON: {}", e))?;
+                let child_ids: Vec<u64> = serde_json::from_str(&content)
+                    .map_err(|e| format!("Failed to parse children JSON: {}", e))?;
+                return Ok(child_ids);
+            }
+            return Ok(vec![]);
+        }
+        
+        let file = std::fs::File::open(&children_path)
+            .map_err(|e| format!("Failed to open children file: {}", e))?;
+        
+        let mmap = unsafe {
+            memmap2::Mmap::map(&file)
+                .map_err(|e| format!("Failed to mmap children: {}", e))?
+        };
+        
+        // Read index header: [magic:8][version:4][index_count:4]
+        if mmap.len() < 16 {
+            return Ok(vec![]);
+        }
+        
+        let index_count = u32::from_le_bytes(mmap[12..16].try_into().unwrap()) as usize;
+        let index_entry_size = 20; // container_id:8 + offset:8 + count:4
+        let index_start = 16;
+        
+        // Search index for this container
+        for i in 0..index_count {
+            let entry_offset = index_start + i * index_entry_size;
+            if entry_offset + index_entry_size > mmap.len() {
+                break;
+            }
+            
+            let indexed_id = u64::from_le_bytes(
+                mmap[entry_offset..entry_offset+8].try_into().unwrap()
+            );
+            
+            if indexed_id == container_id {
+                let data_offset = u64::from_le_bytes(
+                    mmap[entry_offset+8..entry_offset+16].try_into().unwrap()
+                ) as usize;
+                let child_count = u32::from_le_bytes(
+                    mmap[entry_offset+16..entry_offset+20].try_into().unwrap()
+                ) as usize;
+                
+                // Read child IDs from data section
+                let mut child_ids = Vec::with_capacity(child_count);
+                for j in 0..child_count {
+                    let child_offset = data_offset + j * 8;
+                    if child_offset + 8 > mmap.len() {
+                        break;
+                    }
+                    let child_id = u64::from_le_bytes(
+                        mmap[child_offset..child_offset+8].try_into().unwrap()
+                    );
+                    child_ids.push(child_id);
+                }
+                return Ok(child_ids);
+            }
+        }
+        
         Ok(vec![])
     }
     

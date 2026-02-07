@@ -1,10 +1,22 @@
 //! PromptPipeline - Pipeline #9
 //! 
 //! The core LLM interface that handles all model interactions.
-//! Supports: API (Claude, OpenAI, etc.), GGUF (llama.cpp), ONNX (local)
+//! Supports: API (Claude, OpenAI, etc.), GGUF (llama.cpp), ONNX (local), BitNet (1-bit)
 //! 
 //! Model selection is determined by config, NOT hardcoded.
 //! Users can select models via the SettingsPipeline.
+//!
+//! v0.4.0 UPDATES:
+//! - Added BitNet support (1-bit quantized models)
+//! - Added context limit awareness
+//! - Added token budget management
+//!
+//! NOTE: This is the LOW-LEVEL LLM call pipeline.
+//! The FULL orchestration flow (14 stages from Master Alignment Report) is handled by:
+//! - task_manager.Create() which orchestrates the full flow
+//! - This pipeline is called at STAGE 11 during step execution
+//!
+//! For the full flow see: docs/PIPELINE_ORDER_OF_EVENTS.md
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,6 +32,10 @@ pub struct PromptInput {
     pub temperature: Option<f32>,
     pub max_tokens: Option<u32>,
     pub stream: Option<bool>,
+    /// Token budget for context (respects model's context_length)
+    pub token_budget: Option<u32>,
+    /// Pre-aggregated context string (from context_aggregation pipeline)
+    pub aggregated_context: Option<String>,
 }
 
 /// Pipeline output
@@ -29,31 +45,67 @@ pub struct PromptOutput {
     pub model_used: String,
     pub tokens_used: Option<u32>,
     pub finish_reason: Option<String>,
+    /// Actual tokens in prompt (for tracking)
+    pub prompt_tokens: Option<u32>,
+    /// Whether context was truncated due to limits
+    pub context_truncated: Option<bool>,
 }
 
 /// Model configuration (read from OzoneConfig)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
-    pub model_type: String,  // "api", "gguf", "onnx"
+    pub model_type: String,  // "api", "gguf", "onnx", "bitnet"
     pub api_endpoint: Option<String>,
     pub api_key_env: Option<String>,
     pub api_model: Option<String>,
     pub local_model_path: Option<String>,
     pub context_length: usize,
     pub gpu_layers: Option<u32>,
+    /// BitNet-specific: path to bitnet.cpp binary
+    pub bitnet_cli_path: Option<String>,
 }
 
 /// Execute the prompt pipeline
 pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
+    // Check if prompt + context exceeds context_length
+    let estimated_tokens = estimate_tokens(&input, config);
+    let context_truncated = estimated_tokens > config.context_length;
+    
     // Determine which model to use
     let model_type = &config.model_type;
     
-    match model_type.as_str() {
+    let mut result = match model_type.as_str() {
         "api" => execute_api(input, config).await,
         "gguf" => execute_gguf(input, config).await,
         "onnx" => execute_onnx(input, config).await,
+        "bitnet" => execute_bitnet(input, config).await,
         _ => Err(format!("Unsupported model type: {}", model_type)),
+    };
+    
+    // Add context_truncated info to output
+    if let Ok(ref mut output) = result {
+        output.context_truncated = Some(context_truncated);
     }
+    
+    result
+}
+
+/// Estimate token count for the input (rough approximation)
+fn estimate_tokens(input: &PromptInput, config: &ModelConfig) -> usize {
+    // Rough estimation: ~4 chars per token for English text
+    let chars_per_token = 4;
+    
+    let mut total_chars = input.prompt.len();
+    
+    if let Some(ref system) = input.system_prompt {
+        total_chars += system.len();
+    }
+    
+    if let Some(ref context) = input.aggregated_context {
+        total_chars += context.len();
+    }
+    
+    total_chars / chars_per_token
 }
 
 /// Execute using API-based model (Claude, OpenAI, etc.)
@@ -175,6 +227,8 @@ async fn call_anthropic_api(
         model_used: model.to_string(),
         tokens_used: tokens,
         finish_reason,
+        prompt_tokens: result["usage"]["input_tokens"].as_u64().map(|t| t as u32),
+        context_truncated: None, // Set by execute() wrapper
     })
 }
 
@@ -249,6 +303,8 @@ async fn call_openai_api(
         model_used: model.to_string(),
         tokens_used: tokens,
         finish_reason,
+        prompt_tokens: result["usage"]["prompt_tokens"].as_u64().map(|t| t as u32),
+        context_truncated: None, // Set by execute() wrapper
     })
 }
 
@@ -296,6 +352,8 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
                     model_used: model_path.to_string(),
                     tokens_used: Some(tokens),
                     finish_reason: Some("stop".to_string()),
+                    prompt_tokens: None, // Not available from CLI
+                    context_truncated: None,
                 })
             } else {
                 let error = String::from_utf8_lossy(&result.stderr);
@@ -400,6 +458,8 @@ except Exception as e:
                     model_used: model_path.to_string(),
                     tokens_used: Some(tokens),
                     finish_reason: Some("stop".to_string()),
+                    prompt_tokens: None, // Not available from Python bridge
+                    context_truncated: None,
                 })
             } else {
                 Err(format!("Failed to parse ONNX output: {}", stdout))
@@ -415,7 +475,78 @@ except Exception as e:
     }
 }
 
-/// Build prompt string from input
+/// Execute using BitNet model (1-bit quantized, CPU-efficient)
+/// 
+/// BitNet uses 1-bit weights for extreme efficiency on CPU.
+/// Uses bitnet.cpp CLI for inference.
+async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
+    let model_path = config.local_model_path.as_ref()
+        .ok_or("Local model path not configured for BitNet")?;
+    
+    // Verify model file exists
+    if !std::path::Path::new(model_path).exists() {
+        return Err(format!("BitNet model not found at: {}", model_path));
+    }
+    
+    // Get bitnet.cpp CLI path
+    let bitnet_cli = config.bitnet_cli_path.as_ref()
+        .map(|s| s.as_str())
+        .unwrap_or_else(|| {
+            std::env::var("BITNET_CLI_PATH")
+                .as_ref()
+                .map(|s| s.as_str())
+                .unwrap_or("bitnet-cli")
+        });
+    
+    // Build the prompt
+    let prompt = build_prompt(&input);
+    
+    // BitNet execution via bitnet.cpp CLI
+    // BitNet models use 1.58-bit quantization for CPU efficiency
+    let output = std::process::Command::new(bitnet_cli)
+        .args([
+            "-m", model_path,
+            "-p", &prompt,
+            "-n", &input.max_tokens.unwrap_or(512).to_string(),
+            "--temp", &input.temperature.unwrap_or(0.7).to_string(),
+            "-c", &config.context_length.to_string(),
+            "--no-display-prompt",
+        ])
+        .output();
+    
+    match output {
+        Ok(result) => {
+            if result.status.success() {
+                let response = String::from_utf8_lossy(&result.stdout).to_string();
+                let tokens = response.split_whitespace().count() as u32;
+                
+                Ok(PromptOutput {
+                    response: response.trim().to_string(),
+                    model_used: format!("bitnet:{}", model_path),
+                    tokens_used: Some(tokens),
+                    finish_reason: Some("stop".to_string()),
+                    prompt_tokens: None,
+                    context_truncated: None,
+                })
+            } else {
+                let error = String::from_utf8_lossy(&result.stderr);
+                Err(format!("BitNet inference failed: {}", error))
+            }
+        }
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Err(format!(
+                    "bitnet-cli not found. Install bitnet.cpp and set BITNET_CLI_PATH. Model path: {}",
+                    model_path
+                ))
+            } else {
+                Err(format!("Failed to execute BitNet model: {}", e))
+            }
+        }
+    }
+}
+
+/// Build prompt string from input, including aggregated context
 fn build_prompt(input: &PromptInput) -> String {
     let mut prompt = String::new();
     
@@ -423,11 +554,16 @@ fn build_prompt(input: &PromptInput) -> String {
         prompt.push_str(&format!("System: {}\n\n", system));
     }
     
-    if let Some(context_ids) = &input.context {
+    // Include pre-aggregated context if provided (preferred)
+    if let Some(ref aggregated) = input.aggregated_context {
+        if !aggregated.is_empty() {
+            prompt.push_str(&format!("Context:\n{}\n\n", aggregated));
+        }
+    } else if let Some(context_ids) = &input.context {
+        // Fallback: context IDs that would need to be resolved
+        // In practice, context_aggregation pipeline should resolve these first
         if !context_ids.is_empty() {
-            // Context IDs would be resolved by context_aggregation pipeline
-            // For GGUF/ONNX, we just note they were provided
-            prompt.push_str(&format!("Context IDs: {:?}\n\n", context_ids));
+            prompt.push_str(&format!("Context IDs (unresolved): {:?}\n\n", context_ids));
         }
     }
     
@@ -484,10 +620,11 @@ fn main() {
         context_length: env::var("OZONE_CONTEXT_LENGTH")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(100000),
+            .unwrap_or(200000),
         gpu_layers: env::var("OZONE_GPU_LAYERS")
             .ok()
             .and_then(|s| s.parse().ok()),
+        bitnet_cli_path: env::var("BITNET_CLI_PATH").ok(),
     };
     
     // Execute

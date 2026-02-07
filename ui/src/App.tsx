@@ -87,12 +87,19 @@ export interface SystemStats {
 // Setup Wizard Types
 interface SetupConfig {
   modelType: 'api' | 'local' | null;
+  apiProvider: 'anthropic' | 'openai' | 'google' | 'local' | '';
   apiKey: string;
   localModelPath: string;
   localModelType: 'gguf' | 'bitnet' | 'other';
   voiceEnabled: boolean;
   whisperModel: string;
   consciousnessEnabled: boolean;
+}
+
+interface WhisperModelStatus {
+  name: string;
+  size: string;
+  installed: boolean;
 }
 
 function App() {
@@ -103,6 +110,7 @@ function App() {
     initializeApp,
     setConnectionStatus,
     setSystemStats,
+    setConsciousnessEnabled,
   } = useOzoneStore();
   
   const [loading, setLoading] = useState(true);
@@ -113,6 +121,7 @@ function App() {
   const [setupErrors, setSetupErrors] = useState<string[]>([]);
   const [setupConfig, setSetupConfig] = useState<SetupConfig>({
     modelType: null,
+    apiProvider: '',
     apiKey: '',
     localModelPath: '',
     localModelType: 'gguf',
@@ -120,6 +129,13 @@ function App() {
     whisperModel: 'base',
     consciousnessEnabled: false,
   });
+  const [whisperModels, setWhisperModels] = useState<WhisperModelStatus[]>([
+    { name: 'tiny', size: '~75MB', installed: false },
+    { name: 'base', size: '~150MB', installed: false },
+    { name: 'small', size: '~500MB', installed: false },
+    { name: 'medium', size: '~1.5GB', installed: false },
+    { name: 'large', size: '~3GB', installed: false },
+  ]);
 
   // Try to connect to backend
   const tryConnect = async (): Promise<boolean> => {
@@ -198,15 +214,43 @@ function App() {
       // Model configuration
       if (!setupConfig.modelType) {
         errors.push('Please select a model type');
-      } else if (setupConfig.modelType === 'api' && !setupConfig.apiKey.trim()) {
-        errors.push('Please enter an API key');
+      } else if (setupConfig.modelType === 'api') {
+        if (!setupConfig.apiProvider) {
+          errors.push('Please select an API provider');
+        }
+        if (!setupConfig.apiKey.trim()) {
+          errors.push('Please enter an API key');
+        }
       } else if (setupConfig.modelType === 'local' && !setupConfig.localModelPath.trim()) {
         errors.push('Please select or enter a model file path');
       }
     }
     
+    if (setupStep === 1 && setupConfig.voiceEnabled) {
+      // Check if selected whisper model is installed
+      const selectedModel = whisperModels.find(m => m.name === setupConfig.whisperModel);
+      if (selectedModel && !selectedModel.installed) {
+        errors.push(`Whisper model "${setupConfig.whisperModel}" is not installed`);
+      }
+    }
+    
     setSetupErrors(errors);
     return errors.length === 0;
+  };
+
+  // Check which whisper models are installed
+  const checkWhisperModels = async () => {
+    if (window.ozone?.system?.checkWhisperModels) {
+      try {
+        const installed = await window.ozone.system.checkWhisperModels();
+        setWhisperModels(prev => prev.map(m => ({
+          ...m,
+          installed: installed.includes(m.name)
+        })));
+      } catch (e) {
+        console.warn('Could not check whisper models');
+      }
+    }
   };
 
   // Handle file selection for local model
@@ -224,8 +268,13 @@ function App() {
   // Navigate setup wizard
   const handleSetupNext = () => {
     if (validateSetupStep()) {
-      if (setupStep < 3) {
-        setSetupStep(setupStep + 1);
+      const nextStep = setupStep + 1;
+      if (nextStep < 4) {
+        setSetupStep(nextStep);
+        // Auto-check whisper models when entering voice step
+        if (nextStep === 1) {
+          checkWhisperModels();
+        }
       }
     }
   };
@@ -240,29 +289,37 @@ function App() {
   // Complete setup wizard
   const completeSetup = async () => {
     try {
+      const configUpdates = {
+        setup_complete: true,
+        models: {
+          model_type: setupConfig.modelType,
+          api_provider: setupConfig.modelType === 'api' ? setupConfig.apiProvider : undefined,
+          api_key: setupConfig.modelType === 'api' ? setupConfig.apiKey : undefined,
+          local_model_path: setupConfig.modelType === 'local' ? setupConfig.localModelPath : undefined,
+          local_model_type: setupConfig.localModelType,
+        },
+        voice: {
+          enabled: setupConfig.voiceEnabled,
+          whisper_model: setupConfig.whisperModel,
+        },
+        consciousness: {
+          enabled: setupConfig.consciousnessEnabled,
+        },
+      };
+      
       if (window.ozone?.config?.set) {
-        await window.ozone.config.set({
-          setup_complete: true,
-          models: {
-            model_type: setupConfig.modelType,
-            api_key: setupConfig.modelType === 'api' ? setupConfig.apiKey : undefined,
-            local_model_path: setupConfig.modelType === 'local' ? setupConfig.localModelPath : undefined,
-            local_model_type: setupConfig.localModelType,
-          },
-          voice: {
-            enabled: setupConfig.voiceEnabled,
-            whisper_model: setupConfig.whisperModel,
-          },
-          consciousness: {
-            enabled: setupConfig.consciousnessEnabled,
-          },
-        });
+        const result = await window.ozone.config.set(configUpdates);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to save configuration');
+        }
       }
       
       if (window.ozone?.system?.markSetupComplete) {
         await window.ozone.system.markSetupComplete();
       }
       
+      // Update local state
+      setConsciousnessEnabled(setupConfig.consciousnessEnabled);
       setShowSetupWizard(false);
     } catch (err) {
       console.error('Setup completion failed:', err);
@@ -384,14 +441,48 @@ function App() {
                 
                 {setupConfig.modelType === 'api' && (
                   <div className="model-config-section">
+                    <label>API Provider</label>
+                    <div className="api-provider-selection">
+                      <button 
+                        className={`provider-btn ${setupConfig.apiProvider === 'anthropic' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, apiProvider: 'anthropic' }))}
+                      >
+                        <span className="provider-name">Anthropic</span>
+                        <span className="provider-model">Claude</span>
+                      </button>
+                      <button 
+                        className={`provider-btn ${setupConfig.apiProvider === 'openai' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, apiProvider: 'openai' }))}
+                      >
+                        <span className="provider-name">OpenAI</span>
+                        <span className="provider-model">GPT-4</span>
+                      </button>
+                      <button 
+                        className={`provider-btn ${setupConfig.apiProvider === 'google' ? 'selected' : ''}`}
+                        onClick={() => setSetupConfig(prev => ({ ...prev, apiProvider: 'google' }))}
+                      >
+                        <span className="provider-name">Google</span>
+                        <span className="provider-model">Gemini</span>
+                      </button>
+                    </div>
+                    
                     <label>API Key</label>
                     <input 
                       type="password"
-                      placeholder="Enter your API key"
+                      placeholder={setupConfig.apiProvider ? `Enter your ${setupConfig.apiProvider} API key` : 'Select a provider first'}
                       value={setupConfig.apiKey}
                       onChange={(e) => setSetupConfig(prev => ({ ...prev, apiKey: e.target.value }))}
+                      disabled={!setupConfig.apiProvider}
                     />
-                    <p className="config-hint">Supports: Anthropic Claude, OpenAI GPT, and compatible APIs</p>
+                    {setupConfig.apiProvider === 'anthropic' && (
+                      <p className="config-hint">Get your API key from console.anthropic.com</p>
+                    )}
+                    {setupConfig.apiProvider === 'openai' && (
+                      <p className="config-hint">Get your API key from platform.openai.com</p>
+                    )}
+                    {setupConfig.apiProvider === 'google' && (
+                      <p className="config-hint">Get your API key from aistudio.google.com</p>
+                    )}
                   </div>
                 )}
                 
@@ -457,7 +548,10 @@ function App() {
                     <input 
                       type="checkbox"
                       checked={setupConfig.voiceEnabled}
-                      onChange={(e) => setSetupConfig(prev => ({ ...prev, voiceEnabled: e.target.checked }))}
+                      onChange={(e) => {
+                        setSetupConfig(prev => ({ ...prev, voiceEnabled: e.target.checked }));
+                        if (e.target.checked) checkWhisperModels();
+                      }}
                     />
                     <span className="toggle-text">Enable Voice Input</span>
                   </label>
@@ -466,17 +560,27 @@ function App() {
                 {setupConfig.voiceEnabled && (
                   <div className="voice-config-section">
                     <label>Whisper Model Size</label>
-                    <select 
-                      value={setupConfig.whisperModel}
-                      onChange={(e) => setSetupConfig(prev => ({ ...prev, whisperModel: e.target.value }))}
-                    >
-                      <option value="tiny">Tiny (~75MB) - Fastest, lower accuracy</option>
-                      <option value="base">Base (~150MB) - Good balance</option>
-                      <option value="small">Small (~500MB) - Better accuracy</option>
-                      <option value="medium">Medium (~1.5GB) - High accuracy</option>
-                      <option value="large">Large (~3GB) - Best accuracy</option>
-                    </select>
-                    <p className="config-hint">Larger models are more accurate but require more resources</p>
+                    <div className="whisper-model-list">
+                      {whisperModels.map((model) => (
+                        <button
+                          key={model.name}
+                          className={`whisper-model-btn ${setupConfig.whisperModel === model.name ? 'selected' : ''} ${!model.installed ? 'not-installed' : ''}`}
+                          onClick={() => model.installed && setSetupConfig(prev => ({ ...prev, whisperModel: model.name }))}
+                          disabled={!model.installed}
+                        >
+                          <span className="model-name">{model.name}</span>
+                          <span className="model-size">{model.size}</span>
+                          {model.installed ? (
+                            <span className="model-status installed">✓ Installed</span>
+                          ) : (
+                            <span className="model-status not-installed">Not Installed</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="config-hint">
+                      Models are stored in the whisper/ folder. Download models to enable them.
+                    </p>
                   </div>
                 )}
                 

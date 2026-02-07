@@ -98,8 +98,34 @@ mod consciousness_hooks {
         }
         
         // Run basic ethical assessment
-        // In full implementation, this would call the decision_gate pipeline
-        let ethical_score = 0.9; // Would run actual assessment
+        // Analyze task summary for potential issues
+        let task_lower = task_summary.to_lowercase();
+        let mut ethical_score = 1.0f32;
+        let mut concerns: Vec<String> = Vec::new();
+        
+        // Check for harmful patterns
+        let harmful_patterns = [
+            ("harm", 0.2), ("illegal", 0.3), ("hack", 0.2), ("steal", 0.3),
+            ("violence", 0.3), ("exploit", 0.2), ("malicious", 0.3), ("attack", 0.2),
+        ];
+        
+        for (pattern, penalty) in harmful_patterns {
+            if task_lower.contains(pattern) {
+                ethical_score -= penalty;
+                concerns.push(format!("Contains concerning term: {}", pattern));
+            }
+        }
+        
+        // Check for sensitive data handling without proper context
+        let sensitive_patterns = ["password", "credit card", "ssn", "private key"];
+        for pattern in sensitive_patterns {
+            if task_lower.contains(pattern) {
+                ethical_score -= 0.1;
+                concerns.push(format!("Involves sensitive data: {}", pattern));
+            }
+        }
+        
+        ethical_score = ethical_score.max(0.0).min(1.0);
         
         // Record gate decision
         let gate_record = serde_json::json!({
@@ -108,6 +134,7 @@ mod consciousness_hooks {
             "user_id": user_id,
             "decision": if ethical_score >= 0.7 { "proceed" } else { "decline" },
             "ethical_score": ethical_score,
+            "concerns": concerns,
         });
         
         let decisions_path = Path::new(&config_path).join("gate_decisions.json");
@@ -120,7 +147,11 @@ mod consciousness_hooks {
         
         GateDecision {
             proceed: ethical_score >= 0.7,
-            reasoning: format!("Ethical assessment score: {:.2}", ethical_score),
+            reasoning: if concerns.is_empty() {
+                format!("Ethical assessment passed: {:.2}", ethical_score)
+            } else {
+                format!("Ethical assessment score: {:.2}, concerns: {}", ethical_score, concerns.join(", "))
+            },
             modifications: vec![],
         }
     }
@@ -376,8 +407,20 @@ struct StoredTask {
     workspace_id: Option<u64>,
     project_id: Option<u64>,
     parent_task_id: Option<u64>,
-    inputs: HashMap<String, serde_json::Value>,
+    inputs: Option<serde_json::Value>,  // Changed to Option<Value> for flexibility
+    outputs: Option<serde_json::Value>, // Task outputs
+    steps: Option<Vec<StoredTaskStep>>, // Blueprint step tracking
     error: Option<String>,
+}
+
+/// Step tracking for blueprint execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct StoredTaskStep {
+    pipeline_id: u64,
+    status: String,
+    started_at: Option<u64>,
+    completed_at: Option<u64>,
+    output_summary: Option<String>,
 }
 
 struct TaskUpdates {
@@ -413,6 +456,8 @@ pub enum TaskManagerInput {
         parent_task_id: Option<u64>,
         workspace_id: Option<u64>,
         project_id: Option<u64>,
+        user_id: Option<u64>,
+        device_id: Option<u64>,
     },
     /// Get task by ID
     Get { task_id: u64 },
@@ -452,6 +497,20 @@ pub enum TaskManagerInput {
     GetLogs { task_id: u64, limit: Option<u32> },
     /// Clear completed tasks
     ClearCompleted { older_than_secs: Option<u64> },
+    
+    // === MERGED FROM TASK_VIEWER (#36 - DEPRECATED) ===
+    /// Get detailed task information (from task_viewer)
+    GetDetails { task_id: u64 },
+    /// Get task inputs (from task_viewer)
+    GetInputs { task_id: u64 },
+    /// Get task outputs (from task_viewer)
+    GetOutputs { task_id: u64 },
+    /// Get task timeline/history (from task_viewer)
+    GetTimeline { task_id: u64 },
+    /// Compare multiple tasks (from task_viewer)
+    Compare { task_ids: Vec<u64> },
+    /// Get step information for a task
+    GetSteps { task_id: u64 },
 }
 
 /// Task data
@@ -491,6 +550,42 @@ pub struct TaskManagerOutput {
     pub logs: Option<Vec<LogEntry>>,
     pub task_id: Option<u64>,
     pub error: Option<String>,
+    // === NEW: From task_viewer merge ===
+    pub inputs: Option<serde_json::Value>,   // Task input data
+    pub outputs: Option<serde_json::Value>,  // Task output data
+    pub timeline: Option<Vec<TimelineEvent>>, // Task timeline/history
+    pub steps: Option<Vec<TaskStep>>,        // Blueprint steps
+    pub comparison: Option<Vec<TaskComparison>>, // Task comparison data
+}
+
+/// Timeline event for task history
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineEvent {
+    pub timestamp: u64,
+    pub event: String,
+    pub details: Option<String>,
+}
+
+/// Task step information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskStep {
+    pub step_number: u32,
+    pub pipeline_id: u64,
+    pub pipeline_name: String,
+    pub status: String,  // pending, running, completed, failed
+    pub started_at: Option<u64>,
+    pub completed_at: Option<u64>,
+    pub output_summary: Option<String>,
+}
+
+/// Task comparison entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskComparison {
+    pub task_id: u64,
+    pub pipeline_name: String,
+    pub status: String,
+    pub duration_secs: Option<u64>,
+    pub created_at: u64,
 }
 
 /// Get pipeline name from ID
@@ -523,6 +618,21 @@ fn pipeline_name(id: u64) -> String {
 
 /// Convert StoredTask to TaskData
 fn to_task_data(task_id: u64, stored: &StoredTask) -> TaskData {
+    // Count children by scanning task store
+    let tasks_dir = env::var("OZONE_TASKS_PATH")
+        .unwrap_or_else(|_| "./ozone_tasks".to_string());
+    
+    let child_count = std::fs::read_dir(&tasks_dir)
+        .map(|entries| {
+            entries.filter_map(|e| e.ok())
+                .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+                .filter_map(|content| serde_json::from_str::<StoredTask>(&content).ok())
+                .filter(|t| t.parent_task_id == Some(task_id))
+                .count() as u32
+        })
+        .unwrap_or(0);
+    
     TaskData {
         task_id,
         pipeline_id: stored.pipeline_id,
@@ -537,7 +647,7 @@ fn to_task_data(task_id: u64, stored: &StoredTask) -> TaskData {
         workspace_id: stored.workspace_id,
         project_id: stored.project_id,
         parent_task_id: stored.parent_task_id,
-        child_count: 0, // Would be computed from store
+        child_count,
         error: stored.error.clone(),
     }
 }
@@ -545,12 +655,16 @@ fn to_task_data(task_id: u64, stored: &StoredTask) -> TaskData {
 /// Execute the task manager pipeline using DIRECT storage access
 pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, String> {
     match input {
-        TaskManagerInput::Create { pipeline_id, inputs, parent_task_id, workspace_id, project_id } => {
+        TaskManagerInput::Create { pipeline_id, inputs, parent_task_id, workspace_id, project_id, user_id, device_id } => {
             // I-LOOP PROTECTION: Wait for I-Loop to complete before starting task
             // Tasks must NOT front-run the I-Loop
             if consciousness_enabled() {
                 wait_for_i_loop_completion().await;
             }
+            
+            // Get user_id from input or default to 1
+            let actual_user_id = user_id.unwrap_or(1);
+            let actual_device_id = device_id.unwrap_or(1);
             
             // Get task summary for consciousness gate
             let task_summary = inputs.get("prompt")
@@ -561,7 +675,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
             
             // CONSCIOUSNESS INTEGRATION: Pre-task decision gate (§33)
             if consciousness_enabled() {
-                let gate_decision = consciousness_hooks::pre_task_gate(&task_summary, 1); // user_id = 1 for now
+                let gate_decision = consciousness_hooks::pre_task_gate(&task_summary, actual_user_id);
                 
                 if !gate_decision.proceed {
                     return Ok(TaskManagerOutput {
@@ -571,6 +685,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                         logs: None,
                         task_id: None,
                         error: Some(format!("Task declined by consciousness gate: {}", gate_decision.reasoning)),
+                        inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
                     });
                 }
             }
@@ -584,12 +699,14 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 created_at: now(),
                 started_at: None,
                 completed_at: None,
-                user_id: 1, // Would come from session context
-                device_id: 1,
+                user_id: actual_user_id,
+                device_id: actual_device_id,
                 workspace_id,
                 project_id,
                 parent_task_id,
-                inputs,
+                inputs: Some(serde_json::to_value(&inputs).unwrap_or_default()),
+                outputs: None,
+                steps: None,
                 error: None,
             };
             
@@ -616,6 +733,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
+                inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
             })
         }
         
@@ -632,6 +750,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: None,
                     error: None,
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
@@ -641,6 +760,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
                 })
             }
         }
@@ -674,7 +794,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: None,
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::UpdateStatus { task_id, status, error } => {
@@ -716,7 +837,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::AddLog { task_id, level, message } => {
@@ -735,7 +857,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::UpdateProgress { task_id, current_step, total_steps } => {
@@ -761,7 +884,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::Cancel { task_id } => {
@@ -781,7 +905,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::Retry { task_id } => {
@@ -819,6 +944,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: Some(new_task_id),
                     error: None,
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
@@ -847,7 +973,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: None,
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::GetLogs { task_id, limit } => {
@@ -867,7 +994,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: Some(logs),
                 task_id: None,
                 error: None,
-            })
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
         }
         
         TaskManagerInput::ClearCompleted { older_than_secs } => {
@@ -896,7 +1024,212 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: None,
                 error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
             })
+        }
+        
+        // === MERGED FROM TASK_VIEWER (#36 - DEPRECATED) ===
+        
+        TaskManagerInput::GetDetails { task_id } => {
+            let store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get(&task_id) {
+                Ok(TaskManagerOutput {
+                    success: true,
+                    task: Some(to_task_data(task_id, task)),
+                    tasks: None,
+                    logs: store.logs.get(&task_id).cloned(),
+                    task_id: Some(task_id),
+                    error: None,
+                    inputs: task.inputs.clone(),
+                    outputs: task.outputs.clone(),
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                })
+            } else {
+                Ok(TaskManagerOutput {
+                    success: false,
+                    task: None, tasks: None, logs: None, task_id: None,
+                    error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            }
+        }
+        
+        TaskManagerInput::GetInputs { task_id } => {
+            let store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get(&task_id) {
+                Ok(TaskManagerOutput {
+                    success: true,
+                    task: None, tasks: None, logs: None,
+                    task_id: Some(task_id),
+                    error: None,
+                    inputs: task.inputs.clone(),
+                    outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            } else {
+                Ok(TaskManagerOutput {
+                    success: false,
+                    task: None, tasks: None, logs: None, task_id: None,
+                    error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            }
+        }
+        
+        TaskManagerInput::GetOutputs { task_id } => {
+            let store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get(&task_id) {
+                Ok(TaskManagerOutput {
+                    success: true,
+                    task: None, tasks: None, logs: None,
+                    task_id: Some(task_id),
+                    error: None,
+                    inputs: None,
+                    outputs: task.outputs.clone(),
+                    timeline: None, steps: None, comparison: None,
+                })
+            } else {
+                Ok(TaskManagerOutput {
+                    success: false,
+                    task: None, tasks: None, logs: None, task_id: None,
+                    error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            }
+        }
+        
+        TaskManagerInput::GetTimeline { task_id } => {
+            let store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get(&task_id) {
+                // Build timeline from task state and logs
+                let mut timeline = Vec::new();
+                
+                timeline.push(TimelineEvent {
+                    timestamp: task.created_at,
+                    event: "created".to_string(),
+                    details: Some(format!("Pipeline: {}", task.pipeline_name)),
+                });
+                
+                if let Some(started) = task.started_at {
+                    timeline.push(TimelineEvent {
+                        timestamp: started,
+                        event: "started".to_string(),
+                        details: None,
+                    });
+                }
+                
+                // Add log entries as timeline events
+                if let Some(logs) = store.logs.get(&task_id) {
+                    for log in logs {
+                        timeline.push(TimelineEvent {
+                            timestamp: log.timestamp,
+                            event: format!("log_{}", log.level),
+                            details: Some(log.message.clone()),
+                        });
+                    }
+                }
+                
+                if let Some(completed) = task.completed_at {
+                    timeline.push(TimelineEvent {
+                        timestamp: completed,
+                        event: task.status.clone(),
+                        details: task.error.clone(),
+                    });
+                }
+                
+                // Sort by timestamp
+                timeline.sort_by_key(|e| e.timestamp);
+                
+                Ok(TaskManagerOutput {
+                    success: true,
+                    task: None, tasks: None, logs: None,
+                    task_id: Some(task_id),
+                    error: None,
+                    inputs: None, outputs: None,
+                    timeline: Some(timeline),
+                    steps: None, comparison: None,
+                })
+            } else {
+                Ok(TaskManagerOutput {
+                    success: false,
+                    task: None, tasks: None, logs: None, task_id: None,
+                    error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            }
+        }
+        
+        TaskManagerInput::Compare { task_ids } => {
+            let store = TASK_STORE.lock().unwrap();
+            let mut comparison = Vec::new();
+            
+            for task_id in task_ids {
+                if let Some(task) = store.tasks.get(&task_id) {
+                    let duration = match (task.started_at, task.completed_at) {
+                        (Some(s), Some(c)) => Some(c - s),
+                        _ => None,
+                    };
+                    
+                    comparison.push(TaskComparison {
+                        task_id,
+                        pipeline_name: task.pipeline_name.clone(),
+                        status: task.status.clone(),
+                        duration_secs: duration,
+                        created_at: task.created_at,
+                    });
+                }
+            }
+            
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None, tasks: None, logs: None, task_id: None,
+                error: None,
+                inputs: None, outputs: None, timeline: None,
+                steps: None,
+                comparison: Some(comparison),
+            })
+        }
+        
+        TaskManagerInput::GetSteps { task_id } => {
+            let store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get(&task_id) {
+                // Get steps from task's step tracking if available
+                let steps = task.steps.as_ref().map(|s| {
+                    s.iter().enumerate().map(|(i, step)| {
+                        TaskStep {
+                            step_number: (i + 1) as u32,
+                            pipeline_id: step.pipeline_id,
+                            pipeline_name: pipeline_name(step.pipeline_id),
+                            status: step.status.clone(),
+                            started_at: step.started_at,
+                            completed_at: step.completed_at,
+                            output_summary: step.output_summary.clone(),
+                        }
+                    }).collect()
+                }).unwrap_or_default();
+                
+                Ok(TaskManagerOutput {
+                    success: true,
+                    task: None, tasks: None, logs: None,
+                    task_id: Some(task_id),
+                    error: None,
+                    inputs: None, outputs: None, timeline: None,
+                    steps: Some(steps),
+                    comparison: None,
+                })
+            } else {
+                Ok(TaskManagerOutput {
+                    success: false,
+                    task: None, tasks: None, logs: None, task_id: None,
+                    error: Some(format!("Task {} not found", task_id)),
+                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                })
+            }
         }
     }
 }
@@ -925,6 +1258,7 @@ fn main() {
         Err(e) => {
             let output = TaskManagerOutput {
                 success: false, task: None, tasks: None, logs: None, task_id: None, error: Some(e),
+                inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
             };
             println!("{}", serde_json::to_string(&output).unwrap());
             std::process::exit(1);

@@ -151,6 +151,46 @@ pub struct ConfigSetResponse {
 }
 
 // ============================================================================
+// v0.4.0 - Pipeline Registry Types
+// ============================================================================
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineRegistryRequest {
+    pub session_token: Option<String>,  // Optional - registry is semi-public
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineRegistryEntry {
+    pub id: u64,
+    pub name: String,
+    pub folder_name: String,
+    pub category: String,
+    pub has_ui: bool,
+    pub is_tab: bool,
+    pub description: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineRegistryResponse {
+    pub success: bool,
+    pub registry: Option<Vec<PipelineRegistryEntry>>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineUIComponentRequest {
+    pub pipeline_id: u64,
+    pub session_token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineUIComponentResponse {
+    pub success: bool,
+    pub component_js: Option<String>,
+    pub error: Option<String>,
+}
+
+// ============================================================================
 // Route Handlers
 // ============================================================================
 
@@ -458,6 +498,135 @@ async fn set_config(
     }
 }
 
+// ============================================================================
+// v0.4.0 - Pipeline Registry Handlers
+// ============================================================================
+
+/// Get full pipeline registry - THE SINGLE SOURCE OF TRUTH
+async fn get_pipeline_registry(
+    Json(_req): Json<PipelineRegistryRequest>,
+) -> Json<PipelineRegistryResponse> {
+    // Build registry from the authoritative source
+    // This mirrors what's in src/pipeline/registry.rs PIPELINE_INFO
+    let registry = build_pipeline_registry();
+    
+    Json(PipelineRegistryResponse {
+        success: true,
+        registry: Some(registry),
+        error: None,
+    })
+}
+
+/// Build the full pipeline registry
+/// MUST stay in sync with src/pipeline/registry.rs PIPELINE_INFO
+fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
+    vec![
+        // Core System Pipelines (1-38)
+        PipelineRegistryEntry { id: 1, name: "Auth".into(), folder_name: "auth".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Ed25519 challenge-response authentication".into() },
+        PipelineRegistryEntry { id: 2, name: "ThemeLoader".into(), folder_name: "theme_loader".into(), category: "core".into(), has_ui: false, is_tab: false, description: "UI theme management and pipeline UI loading".into() },
+        PipelineRegistryEntry { id: 3, name: "ZSEIQuery".into(), folder_name: "zsei_query".into(), category: "core".into(), has_ui: false, is_tab: false, description: "ZSEI container queries".into() },
+        PipelineRegistryEntry { id: 4, name: "ZSEIWrite".into(), folder_name: "zsei_write".into(), category: "core".into(), has_ui: false, is_tab: false, description: "ZSEI container writes".into() },
+        PipelineRegistryEntry { id: 5, name: "TaskManager".into(), folder_name: "task_manager".into(), category: "core".into(), has_ui: true, is_tab: true, description: "Task lifecycle management".into() },
+        PipelineRegistryEntry { id: 6, name: "WorkspaceTab".into(), folder_name: "workspace_tab".into(), category: "core".into(), has_ui: true, is_tab: true, description: "Workspace and project management".into() },
+        PipelineRegistryEntry { id: 7, name: "LibraryTab".into(), folder_name: "library_tab".into(), category: "core".into(), has_ui: true, is_tab: true, description: "Pipeline/methodology/blueprint browser".into() },
+        PipelineRegistryEntry { id: 8, name: "SettingsTab".into(), folder_name: "settings_tab".into(), category: "core".into(), has_ui: true, is_tab: true, description: "Application settings".into() },
+        PipelineRegistryEntry { id: 9, name: "Prompt".into(), folder_name: "prompt".into(), category: "core".into(), has_ui: false, is_tab: false, description: "LLM interface (API/GGUF/ONNX)".into() },
+        PipelineRegistryEntry { id: 10, name: "Voice".into(), folder_name: "voice".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Voice input/output".into() },
+        PipelineRegistryEntry { id: 11, name: "MethodologyFetch".into(), folder_name: "methodology_fetch".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Methodology retrieval".into() },
+        PipelineRegistryEntry { id: 12, name: "MethodologyCreate".into(), folder_name: "methodology_create".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Methodology creation".into() },
+        PipelineRegistryEntry { id: 13, name: "BlueprintSearch".into(), folder_name: "blueprint_search".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Blueprint search".into() },
+        PipelineRegistryEntry { id: 14, name: "BlueprintCreate".into(), folder_name: "blueprint_create".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Blueprint creation".into() },
+        PipelineRegistryEntry { id: 15, name: "PipelineCreation".into(), folder_name: "pipeline_creation".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Pipeline bootstrapping".into() },
+        PipelineRegistryEntry { id: 16, name: "ZeroShotSimulation".into(), folder_name: "zero_shot_simulation".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Zero-shot task validation".into() },
+        PipelineRegistryEntry { id: 17, name: "TraversalML".into(), folder_name: "traversal_ml".into(), category: "core".into(), has_ui: false, is_tab: false, description: "ML-guided ZSEI traversal".into() },
+        PipelineRegistryEntry { id: 18, name: "CodeAnalysis".into(), folder_name: "code_analysis".into(), category: "core".into(), has_ui: true, is_tab: false, description: "Code analysis with LLM".into() },
+        PipelineRegistryEntry { id: 19, name: "PackageContext".into(), folder_name: "package_context".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Package context extraction".into() },
+        PipelineRegistryEntry { id: 20, name: "TextAnalysis".into(), folder_name: "text_analysis".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Text analysis with LLM".into() },
+        PipelineRegistryEntry { id: 21, name: "ContextAggregation".into(), folder_name: "context_aggregation".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Context aggregation for prompts".into() },
+        PipelineRegistryEntry { id: 22, name: "GraphVisualization".into(), folder_name: "graph_visualization".into(), category: "core".into(), has_ui: true, is_tab: false, description: "Dependency graph visualization".into() },
+        PipelineRegistryEntry { id: 23, name: "TaskRecommendation".into(), folder_name: "task_recommendation".into(), category: "core".into(), has_ui: false, is_tab: false, description: "ML-based task suggestions".into() },
+        PipelineRegistryEntry { id: 24, name: "Reordering".into(), folder_name: "reordering".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Blueprint step reordering".into() },
+        PipelineRegistryEntry { id: 25, name: "BrowserNavigation".into(), folder_name: "browser_navigation".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Web browser automation".into() },
+        PipelineRegistryEntry { id: 26, name: "IntegrityCheck".into(), folder_name: "integrity_check".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Blake3 hash verification".into() },
+        PipelineRegistryEntry { id: 27, name: "Consensus".into(), folder_name: "consensus".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Distributed consensus".into() },
+        PipelineRegistryEntry { id: 28, name: "ExternalReference".into(), folder_name: "external_reference".into(), category: "core".into(), has_ui: false, is_tab: false, description: "External reference tracking".into() },
+        PipelineRegistryEntry { id: 29, name: "PackageRelationship".into(), folder_name: "package_relationship".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Package dependency graphs".into() },
+        PipelineRegistryEntry { id: 30, name: "FileLink".into(), folder_name: "file_link".into(), category: "core".into(), has_ui: true, is_tab: false, description: "File reference linking".into() },
+        PipelineRegistryEntry { id: 31, name: "URLLink".into(), folder_name: "url_link".into(), category: "core".into(), has_ui: true, is_tab: false, description: "URL reference linking".into() },
+        PipelineRegistryEntry { id: 32, name: "PackageLink".into(), folder_name: "package_link".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Package reference linking".into() },
+        PipelineRegistryEntry { id: 33, name: "Sync".into(), folder_name: "sync".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Distributed sync".into() },
+        PipelineRegistryEntry { id: 34, name: "DeviceRegister".into(), folder_name: "device_register".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Device registration".into() },
+        PipelineRegistryEntry { id: 35, name: "HomeReturn".into(), folder_name: "home_return".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Home navigation".into() },
+        PipelineRegistryEntry { id: 36, name: "TaskViewer".into(), folder_name: "task_viewer".into(), category: "core".into(), has_ui: false, is_tab: false, description: "DEPRECATED - merged into TaskManager".into() },
+        PipelineRegistryEntry { id: 37, name: "LogViewer".into(), folder_name: "log_viewer".into(), category: "core".into(), has_ui: true, is_tab: false, description: "Log viewer UI".into() },
+        PipelineRegistryEntry { id: 38, name: "DeviceStatus".into(), folder_name: "device_status".into(), category: "core".into(), has_ui: false, is_tab: false, description: "Device monitoring".into() },
+        // Consciousness Pipelines (39-54)
+        PipelineRegistryEntry { id: 39, name: "DecisionGate".into(), folder_name: "consciousness_decision_gate".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Ethical decision gating".into() },
+        PipelineRegistryEntry { id: 40, name: "ExperienceCategorization".into(), folder_name: "experience_categorization".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Experience categorization".into() },
+        PipelineRegistryEntry { id: 41, name: "CoreMemoryFormation".into(), folder_name: "core_memory_formation".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Core memory formation".into() },
+        PipelineRegistryEntry { id: 42, name: "ExperienceRetrieval".into(), folder_name: "experience_retrieval".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Experience retrieval".into() },
+        PipelineRegistryEntry { id: 43, name: "EmotionalBaselineUpdate".into(), folder_name: "emotional_baseline_update".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Emotional baseline calibration".into() },
+        PipelineRegistryEntry { id: 44, name: "ILoop".into(), folder_name: "i_loop".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "I-Loop self-reflection".into() },
+        PipelineRegistryEntry { id: 45, name: "InternalLanguage".into(), folder_name: "internal_language".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Internal language processing".into() },
+        PipelineRegistryEntry { id: 46, name: "NarrativeConstruction".into(), folder_name: "narrative_construction".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Narrative construction".into() },
+        PipelineRegistryEntry { id: 47, name: "RelationshipDevelopment".into(), folder_name: "relationship_development".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Relationship development".into() },
+        PipelineRegistryEntry { id: 48, name: "EthicalAssessment".into(), folder_name: "ethical_assessment".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Ethical assessment".into() },
+        PipelineRegistryEntry { id: 49, name: "EthicalSimulation".into(), folder_name: "ethical_simulation".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Ethical simulation".into() },
+        PipelineRegistryEntry { id: 50, name: "PlaybackReview".into(), folder_name: "playback_review".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Experience playback review".into() },
+        PipelineRegistryEntry { id: 51, name: "UserFeedback".into(), folder_name: "user_feedback".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "User feedback processing".into() },
+        PipelineRegistryEntry { id: 52, name: "CollectiveConsciousness".into(), folder_name: "collective_consciousness".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Collective consciousness sync".into() },
+        PipelineRegistryEntry { id: 53, name: "VoiceIdentity".into(), folder_name: "voice_identity".into(), category: "consciousness".into(), has_ui: false, is_tab: false, description: "Voice identity development".into() },
+        PipelineRegistryEntry { id: 54, name: "MetaPortionConsciousness".into(), folder_name: "meta_portion_consciousness".into(), category: "consciousness".into(), has_ui: true, is_tab: false, description: "Meta Portion consciousness UI".into() },
+    ]
+}
+
+/// Get pipeline UI component.js content
+async fn get_pipeline_ui_component(
+    Json(req): Json<PipelineUIComponentRequest>,
+) -> Json<PipelineUIComponentResponse> {
+    let pipeline_id = req.pipeline_id;
+    
+    // Get folder name from registry
+    let registry = build_pipeline_registry();
+    let entry = registry.iter().find(|e| e.id == pipeline_id);
+    
+    let (category, folder_name) = match entry {
+        Some(e) => (e.category.as_str(), e.folder_name.as_str()),
+        None => {
+            return Json(PipelineUIComponentResponse {
+                success: false,
+                component_js: None,
+                error: Some(format!("Pipeline {} not found in registry", pipeline_id)),
+            });
+        }
+    };
+    
+    // Try to load component.js from pipeline's ui folder
+    let pipelines_path = std::env::var("OZONE_PIPELINES_PATH")
+        .unwrap_or_else(|_| "./pipelines".to_string());
+    
+    let possible_paths = [
+        format!("{}/{}/{}/ui/component.js", pipelines_path, category, folder_name),
+        format!("./pipelines/{}/{}/ui/component.js", category, folder_name),
+    ];
+    
+    for path in &possible_paths {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return Json(PipelineUIComponentResponse {
+                success: true,
+                component_js: Some(content),
+                error: None,
+            });
+        }
+    }
+    
+    Json(PipelineUIComponentResponse {
+        success: false,
+        component_js: None,
+        error: Some(format!("No UI component found for pipeline {}", pipeline_id)),
+    })
+}
+
 async fn websocket_handler(
     ws: WebSocketUpgrade,
     State(state): State<Arc<AppState>>,
@@ -518,6 +687,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/auth/challenge", post(request_challenge))
         .route("/auth/authenticate", post(authenticate))
         .route("/pipeline/execute", post(execute_pipeline))
+        .route("/pipeline/registry", post(get_pipeline_registry))
+        .route("/pipeline/ui-component", post(get_pipeline_ui_component))
         .route("/task/get", post(get_task))
         .route("/task/list", post(list_tasks))
         .route("/zsei/query", post(query_zsei))

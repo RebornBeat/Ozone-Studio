@@ -136,66 +136,16 @@ impl PipelineExecutor {
     }
     
     /// Get builtin pipeline category and name from ID
+    /// Uses the central registry - NO HARDCODING
     fn get_builtin_info(&self, pipeline_id: PipelineID) -> (&'static str, String) {
-        let (category, name) = match pipeline_id {
-            1 => ("core", "auth"),
-            2 => ("core", "theme_loader"),
-            3 => ("core", "zsei_query"),
-            4 => ("core", "zsei_write"),
-            5 => ("core", "task_manager"),
-            6 => ("core", "workspace_tab"),
-            7 => ("core", "library_tab"),
-            8 => ("core", "settings_tab"),
-            9 => ("core", "prompt"),
-            10 => ("core", "voice"),
-            11 => ("core", "methodology_fetch"),
-            12 => ("core", "methodology_create"),
-            13 => ("core", "blueprint_search"),
-            14 => ("core", "blueprint_create"),
-            15 => ("core", "pipeline_creation"),
-            16 => ("core", "zero_shot_simulation"),
-            17 => ("core", "traversal_ml"),
-            18 => ("core", "code_analysis"),
-            19 => ("core", "package_context"),
-            20 => ("core", "text_analysis"),
-            21 => ("core", "context_aggregation"),
-            22 => ("core", "graph_visualization"),
-            23 => ("core", "task_recommendation"),
-            24 => ("core", "reordering"),
-            25 => ("core", "browser_navigation"),
-            26 => ("core", "integrity_check"),
-            27 => ("core", "consensus"),
-            28 => ("core", "external_reference"),
-            29 => ("core", "package_relationship"),
-            30 => ("core", "file_link"),
-            31 => ("core", "url_link"),
-            32 => ("core", "package_link"),
-            33 => ("core", "sync"),
-            34 => ("core", "device_register"),
-            35 => ("core", "home_return"),
-            36 => ("core", "task_viewer"),
-            37 => ("core", "log_viewer"),
-            38 => ("core", "device_status"),
-            // Consciousness pipelines
-            39 => ("consciousness", "decision_gate"),
-            40 => ("consciousness", "emotional_state"),
-            41 => ("consciousness", "experience_memory"),
-            42 => ("consciousness", "reflection"),
-            43 => ("consciousness", "self_model"),
-            44 => ("consciousness", "consciousness_query"),
-            45 => ("consciousness", "experience_playback"),
-            46 => ("consciousness", "emotional_response"),
-            47 => ("consciousness", "consciousness_sync"),
-            48 => ("consciousness", "collective_consciousness"),
-            49 => ("consciousness", "consciousness_integrity"),
-            50 => ("consciousness", "consciousness_config"),
-            51 => ("consciousness", "experience_search"),
-            52 => ("consciousness", "emotional_calibration"),
-            53 => ("consciousness", "self_awareness"),
-            54 => ("consciousness", "consciousness_dashboard"),
-            _ => ("core", "unknown"),
-        };
-        (category, name.to_string())
+        use crate::pipeline::registry::{get_pipeline_info, get_pipeline_folder, get_pipeline_category};
+        
+        if let Some(info) = get_pipeline_info(pipeline_id) {
+            (info.category, info.folder_name.clone())
+        } else {
+            // Fallback for unknown pipelines
+            ("core", format!("pipeline_{}", pipeline_id))
+        }
     }
     
     /// Execute a custom pipeline

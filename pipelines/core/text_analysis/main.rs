@@ -37,6 +37,13 @@ use std::env;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum TextAnalysisInput {
+    /// Normalize text for prompt processing - handles unlimited input size
+    /// Chunks large inputs, preserves semantic coherence, respects context limits
+    Normalize { 
+        text: String, 
+        context_limit: Option<u32>,
+        analyze_tokens: Option<bool>,
+    },
     /// Structural analysis (NO LLM)
     Analyze { 
         text: String, 
@@ -57,10 +64,24 @@ pub enum TextAnalysisInput {
     AnalyzeDocument { document_ref_id: u64 },
     /// Store analysis in ZSEI
     StoreAnalysis { analysis: TextAnalysis, project_id: Option<u64> },
-    /// Build AMT/ATMT structure
-    BuildAMT { text: String, depth: Option<u32> },
+    /// Build AMT/ATMT structure with optional methodology guidance
+    BuildAMT { 
+        text: String, 
+        depth: Option<u32>,
+        /// Methodology IDs to check for coverage requirements
+        methodology_ids: Option<Vec<u64>>,
+        /// Required coverage aspects (e.g., "security", "edge_cases")
+        ensure_coverage: Option<Vec<String>>,
+    },
     /// Extract basic entities via regex
     ExtractBasicEntities { text: String },
+    /// Chunk text into semantic groups for processing
+    ChunkText { 
+        text: String, 
+        max_chunk_tokens: Option<u32>,
+        overlap_tokens: Option<u32>,
+        preserve_paragraphs: Option<bool>,
+    },
 }
 
 // ========== Output Types ==========
@@ -144,7 +165,23 @@ pub struct TextAnalysisOutput {
     pub similar: Option<Vec<SimilarDocument>>,
     pub amt: Option<AMTNode>,
     pub container_id: Option<u64>,
+    // New fields for normalization
+    pub normalized_text: Option<String>,
+    pub token_count: Option<u32>,
+    pub chunks: Option<Vec<TextChunk>>,
+    pub suggested_methodology_ids: Option<Vec<u64>>,
     pub error: Option<String>,
+}
+
+/// A chunk of text for processing large inputs
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextChunk {
+    pub index: u32,
+    pub text: String,
+    pub token_count: u32,
+    pub start_char: u32,
+    pub end_char: u32,
+    pub is_complete_paragraph: bool,
 }
 
 // ========== ZSEI Integration ==========
@@ -258,6 +295,281 @@ fn update_text_index(base_path: &str, container_id: u64, analysis: &serde_json::
 }
 
 // ========== Analysis Functions (Structural Only - NO LLM) ==========
+
+// ========== Text Normalization Functions ==========
+
+/// Normalize text for processing - clean, deduplicate whitespace, fix encoding
+fn normalize_text(text: &str) -> String {
+    let mut result = text.to_string();
+    
+    // Step 1: Normalize unicode (basic)
+    result = result.replace('\u{00A0}', " ");  // Non-breaking space
+    result = result.replace('\u{2003}', " ");  // Em space
+    result = result.replace('\u{2002}', " ");  // En space
+    result = result.replace('\u{200B}', "");   // Zero-width space
+    
+    // Step 2: Normalize line endings
+    result = result.replace("\r\n", "\n");
+    result = result.replace('\r', "\n");
+    
+    // Step 3: Collapse multiple spaces/newlines
+    let mut prev_char = ' ';
+    result = result.chars().filter(|&c| {
+        let keep = !(c == ' ' && prev_char == ' ') && 
+                   !(c == '\n' && prev_char == '\n' && prev_char == '\n');
+        prev_char = c;
+        keep
+    }).collect();
+    
+    // Step 4: Trim leading/trailing whitespace from each line
+    result = result.lines()
+        .map(|line| line.trim())
+        .collect::<Vec<_>>()
+        .join("\n");
+    
+    // Step 5: Final trim
+    result.trim().to_string()
+}
+
+/// Count sentences in text
+fn count_sentences(text: &str) -> u32 {
+    text.chars()
+        .filter(|c| *c == '.' || *c == '!' || *c == '?')
+        .count()
+        .max(1) as u32
+}
+
+/// Detect methodology hints from text content
+fn detect_methodology_hints(text: &str) -> Vec<u64> {
+    let mut hints = Vec::new();
+    let lower = text.to_lowercase();
+    
+    // Pattern-based methodology detection
+    // These would map to actual methodology IDs in the database
+    if lower.contains("code") || lower.contains("programming") || lower.contains("function") {
+        hints.push(1); // Code analysis methodology
+    }
+    if lower.contains("data") || lower.contains("analysis") || lower.contains("statistics") {
+        hints.push(2); // Data analysis methodology
+    }
+    if lower.contains("write") || lower.contains("document") || lower.contains("report") {
+        hints.push(3); // Document writing methodology
+    }
+    if lower.contains("research") || lower.contains("study") || lower.contains("investigate") {
+        hints.push(4); // Research methodology
+    }
+    if lower.contains("plan") || lower.contains("schedule") || lower.contains("organize") {
+        hints.push(5); // Planning methodology
+    }
+    if lower.contains("debug") || lower.contains("fix") || lower.contains("error") {
+        hints.push(6); // Debugging methodology
+    }
+    if lower.contains("design") || lower.contains("architecture") || lower.contains("system") {
+        hints.push(7); // System design methodology
+    }
+    if lower.contains("learn") || lower.contains("understand") || lower.contains("explain") {
+        hints.push(8); // Learning methodology
+    }
+    
+    hints
+}
+
+/// Chunk text preserving semantic coherence (paragraph boundaries)
+fn chunk_text_semantic(text: &str, max_tokens: u32, overlap_tokens: u32) -> Vec<TextChunk> {
+    let mut chunks = Vec::new();
+    let paragraphs: Vec<&str> = text.split("\n\n").collect();
+    
+    let mut current_chunk = String::new();
+    let mut current_tokens: u32 = 0;
+    let mut chunk_index: u32 = 0;
+    let mut start_char: u32 = 0;
+    let mut char_offset: u32 = 0;
+    
+    for para in paragraphs {
+        let para_tokens = (para.len() / 4) as u32;
+        
+        // If single paragraph exceeds max, split by sentences
+        if para_tokens > max_tokens {
+            // First, flush current chunk
+            if !current_chunk.is_empty() {
+                chunks.push(TextChunk {
+                    index: chunk_index,
+                    text: current_chunk.clone(),
+                    token_count: current_tokens,
+                    start_char,
+                    end_char: char_offset,
+                    is_complete_paragraph: true,
+                });
+                chunk_index += 1;
+                
+                // Overlap handling
+                let overlap_text = get_overlap_text(&current_chunk, overlap_tokens);
+                current_chunk = overlap_text;
+                current_tokens = (current_chunk.len() / 4) as u32;
+                start_char = char_offset.saturating_sub(current_chunk.len() as u32);
+            }
+            
+            // Split paragraph by sentences
+            let sentences = split_into_sentences(para);
+            for sentence in sentences {
+                let sentence_tokens = (sentence.len() / 4) as u32;
+                
+                if current_tokens + sentence_tokens > max_tokens && !current_chunk.is_empty() {
+                    chunks.push(TextChunk {
+                        index: chunk_index,
+                        text: current_chunk.clone(),
+                        token_count: current_tokens,
+                        start_char,
+                        end_char: char_offset,
+                        is_complete_paragraph: false,
+                    });
+                    chunk_index += 1;
+                    
+                    let overlap_text = get_overlap_text(&current_chunk, overlap_tokens);
+                    current_chunk = overlap_text;
+                    current_tokens = (current_chunk.len() / 4) as u32;
+                    start_char = char_offset.saturating_sub(current_chunk.len() as u32);
+                }
+                
+                if !current_chunk.is_empty() {
+                    current_chunk.push(' ');
+                }
+                current_chunk.push_str(sentence);
+                current_tokens += sentence_tokens;
+                char_offset += sentence.len() as u32 + 1;
+            }
+        } else if current_tokens + para_tokens > max_tokens {
+            // Would exceed - flush current chunk
+            if !current_chunk.is_empty() {
+                chunks.push(TextChunk {
+                    index: chunk_index,
+                    text: current_chunk.clone(),
+                    token_count: current_tokens,
+                    start_char,
+                    end_char: char_offset,
+                    is_complete_paragraph: true,
+                });
+                chunk_index += 1;
+                
+                let overlap_text = get_overlap_text(&current_chunk, overlap_tokens);
+                current_chunk = overlap_text;
+                current_tokens = (current_chunk.len() / 4) as u32;
+                start_char = char_offset.saturating_sub(current_chunk.len() as u32);
+            }
+            
+            // Add paragraph to new chunk
+            if !current_chunk.is_empty() {
+                current_chunk.push_str("\n\n");
+            }
+            current_chunk.push_str(para);
+            current_tokens += para_tokens;
+            char_offset += para.len() as u32 + 2;
+        } else {
+            // Add paragraph to current chunk
+            if !current_chunk.is_empty() {
+                current_chunk.push_str("\n\n");
+            }
+            current_chunk.push_str(para);
+            current_tokens += para_tokens;
+            char_offset += para.len() as u32 + 2;
+        }
+    }
+    
+    // Don't forget the last chunk
+    if !current_chunk.is_empty() {
+        chunks.push(TextChunk {
+            index: chunk_index,
+            text: current_chunk,
+            token_count: current_tokens,
+            start_char,
+            end_char: char_offset,
+            is_complete_paragraph: true,
+        });
+    }
+    
+    chunks
+}
+
+/// Simple chunking without semantic awareness
+fn chunk_text_simple(text: &str, max_tokens: u32, overlap_tokens: u32) -> Vec<TextChunk> {
+    let max_chars = (max_tokens * 4) as usize;
+    let overlap_chars = (overlap_tokens * 4) as usize;
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut index = 0;
+    
+    while start < text.len() {
+        let end = (start + max_chars).min(text.len());
+        let chunk_text = &text[start..end];
+        
+        chunks.push(TextChunk {
+            index,
+            text: chunk_text.to_string(),
+            token_count: (chunk_text.len() / 4) as u32,
+            start_char: start as u32,
+            end_char: end as u32,
+            is_complete_paragraph: false,
+        });
+        
+        index += 1;
+        start = if end >= text.len() {
+            text.len()
+        } else {
+            end.saturating_sub(overlap_chars)
+        };
+    }
+    
+    chunks
+}
+
+/// Get overlap text from the end of a chunk
+fn get_overlap_text(text: &str, overlap_tokens: u32) -> String {
+    let overlap_chars = (overlap_tokens * 4) as usize;
+    if text.len() <= overlap_chars {
+        text.to_string()
+    } else {
+        text[text.len() - overlap_chars..].to_string()
+    }
+}
+
+/// Split text into sentences
+fn split_into_sentences(text: &str) -> Vec<&str> {
+    let mut sentences = Vec::new();
+    let mut start = 0;
+    
+    for (i, c) in text.char_indices() {
+        if c == '.' || c == '!' || c == '?' {
+            // Check if next char is space or end
+            let is_end = i + 1 >= text.len() || 
+                         text.chars().nth(i + 1).map(|c| c.is_whitespace()).unwrap_or(true);
+            if is_end {
+                sentences.push(text[start..=i].trim());
+                start = i + 1;
+            }
+        }
+    }
+    
+    // Don't forget remaining text
+    if start < text.len() {
+        let remaining = text[start..].trim();
+        if !remaining.is_empty() {
+            sentences.push(remaining);
+        }
+    }
+    
+    sentences
+}
+
+impl Default for ReadabilityScores {
+    fn default() -> Self {
+        Self {
+            flesch_kincaid_grade: 0.0,
+            flesch_reading_ease: 0.0,
+            gunning_fog: 0.0,
+            automated_readability_index: 0.0,
+        }
+    }
+}
 
 fn calculate_stats(text: &str) -> (u32, u32, u32, u32, f32, f32) {
     let chars = text.len() as u32;
@@ -587,6 +899,98 @@ fn build_amt(text: &str, depth: u32) -> AMTNode {
 
 pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, String> {
     match input {
+        TextAnalysisInput::Normalize { text, context_limit, analyze_tokens } => {
+            // Text normalization for prompt processing
+            // Handles unlimited input size, preserves semantic coherence
+            
+            let context_limit = context_limit.unwrap_or(100000);
+            let analyze = analyze_tokens.unwrap_or(true);
+            
+            // Step 1: Clean and normalize text
+            let normalized = normalize_text(&text);
+            
+            // Step 2: Estimate token count (roughly 4 chars per token)
+            let token_count = (normalized.len() / 4) as u32;
+            
+            // Step 3: Extract suggested methodologies based on content patterns
+            let suggested_methodologies = detect_methodology_hints(&normalized);
+            
+            // Step 4: If text exceeds context limit, create chunks
+            let chunks = if token_count > context_limit {
+                Some(chunk_text_semantic(&normalized, context_limit / 4, 100))
+            } else {
+                None
+            };
+            
+            // Step 5: If analyze_tokens, do keyword extraction for AMT
+            let analysis = if analyze {
+                let keywords = extract_keywords(&normalized, 30);
+                Some(TextAnalysis {
+                    word_count: normalized.split_whitespace().count() as u32,
+                    sentence_count: count_sentences(&normalized),
+                    paragraph_count: normalized.split("\n\n").filter(|p| !p.trim().is_empty()).count() as u32,
+                    char_count: normalized.len() as u32,
+                    avg_sentence_length: 0.0,
+                    avg_word_length: 0.0,
+                    keywords,
+                    topics: detect_topics(&normalized),
+                    entities: vec![],
+                    language: detect_language(&normalized),
+                    readability: ReadabilityScores::default(),
+                    semantic_summary: None,
+                    sentiment: None,
+                    amt: None,
+                })
+            } else {
+                None
+            };
+            
+            Ok(TextAnalysisOutput {
+                success: true,
+                analysis,
+                similar: None,
+                amt: None,
+                container_id: None,
+                normalized_text: Some(normalized),
+                token_count: Some(token_count),
+                chunks,
+                suggested_methodology_ids: Some(suggested_methodologies),
+                error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
+            })
+        }
+        
+        TextAnalysisInput::ChunkText { text, max_chunk_tokens, overlap_tokens, preserve_paragraphs } => {
+            let max_tokens = max_chunk_tokens.unwrap_or(4000);
+            let overlap = overlap_tokens.unwrap_or(200);
+            
+            let chunks = if preserve_paragraphs.unwrap_or(true) {
+                chunk_text_semantic(&text, max_tokens, overlap)
+            } else {
+                chunk_text_simple(&text, max_tokens, overlap)
+            };
+            
+            Ok(TextAnalysisOutput {
+                success: true,
+                analysis: None,
+                similar: None,
+                amt: None,
+                container_id: None,
+                normalized_text: None,
+                token_count: Some((text.len() / 4) as u32),
+                chunks: Some(chunks),
+                suggested_methodology_ids: None,
+                error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
+            })
+        }
+        
         TextAnalysisInput::Analyze { text, extract_entities, extract_topics } => {
             let (word_count, sentence_count, paragraph_count, char_count, avg_sentence_length, avg_word_length) = calculate_stats(&text);
             let language = detect_language(&text);
@@ -628,6 +1032,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -661,6 +1069,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -694,6 +1106,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -727,6 +1143,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -755,6 +1175,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -786,6 +1210,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -828,11 +1256,80 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
-        TextAnalysisInput::BuildAMT { text, depth } => {
-            let amt = build_amt(&text, depth.unwrap_or(3));
+        TextAnalysisInput::BuildAMT { text, depth, methodology_ids, ensure_coverage } => {
+            let mut amt = build_amt(&text, depth.unwrap_or(3));
+            
+            // Check for incomplete branches based on ensure_coverage
+            let mut incomplete_branches: Vec<String> = Vec::new();
+            
+            if let Some(coverage_aspects) = ensure_coverage {
+                let text_lower = text.to_lowercase();
+                
+                for aspect in coverage_aspects {
+                    let covered = match aspect.as_str() {
+                        "security" => {
+                            text_lower.contains("security") || 
+                            text_lower.contains("auth") ||
+                            text_lower.contains("permission") ||
+                            text_lower.contains("encrypt")
+                        }
+                        "edge_cases" => {
+                            text_lower.contains("edge") ||
+                            text_lower.contains("error") ||
+                            text_lower.contains("exception") ||
+                            text_lower.contains("handle")
+                        }
+                        "dependencies" => {
+                            text_lower.contains("depend") ||
+                            text_lower.contains("require") ||
+                            text_lower.contains("import") ||
+                            text_lower.contains("external")
+                        }
+                        "constraints" => {
+                            text_lower.contains("constraint") ||
+                            text_lower.contains("limit") ||
+                            text_lower.contains("must") ||
+                            text_lower.contains("cannot")
+                        }
+                        "testing" => {
+                            text_lower.contains("test") ||
+                            text_lower.contains("verify") ||
+                            text_lower.contains("validate")
+                        }
+                        "documentation" => {
+                            text_lower.contains("document") ||
+                            text_lower.contains("comment") ||
+                            text_lower.contains("readme")
+                        }
+                        _ => true // Unknown aspects are considered covered
+                    };
+                    
+                    if !covered {
+                        incomplete_branches.push(format!("Missing coverage for: {}", aspect));
+                    }
+                }
+            }
+            
+            // Add methodology-based completeness hints
+            if let Some(_method_ids) = methodology_ids {
+                // In full implementation, would load methodologies and check their
+                // required_coverage fields against the AMT branches
+                // For now, add to metadata
+                amt.metadata.insert("methodology_guided".to_string(), "true".to_string());
+            }
+            
+            // Store incomplete branches in metadata
+            if !incomplete_branches.is_empty() {
+                amt.metadata.insert("incomplete_branches".to_string(), 
+                    serde_json::to_string(&incomplete_branches).unwrap_or_default());
+            }
             
             Ok(TextAnalysisOutput {
                 success: true,
@@ -841,6 +1338,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: Some(amt),
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
         
@@ -874,6 +1375,10 @@ pub async fn execute(input: TextAnalysisInput) -> Result<TextAnalysisOutput, Str
                 amt: None,
                 container_id: None,
                 error: None,
+                normalized_text: None,
+                token_count: None,
+                chunks: None,
+                suggested_methodology_ids: None,
             })
         }
     }

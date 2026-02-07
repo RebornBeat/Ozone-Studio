@@ -108,9 +108,6 @@ cd Ozone-Studio
 ```bash
 # Standard build
 cargo build --release
-
-# With consciousness features enabled
-cargo build --release --features consciousness
 ```
 
 ### Verify Build

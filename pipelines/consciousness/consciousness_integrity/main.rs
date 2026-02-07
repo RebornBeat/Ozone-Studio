@@ -160,15 +160,84 @@ impl IntegrityStore {
         let mut issues = Vec::new();
         let path = Path::new(&self.storage_path);
         
+        // Load experiences for reference checking
+        let experiences: HashMap<u64, bool> = std::fs::read_to_string(path.join("experiences.json"))
+            .ok()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+            .and_then(|v| v.get("experiences").cloned())
+            .and_then(|e| e.as_object().cloned())
+            .map(|obj| {
+                obj.keys()
+                    .filter_map(|k| k.parse::<u64>().ok())
+                    .map(|id| (id, true))
+                    .collect()
+            })
+            .unwrap_or_default();
+        
         // Check experience references in reflections
         if let Ok(content) = std::fs::read_to_string(path.join("reflections.json")) {
             if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
                 if let Some(reflections) = data.get("reflections") {
                     if let Some(arr) = reflections.as_array() {
                         for r in arr {
-                            if let Some(exp_id) = r.get("experience_id") {
-                                // Would verify experience exists
-                                let _ = exp_id;
+                            if let Some(exp_id) = r.get("experience_id").and_then(|e| e.as_u64()) {
+                                // Verify experience exists
+                                if !experiences.contains_key(&exp_id) {
+                                    issues.push(IntegrityIssue {
+                                        file: "reflections.json".to_string(),
+                                        issue_type: "missing_reference".to_string(),
+                                        severity: "warning".to_string(),
+                                        description: format!("Reflection references non-existent experience {}", exp_id),
+                                        detected_at: now(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check relationship references
+        if let Ok(content) = std::fs::read_to_string(path.join("relationships.json")) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(rels) = data.get("relationships") {
+                    if let Some(arr) = rels.as_array() {
+                        for r in arr {
+                            // Check experience references in relationships
+                            if let Some(exp_ids) = r.get("experience_ids").and_then(|e| e.as_array()) {
+                                for exp_id in exp_ids.iter().filter_map(|e| e.as_u64()) {
+                                    if !experiences.contains_key(&exp_id) {
+                                        issues.push(IntegrityIssue {
+                                            file: "relationships.json".to_string(),
+                                            issue_type: "missing_reference".to_string(),
+                                            severity: "info".to_string(),
+                                            description: format!("Relationship references non-existent experience {}", exp_id),
+                                            detected_at: now(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check feedback data references
+        if let Ok(content) = std::fs::read_to_string(path.join("feedback_data.json")) {
+            if let Ok(data) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(feedback) = data.get("feedback").and_then(|f| f.as_array()) {
+                    for f in feedback {
+                        if let Some(exp_id) = f.get("experience_id").and_then(|e| e.as_u64()) {
+                            if !experiences.contains_key(&exp_id) {
+                                issues.push(IntegrityIssue {
+                                    file: "feedback_data.json".to_string(),
+                                    issue_type: "missing_reference".to_string(),
+                                    severity: "info".to_string(),
+                                    description: format!("Feedback references non-existent experience {}", exp_id),
+                                    detected_at: now(),
+                                });
                             }
                         }
                     }

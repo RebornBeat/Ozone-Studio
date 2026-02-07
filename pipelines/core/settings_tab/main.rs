@@ -1,16 +1,56 @@
 //! SettingsTabPipeline - Pipeline #8
 //! 
 //! Manages all system configuration including:
-//! - Model selection (API/GGUF/ONNX)
+//! - Model selection (API/GGUF/ONNX/BitNet)
 //! - UI preferences
 //! - Network settings
 //! - Pipeline-specific settings
 //! - Consciousness settings (if enabled)
 //! 
 //! This is how users configure model selection - NOT hardcoded in core.
+//! 
+//! STORAGE: Settings persist to data/config/settings.json
+//! v0.4.0: Added BitNet model type support
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::fs;
+
+// ============================================================================
+// Storage Layer - File-based persistence
+// ============================================================================
+
+/// Get the path to the settings file
+fn settings_path() -> PathBuf {
+    let base = std::env::var("OZONE_DATA_PATH")
+        .unwrap_or_else(|_| "./data".to_string());
+    PathBuf::from(base).join("config")
+}
+
+/// Load settings from file, or return defaults if not exists
+fn load_settings() -> AllSettings {
+    let path = settings_path().join("settings.json");
+    if path.exists() {
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(settings) = serde_json::from_str(&content) {
+                return settings;
+            }
+        }
+    }
+    default_settings()
+}
+
+/// Save settings to file
+fn save_settings(settings: &AllSettings) -> Result<(), String> {
+    let dir = settings_path();
+    fs::create_dir_all(&dir).map_err(|e| format!("Failed to create config dir: {}", e))?;
+    let path = dir.join("settings.json");
+    let content = serde_json::to_string_pretty(settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    fs::write(&path, content).map_err(|e| format!("Failed to write settings: {}", e))?;
+    Ok(())
+}
 
 /// Pipeline input
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +81,7 @@ pub enum SettingsInput {
 /// Model selection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelSelection {
-    pub model_type: String,  // "api", "gguf", "onnx"
+    pub model_type: String,  // "api", "gguf", "onnx", "bitnet"
     pub identifier: String,  // Model name or path
 }
 
@@ -131,20 +171,21 @@ fn default_settings() -> AllSettings {
             api_endpoint: Some("https://api.anthropic.com/v1/messages".to_string()),
             api_key_env: "ANTHROPIC_API_KEY".to_string(),
             local_model_path: None,
-            context_length: 100000,
+            context_length: 200000,
             gpu_layers: None,
             allow_user_selection: true,
             available_models: vec![
+                // API Models
                 AvailableModel {
-                    name: "Claude Sonnet".to_string(),
+                    name: "Claude Sonnet 4".to_string(),
                     model_type: "api".to_string(),
                     identifier: "claude-sonnet-4-20250514".to_string(),
-                    description: Some("Anthropic's Claude Sonnet model".to_string()),
+                    description: Some("Anthropic's Claude Sonnet 4 - balanced performance".to_string()),
                     context_length: Some(200000),
                     is_local: false,
                 },
                 AvailableModel {
-                    name: "Claude Opus".to_string(),
+                    name: "Claude Opus 4".to_string(),
                     model_type: "api".to_string(),
                     identifier: "claude-opus-4-20250514".to_string(),
                     description: Some("Anthropic's most capable model".to_string()),
@@ -152,19 +193,53 @@ fn default_settings() -> AllSettings {
                     is_local: false,
                 },
                 AvailableModel {
-                    name: "GPT-4".to_string(),
+                    name: "Claude Haiku 4".to_string(),
+                    model_type: "api".to_string(),
+                    identifier: "claude-haiku-4-20250514".to_string(),
+                    description: Some("Anthropic's fastest model".to_string()),
+                    context_length: Some(200000),
+                    is_local: false,
+                },
+                AvailableModel {
+                    name: "GPT-4 Turbo".to_string(),
                     model_type: "api".to_string(),
                     identifier: "gpt-4-turbo".to_string(),
                     description: Some("OpenAI's GPT-4 Turbo".to_string()),
                     context_length: Some(128000),
                     is_local: false,
                 },
+                // BitNet Models (1-bit quantized, CPU-efficient)
                 AvailableModel {
                     name: "BitNet b1.58 2B4T".to_string(),
-                    model_type: "gguf".to_string(),
-                    identifier: "bitnet-b158-2b4t.gguf".to_string(),
-                    description: Some("Efficient local model with 1-bit weights".to_string()),
+                    model_type: "bitnet".to_string(),  // Distinct type for BitNet
+                    identifier: "bitnet-b1.58-2B4T".to_string(),
+                    description: Some("1-bit quantized model - CPU efficient, 2B parameters".to_string()),
                     context_length: Some(4096),
+                    is_local: true,
+                },
+                AvailableModel {
+                    name: "BitNet b1.58 7B".to_string(),
+                    model_type: "bitnet".to_string(),
+                    identifier: "bitnet-b1.58-7B".to_string(),
+                    description: Some("1-bit quantized model - CPU efficient, 7B parameters".to_string()),
+                    context_length: Some(4096),
+                    is_local: true,
+                },
+                // GGUF Models (llama.cpp compatible)
+                AvailableModel {
+                    name: "Llama 3 8B (GGUF)".to_string(),
+                    model_type: "gguf".to_string(),
+                    identifier: "llama-3-8b.gguf".to_string(),
+                    description: Some("Meta's Llama 3 8B in GGUF format".to_string()),
+                    context_length: Some(8192),
+                    is_local: true,
+                },
+                AvailableModel {
+                    name: "Mistral 7B (GGUF)".to_string(),
+                    model_type: "gguf".to_string(),
+                    identifier: "mistral-7b.gguf".to_string(),
+                    description: Some("Mistral 7B in GGUF format".to_string()),
+                    context_length: Some(32768),
                     is_local: true,
                 },
             ],
@@ -176,6 +251,7 @@ fn default_settings() -> AllSettings {
             show_connection_bar: true,
             default_tabs: vec![
                 "workspace".to_string(),
+                "tasks".to_string(),
                 "library".to_string(),
                 "settings".to_string(),
             ],
@@ -193,11 +269,9 @@ fn default_settings() -> AllSettings {
 
 /// Execute the settings pipeline
 pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
-    // In a real implementation, this would read/write to config file
-    let settings = default_settings();
-    
     match input {
         SettingsInput::GetAll => {
+            let settings = load_settings();
             Ok(SettingsOutput {
                 success: true,
                 settings: Some(settings),
@@ -209,6 +283,7 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::GetCategory { category } => {
+            let settings = load_settings();
             let value = match category.as_str() {
                 "models" => serde_json::to_value(&settings.models).ok(),
                 "ui" => serde_json::to_value(&settings.ui).ok(),
@@ -228,10 +303,111 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::Update { updates } => {
-            // In real implementation, apply updates to config file
+            let mut settings = load_settings();
+            
+            // Apply updates to appropriate categories
+            for (key, value) in updates {
+                match key.as_str() {
+                    // Model settings updates
+                    "active_model_type" => {
+                        if let Some(s) = value.as_str() {
+                            settings.models.active_model_type = s.to_string();
+                        }
+                    }
+                    "active_model_identifier" => {
+                        if let Some(s) = value.as_str() {
+                            settings.models.active_model_identifier = s.to_string();
+                        }
+                    }
+                    "api_endpoint" => {
+                        settings.models.api_endpoint = value.as_str().map(|s| s.to_string());
+                    }
+                    "api_key_env" => {
+                        if let Some(s) = value.as_str() {
+                            settings.models.api_key_env = s.to_string();
+                        }
+                    }
+                    "local_model_path" => {
+                        settings.models.local_model_path = value.as_str().map(|s| s.to_string());
+                    }
+                    "context_length" => {
+                        if let Some(n) = value.as_u64() {
+                            settings.models.context_length = n as usize;
+                        }
+                    }
+                    "gpu_layers" => {
+                        settings.models.gpu_layers = value.as_u64().map(|n| n as u32);
+                    }
+                    // UI settings updates
+                    "theme" => {
+                        if let Some(s) = value.as_str() {
+                            settings.ui.theme = s.to_string();
+                        }
+                    }
+                    "meta_portion_width_percent" => {
+                        if let Some(n) = value.as_u64() {
+                            settings.ui.meta_portion_width_percent = n as u8;
+                        }
+                    }
+                    "show_task_recommendations" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.ui.show_task_recommendations = b;
+                        }
+                    }
+                    "show_connection_bar" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.ui.show_connection_bar = b;
+                        }
+                    }
+                    // Network settings updates
+                    "network_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            settings.network.enabled = b;
+                        }
+                    }
+                    "listen_port" => {
+                        if let Some(n) = value.as_u64() {
+                            settings.network.listen_port = n as u16;
+                        }
+                    }
+                    "max_peers" => {
+                        if let Some(n) = value.as_u64() {
+                            settings.network.max_peers = n as u32;
+                        }
+                    }
+                    // Consciousness settings updates
+                    "consciousness_enabled" => {
+                        if let Some(b) = value.as_bool() {
+                            let mut cs = settings.consciousness.unwrap_or(ConsciousnessSettings {
+                                enabled: false,
+                                emotional_system_enabled: false,
+                                experience_memory_enabled: false,
+                                show_emotional_state: false,
+                                show_decision_reasoning: false,
+                                playback_enabled: false,
+                            });
+                            cs.enabled = b;
+                            settings.consciousness = Some(cs);
+                        }
+                    }
+                    // Pipeline-specific settings (stored as JSON)
+                    other if other.starts_with("pipeline_") => {
+                        let pipeline_name = other.strip_prefix("pipeline_").unwrap();
+                        settings.pipelines.insert(pipeline_name.to_string(), value);
+                    }
+                    _ => {
+                        // Unknown key - store in pipelines as catch-all
+                        settings.pipelines.insert(key, value);
+                    }
+                }
+            }
+            
+            // Save to file
+            save_settings(&settings)?;
+            
             Ok(SettingsOutput {
                 success: true,
-                settings: Some(settings), // Would be updated settings
+                settings: Some(settings),
                 category_settings: None,
                 available_models: None,
                 exported_json: None,
@@ -240,9 +416,28 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::ResetDefaults { category } => {
+            let mut settings = load_settings();
+            let defaults = default_settings();
+            
+            match category.as_deref() {
+                Some("models") => settings.models = defaults.models,
+                Some("ui") => settings.ui = defaults.ui,
+                Some("network") => settings.network = defaults.network,
+                Some("consciousness") => settings.consciousness = defaults.consciousness,
+                Some(cat) => {
+                    settings.pipelines.remove(cat);
+                }
+                None => {
+                    // Reset everything
+                    settings = defaults;
+                }
+            }
+            
+            save_settings(&settings)?;
+            
             Ok(SettingsOutput {
                 success: true,
-                settings: Some(default_settings()),
+                settings: Some(settings),
                 category_settings: None,
                 available_models: None,
                 exported_json: None,
@@ -251,6 +446,7 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::GetAvailableModels => {
+            let settings = load_settings();
             Ok(SettingsOutput {
                 success: true,
                 settings: None,
@@ -262,10 +458,39 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::SetActiveModel { model } => {
-            // In real implementation, update config file
+            let mut settings = load_settings();
+            
+            // Validate model exists in available models
+            let model_exists = settings.models.available_models.iter()
+                .any(|m| m.model_type == model.model_type && m.identifier == model.identifier);
+            
+            if !model_exists {
+                return Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some(format!("Model not found: {} ({})", model.identifier, model.model_type)),
+                });
+            }
+            
+            settings.models.active_model_type = model.model_type;
+            settings.models.active_model_identifier = model.identifier;
+            
+            // Update context_length based on selected model
+            if let Some(m) = settings.models.available_models.iter()
+                .find(|m| m.identifier == settings.models.active_model_identifier) {
+                if let Some(ctx) = m.context_length {
+                    settings.models.context_length = ctx;
+                }
+            }
+            
+            save_settings(&settings)?;
+            
             Ok(SettingsOutput {
                 success: true,
-                settings: None,
+                settings: Some(settings),
                 category_settings: None,
                 available_models: None,
                 exported_json: None,
@@ -274,30 +499,76 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::AddCustomModel { model } => {
-            // In real implementation, add to available models
+            let mut settings = load_settings();
+            
+            // Check for duplicates
+            if settings.models.available_models.iter()
+                .any(|m| m.identifier == model.identifier && m.model_type == model.model_type) {
+                return Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some(format!("Model already exists: {}", model.identifier)),
+                });
+            }
+            
+            settings.models.available_models.push(model);
+            save_settings(&settings)?;
+            
             Ok(SettingsOutput {
                 success: true,
                 settings: None,
                 category_settings: None,
-                available_models: None,
+                available_models: Some(settings.models.available_models),
                 exported_json: None,
                 error: None,
             })
         }
         
         SettingsInput::RemoveCustomModel { identifier } => {
-            // In real implementation, remove from available models
-            Ok(SettingsOutput {
-                success: true,
-                settings: None,
-                category_settings: None,
-                available_models: None,
-                exported_json: None,
-                error: None,
-            })
+            let mut settings = load_settings();
+            let initial_len = settings.models.available_models.len();
+            
+            // Don't allow removing the active model
+            if settings.models.active_model_identifier == identifier {
+                return Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some("Cannot remove the active model".to_string()),
+                });
+            }
+            
+            settings.models.available_models.retain(|m| m.identifier != identifier);
+            
+            if settings.models.available_models.len() < initial_len {
+                save_settings(&settings)?;
+                Ok(SettingsOutput {
+                    success: true,
+                    settings: None,
+                    category_settings: None,
+                    available_models: Some(settings.models.available_models),
+                    exported_json: None,
+                    error: None,
+                })
+            } else {
+                Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some(format!("Model not found: {}", identifier)),
+                })
+            }
         }
         
         SettingsInput::Export => {
+            let settings = load_settings();
             let json = serde_json::to_string_pretty(&settings)
                 .map_err(|e| format!("Failed to export: {}", e))?;
             
@@ -312,13 +583,15 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
         }
         
         SettingsInput::Import { settings_json } => {
-            let _imported: AllSettings = serde_json::from_str(&settings_json)
+            let imported: AllSettings = serde_json::from_str(&settings_json)
                 .map_err(|e| format!("Failed to parse settings: {}", e))?;
             
-            // In real implementation, save imported settings
+            // Save imported settings
+            save_settings(&imported)?;
+            
             Ok(SettingsOutput {
                 success: true,
-                settings: None,
+                settings: Some(imported),
                 category_settings: None,
                 available_models: None,
                 exported_json: None,

@@ -280,6 +280,12 @@ impl IntegrityMonitor {
         // Check for dependent containers (simplified - in production would query ZSEI)
         // Containers that have this container as parent would be affected
         
+        // Find dependent tasks by scanning task store
+        let dependent_tasks = self.find_dependent_tasks(request.container_id).await;
+        if !dependent_tasks.is_empty() {
+            warnings.push(format!("{} active tasks may be affected", dependent_tasks.len()));
+        }
+        
         let data_loss_risk = if estimated_data_loss > 0 { 0.5 } else { 0.0 };
         let recommendation = if warnings.is_empty() {
             "Safe to proceed with rollback".to_string()
@@ -290,7 +296,7 @@ impl IntegrityMonitor {
         Ok(ImpactAnalysis {
             affected_containers: affected_containers.clone(),
             affected_relationships: Vec::new(),
-            dependent_tasks: Vec::new(), // Would need task manager integration
+            dependent_tasks,
             estimated_data_loss,
             data_loss_risk,
             warnings,
@@ -298,6 +304,46 @@ impl IntegrityMonitor {
         })
     }
     
+    /// Find tasks that depend on a container
+    async fn find_dependent_tasks(&self, container_id: ContainerID) -> Vec<u64> {
+        let tasks_dir = std::env::var("OZONE_TASKS_PATH")
+            .unwrap_or_else(|_| "./ozone_tasks".to_string());
+        
+        let mut dependent_tasks = Vec::new();
+        
+        if let Ok(entries) = std::fs::read_dir(&tasks_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().map(|e| e == "json").unwrap_or(false) {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if let Ok(task) = serde_json::from_str::<serde_json::Value>(&content) {
+                            // Check if task is active and references this container
+                            let status = task.get("status").and_then(|s| s.as_str()).unwrap_or("");
+                            let is_active = status == "queued" || status == "running";
+                            
+                            if is_active {
+                                // Check if container_id is in task inputs
+                                if let Some(inputs) = task.get("inputs") {
+                                    let inputs_str = serde_json::to_string(inputs).unwrap_or_default();
+                                    if inputs_str.contains(&container_id.to_string()) {
+                                        // Extract task_id from filename
+                                        if let Some(task_id) = path.file_stem()
+                                            .and_then(|s| s.to_str())
+                                            .and_then(|s| s.strip_prefix("task_"))
+                                            .and_then(|s| s.parse::<u64>().ok()) {
+                                            dependent_tasks.push(task_id);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        dependent_tasks
+    }
     /// Get version history for a container
     pub async fn get_version_history(&self, container_id: ContainerID) -> Vec<(u32, u64)> {
         self.versions.read().await
