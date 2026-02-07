@@ -4,9 +4,9 @@
 //! ThemeLoader, executor, and all other components should query this registry
 //! instead of hardcoding pipeline info.
 
-use crate::types::{PipelineID, PipelineBlueprint, OzoneResult};
-use std::path::Path;
+use crate::types::{OzoneResult, PipelineBlueprint, PipelineID};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Pipeline metadata for quick lookups (no need for full blueprint)
 #[derive(Debug, Clone)]
@@ -14,9 +14,9 @@ pub struct PipelineInfo {
     pub id: PipelineID,
     pub name: String,
     pub folder_name: String,
-    pub category: &'static str,  // "core" or "consciousness"
+    pub category: &'static str, // "core" or "consciousness"
     pub has_ui: bool,
-    pub is_tab: bool,  // Is this a main tab (workspace, tasks, library, settings)
+    pub is_tab: bool, // Is this a main tab (workspace, tasks, library, settings)
     pub description: String,
 }
 
@@ -25,7 +25,7 @@ lazy_static::lazy_static! {
     /// All pipeline info is defined HERE, not scattered across files
     pub static ref PIPELINE_INFO: HashMap<PipelineID, PipelineInfo> = {
         let mut m = HashMap::new();
-        
+
         // Core System Pipelines (1-38)
         m.insert(1, info(1, "Auth", "auth", "core", false, false, "Authentication"));
         m.insert(2, info(2, "ThemeLoader", "theme_loader", "core", false, false, "UI theme management"));
@@ -65,7 +65,7 @@ lazy_static::lazy_static! {
         m.insert(36, info(36, "TaskViewer", "task_viewer", "core", false, false, "DEPRECATED - merged into TaskManager"));
         m.insert(37, info(37, "LogViewer", "log_viewer", "core", false, false, "View system logs"));
         m.insert(38, info(38, "DeviceStatus", "device_status", "core", false, false, "Device status"));
-        
+
         // Consciousness Pipelines (39-54)
         m.insert(39, info(39, "ConsciousnessDecisionGate", "consciousness_decision_gate", "consciousness", false, false, "Decision gating"));
         m.insert(40, info(40, "ExperienceCategorization", "experience_categorization", "consciousness", false, false, "Experience categorization"));
@@ -83,12 +83,20 @@ lazy_static::lazy_static! {
         m.insert(52, info(52, "CollectiveConsciousness", "collective_consciousness", "consciousness", false, false, "Collective consciousness"));
         m.insert(53, info(53, "VoiceIdentity", "voice_identity", "consciousness", false, false, "Voice identity"));
         m.insert(54, info(54, "MetaPortionConsciousness", "meta_portion_consciousness", "consciousness", false, false, "Meta-portion consciousness"));
-        
+
         m
     };
 }
 
-fn info(id: PipelineID, name: &str, folder: &str, category: &'static str, has_ui: bool, is_tab: bool, desc: &str) -> PipelineInfo {
+fn info(
+    id: PipelineID,
+    name: &str,
+    folder: &str,
+    category: &'static str,
+    has_ui: bool,
+    is_tab: bool,
+    desc: &str,
+) -> PipelineInfo {
     PipelineInfo {
         id,
         name: name.to_string(),
@@ -106,12 +114,12 @@ pub fn get_pipeline_info(id: PipelineID) -> Option<&'static PipelineInfo> {
 }
 
 /// Get pipeline name by ID
-pub fn get_pipeline_name(id: PipelineID) -> Option<&str> {
+pub fn get_pipeline_name(id: PipelineID) -> Option<&'static str> {
     PIPELINE_INFO.get(&id).map(|p| p.name.as_str())
 }
 
 /// Get pipeline folder name by ID
-pub fn get_pipeline_folder(id: PipelineID) -> Option<&str> {
+pub fn get_pipeline_folder(id: PipelineID) -> Option<&'static str> {
     PIPELINE_INFO.get(&id).map(|p| p.folder_name.as_str())
 }
 
@@ -137,7 +145,8 @@ pub fn get_all_pipeline_ids() -> Vec<PipelineID> {
 
 /// Get all core pipeline IDs
 pub fn get_core_pipeline_ids() -> Vec<PipelineID> {
-    PIPELINE_INFO.iter()
+    PIPELINE_INFO
+        .iter()
         .filter(|(_, p)| p.category == "core")
         .map(|(id, _)| *id)
         .collect()
@@ -145,7 +154,8 @@ pub fn get_core_pipeline_ids() -> Vec<PipelineID> {
 
 /// Get all consciousness pipeline IDs
 pub fn get_consciousness_pipeline_ids() -> Vec<PipelineID> {
-    PIPELINE_INFO.iter()
+    PIPELINE_INFO
+        .iter()
         .filter(|(_, p)| p.category == "consciousness")
         .map(|(id, _)| *id)
         .collect()
@@ -153,7 +163,8 @@ pub fn get_consciousness_pipeline_ids() -> Vec<PipelineID> {
 
 /// Get all tab pipeline IDs (workspace, tasks, library, settings)
 pub fn get_tab_pipeline_ids() -> Vec<PipelineID> {
-    PIPELINE_INFO.iter()
+    PIPELINE_INFO
+        .iter()
         .filter(|(_, p)| p.is_tab)
         .map(|(id, _)| *id)
         .collect()
@@ -161,7 +172,8 @@ pub fn get_tab_pipeline_ids() -> Vec<PipelineID> {
 
 /// Get all pipelines with UIs
 pub fn get_pipelines_with_ui() -> Vec<PipelineID> {
-    PIPELINE_INFO.iter()
+    PIPELINE_INFO
+        .iter()
         .filter(|(_, p)| p.has_ui)
         .map(|(id, _)| *id)
         .collect()
@@ -169,50 +181,57 @@ pub fn get_pipelines_with_ui() -> Vec<PipelineID> {
 
 /// Load pipeline blueprint from file
 pub fn load_blueprint_from_file(path: &Path) -> OzoneResult<PipelineBlueprint> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to read blueprint: {}", e)))?;
-    
+    let content = std::fs::read_to_string(path).map_err(|e| {
+        crate::OzoneError::PipelineError(format!("Failed to read blueprint: {}", e))
+    })?;
+
     // Try TOML first, then JSON
     if path.extension().map(|e| e == "toml").unwrap_or(false) {
-        toml::from_str(&content)
-            .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to parse TOML blueprint: {}", e)))
+        toml::from_str(&content).map_err(|e| {
+            crate::OzoneError::PipelineError(format!("Failed to parse TOML blueprint: {}", e))
+        })
     } else {
-        serde_json::from_str(&content)
-            .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to parse JSON blueprint: {}", e)))
+        serde_json::from_str(&content).map_err(|e| {
+            crate::OzoneError::PipelineError(format!("Failed to parse JSON blueprint: {}", e))
+        })
     }
 }
 
 /// Save pipeline blueprint to file
 pub fn save_blueprint_to_file(blueprint: &PipelineBlueprint, path: &Path) -> OzoneResult<()> {
     let content = if path.extension().map(|e| e == "toml").unwrap_or(false) {
-        toml::to_string_pretty(blueprint)
-            .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to serialize TOML: {}", e)))?
+        toml::to_string_pretty(blueprint).map_err(|e| {
+            crate::OzoneError::PipelineError(format!("Failed to serialize TOML: {}", e))
+        })?
     } else {
-        serde_json::to_string_pretty(blueprint)
-            .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to serialize JSON: {}", e)))?
+        serde_json::to_string_pretty(blueprint).map_err(|e| {
+            crate::OzoneError::PipelineError(format!("Failed to serialize JSON: {}", e))
+        })?
     };
-    
-    std::fs::write(path, content)
-        .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to write blueprint: {}", e)))?;
-    
+
+    std::fs::write(path, content).map_err(|e| {
+        crate::OzoneError::PipelineError(format!("Failed to write blueprint: {}", e))
+    })?;
+
     Ok(())
 }
 
 /// Scan directory for pipeline blueprints
 pub fn scan_pipeline_directory(dir: &Path) -> OzoneResult<Vec<PipelineBlueprint>> {
     let mut blueprints = Vec::new();
-    
+
     if !dir.exists() {
         return Ok(blueprints);
     }
-    
+
     for entry in std::fs::read_dir(dir)
-        .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to read directory: {}", e)))? 
+        .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to read directory: {}", e)))?
     {
-        let entry = entry
-            .map_err(|e| crate::OzoneError::PipelineError(format!("Failed to read entry: {}", e)))?;
+        let entry = entry.map_err(|e| {
+            crate::OzoneError::PipelineError(format!("Failed to read entry: {}", e))
+        })?;
         let path = entry.path();
-        
+
         // Look for blueprint files
         if path.is_file() {
             let ext = path.extension().and_then(|e| e.to_str());
@@ -222,12 +241,12 @@ pub fn scan_pipeline_directory(dir: &Path) -> OzoneResult<Vec<PipelineBlueprint>
                 }
             }
         }
-        
+
         // Also check subdirectories for pipeline.toml/pipeline.json
         if path.is_dir() {
             let toml_path = path.join("pipeline.toml");
             let json_path = path.join("pipeline.json");
-            
+
             if toml_path.exists() {
                 if let Ok(blueprint) = load_blueprint_from_file(&toml_path) {
                     blueprints.push(blueprint);
@@ -239,30 +258,36 @@ pub fn scan_pipeline_directory(dir: &Path) -> OzoneResult<Vec<PipelineBlueprint>
             }
         }
     }
-    
+
     Ok(blueprints)
 }
 
 /// Validate pipeline blueprint
 pub fn validate_blueprint(blueprint: &PipelineBlueprint) -> OzoneResult<Vec<String>> {
     let mut warnings = Vec::new();
-    
+
     // Check required fields
     if blueprint.name.is_empty() {
-        return Err(crate::OzoneError::ValidationError("Pipeline name is required".into()));
+        return Err(crate::OzoneError::ValidationError(
+            "Pipeline name is required".into(),
+        ));
     }
-    
+
     if blueprint.description.is_empty() {
         warnings.push("Pipeline description is empty".into());
     }
-    
+
     // Check for circular dependencies
-    if blueprint.specification.dependencies.contains(&blueprint.pipeline_id) {
+    if blueprint
+        .specification
+        .dependencies
+        .contains(&blueprint.pipeline_id)
+    {
         return Err(crate::OzoneError::ValidationError(
-            "Pipeline cannot depend on itself".into()
+            "Pipeline cannot depend on itself".into(),
         ));
     }
-    
+
     // Check for duplicate sub-pipelines
     let mut seen = std::collections::HashSet::new();
     for sub in &blueprint.specification.sub_pipelines {
@@ -270,6 +295,6 @@ pub fn validate_blueprint(blueprint: &PipelineBlueprint) -> OzoneResult<Vec<Stri
             warnings.push(format!("Duplicate sub-pipeline: {}", sub));
         }
     }
-    
+
     Ok(warnings)
 }
