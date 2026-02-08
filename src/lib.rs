@@ -94,10 +94,7 @@ impl OzoneRuntime {
         let integrity = integrity::IntegrityMonitor::new(&config.integrity)?;
         
         // Initialize network manager
-        let mut network = network::NetworkManager::new(
-            config.network.enable_p2p,
-            config.network.bootstrap_nodes.clone(),
-        );
+        let mut network = network::NetworkManager::new(config.network.clone()).await?;
         network.initialize().await?;
         
         // Initialize consciousness if enabled in config

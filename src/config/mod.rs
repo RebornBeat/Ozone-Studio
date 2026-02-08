@@ -219,8 +219,6 @@ pub struct NetworkConfig {
     pub enable_p2p: bool,
     /// Enable cloud sync (separate from P2P)
     pub enable_cloud_sync: bool,
-    /// Bootstrap nodes for P2P discovery
-    pub bootstrap_nodes: Vec<String>,
     /// P2P listen port
     pub p2p_port: u16,
     /// Maximum connected peers
@@ -236,7 +234,6 @@ impl Default for NetworkConfig {
         Self {
             enable_p2p: true,  // Enabled by default for P2P
             enable_cloud_sync: false,  // Disabled - local first
-            bootstrap_nodes: Vec::new(),
             p2p_port: 9090,
             max_peers: 50,
             enable_mdns: true,

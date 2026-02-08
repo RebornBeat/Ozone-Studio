@@ -37,6 +37,14 @@ hex = "0.4"
 tonic = { version = "0.10", optional = true }
 prost = { version = "0.12", optional = true }
 
+#Code Analysis
+tree-sitter = "0.22"
+tree-sitter-rust = "0.21"
+tree-sitter-javascript = "0.21"
+tree-sitter-typescript = "0.21"
+tree-sitter-python = "0.21"
+tree-sitter-go = "0.21"
+
 # Cryptography
 blake3 = "1.5"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
@@ -52,6 +60,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # Error handling
 thiserror = "1.0"
 anyhow = "1.0"
+log = "0.4"
 
 # Time
 chrono = { version = "0.4", features = ["serde"] }
@@ -64,6 +73,9 @@ reqwest = { version = "0.11", features = ["json"] }
 
 # Configuration
 config = "0.14"
+
+#P2P
+libp2p = { version = "0.53", features = ["tcp", "noise", "yamux", "identify", "ping", "gossipsub", "mdns", "tokio", "macros"] }
 
 # Regex for pattern matching
 regex = "1.10"
