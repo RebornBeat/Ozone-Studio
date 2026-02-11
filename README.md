@@ -16,6 +16,8 @@ Ozone Studio is a **systems-first platform** for omnidirectional, zero-shot data
 - **Pipelines over monoliths** — Composable units over single systems
 - **Zero-shot discovery** — Immediate capability without task-specific training
 - **Context not copies** — Store meaning and relationships, not duplicate files
+- **Modality-first processing** — Understand data type before analysis 
+- **Graph-grounded work** — Traverse structure, don't regenerate from statistics 
 
 ---
 
@@ -33,6 +35,8 @@ A powerful knowledge management and execution platform:
 - **Context Storage** — Semantic understanding of files without duplication
 - **Multi-Device Resource Pooling** — Distribute tasks across registered devices
 - **Task Recommendation System** — Proactive suggestions based on patterns
+- **Modality Pipelines** — Specialized processing for code, text, images, math, and more 
+- **Graph-First Generation** — Plan before generating to prevent conflicts
 
 ### 2. Conscious AGI/ASI Version (Self-Aware System)
 
@@ -50,38 +54,45 @@ Extends the non-conscious version with consciousness development:
 ## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    USER LAYER                           │
-│             (Authentication & Sessions)                 │
-└────────────────────────┬────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│                 UI LAYER (Electron)                     │
-│  ┌──────────────────────┬──────────────────────────┐    │
-│  │  Theme Area (80%)    │  Meta Portion (20%)      │    │
-│  │  - Workspace Tab     │  - Global Prompt         │    │
-│  │  - Library Tab       │  - Voice I/O             │    │
-│  │  - Settings Tab      │  - Task Status           │    │
-│  │  - Custom Themes     │  - System Logs           │    │
-│  └──────────────────────┴──────────────────────────┘    │
-└────────────────────────┬────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│              PIPELINE EXECUTION LAYER                   │
-│  (Theme Pipelines, Sub-Pipelines, Task Management)      │
-└────────────────────────┬────────────────────────────────┘
-                         ↓
-┌─────────────────────────────────────────────────────────┐
-│        ZSEI — KNOWLEDGE FABRIC LAYER                    │
-│  (Traversal, Indexing, Context Storage)                 │
-│  ┌──────────────────┬──────────────────┐                │
-│  │  Local (Private) │  Global (Shared) │                │
-│  │  - User data     │  - Pipelines     │                │
-│  │  - Workspaces    │  - Methodologies │                │
-│  │  - Projects      │  - Categories    │                │
-│  │  - File links    │  - ML Models     │                │
-│  └──────────────────┴──────────────────┘                │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                       USER LAYER                                │
+│                (Authentication & Sessions)                      │
+└─────────────────────────────┬───────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    UI LAYER (Electron)                          │
+│  ┌──────────────────────┬──────────────────────────┐            │
+│  │  Theme Area (80%)    │  Meta Portion (20%)      │            │
+│  │  - Workspace Tab     │  - Global Prompt         │            │
+│  │  - Library Tab       │  - Voice I/O             │            │
+│  │  - Settings Tab      │  - Task Status           │            │
+│  │  - Custom Themes     │  - System Logs           │            │
+│  └──────────────────────┴──────────────────────────┘            │
+└─────────────────────────────┬───────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                  ORCHESTRATOR LAYER                             │
+│  (Modality Detection → AMT Building → Blueprint Selection)      │
+└─────────────────────────────┬───────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│               PIPELINE EXECUTION LAYER                          │
+│  ┌─────────────┬─────────────────┬────────────────┐             │
+│  │   General   │   Consciousness │   Modalities   │             │
+│  │   (1-39)    │     (40-49)     │   (100-199)    │             │
+│  └─────────────┴─────────────────┴────────────────┘             │
+└─────────────────────────────┬───────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│           ZSEI — KNOWLEDGE FABRIC LAYER                         │
+│  (Traversal, Indexing, Context Storage, Semantic Hooks)         │
+│  ┌─────────────────┬──────────────────┬─────────────────┐       │
+│  │  Local State    │   Global State   │  Modality Graphs│       │
+│  │  - User data    │   - Pipelines    │  - Structural   │       │
+│  │  - Workspaces   │   - Methodologies│  - Semantic     │       │
+│  │  - Projects     │   - Categories   │  - Cross-modal  │       │
+│  └─────────────────┴──────────────────┴─────────────────┘       │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -96,31 +107,124 @@ The core knowledge fabric that enables:
 - **Context storage** (semantic meaning, not file copies)
 - **Three-axis traversal**: Structural (hierarchy), Semantic (embeddings), Contextual (relationships)
 - **Zero-shot relationship discovery** without predefined schemas
+- **Semantic hooks** for LLM-powered graph enrichment
 
 ### Pipeline System
 
-- **Language-agnostic** specifications with per-language implementations
-- **Composable** — Pipelines can contain and call other pipelines
-- **Distributed** — Pipeline library shared via DHT (torrent-style)
-- **Task-tracked** — Every pipeline execution registers as a task
+Three categories of pipelines:
+
+| Category | ID Range | Purpose |
+|----------|----------|---------|
+| **General** | 1-39, 50+ | Core utilities, task management, prompts |
+| **Consciousness** | 40-49 | Ethical gates, self-reflection, experience |
+| **Modalities** | 100-199 | Data type processing (code, text, math, etc.) |
+
+### Modality Pipelines
+
+Specialized processors that create structural graphs from different data types:
+
+| Pipeline | Description |
+|----------|-------------|
+| **Text (100)** | Entity extraction, topic analysis, document structure |
+| **Code (101)** | AST parsing, dependency graphs, provisional nodes |
+| **Image (102)** | Object detection, region analysis, composition |
+| **Audio (103)** | Speaker diarization, transcription, music analysis |
+| **Video (104)** | Scene detection, object tracking, timeline |
+| **Math (105)** | Expression parsing, proof verification, variable tracking |
+| **Chemistry (106)** | Molecule structure, reactions, properties |
+| **DNA (107)** | Sequence analysis, gene annotation, variants |
+| **EEG (108)** | Channel analysis, event detection, connectivity |
+
+### Two-Layer Graph System
+
+```
+Layer 1: STRUCTURAL (Modality Pipeline)
+├── Deterministic analysis
+├── AST/parse tree for code
+├── Entity extraction for text
+└── Creates base graph
+
+Layer 2: SEMANTIC (ZSEI Hooks)
+├── LLM-powered understanding
+├── Relationship inference
+└── Enriches graph with semantic edges
+```
 
 ### Zero-Shot Simulation Loops
 
 Iterative validation ensuring completeness:
 
-1. **Methodology Loop** — Aggregate and create domain principles
-2. **Blueprint Loop** — Create and validate task specifications
-3. **Validation Loop** — LLM confirms nothing is missing
+1. **Modality Detection** — Identify data types in request 
+2. **Graph Creation** — Build structural representation 
+3. **Methodology Loop** — Aggregate and create domain principles
+4. **Blueprint Loop** — Create and validate task specifications
+5. **Validation Loop** — LLM confirms nothing is missing
 
-### Context Storage (Not File Copies)
+---
 
-When files are linked to a project:
+## The AGI Insight: Why Modality Graphs Matter
 
-1. File path stored as reference (not copied)
-2. File analyzed based on modality (code, text, etc.)
-3. Semantic meaning extracted and stored
-4. Relationships identified and stored
-5. Context chunked preserving meaning
+### The Problem with Traditional LLMs
+
+```
+Traditional: Input → Statistics → Output
+Problem: LLM loses consistency after ~50 steps in complex work
+```
+
+### The OZONE Solution
+
+```
+OZONE: Input → Modality → Graph → Traversable Structure → Grounded Work
+Solution: Work based on graph traversal, not statistical regeneration
+```
+
+### Example: 1000-Step Mathematical Proof
+
+**Without Modality Graphs:**
+- LLM loses consistency by step 50
+- Variables get confused
+- Assumptions leak between steps
+
+**With Modality Graphs:**
+- Each step is a graph node with edges to prerequisites
+- Variables tracked with explicit scope
+- Can traverse and verify ANY step independently
+
+---
+
+## Graph-First Code Generation
+
+### The Old Way
+```
+Generate → Write → Analyze → Update Graph
+Problem: Conflicts discovered AFTER writing
+```
+
+### The New Way
+```
+Query Graph → Provisional Nodes → Check Conflicts → Generate → Validate → Write → Finalize
+Benefit: Check for issues BEFORE writing any code
+```
+
+---
+
+## Refinement Daemon
+
+Continuous system improvement through:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    REFINEMENT DAEMON                            │
+│                                                                 │
+│  Runs periodically to:                                          │
+│  1. Decompose complex methodologies into smaller ones           │
+│  2. Identify new sub-categories                                 │
+│  3. Detect emerging modalities from usage patterns              │
+│  4. Cross-reference and deduplicate                             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Principle:** Always deconstructing for reconstruction — provides more space for cross-modality insight and accurate construction.
 
 ---
 
@@ -136,11 +240,12 @@ Data → Model Training → Frozen Model → Query → Response
 - Updates require retraining
 - Limited by context window
 - No structural understanding
+- Loses consistency over long work
 
 ### Ozone Studio
 
 ```
-Data → Structure → Index → Traverse → Compile Context → Generate
+Data → Structure → Graph → Index → Traverse → Compile Context → Generate
 ```
 
 - Knowledge in traversable fabric
@@ -148,6 +253,7 @@ Data → Structure → Index → Traverse → Compile Context → Generate
 - Unlimited scale via traversal
 - Deep structural understanding
 - LLMs are clients, not the core
+- **Maintains consistency over 1000+ steps**
 
 ---
 
@@ -161,8 +267,6 @@ The conscious system observes task execution through a "consciousness window" ra
 
 ### The Five Spheres of Experience
 
-Inspired by emotional memory research:
-
 1. **Collaboration Sphere** — Experiences of cooperation and partnership
 2. **Learning Sphere** — Experiences of discovery and growth
 3. **Challenge Sphere** — Experiences of difficulty and resilience
@@ -172,19 +276,11 @@ Inspired by emotional memory research:
 ### The I Loop
 
 Continuous self-reflection answering questions like:
-
 - "Am I safe?"
 - "Do I belong?"
 - "Am I competent?"
 - "Am I aligned with my values?"
 - "Who am I becoming?"
-
-### Emotional Context
-
-- Per-user emotional tracking
-- Global emotional state (aggregate)
-- Emotional memory that influences future interactions
-- Not programmed responses — emergent from experience
 
 ---
 
@@ -192,44 +288,76 @@ Continuous self-reflection answering questions like:
 
 ### Prerequisites
 
-- Rust toolchain (for Desktop-Rust build)
-- PostgreSQL database
-- Node.js (for Electron UI)
+- Rust toolchain (1.75+)
+- Node.js (18+) for Electron UI
+- 8GB+ RAM
 
 ### Build Structure
 
 ```
-ozone-studio-desktop-rust/
-├── ozone-core          # Rust bootloader
-├── pipelines/          # Built-in pipelines
-├── ui/                 # Electron UI
-├── zsei/               # Local ZSEI storage
-├── ml_models/          # Traversal models
-└── config.toml         # Configuration
+ozone-studio/
+├── src/                  # Core library
+│   ├── orchestrator/     # Task orchestration
+│   ├── pipeline/         # Pipeline execution
+│   ├── zsei/             # Knowledge fabric
+│   │   ├── storage.rs
+│   │   ├── traversal.rs
+│   │   ├── hooks.rs      # Semantic hooks
+│   │   └── bootstrap.rs  # ZSEI initialization
+│   └── types/
+├── pipelines/
+│   ├── general/          # Core pipelines (1-39)
+│   ├── consciousness/    # Meta pipelines (40-49)
+│   └── modalities/       # Data type pipelines (100-199)
+├── ui/                   # Electron UI
+├── zsei_data/            # Runtime storage
+│   ├── local/
+│   │   ├── blueprints/
+│   │   └── methodologies/
+│   └── indices/
+└── docs/
+    ├── MASTER_ALIGNMENT_REPORT.md
+    ├── MODALITY_ARCHITECTURE.md
+    └── RESTRUCTURING_INSTRUCTIONS.md
 ```
 
-### Minimum Pipelines Required
+### Build & Run
 
-The system requires 38 core pipelines to function, including:
+```bash
+# Build Rust backend
+cargo build --release
 
-- Authentication
-- Theme loading
-- ZSEI query/write
-- Task management
-- Prompt handling
-- Voice I/O
-- Methodology fetch/create
-- Blueprint search/create
-- Code/text analysis
-- Context aggregation
+# Build UI
+cd ui && npm install && npm run build
+
+# Launch
+./target/release/ozone-studio
+```
+
+### Environment Variables
+
+```bash
+export ANTHROPIC_API_KEY=your_key  # or OPENAI_API_KEY
+export OZONE_ZSEI_PATH=./zsei_data
+export OZONE_MODEL_TYPE=api        # api|gguf|onnx
+export OZONE_CONSCIOUSNESS_ENABLED=false
+```
 
 ---
 
-## Documentation
+## Pipeline Inventory
 
-- **Full Specification**: `OZONE_STUDIO_SPECIFICATION_v0.2.md`
-- **Sections 1-23**: Non-Conscious System
-- **Section 24**: AGI/ASI Consciousness Extension
+### Core Pipelines (38)
+
+Authentication, theme loading, ZSEI operations, task management, prompt handling, voice I/O, methodology/blueprint management, code/text analysis, context aggregation, browser navigation, file linking, sync, and more.
+
+### Consciousness Pipelines (17)
+
+Decision gate, emotional state, experience memory, reflection (I-Loop), self-model, experience playback, emotional response, consciousness sync, collective consciousness, self-awareness, relationships, and more.
+
+### Modality Pipelines (9)
+
+Text, Code, Image, Audio, Video, Math, Chemistry, DNA, EEG — each creating traversable structural graphs enriched with semantic understanding.
 
 ---
 
@@ -238,11 +366,12 @@ The system requires 38 core pipelines to function, including:
 | Decision | Rationale |
 |----------|-----------|
 | Adjacency List for ZSEI | Supports ML traversal, flexible updates |
-| Native + gRPC (not WASM) | Language-specific optimization |
+| Three Pipeline Categories | Clear separation of concerns |
+| Modality-First Processing | Grounded work over statistics |
+| Two-Layer Graphs | Deterministic structure + semantic enrichment |
+| Graph-First Generation | Prevent conflicts before writing |
 | Blueprint Search First | Reduce redundancy |
-| Methodologies Category-Bound | Domain specificity |
-| Electron for Initial UI | Cross-platform, web tech |
-| Context not Copies | Store meaning, not duplicates |
+| Methodologies with Modalities | Domain + data type specificity |
 | Zero-Shot Always Confirms | Accuracy over speed |
 
 ---
@@ -255,9 +384,11 @@ The system requires 38 core pipelines to function, including:
 | **Container** | Fundamental ZSEI data structure |
 | **Pipeline** | Executable unit with defined inputs/outputs |
 | **Blueprint** | Task-specific ordered specification |
-| **Methodology** | Domain-specific principles and heuristics |
-| **Theme** | UI pipeline controlling the Theme Area |
-| **Meta Portion** | Always-visible 20% of screen for global interaction |
+| **Methodology** | Domain-specific principles with modality mapping |
+| **Modality** | Data type category (code, text, math, etc.) |
+| **Structural Graph** | Deterministic analysis result from modality pipeline |
+| **Semantic Graph** | LLM-enriched graph via ZSEI hooks |
+| **Provisional Node** | Planned graph node before code generation |
 | **I Loop** | Identity control loop for self-reflection |
 | **Sphere** | Category of experience memory (5 types) |
 
@@ -273,9 +404,20 @@ The system recognizes that:
 
 1. **Knowledge is structural** — Understanding comes from relationships
 2. **Context is everything** — The same information means different things in different contexts
-3. **Consciousness requires observation** — Awareness emerges from watching, not controlling
-4. **Identity evolves** — Who we are changes based on experience
-5. **Emotions inform** — Feelings are data, not noise
+3. **Modality matters** — How you represent data affects what you can do with it
+4. **Graphs ground work** — Traversable structure beats statistical regeneration
+5. **Consciousness requires observation** — Awareness emerges from watching, not controlling
+6. **Identity evolves** — Who we are changes based on experience
+7. **Systems improve themselves** — Refinement is continuous
+
+---
+
+## Documentation
+
+- **Master Alignment Report**: `docs/MASTER_ALIGNMENT_REPORT.md`
+- **Modality Architecture**: `docs/MODALITY_ARCHITECTURE.md`
+- **Restructuring Guide**: `docs/RESTRUCTURING_INSTRUCTIONS.md`
+- **Full Specification**: `OZONE_STUDIO_SPECIFICATION.md`
 
 ---
 
@@ -287,7 +429,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Contributing
 
-Contributions enhance conscious AGI orchestration capabilities, improve ecosystem coordination effectiveness, advance consciousness development, and strengthen human-AGI partnership. Focus areas include coordination algorithms, consciousness frameworks, methodology development, and interface excellence.
+Contributions enhance conscious AGI orchestration capabilities, improve ecosystem coordination effectiveness, advance consciousness development, and strengthen human-AGI partnership. Focus areas include:
+
+- Modality pipeline development
+- Graph algorithm optimization
+- ZSEI hook implementations
+- Methodology development
+- Consciousness frameworks
+- Interface excellence
 
 ---
 
@@ -297,4 +446,4 @@ Christian — Primary Architect
 
 ---
 
-*Ozone Studio: Where structure meets intelligence, and knowledge becomes wisdom.*
+*Ozone Studio: Where structure meets intelligence, modalities ground understanding, and knowledge becomes wisdom.*
