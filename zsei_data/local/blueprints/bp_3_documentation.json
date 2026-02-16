@@ -1,0 +1,253 @@
+{
+  "blueprint_id": 3,
+  "name": "Documentation",
+  "version": "2.0.0",
+  "description": "Generate comprehensive documentation using text modality graphs for structure and ZSEI for semantic consistency",
+  
+  "modality_config": {
+    "primary_modality": "text",
+    "secondary_modalities": ["code"],
+    "auto_detect": true,
+    "modality_pipeline_mapping": {
+      "text": 100,
+      "code": 101
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 12, 100],
+    "optional_pipelines": [101, 11],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": false
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [2, 11],
+    "suggested_methodologies": [1, 12],
+    "methodology_selection_strategy": "context_based"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": true,
+    "zsei_hooks": [
+      "OnGraphCreated",
+      "OnInferRelationships",
+      "OnCrossModalityLink"
+    ],
+    "cross_modality_linking": true
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_request",
+      "description": "Receive documentation request",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["request", "source_materials"]
+    },
+    {
+      "step_id": 2,
+      "name": "detect_doc_type",
+      "description": "Determine documentation type and format",
+      "pipeline_id": 1,
+      "action": "classify_request",
+      "inputs": ["request"],
+      "outputs": ["doc_type", "target_format"],
+      "config": {
+        "doc_types": ["api", "tutorial", "readme", "architecture", "user_guide", "reference"],
+        "formats": ["markdown", "html", "rst", "docx"]
+      }
+    },
+    {
+      "step_id": 3,
+      "name": "analyze_source_code",
+      "description": "If documenting code, analyze structure",
+      "pipeline_id": 101,
+      "action": "Analyze",
+      "inputs": ["source_materials"],
+      "outputs": ["code_analysis"],
+      "conditional": {
+        "condition": "has_code_source"
+      }
+    },
+    {
+      "step_id": 4,
+      "name": "create_code_graph",
+      "description": "Create graph from code if applicable",
+      "pipeline_id": 101,
+      "action": "CreateGraph",
+      "inputs": ["code_analysis"],
+      "outputs": ["code_graph_id"],
+      "conditional": {
+        "condition": "has_code_source"
+      }
+    },
+    {
+      "step_id": 5,
+      "name": "analyze_existing_docs",
+      "description": "Analyze any existing documentation",
+      "pipeline_id": 100,
+      "action": "Analyze",
+      "inputs": ["source_materials"],
+      "outputs": ["doc_analysis"],
+      "config": {
+        "extract_structure": true,
+        "identify_gaps": true
+      }
+    },
+    {
+      "step_id": 6,
+      "name": "create_doc_outline",
+      "description": "Generate documentation outline",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["doc_type", "code_graph_id", "doc_analysis"],
+      "outputs": ["doc_outline"],
+      "config": {
+        "response_format": "json",
+        "schema": "doc_outline_schema"
+      }
+    },
+    {
+      "step_id": 7,
+      "name": "create_doc_graph",
+      "description": "Create documentation structure graph",
+      "pipeline_id": 100,
+      "action": "CreateGraph",
+      "inputs": ["doc_outline"],
+      "outputs": ["doc_graph_id"],
+      "triggers_hooks": ["OnGraphCreated"]
+    },
+    {
+      "step_id": 8,
+      "name": "link_graphs",
+      "description": "Link doc graph to code graph",
+      "pipeline_id": 100,
+      "action": "LinkToModality",
+      "inputs": ["doc_graph_id", "code_graph_id"],
+      "outputs": ["linked_graph"],
+      "config": {
+        "relationship_type": "Describes"
+      },
+      "conditional": {
+        "condition": "has_code_graph"
+      }
+    },
+    {
+      "step_id": 9,
+      "name": "load_methodologies",
+      "description": "Load documentation methodologies",
+      "pipeline_id": 16,
+      "action": "LoadMethodologies",
+      "inputs": ["required_methodologies"],
+      "outputs": ["active_methodologies"]
+    },
+    {
+      "step_id": 10,
+      "name": "aggregate_context",
+      "description": "Build generation context",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": [
+        "linked_graph",
+        "active_methodologies",
+        "doc_outline"
+      ],
+      "outputs": ["generation_context"]
+    },
+    {
+      "step_id": 11,
+      "name": "generate_sections",
+      "description": "Generate documentation sections",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["generation_context", "doc_outline"],
+      "outputs": ["doc_sections"],
+      "loop_config": {
+        "iterate_over": "doc_outline.sections",
+        "parallel": false,
+        "order": "outline_order"
+      }
+    },
+    {
+      "step_id": 12,
+      "name": "assemble_document",
+      "description": "Combine sections into final document",
+      "pipeline_id": 1,
+      "action": "assemble_doc",
+      "inputs": ["doc_sections", "target_format"],
+      "outputs": ["assembled_doc"]
+    },
+    {
+      "step_id": 13,
+      "name": "review_consistency",
+      "description": "Check cross-reference consistency using graph",
+      "pipeline_id": 100,
+      "action": "QueryGraph",
+      "inputs": ["doc_graph_id", "assembled_doc"],
+      "outputs": ["consistency_report"],
+      "config": {
+        "check_internal_links": true,
+        "check_code_references": true,
+        "check_terminology": true
+      }
+    },
+    {
+      "step_id": 14,
+      "name": "write_output",
+      "description": "Write documentation to file",
+      "pipeline_id": 11,
+      "action": "CreateFile",
+      "inputs": ["assembled_doc", "target_format"],
+      "outputs": ["doc_path"]
+    },
+    {
+      "step_id": 15,
+      "name": "update_graph",
+      "description": "Finalize doc graph with file reference",
+      "pipeline_id": 100,
+      "action": "UpdateGraph",
+      "inputs": ["doc_graph_id", "doc_path"],
+      "outputs": ["final_graph"]
+    }
+  ],
+  
+  "doc_outline_schema": {
+    "title": "string",
+    "type": "doc_type",
+    "sections": [
+      {
+        "id": "string",
+        "title": "string",
+        "level": "integer",
+        "content_type": ["prose", "code_example", "diagram", "table", "list"],
+        "source_refs": ["graph_node_ids"],
+        "subsections": "recursive"
+      }
+    ]
+  },
+  
+  "amt_keywords": [
+    "document", "documentation", "readme", "tutorial", "guide",
+    "api docs", "write docs", "explain", "describe"
+  ],
+  
+  "fallback_behavior": {
+    "on_graph_failure": "generate_linear",
+    "on_link_failure": "generate_standalone",
+    "on_consistency_failure": "flag_issues"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-01-01",
+    "updated": "2025-02-11",
+    "tags": ["documentation", "text", "technical_writing"]
+  }
+}

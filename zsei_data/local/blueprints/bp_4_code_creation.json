@@ -1,0 +1,300 @@
+{
+  "blueprint_id": 4,
+  "name": "Code Creation",
+  "version": "2.0.0",
+  "description": "Graph-first code generation using provisional nodes to prevent conflicts and ensure consistency",
+  
+  "modality_config": {
+    "primary_modality": "code",
+    "secondary_modalities": ["text"],
+    "auto_detect": true,
+    "modality_pipeline_mapping": {
+      "code": 101,
+      "text": 100
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 11, 12, 101],
+    "optional_pipelines": [100],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": true
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [3, 5, 10],
+    "suggested_methodologies": [4, 6, 7, 8],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": true,
+    "provisional_nodes_enabled": true,
+    "zsei_hooks": [
+      "OnGraphCreated",
+      "OnInferRelationships",
+      "OnEdgeCompletion",
+      "OnCrossModalityLink"
+    ],
+    "cross_modality_linking": true,
+    "conflict_detection": {
+      "check_naming_conflicts": true,
+      "check_import_conflicts": true,
+      "check_type_conflicts": true,
+      "check_dependency_cycles": true
+    }
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_request",
+      "description": "Receive code creation request",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["request", "existing_context"]
+    },
+    {
+      "step_id": 2,
+      "name": "load_project_graph",
+      "description": "Load existing project code graph if available",
+      "pipeline_id": 101,
+      "action": "QueryGraph",
+      "inputs": ["project_id"],
+      "outputs": ["existing_graph"],
+      "optional": true
+    },
+    {
+      "step_id": 3,
+      "name": "analyze_requirements",
+      "description": "Extract code requirements from request",
+      "pipeline_id": 100,
+      "action": "Analyze",
+      "inputs": ["request"],
+      "outputs": ["requirement_analysis"],
+      "config": {
+        "extract_entities": true,
+        "identify_technical_terms": true
+      }
+    },
+    {
+      "step_id": 4,
+      "name": "plan_structure",
+      "description": "Plan code structure with LLM",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["requirement_analysis", "existing_graph"],
+      "outputs": ["structure_plan"],
+      "config": {
+        "response_format": "json",
+        "schema": "code_structure_plan"
+      }
+    },
+    {
+      "step_id": 5,
+      "name": "create_provisional_nodes",
+      "description": "Create provisional nodes in graph BEFORE generation",
+      "pipeline_id": 101,
+      "action": "CreateProvisionalNodes",
+      "inputs": ["structure_plan", "existing_graph"],
+      "outputs": ["provisional_graph", "provisional_node_ids"],
+      "critical": true,
+      "comment": "This is the key graph-first step - plan the structure before writing code"
+    },
+    {
+      "step_id": 6,
+      "name": "check_conflicts",
+      "description": "Validate provisional structure against existing code",
+      "pipeline_id": 101,
+      "action": "CheckConflicts",
+      "inputs": ["provisional_graph"],
+      "outputs": ["conflict_report"],
+      "on_failure": {
+        "action": "revise_plan",
+        "goto_step": 4
+      }
+    },
+    {
+      "step_id": 7,
+      "name": "consciousness_check",
+      "description": "Ethical and architectural review of planned code",
+      "pipeline_id": 40,
+      "action": "EvaluateDecision",
+      "inputs": ["structure_plan", "conflict_report"],
+      "outputs": ["approval_status"],
+      "config": {
+        "check_security_implications": true,
+        "check_architectural_fit": true
+      }
+    },
+    {
+      "step_id": 8,
+      "name": "load_methodologies",
+      "description": "Load code creation methodologies",
+      "pipeline_id": 16,
+      "action": "LoadMethodologies",
+      "inputs": ["required_methodologies"],
+      "outputs": ["active_methodologies"]
+    },
+    {
+      "step_id": 9,
+      "name": "aggregate_context",
+      "description": "Build generation context with graph and methodologies",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": [
+        "provisional_graph",
+        "active_methodologies",
+        "requirement_analysis"
+      ],
+      "outputs": ["generation_context"]
+    },
+    {
+      "step_id": 10,
+      "name": "generate_code",
+      "description": "Generate code for each provisional node",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["generation_context", "provisional_node_ids"],
+      "outputs": ["generated_code"],
+      "loop_config": {
+        "iterate_over": "provisional_node_ids",
+        "parallel": false,
+        "order": "dependency_order"
+      },
+      "config": {
+        "include_provisional_context": true,
+        "validate_against_graph": true
+      }
+    },
+    {
+      "step_id": 11,
+      "name": "validate_code",
+      "description": "Validate generated code against graph constraints",
+      "pipeline_id": 101,
+      "action": "Analyze",
+      "inputs": ["generated_code"],
+      "outputs": ["validation_result"],
+      "config": {
+        "check_imports": true,
+        "check_types": true,
+        "check_dependencies": true
+      }
+    },
+    {
+      "step_id": 12,
+      "name": "write_files",
+      "description": "Write validated code to files",
+      "pipeline_id": 11,
+      "action": "CreateFile",
+      "inputs": ["generated_code", "validation_result"],
+      "outputs": ["file_paths"],
+      "conditional": {
+        "condition": "validation_result.success",
+        "on_failure": {
+          "action": "regenerate",
+          "goto_step": 10,
+          "max_retries": 3
+        }
+      }
+    },
+    {
+      "step_id": 13,
+      "name": "finalize_graph",
+      "description": "Convert provisional nodes to permanent after successful write",
+      "pipeline_id": 101,
+      "action": "FinalizeProvisional",
+      "inputs": ["provisional_node_ids", "file_paths"],
+      "outputs": ["final_graph"],
+      "on_failure": {
+        "action": "rollback",
+        "pipeline_id": 101,
+        "inputs": ["provisional_node_ids"]
+      }
+    },
+    {
+      "step_id": 14,
+      "name": "trigger_semantic_analysis",
+      "description": "Add semantic layer to new code",
+      "pipeline_id": 10,
+      "action": "TriggerHook",
+      "inputs": ["final_graph"],
+      "outputs": ["enriched_graph"],
+      "config": {
+        "hook_type": "OnGraphCreated"
+      }
+    },
+    {
+      "step_id": 15,
+      "name": "update_project_index",
+      "description": "Update ZSEI index with new code",
+      "pipeline_id": 7,
+      "action": "IndexFiles",
+      "inputs": ["file_paths", "enriched_graph"],
+      "outputs": ["index_status"]
+    }
+  ],
+  
+  "provisional_node_schema": {
+    "description": "Schema for provisional nodes created before code generation",
+    "properties": {
+      "provisional_id": "string",
+      "node_type": ["file", "module", "function", "class", "interface", "type"],
+      "planned_path": "string",
+      "planned_name": "string",
+      "planned_imports": "array",
+      "planned_exports": "array",
+      "planned_dependencies": "array",
+      "generation_order": "integer",
+      "status": ["planned", "generating", "generated", "validated", "finalized", "failed"]
+    }
+  },
+  
+  "output_format": {
+    "type": "code_files",
+    "include_summary": true,
+    "include_graph_visualization": false,
+    "sections": [
+      {
+        "name": "files_created",
+        "description": "List of created files with paths"
+      },
+      {
+        "name": "structure_summary",
+        "description": "Overview of code architecture"
+      },
+      {
+        "name": "dependencies_added",
+        "description": "New dependencies introduced"
+      },
+      {
+        "name": "next_steps",
+        "description": "Suggested follow-up tasks"
+      }
+    ]
+  },
+  
+  "amt_keywords": [
+    "create", "generate", "write code", "implement", "build",
+    "new file", "add function", "create class", "scaffold"
+  ],
+  
+  "fallback_behavior": {
+    "on_graph_failure": "create_isolated",
+    "on_conflict": "prompt_resolution",
+    "on_generation_failure": "rollback_provisional",
+    "on_write_failure": "preserve_in_memory"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-01-01",
+    "updated": "2025-02-11",
+    "tags": ["code", "creation", "generation", "graph-first"]
+  }
+}

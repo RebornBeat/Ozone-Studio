@@ -1,0 +1,130 @@
+{
+  "blueprint_id": 1,
+  "name": "General Assistant",
+  "version": "2.0.0",
+  "description": "Default blueprint for general conversational tasks, information retrieval, and multi-modal assistance",
+  
+  "modality_config": {
+    "primary_modality": null,
+    "secondary_modalities": [],
+    "auto_detect": true,
+    "modality_pipeline_mapping": {
+      "text": 100,
+      "code": 101,
+      "image": 102,
+      "audio": 103,
+      "video": 104,
+      "math": 105,
+      "chemistry": 106,
+      "dna": 107,
+      "eeg": 108
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 12],
+    "optional_pipelines": [100, 101, 102, 103, 104, 105],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": false
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [],
+    "suggested_methodologies": [1, 2],
+    "methodology_selection_strategy": "context_based"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": false,
+    "zsei_hooks": ["OnGraphCreated", "OnInferRelationships"],
+    "cross_modality_linking": true
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_request",
+      "description": "Receive and parse user request",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["raw_request", "attachments"]
+    },
+    {
+      "step_id": 2,
+      "name": "detect_modalities",
+      "description": "Auto-detect modalities from request and attachments",
+      "pipeline_id": 1,
+      "action": "detect_modalities",
+      "inputs": ["raw_request", "attachments"],
+      "outputs": ["detected_modalities"],
+      "conditional_next": {
+        "has_modalities": 3,
+        "no_modalities": 4
+      }
+    },
+    {
+      "step_id": 3,
+      "name": "process_modalities",
+      "description": "Create structural graphs for detected modalities",
+      "pipeline_id": "dynamic",
+      "action": "parallel_modality_analysis",
+      "inputs": ["detected_modalities", "attachments"],
+      "outputs": ["modality_graphs"],
+      "loop_config": {
+        "iterate_over": "detected_modalities",
+        "parallel": true,
+        "max_concurrent": 4
+      }
+    },
+    {
+      "step_id": 4,
+      "name": "build_context",
+      "description": "Aggregate context from ZSEI and modality graphs",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": ["raw_request", "modality_graphs"],
+      "outputs": ["aggregated_context"]
+    },
+    {
+      "step_id": 5,
+      "name": "generate_response",
+      "description": "Generate response using prompt pipeline",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["raw_request", "aggregated_context"],
+      "outputs": ["response"]
+    },
+    {
+      "step_id": 6,
+      "name": "format_and_return",
+      "description": "Format response and update session graph",
+      "pipeline_id": 1,
+      "action": "format_response",
+      "inputs": ["response", "modality_graphs"],
+      "outputs": ["final_response"]
+    }
+  ],
+  
+  "amt_keywords": [
+    "help", "explain", "what is", "how does", "tell me", "describe",
+    "question", "assist", "information", "general"
+  ],
+  
+  "fallback_behavior": {
+    "on_modality_failure": "continue_without",
+    "on_context_failure": "use_minimal_context",
+    "on_generation_failure": "retry_with_simplified"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-01-01",
+    "updated": "2025-02-11",
+    "tags": ["general", "assistant", "multi-modal", "default"]
+  }
+}

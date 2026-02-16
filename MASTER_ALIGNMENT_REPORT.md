@@ -1,8 +1,8 @@
 # OZONE STUDIO v0.3 - MASTER ALIGNMENT REPORT
 
-**Generated:** 2025-01-27  
-**Status:** PRODUCTION READY  
-**Specification Version:** 0.3  
+**Generated:** 2025-01-27
+**Status:** PRODUCTION READY
+**Specification Version:** 0.3
 **Implementation Version:** 0.3.0
 
 ---
@@ -179,7 +179,7 @@ ORDER OF EVENTS:
 5. Log query for analytics
 
 CALLS: None (direct storage access)
-CALLED BY: workspace_tab, library_tab, context_aggregation, 
+CALLED BY: workspace_tab, library_tab, context_aggregation,
            methodology_fetch, blueprint_search, experience_search,
            code_analysis, text_analysis
 ```
@@ -211,7 +211,7 @@ CALLED BY: workspace_tab, file_link, url_link, package_link,
 ORDER OF EVENTS:
 1. Create:
    a. Generate task_id
-   b. IF consciousness enabled: 
+   b. IF consciousness enabled:
       consciousness_hooks.pre_task_gate(summary)
       IF declined: Return error
    c. Set status: Queued
@@ -430,7 +430,7 @@ STAGE 14: RESPONSE DELIVERY
 ```
 ORDER OF EVENTS:
 1. Receive code/file_ref_id
-2. IF file_ref_id: 
+2. IF file_ref_id:
    zsei_query.GetContainer() → load file content
 3. Detect language from extension/content
 4. parse_structure():
@@ -444,15 +444,15 @@ ORDER OF EVENTS:
    ├── Cognitive (cyclomatic + nesting)
    ├── Lines of code
    └── Comment ratio
-7. IF use_llm:
-   call_prompt_pipeline():
-   ├── System: "Analyze code. Return JSON..."
-   └── Parse: semantic_summary, patterns, suggestions
-8. extract_keywords():
-   └── Topics: async, testing, database, etc.
+7. Build dependency graph
 9. Store in ZSEI:
    zsei_write.CreateContainer("CodeAnalysis")
 10. integrity_check.Verify()
+11. Return analysis result
+12. Create structural graph
+13. Trigger ZSEI semantic hooks
+14. Support provisional nodes for generation
+15. Support conflict checking
 
 CALLS: zsei_query, prompt, zsei_write, integrity_check
 CALLED BY: file_link, workspace_tab
@@ -465,25 +465,25 @@ ORDER OF EVENTS:
 1. Receive text/document_ref_id
 2. IF document_ref_id:
    zsei_query.GetContainer() → load content
-3. calculate_stats():
+3. Detect modality (document, chat, code comment, etc.)
+4. calculate_stats():
    ├── word_count, sentence_count, paragraph_count
    └── avg_sentence_length
-4. calculate_readability():
+5. calculate_readability():
    └── Flesch-Kincaid score
-5. detect_language():
+6. detect_language():
    └── Pattern matching for common languages
-6. extract_keywords_basic():
+7. extract_keywords_basic():
    └── TF-IDF-like scoring with stop words
-7. IF use_llm:
-   call_prompt_pipeline():
-   ├── Topics with confidence
-   ├── Named entities (PERSON, ORG, LOCATION)
-   ├── Sentiment analysis
-   └── Semantic summary
-8. query_zsei_similar():
+8. Build topic graph
+9. query_zsei_similar():
    └── Find similar documents
-9. zsei_write.CreateContainer("TextAnalysis")
-10. integrity_check.Verify()
+10. zsei_write.CreateContainer("TextAnalysis")
+11. integrity_check.Verify()
+12. Return analysis result
+13. Create structural graph
+14. Trigger ZSEI semantic hooks
+15. Cross-modality linking capability
 
 CALLS: zsei_query, prompt, zsei_write, integrity_check
 CALLED BY: file_link, workspace_tab
@@ -669,7 +669,7 @@ CALLED BY: zsei_write, code_analysis, text_analysis, bootstrap
 ```
 ORDER OF EVENTS:
 1. Receive task_id/query + token_budget
-2. Determine context sources:
+2. Determine context sources (Contains modality graphs if relevant):
    ├── Project files (via file_link refs)
    ├── URLs (via url_link refs)
    ├── Packages (via package_link refs)
@@ -788,7 +788,217 @@ Per specification, all storage uses:
 
 ---
 
-## PART V: SPECIFICATION ALIGNMENT
+## PART V: MODALITY ARCHITECTURE
+
+### The AGI Insight
+
+**Problem with Traditional LLMs:**
+```
+Traditional: Input → Statistics → Output
+Issue: LLM loses consistency after ~50 steps in complex work
+Variables confused, assumptions leak, cannot verify correctness
+```
+
+**OZONE Solution:**
+```
+OZONE: Input → Modality → Graph → Traversable Structure → Grounded Work
+Solution: Work based on graph traversal, not statistical regeneration
+```
+
+### Two-Layer Graph System
+
+**Layer 1: STRUCTURAL (from Modality Pipeline)**
+- Deterministic analysis
+- AST/parse tree for code
+- Entity extraction for text
+- Object detection for images
+- Creates base graph with structural edges
+- Fast, reproducible, cacheable
+
+**Layer 2: SEMANTIC (from ZSEI Hooks)**
+- LLM-powered understanding
+- Relationship inference
+- Context and meaning extraction
+- Enriches graph with semantic edges
+
+### Edge Types
+
+```rust
+pub enum EdgeType {
+    // Structural (from modality pipeline - deterministic)
+    Contains,    // Parent contains child
+    References,  // References another node
+    Depends,     // Depends on another node
+    Precedes,    // Comes before in sequence
+    Follows,     // Comes after in sequence
+    Calls,       // Function calls another
+    Imports,     // Imports a module
+
+    // Semantic (from ZSEI hooks - LLM-powered)
+    RelatesTo,   // Conceptually related
+    Contradicts, // Expresses opposite meaning
+    Supports,    // Provides evidence for
+    Extends,     // Elaborates on
+    Specializes, // More specific version
+    Generalizes, // More general version
+    SimilarTo,   // Semantically similar
+
+    // Cross-modality
+    Describes,   // Text describes image/code
+    Implements,  // Code implements spec
+    Represents,  // Diagram represents concept
+    Transcribes, // Text transcribes audio
+    Illustrates, // Image illustrates concept
+}
+```
+
+### ZSEI Semantic Hooks
+
+| Hook | Trigger | Purpose |
+|------|---------|---------|
+| `OnGraphCreated` | New graph from modality pipeline | Full semantic analysis |
+| `OnInferRelationships` | Node pairs need linking | Infer semantic edges |
+| `OnEdgeCompletion` | Incomplete edge info | Complete edge semantics |
+| `OnCrossModalityLink` | Linking different modalities | Cross-modality semantics |
+
+### Graph-First Code Generation
+
+**Provisional Nodes Pattern:**
+
+```rust
+pub struct ProvisionalNode {
+    provisional_id: String,
+    node_type: String,           // file, function, class, etc.
+    planned_path: PathBuf,
+    planned_name: String,
+    planned_imports: Vec<String>,
+    planned_exports: Vec<String>,
+    status: ProvisionalStatus,   // Planned → Generating → Validated → Finalized
+}
+
+pub enum ProvisionalStatus {
+    Planned,     // Structure planned, not generated
+    Generating,  // Currently being generated
+    Generated,   // Code generated, not validated
+    Validated,   // Passed validation
+    Finalized,   // Committed to graph
+    Failed,      // Generation/validation failed
+}
+```
+
+**Workflow:**
+1. `CreateProvisionalNodes` - Plan structure before generation
+2. `GetGraphWithProvisional` - Merge actual + provisional for LLM context
+3. `CheckConflicts` - Validate against existing + provisional
+4. Generate code with full graph awareness
+5. `FinalizeProvisional` - Convert to permanent after successful write
+6. `RollbackProvisional` - Cleanup on failure
+
+### Example: 1000-Step Mathematical Proof
+
+**Without Modality Graphs:**
+- LLM loses consistency by step 50
+- Variables get confused across steps
+- Assumptions leak between contexts
+- Cannot independently verify any step
+
+**With Modality Graphs (Pipeline 105):**
+- Each step is a graph node
+- Edges link prerequisites to consequences
+- Variables tracked with explicit scope tree
+- Assumptions explicitly linked to steps that use them
+- Can traverse and verify ANY step independently
+- Consistency maintained through structure, not statistics
+
+---
+
+## PART VI: REFINEMENT DAEMON
+
+### Continuous Improvement System
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    REFINEMENT DAEMON                            │
+│                                                                 │
+│  Runs periodically to:                                          │
+│  1. Decompose complex methodologies into smaller ones           │
+│  2. Identify new sub-categories                                 │
+│  3. Detect emerging modalities from usage patterns              │
+│  4. Cross-reference and deduplicate                             │
+└─────────────────────────────────────────────────────────────────┘
+         │                    │                    │
+         ▼                    ▼                    ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
+│   METHODOLOGY   │  │    CATEGORY     │  │    MODALITY     │
+│   REFINEMENT    │  │   REFINEMENT    │  │   REFINEMENT    │
+├─────────────────┤  ├─────────────────┤  ├─────────────────┤
+│ If methodology  │  │ If category     │  │ If new data     │
+│ has >5 princi-  │  │ has >10 method- │  │ types detected, │
+│ ples, consider  │  │ ologies, split  │  │ suggest new     │
+│ splitting       │  │ into sub-cats   │  │ modality        │
+└─────────────────┘  └─────────────────┘  └─────────────────┘
+```
+
+**Principle:** Always deconstructing for reconstruction — provides more space for cross-modality insight and accurate construction.
+
+---
+
+## PART VII: AMT + METHODOLOGY INTEGRATION
+
+### Why AMT Needs Methodologies
+
+The AMT (Abstract Meaning Tree) must capture **all knowledge requirements** for a task. Methodologies provide the **coverage requirements** that ensure the AMT is complete:
+
+```
+USER REQUEST: "Create a REST API for user management"
+
+AMT WITHOUT Methodology Coverage:
+├── Root: Create REST API
+├── Branch: User CRUD operations
+└── Branch: Database integration
+   ← INCOMPLETE: Missing security, testing, error handling
+
+AMT WITH Methodology Coverage:
+├── Root: Create REST API
+├── Branch: User CRUD operations
+├── Branch: Database integration
+├── Branch: Authentication (from Security methodology)
+├── Branch: Input validation (from Security methodology)
+├── Branch: Error handling (from Clean Code methodology)
+├── Branch: Unit tests (from Testing methodology)
+└── Branch: API documentation (from Documentation methodology)
+   ← COMPLETE: All aspects covered
+```
+
+### Coverage Aspects from Methodologies
+
+When building the AMT, methodologies contribute:
+
+| Methodology | Coverage Aspects Added |
+|-------------|----------------------|
+| Security Awareness | authentication, authorization, input_validation, data_protection |
+| Clean Code | error_handling, naming, single_responsibility |
+| Testing Strategy | unit_tests, integration_tests, edge_cases |
+| Documentation | api_docs, code_comments, usage_examples |
+| Performance | optimization_targets, bottleneck_analysis |
+
+### AMT Expansion Loop
+
+```
+1. Create initial AMT from user request
+2. Load methodologies for detected modalities + categories
+3. Extract coverage_aspects from methodologies
+4. LLM: "Does AMT cover all these aspects?"
+5. LLM: "What branches need expansion?"
+6. Add missing branches to AMT
+7. Repeat until all aspects covered (100% confidence)
+8. 10x validation: Verify completeness 10 times
+9. Proceed to blueprint search/creation
+```
+
+---
+
+## PART VIII: SPECIFICATION ALIGNMENT
 
 ### Part I: Core System (§1-30) ✅ COMPLETE
 
@@ -864,7 +1074,7 @@ Per specification, all storage uses:
 
 ---
 
-## PART VI: PRODUCTION READINESS
+## PART IX: PRODUCTION READINESS
 
 ### Checklist ✅
 
@@ -896,7 +1106,7 @@ TOTAL CODE:          28,019 lines
 
 ---
 
-## PART VII: FILE STRUCTURE
+## PART X: FILE STRUCTURE
 
 ```
 ozone-studio/
@@ -953,7 +1163,7 @@ ozone-studio/
 
 ---
 
-## PART VIII: I-LOOP PROTECTION MECHANISM
+## PART XI: I-LOOP PROTECTION MECHANISM
 
 ### I-Loop is NOT Front-Run by Tasks
 
@@ -997,7 +1207,7 @@ STORAGE:
 
 ---
 
-## PART X: P2P GENESIS BOOTSTRAP
+## PART XII: P2P GENESIS BOOTSTRAP
 
 ```bash
 # GENESIS NODE (first launch)
@@ -1017,7 +1227,7 @@ export OZONE_P2P_BOOTSTRAP_NODES=/ip4/GENESIS_IP/tcp/9090/p2p/PEER_ID
 
 ---
 
-## PART XI: BLUEPRINTS & METHODOLOGIES
+## PART XIII: BLUEPRINTS & METHODOLOGIES
 
 ### Stored Blueprints (5)
 Location: `/zsei_data/local/blueprints/`
@@ -1049,7 +1259,7 @@ Location: `/zsei_data/local/methodologies/`
 
 ---
 
-## PART XII: DEPLOYMENT GUIDE
+## PART XXIV: DEPLOYMENT GUIDE
 
 ### Prerequisites
 ```

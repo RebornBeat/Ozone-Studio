@@ -1,46 +1,52 @@
 //! Configuration module for Ozone Studio
 
+use crate::OzoneError;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use crate::OzoneError;
 
 /// Main configuration for Ozone Studio
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OzoneConfig {
     /// General settings
     pub general: GeneralConfig,
-    
+
     /// ZSEI configuration
     pub zsei: ZSEIConfig,
-    
+
     /// Pipeline configuration
     pub pipelines: PipelineConfig,
-    
+
+    /// Methodology configuration
+    methodologies: MethodologyConfig::default(),
+
+    /// Blueprint configuration
+    blueprints: BlueprintConfig::default(),
+
     /// Task configuration
     pub tasks: TaskConfig,
-    
+
     /// Authentication configuration
     pub auth: AuthConfig,
-    
+
     /// Integrity configuration
     pub integrity: IntegrityConfig,
-    
+
     /// Network configuration
     pub network: NetworkConfig,
-    
+
     /// gRPC server configuration
     pub grpc: GrpcConfig,
-    
+
     /// UI configuration
     pub ui: UIConfig,
-    
+
     /// Consciousness configuration (enable/disable at runtime via config.toml)
     #[serde(default)]
     pub consciousness: ConsciousnessConfig,
-    
+
     /// Model configuration (for prompt pipeline)
     pub models: ModelConfig,
-    
+
     /// Voice configuration (for speech input)
     #[serde(default)]
     pub voice: VoiceConfig,
@@ -80,7 +86,7 @@ impl OzoneConfig {
             Ok(config)
         }
     }
-    
+
     /// Save configuration to a TOML file
     pub fn save(&self, path: &Path) -> Result<(), OzoneError> {
         let content = toml::to_string_pretty(self)
@@ -120,6 +126,9 @@ pub struct ZSEIConfig {
     pub max_containers_in_memory: usize,
     pub mmap_enabled: bool,
     pub embedding_dimension: usize,
+    pub pipeline_index_path: String,
+    pub methodology_index_path: String,
+    pub blueprint_index_path: String,
 }
 
 impl Default for ZSEIConfig {
@@ -132,6 +141,9 @@ impl Default for ZSEIConfig {
             max_containers_in_memory: 10000,
             mmap_enabled: true,
             embedding_dimension: 384,
+            pipeline_index_path: "zsei_data/pipelines/index.json".into(),
+            methodology_index_path: "zsei_data/methodologies/index.json".into(),
+            blueprint_index_path: "zsei_data/blueprints/index.json".into(),
         }
     }
 }
@@ -142,6 +154,7 @@ pub struct PipelineConfig {
     pub builtin_path: String,
     pub custom_path: String,
     pub max_concurrent_pipelines: usize,
+    pub index_path: String,
 }
 
 impl Default for PipelineConfig {
@@ -150,6 +163,43 @@ impl Default for PipelineConfig {
             builtin_path: "pipelines".into(),
             custom_path: "pipelines/custom".into(),
             max_concurrent_pipelines: 10,
+            index_path: "zsei_data/pipelines/index.json".into(),
+        }
+    }
+}
+
+/// Methodology configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodologyConfig {
+    pub builtin_path: String,
+    pub custom_path: String,
+    pub index_path: String,
+}
+
+impl Default for MethodologyConfig {
+    fn default() -> Self {
+        Self {
+            builtin_path: "methodologies".into(),
+            custom_path: "methodologies/custom".into(),
+            index_path: "zsei_data/methodologies/index.json".into(),
+        }
+    }
+}
+
+/// Blueprint configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlueprintConfig {
+    pub builtin_path: String,
+    pub custom_path: String,
+    pub index_path: String,
+}
+
+impl Default for BlueprintConfig {
+    fn default() -> Self {
+        Self {
+            builtin_path: "blueprints".into(),
+            custom_path: "blueprints/custom".into(),
+            index_path: "zsei_data/blueprints/index.json".into(),
         }
     }
 }
@@ -187,7 +237,7 @@ impl Default for AuthConfig {
         Self {
             keystore_path: "zsei_data/keystore".into(),
             session_duration_secs: 86400, // 24 hours
-            challenge_expiry_secs: 300,    // 5 minutes
+            challenge_expiry_secs: 300,   // 5 minutes
         }
     }
 }
@@ -232,8 +282,8 @@ pub struct NetworkConfig {
 impl Default for NetworkConfig {
     fn default() -> Self {
         Self {
-            enable_p2p: true,  // Enabled by default for P2P
-            enable_cloud_sync: false,  // Disabled - local first
+            enable_p2p: true,         // Enabled by default for P2P
+            enable_cloud_sync: false, // Disabled - local first
             p2p_port: 9090,
             max_peers: 50,
             enable_mdns: true,
@@ -295,7 +345,7 @@ pub struct ConsciousnessConfig {
 impl Default for ConsciousnessConfig {
     fn default() -> Self {
         Self {
-            enabled: false,  // Disabled by default, enable in config.toml
+            enabled: false, // Disabled by default, enable in config.toml
             emotional_system_enabled: true,
             experience_memory_enabled: true,
             identity_system_enabled: true,
@@ -315,17 +365,17 @@ impl Default for ConsciousnessConfig {
 pub struct ModelConfig {
     /// Model type: "api", "gguf", "onnx"
     pub model_type: String,
-    
+
     /// For API models
     pub api_endpoint: Option<String>,
     pub api_key_env: Option<String>,
     pub api_model: Option<String>,
-    
+
     /// For local models (GGUF/ONNX)
     pub local_model_path: Option<String>,
     pub context_length: usize,
     pub gpu_layers: Option<u32>,
-    
+
     /// Model selection UI setting
     pub allow_user_selection: bool,
     pub available_models: Vec<AvailableModel>,
@@ -339,7 +389,7 @@ impl Default for ModelConfig {
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
             api_model: Some("claude-sonnet-4-20250514".into()),
             local_model_path: None,
-            context_length: 8192,  // Default, overridden by per-model setting
+            context_length: 8192, // Default, overridden by per-model setting
             gpu_layers: None,
             allow_user_selection: true,
             available_models: vec![
@@ -375,16 +425,16 @@ fn default_context_length() -> usize {
 pub struct VoiceConfig {
     /// Voice backend: "whisper_rs" (integrated), "whisper_cpp" (standalone), "api"
     pub backend: String,
-    
+
     /// Path to whisper model file (for whisper_rs or whisper_cpp)
     pub whisper_model_path: Option<String>,
-    
+
     /// Path to whisper-cli binary (for whisper_cpp backend)
     pub whisper_cpp_path: Option<String>,
-    
+
     /// API endpoint for voice transcription (if using API backend)
     pub api_endpoint: Option<String>,
-    
+
     /// API key environment variable (if using API backend)
     pub api_key_env: Option<String>,
 }
@@ -392,8 +442,8 @@ pub struct VoiceConfig {
 impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
-            backend: "whisper_rs".into(),  // Integrated by default
-            whisper_model_path: None,  // User sets via UI
+            backend: "whisper_rs".into(), // Integrated by default
+            whisper_model_path: None,     // User sets via UI
             whisper_cpp_path: Some("/usr/local/bin/whisper-cli".into()),
             api_endpoint: None,
             api_key_env: None,

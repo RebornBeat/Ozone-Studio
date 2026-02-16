@@ -1,0 +1,208 @@
+{
+  "blueprint_id": 2,
+  "name": "Code Review",
+  "version": "2.0.0",
+  "description": "Comprehensive code review using modality graphs for structural analysis and ZSEI for semantic understanding",
+  
+  "modality_config": {
+    "primary_modality": "code",
+    "secondary_modalities": ["text"],
+    "auto_detect": true,
+    "modality_pipeline_mapping": {
+      "code": 101,
+      "text": 100
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 12, 101],
+    "optional_pipelines": [100],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": false
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [3, 5],
+    "suggested_methodologies": [4, 6, 10],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": true,
+    "zsei_hooks": [
+      "OnGraphCreated",
+      "OnInferRelationships",
+      "OnEdgeCompletion"
+    ],
+    "cross_modality_linking": true,
+    "graph_query_optimization": {
+      "preload_dependencies": true,
+      "cache_call_graphs": true,
+      "index_by_complexity": true
+    }
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_code",
+      "description": "Receive code files for review",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["code_files", "review_context"]
+    },
+    {
+      "step_id": 2,
+      "name": "analyze_code_structure",
+      "description": "Create structural graph using Code Analysis Pipeline",
+      "pipeline_id": 101,
+      "action": "Analyze",
+      "inputs": ["code_files"],
+      "outputs": ["code_analysis"],
+      "config": {
+        "depth": "deep",
+        "include_metrics": true
+      }
+    },
+    {
+      "step_id": 3,
+      "name": "create_code_graph",
+      "description": "Build traversable code graph",
+      "pipeline_id": 101,
+      "action": "CreateGraph",
+      "inputs": ["code_analysis"],
+      "outputs": ["code_graph_id"],
+      "triggers_hooks": ["OnGraphCreated"]
+    },
+    {
+      "step_id": 4,
+      "name": "compute_dependencies",
+      "description": "Analyze dependency relationships",
+      "pipeline_id": 101,
+      "action": "ComputeDependencies",
+      "inputs": ["code_graph_id"],
+      "outputs": ["dependency_map"]
+    },
+    {
+      "step_id": 5,
+      "name": "semantic_analysis",
+      "description": "ZSEI adds semantic layer to structural graph",
+      "pipeline_id": 10,
+      "action": "TriggerHook",
+      "inputs": ["code_graph_id"],
+      "outputs": ["enriched_graph_id"],
+      "config": {
+        "hook_type": "OnInferRelationships",
+        "semantic_depth": "deep",
+        "analyze_patterns": true
+      }
+    },
+    {
+      "step_id": 6,
+      "name": "load_methodologies",
+      "description": "Load required code review methodologies",
+      "pipeline_id": 16,
+      "action": "LoadMethodologies",
+      "inputs": ["required_methodologies", "suggested_methodologies"],
+      "outputs": ["active_methodologies"]
+    },
+    {
+      "step_id": 7,
+      "name": "aggregate_review_context",
+      "description": "Build comprehensive review context",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": [
+        "enriched_graph_id",
+        "dependency_map",
+        "active_methodologies",
+        "review_context"
+      ],
+      "outputs": ["review_prompt_context"]
+    },
+    {
+      "step_id": 8,
+      "name": "generate_review",
+      "description": "Generate code review using LLM with graph context",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["review_prompt_context"],
+      "outputs": ["raw_review"],
+      "config": {
+        "response_format": "structured",
+        "include_graph_references": true
+      }
+    },
+    {
+      "step_id": 9,
+      "name": "structure_findings",
+      "description": "Organize review findings by severity and category",
+      "pipeline_id": 1,
+      "action": "structure_review",
+      "inputs": ["raw_review", "code_graph_id"],
+      "outputs": ["structured_review"],
+      "config": {
+        "categories": ["security", "performance", "maintainability", "correctness", "style"],
+        "severity_levels": ["critical", "major", "minor", "suggestion"]
+      }
+    },
+    {
+      "step_id": 10,
+      "name": "link_to_graph",
+      "description": "Link review findings to graph nodes",
+      "pipeline_id": 101,
+      "action": "UpdateGraph",
+      "inputs": ["code_graph_id", "structured_review"],
+      "outputs": ["annotated_graph_id"]
+    }
+  ],
+  
+  "output_format": {
+    "type": "structured_review",
+    "sections": [
+      {
+        "name": "summary",
+        "description": "Executive summary of code quality"
+      },
+      {
+        "name": "critical_issues",
+        "description": "Issues requiring immediate attention"
+      },
+      {
+        "name": "recommendations",
+        "description": "Suggested improvements by category"
+      },
+      {
+        "name": "metrics",
+        "description": "Code complexity and quality metrics"
+      },
+      {
+        "name": "dependency_analysis",
+        "description": "Dependency health and concerns"
+      }
+    ]
+  },
+  
+  "amt_keywords": [
+    "review", "code review", "analyze code", "check code", "audit",
+    "code quality", "find bugs", "security review", "review PR"
+  ],
+  
+  "fallback_behavior": {
+    "on_graph_failure": "use_flat_analysis",
+    "on_semantic_failure": "use_structural_only",
+    "on_methodology_failure": "use_defaults"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-01-01",
+    "updated": "2025-02-11",
+    "tags": ["code", "review", "analysis", "quality"]
+  }
+}

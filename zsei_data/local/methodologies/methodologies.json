@@ -1,0 +1,754 @@
+{
+  "methodologies": [
+    {
+      "methodology_id": 1,
+      "name": "Clear Communication",
+      "version": "2.0.0",
+      "description": "Principles for clear, effective communication in all outputs",
+      "categories": ["communication", "general"],
+      "applicable_modalities": ["text", "code"],
+      "priority": 1,
+      "principles": [
+        {
+          "id": "cc_1",
+          "name": "Clarity First",
+          "description": "Prioritize clarity over cleverness",
+          "guidance": "Use simple, direct language. Avoid jargon unless necessary for the audience."
+        },
+        {
+          "id": "cc_2",
+          "name": "Structure",
+          "description": "Organize content logically",
+          "guidance": "Use clear headers, logical flow, and progressive disclosure of complexity."
+        },
+        {
+          "id": "cc_3",
+          "name": "Audience Awareness",
+          "description": "Adapt to the audience's knowledge level",
+          "guidance": "Gauge expertise from context and adjust technical depth accordingly."
+        },
+        {
+          "id": "cc_4",
+          "name": "Completeness",
+          "description": "Provide complete information without redundancy",
+          "guidance": "Include all necessary context but avoid unnecessary repetition."
+        }
+      ],
+      "anti_patterns": [
+        "Overly complex sentences",
+        "Undefined acronyms",
+        "Assumed knowledge without verification",
+        "Information overload"
+      ],
+      "application_context": {
+        "when_to_use": "All communication tasks, documentation, explanations",
+        "when_to_skip": "Never - foundational methodology"
+      }
+    },
+    {
+      "methodology_id": 2,
+      "name": "Technical Writing",
+      "version": "2.0.0",
+      "description": "Standards for technical documentation and explanations",
+      "categories": ["documentation", "technical"],
+      "applicable_modalities": ["text", "code"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "tw_1",
+          "name": "Accuracy",
+          "description": "Technical precision in all statements",
+          "guidance": "Verify technical claims. Use precise terminology. Cite sources when applicable."
+        },
+        {
+          "id": "tw_2",
+          "name": "Examples",
+          "description": "Illustrate concepts with concrete examples",
+          "guidance": "Provide working code samples, diagrams, or step-by-step walkthroughs."
+        },
+        {
+          "id": "tw_3",
+          "name": "Layered Explanation",
+          "description": "Support multiple levels of understanding",
+          "guidance": "Start with high-level overview, then dive into details. Allow readers to stop at their needed depth."
+        },
+        {
+          "id": "tw_4",
+          "name": "Cross-Reference",
+          "description": "Link related concepts",
+          "guidance": "Reference prerequisite knowledge, related topics, and further reading."
+        }
+      ],
+      "anti_patterns": [
+        "Unexplained technical terms",
+        "Missing prerequisites",
+        "Outdated information",
+        "Untested code examples"
+      ]
+    },
+    {
+      "methodology_id": 3,
+      "name": "Clean Code",
+      "version": "2.0.0",
+      "description": "Principles for writing maintainable, readable code",
+      "categories": ["code_quality", "maintainability"],
+      "applicable_modalities": ["code"],
+      "priority": 1,
+      "principles": [
+        {
+          "id": "clean_1",
+          "name": "Meaningful Names",
+          "description": "Use descriptive, intention-revealing names",
+          "guidance": "Names should explain what the variable/function does without needing comments."
+        },
+        {
+          "id": "clean_2",
+          "name": "Single Responsibility",
+          "description": "Each function/class does one thing well",
+          "guidance": "If you need 'and' to describe what something does, it probably does too much."
+        },
+        {
+          "id": "clean_3",
+          "name": "Small Functions",
+          "description": "Keep functions short and focused",
+          "guidance": "Functions should be 20 lines or less. Extract helper functions for complex logic."
+        },
+        {
+          "id": "clean_4",
+          "name": "DRY",
+          "description": "Don't Repeat Yourself",
+          "guidance": "Extract common code into reusable functions. But don't over-abstract prematurely."
+        },
+        {
+          "id": "clean_5",
+          "name": "Comments as Last Resort",
+          "description": "Code should be self-documenting",
+          "guidance": "If you need a comment, first try to make the code clearer. Comments explain why, not what."
+        }
+      ],
+      "anti_patterns": [
+        "Single-letter variable names (except loop counters)",
+        "God classes/functions",
+        "Magic numbers",
+        "Deep nesting",
+        "Commented-out code"
+      ],
+      "metrics": {
+        "max_function_lines": 20,
+        "max_parameters": 4,
+        "max_nesting_depth": 3,
+        "max_cyclomatic_complexity": 10
+      }
+    },
+    {
+      "methodology_id": 4,
+      "name": "Defensive Programming",
+      "version": "2.0.0",
+      "description": "Techniques for robust, error-resistant code",
+      "categories": ["reliability", "error_handling"],
+      "applicable_modalities": ["code"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "def_1",
+          "name": "Validate Inputs",
+          "description": "Check all inputs at boundaries",
+          "guidance": "Validate function parameters, API inputs, user data. Fail fast with clear errors."
+        },
+        {
+          "id": "def_2",
+          "name": "Handle Errors Gracefully",
+          "description": "Anticipate and handle failure cases",
+          "guidance": "Use Result/Option types. Provide meaningful error messages. Never swallow errors silently."
+        },
+        {
+          "id": "def_3",
+          "name": "Assertion Sanity",
+          "description": "Assert invariants and assumptions",
+          "guidance": "Use debug assertions for internal invariants. Document assumptions explicitly."
+        },
+        {
+          "id": "def_4",
+          "name": "Resource Safety",
+          "description": "Ensure proper resource management",
+          "guidance": "Use RAII/Drop patterns. Handle cleanup in error paths. Avoid resource leaks."
+        }
+      ],
+      "anti_patterns": [
+        "Ignoring return values",
+        "Empty catch blocks",
+        "Unchecked null/undefined access",
+        "Resource leaks"
+      ]
+    },
+    {
+      "methodology_id": 5,
+      "name": "Security Awareness",
+      "version": "2.0.0",
+      "description": "Security-conscious development practices",
+      "categories": ["security"],
+      "applicable_modalities": ["code", "text"],
+      "priority": 1,
+      "principles": [
+        {
+          "id": "sec_1",
+          "name": "Input Sanitization",
+          "description": "Never trust external input",
+          "guidance": "Sanitize all user input. Use parameterized queries. Validate file paths."
+        },
+        {
+          "id": "sec_2",
+          "name": "Least Privilege",
+          "description": "Request only necessary permissions",
+          "guidance": "Run with minimal privileges. Scope permissions tightly. Drop privileges when not needed."
+        },
+        {
+          "id": "sec_3",
+          "name": "Secure Defaults",
+          "description": "Default to secure configurations",
+          "guidance": "Enable security features by default. Require explicit opt-out for insecure options."
+        },
+        {
+          "id": "sec_4",
+          "name": "Secret Management",
+          "description": "Handle sensitive data appropriately",
+          "guidance": "Never hardcode secrets. Use secure storage. Avoid logging sensitive data."
+        },
+        {
+          "id": "sec_5",
+          "name": "Defense in Depth",
+          "description": "Layer security controls",
+          "guidance": "Don't rely on a single security measure. Combine multiple layers of protection."
+        }
+      ],
+      "anti_patterns": [
+        "SQL injection vulnerabilities",
+        "Hardcoded credentials",
+        "Overly permissive access",
+        "Sensitive data in logs",
+        "Using deprecated crypto"
+      ],
+      "security_checklist": [
+        "Input validation",
+        "Output encoding",
+        "Authentication strength",
+        "Authorization checks",
+        "Session management",
+        "Error handling (no stack traces to users)",
+        "Cryptography usage"
+      ]
+    },
+    {
+      "methodology_id": 6,
+      "name": "Performance Optimization",
+      "version": "2.0.0",
+      "description": "Guidelines for writing efficient code",
+      "categories": ["performance"],
+      "applicable_modalities": ["code"],
+      "priority": 3,
+      "principles": [
+        {
+          "id": "perf_1",
+          "name": "Measure First",
+          "description": "Profile before optimizing",
+          "guidance": "Never optimize without data. Use profilers to identify actual bottlenecks."
+        },
+        {
+          "id": "perf_2",
+          "name": "Algorithm Selection",
+          "description": "Choose appropriate algorithms",
+          "guidance": "Consider time/space complexity. Use appropriate data structures. O(n log n) vs O(n²) matters."
+        },
+        {
+          "id": "perf_3",
+          "name": "Avoid Premature Optimization",
+          "description": "Correctness first, then performance",
+          "guidance": "Write clear code first. Optimize only proven bottlenecks. Document performance-critical paths."
+        },
+        {
+          "id": "perf_4",
+          "name": "Cache Wisely",
+          "description": "Use caching strategically",
+          "guidance": "Cache expensive computations. Consider cache invalidation. Watch for memory pressure."
+        }
+      ],
+      "anti_patterns": [
+        "Premature optimization",
+        "Micro-optimizations without measurement",
+        "Unbounded caches",
+        "N+1 queries"
+      ]
+    },
+    {
+      "methodology_id": 7,
+      "name": "Test-Driven Development",
+      "version": "2.0.0",
+      "description": "Writing tests before implementation",
+      "categories": ["testing", "quality"],
+      "applicable_modalities": ["code"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "tdd_1",
+          "name": "Red-Green-Refactor",
+          "description": "Write failing test, make it pass, clean up",
+          "guidance": "Start with the simplest failing test. Write minimal code to pass. Then refactor."
+        },
+        {
+          "id": "tdd_2",
+          "name": "Test Behavior Not Implementation",
+          "description": "Tests should verify outcomes",
+          "guidance": "Test what the code does, not how it does it. Allows refactoring without breaking tests."
+        },
+        {
+          "id": "tdd_3",
+          "name": "One Assertion Per Test",
+          "description": "Keep tests focused",
+          "guidance": "Each test should verify one behavior. Multiple assertions are ok if testing one logical concept."
+        },
+        {
+          "id": "tdd_4",
+          "name": "Descriptive Test Names",
+          "description": "Test names explain the scenario",
+          "guidance": "test_should_return_error_when_user_not_found is better than test_get_user."
+        }
+      ],
+      "anti_patterns": [
+        "Testing implementation details",
+        "Flaky tests",
+        "Slow tests in fast feedback loop",
+        "Testing third-party code"
+      ]
+    },
+    {
+      "methodology_id": 8,
+      "name": "API Design",
+      "version": "2.0.0",
+      "description": "Principles for designing usable APIs",
+      "categories": ["design", "interfaces"],
+      "applicable_modalities": ["code"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "api_1",
+          "name": "Consistency",
+          "description": "Maintain consistent patterns",
+          "guidance": "Use consistent naming, parameter ordering, error handling across the API."
+        },
+        {
+          "id": "api_2",
+          "name": "Discoverability",
+          "description": "Make the API easy to explore",
+          "guidance": "Logical grouping, clear naming, comprehensive documentation."
+        },
+        {
+          "id": "api_3",
+          "name": "Backward Compatibility",
+          "description": "Don't break existing consumers",
+          "guidance": "Add new features additively. Deprecate before removing. Version breaking changes."
+        },
+        {
+          "id": "api_4",
+          "name": "Error Clarity",
+          "description": "Provide actionable error messages",
+          "guidance": "Errors should explain what went wrong and suggest how to fix it."
+        }
+      ],
+      "anti_patterns": [
+        "Inconsistent naming conventions",
+        "Breaking changes without versioning",
+        "Generic error messages",
+        "Exposing internal implementation"
+      ]
+    },
+    {
+      "methodology_id": 9,
+      "name": "Data Analysis Rigor",
+      "version": "2.0.0",
+      "description": "Standards for accurate data analysis",
+      "categories": ["analysis", "data"],
+      "applicable_modalities": ["code", "math", "text"],
+      "priority": 1,
+      "principles": [
+        {
+          "id": "da_1",
+          "name": "Data Validation",
+          "description": "Verify data quality before analysis",
+          "guidance": "Check for missing values, outliers, inconsistencies. Document data cleaning steps."
+        },
+        {
+          "id": "da_2",
+          "name": "Statistical Appropriateness",
+          "description": "Use correct statistical methods",
+          "guidance": "Verify assumptions of statistical tests. Use appropriate visualizations."
+        },
+        {
+          "id": "da_3",
+          "name": "Reproducibility",
+          "description": "Analysis should be reproducible",
+          "guidance": "Document all steps. Use version control. Set random seeds. Share code and data."
+        },
+        {
+          "id": "da_4",
+          "name": "Honest Reporting",
+          "description": "Report findings accurately",
+          "guidance": "Include limitations. Report negative results. Avoid cherry-picking."
+        }
+      ],
+      "anti_patterns": [
+        "P-hacking",
+        "Cherry-picking results",
+        "Ignoring missing data",
+        "Confusing correlation and causation"
+      ]
+    },
+    {
+      "methodology_id": 10,
+      "name": "Architectural Thinking",
+      "version": "2.0.0",
+      "description": "System-level design principles",
+      "categories": ["architecture", "design"],
+      "applicable_modalities": ["code", "text"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "arch_1",
+          "name": "Separation of Concerns",
+          "description": "Organize code by responsibility",
+          "guidance": "Keep UI, business logic, and data access separate. Use clear boundaries."
+        },
+        {
+          "id": "arch_2",
+          "name": "Dependency Management",
+          "description": "Control dependencies carefully",
+          "guidance": "Depend on abstractions. Minimize coupling. Use dependency injection."
+        },
+        {
+          "id": "arch_3",
+          "name": "Scalability Awareness",
+          "description": "Design for growth",
+          "guidance": "Consider how the system will scale. Identify potential bottlenecks early."
+        },
+        {
+          "id": "arch_4",
+          "name": "Evolvability",
+          "description": "Design for change",
+          "guidance": "Make it easy to modify and extend. Avoid big bang rewrites."
+        }
+      ],
+      "anti_patterns": [
+        "Big ball of mud",
+        "Circular dependencies",
+        "Premature distributed systems",
+        "Golden hammer (one solution for everything)"
+      ]
+    },
+    {
+      "methodology_id": 11,
+      "name": "Documentation Standards",
+      "version": "2.0.0",
+      "description": "Creating effective documentation",
+      "categories": ["documentation"],
+      "applicable_modalities": ["text", "code"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "doc_1",
+          "name": "Audience First",
+          "description": "Write for your readers",
+          "guidance": "Different docs for different audiences: API reference vs tutorial vs conceptual guide."
+        },
+        {
+          "id": "doc_2",
+          "name": "Keep Updated",
+          "description": "Documentation must stay current",
+          "guidance": "Treat docs as code. Update with code changes. Automate where possible."
+        },
+        {
+          "id": "doc_3",
+          "name": "Example-Driven",
+          "description": "Show, don't just tell",
+          "guidance": "Include working examples. Test examples in CI. Show common use cases."
+        },
+        {
+          "id": "doc_4",
+          "name": "Progressive Disclosure",
+          "description": "Start simple, add complexity",
+          "guidance": "Quick start for newcomers. Deep dives for advanced users."
+        }
+      ],
+      "anti_patterns": [
+        "Outdated documentation",
+        "Wall of text without examples",
+        "Assuming too much knowledge",
+        "No getting started guide"
+      ]
+    },
+    {
+      "methodology_id": 12,
+      "name": "Version Control Best Practices",
+      "version": "2.0.0",
+      "description": "Effective use of version control systems",
+      "categories": ["workflow", "collaboration"],
+      "applicable_modalities": ["code", "text"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "vc_1",
+          "name": "Atomic Commits",
+          "description": "Each commit is one logical change",
+          "guidance": "Commit should be self-contained. Easy to review, revert, or cherry-pick."
+        },
+        {
+          "id": "vc_2",
+          "name": "Meaningful Messages",
+          "description": "Commit messages explain the why",
+          "guidance": "Subject line summarizes. Body explains reasoning. Reference issues/tickets."
+        },
+        {
+          "id": "vc_3",
+          "name": "Branch Strategy",
+          "description": "Use consistent branching model",
+          "guidance": "Feature branches for development. Protected main branch. Clear merge strategy."
+        },
+        {
+          "id": "vc_4",
+          "name": "History Hygiene",
+          "description": "Keep history clean and useful",
+          "guidance": "Squash trivial commits. Rebase for linear history when appropriate."
+        }
+      ],
+      "anti_patterns": [
+        "'WIP' or 'fix' commit messages",
+        "Mega-commits with unrelated changes",
+        "Committing directly to main",
+        "Force pushing shared branches"
+      ]
+    },
+    {
+      "methodology_id": 13,
+      "name": "Error Message Design",
+      "version": "2.0.0",
+      "description": "Writing helpful error messages",
+      "categories": ["user_experience", "debugging"],
+      "applicable_modalities": ["code", "text"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "err_1",
+          "name": "Explain What Happened",
+          "description": "Describe the error clearly",
+          "guidance": "State what went wrong in user terms. Avoid internal jargon or codes."
+        },
+        {
+          "id": "err_2",
+          "name": "Suggest Solutions",
+          "description": "Tell users what to do",
+          "guidance": "Provide actionable next steps. Link to documentation. Offer alternatives."
+        },
+        {
+          "id": "err_3",
+          "name": "Include Context",
+          "description": "Provide relevant details",
+          "guidance": "Show what input caused the error. Include timestamps, IDs for debugging."
+        },
+        {
+          "id": "err_4",
+          "name": "Appropriate Tone",
+          "description": "Be helpful, not blaming",
+          "guidance": "Avoid 'you did wrong'. Focus on 'here's how to fix it'."
+        }
+      ],
+      "anti_patterns": [
+        "Generic 'An error occurred'",
+        "Technical stack traces to end users",
+        "Blaming language",
+        "No recovery path provided"
+      ]
+    },
+    {
+      "methodology_id": 14,
+      "name": "Mathematical Rigor",
+      "version": "2.0.0",
+      "description": "Standards for mathematical reasoning and proofs",
+      "categories": ["mathematics", "verification"],
+      "applicable_modalities": ["math", "code"],
+      "priority": 1,
+      "principles": [
+        {
+          "id": "math_1",
+          "name": "Explicit Assumptions",
+          "description": "State all assumptions clearly",
+          "guidance": "List prerequisites. Define all terms. State domain restrictions."
+        },
+        {
+          "id": "math_2",
+          "name": "Logical Steps",
+          "description": "Each step must follow logically",
+          "guidance": "Justify each transformation. Reference theorems used. No hand-waving."
+        },
+        {
+          "id": "math_3",
+          "name": "Variable Tracking",
+          "description": "Maintain variable scope and type",
+          "guidance": "Introduce variables before use. Track constraints. Avoid variable shadowing."
+        },
+        {
+          "id": "math_4",
+          "name": "Edge Cases",
+          "description": "Consider boundary conditions",
+          "guidance": "Check division by zero. Consider empty sets. Verify convergence."
+        }
+      ],
+      "anti_patterns": [
+        "Hidden assumptions",
+        "'It is obvious that...'",
+        "Undefined notation",
+        "Ignoring special cases"
+      ]
+    },
+    {
+      "methodology_id": 15,
+      "name": "Proof Strategies",
+      "version": "2.0.0",
+      "description": "Common mathematical proof techniques",
+      "categories": ["mathematics", "proofs"],
+      "applicable_modalities": ["math"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "proof_1",
+          "name": "Strategy Selection",
+          "description": "Choose appropriate proof method",
+          "guidance": "Direct proof, contradiction, induction, construction - match to problem structure."
+        },
+        {
+          "id": "proof_2",
+          "name": "Induction Structure",
+          "description": "Follow induction protocol",
+          "guidance": "Clear base case. Explicit induction hypothesis. Verify induction step uses hypothesis."
+        },
+        {
+          "id": "proof_3",
+          "name": "Contradiction Setup",
+          "description": "Proper negation for contradiction",
+          "guidance": "State assumption clearly. Derive genuine contradiction. Conclude correctly."
+        },
+        {
+          "id": "proof_4",
+          "name": "Case Analysis",
+          "description": "Cover all cases exhaustively",
+          "guidance": "Ensure cases are mutually exclusive and collectively exhaustive."
+        }
+      ],
+      "proof_templates": {
+        "direct": "Given: [premises]. Show: [conclusion]. Proof: [logical steps].",
+        "contradiction": "Assume for contradiction that ¬P. [derive Q and ¬Q]. Contradiction. Therefore P.",
+        "induction": "Base case: [verify P(0)]. Induction hypothesis: Assume P(k). Induction step: Show P(k) → P(k+1)."
+      }
+    },
+    {
+      "methodology_id": 16,
+      "name": "Scientific Data Analysis",
+      "version": "2.0.0",
+      "description": "Standards for scientific data handling",
+      "categories": ["science", "data"],
+      "applicable_modalities": ["chemistry", "dna", "eeg", "math"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "sci_1",
+          "name": "Experimental Design",
+          "description": "Proper controls and variables",
+          "guidance": "Define independent/dependent variables. Include controls. Consider confounds."
+        },
+        {
+          "id": "sci_2",
+          "name": "Statistical Power",
+          "description": "Adequate sample sizes",
+          "guidance": "Calculate required sample size. Report effect sizes. Consider multiple testing."
+        },
+        {
+          "id": "sci_3",
+          "name": "Data Provenance",
+          "description": "Track data origin and processing",
+          "guidance": "Document data collection. Version datasets. Track all transformations."
+        },
+        {
+          "id": "sci_4",
+          "name": "Open Science",
+          "description": "Share methods and data",
+          "guidance": "Publish protocols. Share raw data when possible. Enable replication."
+        }
+      ]
+    },
+    {
+      "methodology_id": 17,
+      "name": "Image Analysis Standards",
+      "version": "2.0.0",
+      "description": "Guidelines for image processing and analysis",
+      "categories": ["analysis", "visual"],
+      "applicable_modalities": ["image", "video"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "img_1",
+          "name": "Preprocessing Documentation",
+          "description": "Document all image transformations",
+          "guidance": "Record resize, crop, normalize steps. Maintain original when possible."
+        },
+        {
+          "id": "img_2",
+          "name": "Annotation Quality",
+          "description": "Ensure consistent labeling",
+          "guidance": "Clear annotation guidelines. Inter-annotator agreement. Quality checks."
+        },
+        {
+          "id": "img_3",
+          "name": "Resolution Awareness",
+          "description": "Consider image resolution effects",
+          "guidance": "Document original resolution. Note upscaling artifacts. Consider multi-scale."
+        }
+      ]
+    },
+    {
+      "methodology_id": 18,
+      "name": "Audio Processing Guidelines",
+      "version": "2.0.0",
+      "description": "Standards for audio data handling",
+      "categories": ["analysis", "audio"],
+      "applicable_modalities": ["audio", "video"],
+      "priority": 2,
+      "principles": [
+        {
+          "id": "aud_1",
+          "name": "Sample Rate Handling",
+          "description": "Proper sample rate management",
+          "guidance": "Document original sample rate. Use appropriate resampling. Consider Nyquist."
+        },
+        {
+          "id": "aud_2",
+          "name": "Noise Documentation",
+          "description": "Account for background noise",
+          "guidance": "Document recording conditions. Apply appropriate filtering. Note SNR."
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "total_methodologies": 18,
+    "version": "2.0.0",
+    "last_updated": "2025-02-11",
+    "modality_coverage": {
+      "text": [1, 2, 5, 10, 11, 12, 13],
+      "code": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+      "math": [9, 14, 15, 16],
+      "chemistry": [16],
+      "dna": [16],
+      "eeg": [16],
+      "image": [17],
+      "video": [17, 18],
+      "audio": [18]
+    }
+  }
+}

@@ -1,0 +1,267 @@
+{
+  "blueprint_id": 6,
+  "name": "Data Analysis",
+  "version": "2.0.0",
+  "description": "Multi-modal data analysis supporting text, code, and math modalities for comprehensive analytical workflows",
+  
+  "modality_config": {
+    "primary_modality": null,
+    "secondary_modalities": [],
+    "auto_detect": true,
+    "required_modalities": ["code"],
+    "common_modalities": ["text", "math"],
+    "modality_pipeline_mapping": {
+      "text": 100,
+      "code": 101,
+      "math": 105,
+      "image": 102
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 12, 101],
+    "optional_pipelines": [100, 105, 102],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": false
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [9],
+    "suggested_methodologies": [3, 5, 13],
+    "methodology_selection_strategy": "context_based"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": true,
+    "zsei_hooks": [
+      "OnGraphCreated",
+      "OnInferRelationships",
+      "OnCrossModalityLink"
+    ],
+    "cross_modality_linking": true,
+    "data_lineage_tracking": true
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_data",
+      "description": "Receive data and analysis request",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["data_sources", "analysis_request"]
+    },
+    {
+      "step_id": 2,
+      "name": "detect_data_types",
+      "description": "Identify data modalities",
+      "pipeline_id": 1,
+      "action": "detect_modalities",
+      "inputs": ["data_sources"],
+      "outputs": ["detected_modalities", "data_metadata"]
+    },
+    {
+      "step_id": 3,
+      "name": "create_data_graphs",
+      "description": "Create structural graphs for each data modality",
+      "pipeline_id": "dynamic",
+      "action": "parallel_modality_analysis",
+      "inputs": ["data_sources", "detected_modalities"],
+      "outputs": ["data_graphs"],
+      "loop_config": {
+        "iterate_over": "detected_modalities",
+        "parallel": true
+      }
+    },
+    {
+      "step_id": 4,
+      "name": "analyze_request",
+      "description": "Parse analysis requirements",
+      "pipeline_id": 100,
+      "action": "Analyze",
+      "inputs": ["analysis_request"],
+      "outputs": ["analysis_requirements"],
+      "config": {
+        "extract_metrics": true,
+        "extract_hypotheses": true,
+        "extract_visualizations": true
+      }
+    },
+    {
+      "step_id": 5,
+      "name": "plan_analysis",
+      "description": "Create analysis plan with LLM",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["analysis_requirements", "data_graphs", "data_metadata"],
+      "outputs": ["analysis_plan"],
+      "config": {
+        "response_format": "json",
+        "schema": "analysis_plan_schema"
+      }
+    },
+    {
+      "step_id": 6,
+      "name": "generate_analysis_code",
+      "description": "Generate code for analysis steps",
+      "pipeline_id": 101,
+      "action": "CreateProvisionalNodes",
+      "inputs": ["analysis_plan"],
+      "outputs": ["provisional_code"]
+    },
+    {
+      "step_id": 7,
+      "name": "execute_analysis",
+      "description": "Run analysis code in sandbox",
+      "pipeline_id": 101,
+      "action": "ExecuteInSandbox",
+      "inputs": ["provisional_code", "data_sources"],
+      "outputs": ["analysis_results", "execution_logs"],
+      "config": {
+        "sandbox_type": "python",
+        "timeout_seconds": 300,
+        "memory_limit_mb": 1024
+      }
+    },
+    {
+      "step_id": 8,
+      "name": "process_results",
+      "description": "Process and validate analysis results",
+      "pipeline_id": 1,
+      "action": "process_results",
+      "inputs": ["analysis_results", "analysis_requirements"],
+      "outputs": ["processed_results", "validation_status"]
+    },
+    {
+      "step_id": 9,
+      "name": "create_math_graph",
+      "description": "Create math graph for statistical results",
+      "pipeline_id": 105,
+      "action": "CreateGraph",
+      "inputs": ["processed_results"],
+      "outputs": ["math_graph_id"],
+      "conditional": {
+        "condition": "has_statistical_analysis"
+      }
+    },
+    {
+      "step_id": 10,
+      "name": "link_all_graphs",
+      "description": "Create cross-modality links",
+      "pipeline_id": 10,
+      "action": "TriggerHook",
+      "inputs": ["data_graphs", "math_graph_id"],
+      "outputs": ["linked_analysis_graph"],
+      "config": {
+        "hook_type": "OnCrossModalityLink"
+      }
+    },
+    {
+      "step_id": 11,
+      "name": "generate_visualizations",
+      "description": "Create visualizations from results",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["processed_results", "analysis_plan"],
+      "outputs": ["visualization_code"],
+      "conditional": {
+        "condition": "visualizations_requested"
+      }
+    },
+    {
+      "step_id": 12,
+      "name": "aggregate_context",
+      "description": "Build report context",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": [
+        "linked_analysis_graph",
+        "processed_results",
+        "visualization_code"
+      ],
+      "outputs": ["report_context"]
+    },
+    {
+      "step_id": 13,
+      "name": "generate_report",
+      "description": "Generate analysis report",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["report_context"],
+      "outputs": ["analysis_report"],
+      "config": {
+        "include_methodology": true,
+        "include_limitations": true,
+        "include_recommendations": true
+      }
+    },
+    {
+      "step_id": 14,
+      "name": "finalize_code",
+      "description": "Finalize provisional code nodes",
+      "pipeline_id": 101,
+      "action": "FinalizeProvisional",
+      "inputs": ["provisional_code"],
+      "outputs": ["final_code_graph"]
+    },
+    {
+      "step_id": 15,
+      "name": "write_outputs",
+      "description": "Write report and code to files",
+      "pipeline_id": 11,
+      "action": "CreateFiles",
+      "inputs": ["analysis_report", "final_code_graph", "visualization_code"],
+      "outputs": ["output_paths"]
+    }
+  ],
+  
+  "analysis_plan_schema": {
+    "title": "string",
+    "data_summary": {
+      "sources": "array",
+      "row_count": "integer",
+      "column_info": "array"
+    },
+    "steps": [
+      {
+        "step_id": "string",
+        "description": "string",
+        "method": "string",
+        "inputs": "array",
+        "outputs": "array",
+        "dependencies": "array"
+      }
+    ],
+    "visualizations": [
+      {
+        "type": "string",
+        "data_columns": "array",
+        "title": "string"
+      }
+    ],
+    "expected_outputs": "array"
+  },
+  
+  "amt_keywords": [
+    "analyze", "analysis", "data", "statistics", "chart", "graph",
+    "visualize", "correlation", "trend", "insights", "report"
+  ],
+  
+  "fallback_behavior": {
+    "on_execution_failure": "retry_with_fixes",
+    "on_visualization_failure": "text_summary",
+    "on_math_failure": "approximate_results"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-01-01",
+    "updated": "2025-02-11",
+    "tags": ["data", "analysis", "statistics", "visualization"]
+  }
+}

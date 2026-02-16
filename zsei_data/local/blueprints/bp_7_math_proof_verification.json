@@ -1,0 +1,330 @@
+{
+  "blueprint_id": 7,
+  "name": "Mathematical Proof Verification",
+  "version": "2.0.0",
+  "description": "AGI-level proof verification using math modality graphs to maintain consistency across arbitrarily long proofs - demonstrates how OZONE achieves grounded work over statistics",
+  
+  "agi_insight": {
+    "problem": "Traditional LLMs lose consistency after ~50 steps in mathematical proofs",
+    "solution": "Math modality graph creates traversable structure where each step is a node with edges to prerequisites, consequences, variables, and transformations",
+    "benefit": "Can verify 1000+ step proofs by traversing graph rather than regenerating from statistics"
+  },
+  
+  "modality_config": {
+    "primary_modality": "math",
+    "secondary_modalities": ["text", "code"],
+    "auto_detect": false,
+    "modality_pipeline_mapping": {
+      "math": 105,
+      "text": 100,
+      "code": 101
+    }
+  },
+  
+  "pipeline_config": {
+    "entry_pipeline": 1,
+    "required_pipelines": [1, 9, 10, 12, 105],
+    "optional_pipelines": [100, 101],
+    "consciousness_integration": {
+      "decision_gate_id": 40,
+      "ethical_check_id": 41,
+      "required": true
+    }
+  },
+  
+  "methodology_config": {
+    "required_methodologies": [14, 15],
+    "suggested_methodologies": [9],
+    "methodology_selection_strategy": "mandatory_plus_context"
+  },
+  
+  "graph_config": {
+    "create_session_graph": true,
+    "persist_graph": true,
+    "zsei_hooks": [
+      "OnGraphCreated",
+      "OnInferRelationships",
+      "OnEdgeCompletion"
+    ],
+    "cross_modality_linking": true,
+    "proof_specific_config": {
+      "track_variable_scope": true,
+      "track_theorem_dependencies": true,
+      "verify_each_step": true,
+      "maintain_assumption_stack": true
+    }
+  },
+  
+  "steps": [
+    {
+      "step_id": 1,
+      "name": "receive_proof",
+      "description": "Receive mathematical proof for verification",
+      "pipeline_id": 1,
+      "action": "receive_task",
+      "outputs": ["proof_content", "proof_context"]
+    },
+    {
+      "step_id": 2,
+      "name": "parse_proof_structure",
+      "description": "Parse proof into structural components",
+      "pipeline_id": 105,
+      "action": "Analyze",
+      "inputs": ["proof_content"],
+      "outputs": ["proof_analysis"],
+      "config": {
+        "depth": "deep",
+        "parse_mode": "formal",
+        "extract_components": [
+          "theorems", "lemmas", "definitions", "axioms",
+          "assumptions", "steps", "conclusions", "variables"
+        ]
+      }
+    },
+    {
+      "step_id": 3,
+      "name": "create_proof_graph",
+      "description": "Create traversable proof graph - THE KEY STEP",
+      "pipeline_id": 105,
+      "action": "CreateGraph",
+      "inputs": ["proof_analysis"],
+      "outputs": ["proof_graph_id"],
+      "triggers_hooks": ["OnGraphCreated"],
+      "config": {
+        "node_types": [
+          "theorem", "lemma", "definition", "axiom",
+          "assumption", "step", "conclusion", "variable"
+        ],
+        "edge_types": [
+          "uses_definition", "applies_lemma", "introduces_variable",
+          "derives_from", "implies", "contradicts", "equivalent_to",
+          "substitutes", "generalizes", "specializes"
+        ]
+      },
+      "critical": true,
+      "comment": "This graph is what enables consistency - each step is grounded in graph structure"
+    },
+    {
+      "step_id": 4,
+      "name": "build_variable_scope_tree",
+      "description": "Track variable scoping through proof",
+      "pipeline_id": 105,
+      "action": "BuildScopeTree",
+      "inputs": ["proof_graph_id"],
+      "outputs": ["scope_tree"],
+      "config": {
+        "track_introductions": true,
+        "track_substitutions": true,
+        "detect_scope_violations": true
+      }
+    },
+    {
+      "step_id": 5,
+      "name": "build_dependency_graph",
+      "description": "Map theorem/lemma dependencies",
+      "pipeline_id": 105,
+      "action": "ComputeDependencies",
+      "inputs": ["proof_graph_id"],
+      "outputs": ["dependency_map"],
+      "config": {
+        "include_external_theorems": true,
+        "detect_circular_dependencies": true
+      }
+    },
+    {
+      "step_id": 6,
+      "name": "semantic_enrichment",
+      "description": "Add semantic layer for mathematical reasoning",
+      "pipeline_id": 10,
+      "action": "TriggerHook",
+      "inputs": ["proof_graph_id"],
+      "outputs": ["enriched_proof_graph"],
+      "config": {
+        "hook_type": "OnInferRelationships",
+        "math_specific": true,
+        "infer_implicit_steps": true,
+        "identify_proof_strategy": true
+      }
+    },
+    {
+      "step_id": 7,
+      "name": "verify_each_step",
+      "description": "Verify each step by traversing graph",
+      "pipeline_id": 105,
+      "action": "VerifyStep",
+      "inputs": ["enriched_proof_graph"],
+      "outputs": ["step_verification_results"],
+      "loop_config": {
+        "iterate_over": "proof_steps",
+        "parallel": false,
+        "order": "dependency_order"
+      },
+      "config": {
+        "verification_depth": "rigorous",
+        "check_logical_validity": true,
+        "check_algebraic_correctness": true,
+        "check_variable_usage": true
+      },
+      "critical": true,
+      "comment": "Graph traversal enables checking each step against its actual prerequisites rather than regenerating context"
+    },
+    {
+      "step_id": 8,
+      "name": "check_assumptions",
+      "description": "Verify all assumptions are properly introduced and discharged",
+      "pipeline_id": 105,
+      "action": "CheckAssumptions",
+      "inputs": ["proof_graph_id", "scope_tree"],
+      "outputs": ["assumption_status"],
+      "config": {
+        "verify_introduction": true,
+        "verify_discharge": true,
+        "detect_leaked_assumptions": true
+      }
+    },
+    {
+      "step_id": 9,
+      "name": "verify_conclusion",
+      "description": "Verify final conclusion follows from proof",
+      "pipeline_id": 105,
+      "action": "VerifyConclusion",
+      "inputs": ["proof_graph_id", "step_verification_results"],
+      "outputs": ["conclusion_status"]
+    },
+    {
+      "step_id": 10,
+      "name": "identify_gaps",
+      "description": "Find any gaps or missing steps",
+      "pipeline_id": 105,
+      "action": "QueryGraph",
+      "inputs": ["enriched_proof_graph"],
+      "outputs": ["gap_analysis"],
+      "config": {
+        "query_type": "find_gaps",
+        "check_implicit_steps": true,
+        "suggest_missing_lemmas": true
+      }
+    },
+    {
+      "step_id": 11,
+      "name": "aggregate_results",
+      "description": "Compile verification results",
+      "pipeline_id": 12,
+      "action": "AggregateForTask",
+      "inputs": [
+        "step_verification_results",
+        "assumption_status",
+        "conclusion_status",
+        "gap_analysis"
+      ],
+      "outputs": ["verification_context"]
+    },
+    {
+      "step_id": 12,
+      "name": "generate_report",
+      "description": "Generate verification report",
+      "pipeline_id": 9,
+      "action": "Execute",
+      "inputs": ["verification_context", "proof_graph_id"],
+      "outputs": ["verification_report"],
+      "config": {
+        "include_graph_visualization": true,
+        "include_step_by_step_analysis": true,
+        "include_suggestions": true
+      }
+    },
+    {
+      "step_id": 13,
+      "name": "optional_formalize",
+      "description": "Optionally generate formal proof code",
+      "pipeline_id": 101,
+      "action": "CreateProvisionalNodes",
+      "inputs": ["enriched_proof_graph"],
+      "outputs": ["formal_proof_code"],
+      "optional": true,
+      "config": {
+        "target_systems": ["lean4", "coq", "isabelle"],
+        "preserve_structure": true
+      }
+    },
+    {
+      "step_id": 14,
+      "name": "update_graph_with_results",
+      "description": "Annotate graph with verification results",
+      "pipeline_id": 105,
+      "action": "UpdateGraph",
+      "inputs": ["proof_graph_id", "verification_report"],
+      "outputs": ["annotated_graph"]
+    }
+  ],
+  
+  "proof_graph_schema": {
+    "description": "Schema for mathematical proof graphs enabling AGI-level verification",
+    "node_types": {
+      "theorem": {
+        "fields": ["statement", "name", "proven"],
+        "required_edges": ["derives_from"]
+      },
+      "lemma": {
+        "fields": ["statement", "name", "used_by"],
+        "required_edges": ["derives_from", "used_by"]
+      },
+      "step": {
+        "fields": ["expression", "justification", "step_number"],
+        "required_edges": ["derives_from", "implies"]
+      },
+      "variable": {
+        "fields": ["name", "type", "constraints", "scope_start", "scope_end"],
+        "required_edges": ["introduced_at", "used_in"]
+      },
+      "assumption": {
+        "fields": ["statement", "introduced_at", "discharged_at"],
+        "required_edges": ["scope_of", "discharged_by"]
+      }
+    }
+  },
+  
+  "output_format": {
+    "type": "verification_report",
+    "sections": [
+      {
+        "name": "summary",
+        "description": "Overall proof validity status"
+      },
+      {
+        "name": "step_analysis",
+        "description": "Verification of each step"
+      },
+      {
+        "name": "issues",
+        "description": "Any errors or gaps found"
+      },
+      {
+        "name": "suggestions",
+        "description": "Improvements or missing steps"
+      },
+      {
+        "name": "graph_visualization",
+        "description": "Visual representation of proof structure"
+      }
+    ]
+  },
+  
+  "amt_keywords": [
+    "prove", "proof", "verify", "theorem", "lemma", "mathematical",
+    "derivation", "formal", "check proof", "validate proof"
+  ],
+  
+  "fallback_behavior": {
+    "on_parse_failure": "request_clarification",
+    "on_verification_failure": "partial_verification",
+    "on_formalization_failure": "skip_formalization"
+  },
+  
+  "metadata": {
+    "author": "ozone_system",
+    "created": "2025-02-11",
+    "updated": "2025-02-11",
+    "tags": ["math", "proof", "verification", "agi", "formal_methods"]
+  }
+}
