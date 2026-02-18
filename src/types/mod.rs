@@ -2,46 +2,53 @@
 //! Based on OZONE STUDIO — FORMAL SPECIFICATION v0.3
 
 pub mod auth;
-pub mod container;
-pub mod pipeline;
-pub mod task;
-pub mod zsei;
-pub mod context;
-pub mod methodology;
 pub mod blueprint;
+pub mod consciousness;
+pub mod consensus;
+pub mod container;
+pub mod context;
 pub mod external;
 pub mod integrity;
-pub mod consensus;
+pub mod methodology;
+pub mod modality;
+pub mod pipeline;
+pub mod task;
 pub mod ui;
-pub mod consciousness;
+pub mod zsei;
 
 // Re-export commonly used types to simplify imports
 // Container types
-pub use container::{Container, GlobalState, LocalState, Metadata, ContainerType, Modality};
-pub use container::{Context, StoragePointers, TraversalHints, IntegrityData};
-pub use container::{FileContext, CodeContext, TextContext};
+pub use container::{CodeContext, FileContext, TextContext};
+pub use container::{Container, ContainerType, GlobalState, LocalState, Metadata, Modality};
+pub use container::{Context, IntegrityData, StoragePointers, TraversalHints};
 
 // Auth types
-pub use auth::{User, Session, DeviceRegistration, DeviceType, AuthChallenge, AuthResponse, Permissions};
+pub use auth::{
+    AuthChallenge, AuthResponse, DeviceRegistration, DeviceType, Permissions, Session, User,
+};
 
 // Task types
-pub use task::{Task, TaskStatus, TaskExecutionState, TaskInput, TaskOutput, ResourceUsage};
-pub use task::{LogEntry, LogLevel, TaskError, ExecutionStatus};
+pub use task::{ExecutionStatus, LogEntry, LogLevel, TaskError};
+pub use task::{ResourceUsage, Task, TaskExecutionState, TaskInput, TaskOutput, TaskStatus};
 
-// Pipeline types  
-pub use pipeline::{PipelineInput, PipelineOutput, PipelineBlueprint};
-pub use pipeline::{BuiltinPipeline, ExecutionContext, Schema, BlueprintSpec, ExecutionFlow, ConsensusStatus};
+// Pipeline types
+pub use pipeline::{
+    BlueprintSpec, BuiltinPipeline, ConsensusStatus, ExecutionContext, ExecutionFlow, Schema,
+};
+pub use pipeline::{PipelineBlueprint, PipelineInput, PipelineOutput};
 
 // ZSEI types
-pub use zsei::{ZSEIQuery, ZSEIQueryResult, TraversalRequest, TraversalResult, TaskSignature};
 pub use zsei::{IntegrityCheckResult as ZSEIIntegrityResult, IntegrityIssue, IntegrityIssueType};
+pub use zsei::{TaskSignature, TraversalRequest, TraversalResult, ZSEIQuery, ZSEIQueryResult};
 
 // Integrity types
-pub use integrity::{IntegrityCheck, IntegrityCheckType, IntegrityCheckResult};
-pub use integrity::{RollbackRequest, ImpactAnalysis};
+pub use integrity::{ImpactAnalysis, RollbackRequest};
+pub use integrity::{IntegrityCheck, IntegrityCheckResult, IntegrityCheckType};
 
 // Blueprint types
 pub use blueprint::{Blueprint, BlueprintStep};
+
+pub use modality::*;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -109,7 +116,11 @@ pub struct SemVer {
 
 impl Default for SemVer {
     fn default() -> Self {
-        Self { major: 0, minor: 3, patch: 0 }
+        Self {
+            major: 0,
+            minor: 3,
+            patch: 0,
+        }
     }
 }
 
@@ -137,7 +148,7 @@ pub type TaskID = u64;
 /// User ID type alias
 pub type UserID = u64;
 
-/// Device ID type alias  
+/// Device ID type alias
 pub type DeviceID = u64;
 
 /// Workspace ID type alias
@@ -154,52 +165,52 @@ pub type OzoneResult<T> = Result<T, OzoneError>;
 pub enum OzoneError {
     #[error("Authentication failed: {0}")]
     AuthError(String),
-    
+
     #[error("ZSEI error: {0}")]
     ZSEIError(String),
-    
+
     #[error("Pipeline error: {0}")]
     PipelineError(String),
-    
+
     #[error("Task error: {0}")]
     TaskError(String),
-    
+
     #[error("Storage error: {0}")]
     StorageError(String),
-    
+
     #[error("Integrity error: {0}")]
     IntegrityError(String),
-    
+
     #[error("Network error: {0}")]
     NetworkError(String),
-    
+
     #[error("Configuration error: {0}")]
     ConfigError(String),
-    
+
     #[error("Validation error: {0}")]
     ValidationError(String),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Permission denied: {0}")]
     PermissionDenied(String),
-    
+
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
-    
+
     #[error("Serialization error: {0}")]
     SerializationError(String),
-    
+
     #[error("Database error: {0}")]
     DatabaseError(String),
-    
+
     #[error("External reference error: {0}")]
     ExternalRefError(String),
-    
+
     #[error("Server error: {0}")]
     ServerError(String),
-    
+
     #[error("Consciousness error: {0}")]
     ConsciousnessError(String),
 }

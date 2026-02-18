@@ -1,73 +1,133 @@
 {
-  "version": 1,
-  "last_updated": 1706400000,
-  "methodology_count": 11,
+  "version": 2,
+  "last_updated": 1707897600,
+  "methodology_count": 18,
   "methodologies": [
     {
       "methodology_id": 1,
       "name": "Conversational Response",
       "categories": ["conversation", "chat"],
+      "applicable_modalities": ["text"],
       "file": "method_1_conversational.json"
     },
     {
       "methodology_id": 2,
       "name": "Contextual Awareness",
       "categories": ["context", "understanding"],
+      "applicable_modalities": ["text", "code"],
       "file": "method_2_context.json"
     },
     {
       "methodology_id": 3,
       "name": "Clean Code Principles",
       "categories": ["code", "development", "quality"],
+      "applicable_modalities": ["code"],
       "file": "method_3_clean_code.json"
     },
     {
       "methodology_id": 4,
       "name": "Code Review Best Practices",
       "categories": ["code", "review", "analysis"],
+      "applicable_modalities": ["code"],
       "file": "method_4_code_review.json"
     },
     {
       "methodology_id": 5,
       "name": "Security Awareness",
       "categories": ["security", "code", "safety"],
+      "applicable_modalities": ["code", "text"],
       "file": "method_5_security.json"
     },
     {
       "methodology_id": 6,
-      "name": "Document Analysis",
-      "categories": ["text", "analysis", "summary"],
-      "file": "method_6_document.json"
+      "name": "Impact-First Development",
+      "categories": ["code", "architecture", "planning"],
+      "applicable_modalities": ["code"],
+      "file": "method_6_impact_first.json"
     },
     {
       "methodology_id": 7,
-      "name": "Information Extraction",
-      "categories": ["text", "extraction", "entities"],
-      "file": "method_7_extraction.json"
+      "name": "Test-Driven Development",
+      "categories": ["code", "testing", "quality"],
+      "applicable_modalities": ["code"],
+      "file": "method_7_test_driven.json"
     },
     {
       "methodology_id": 8,
-      "name": "Impact-First Development",
-      "categories": ["code", "architecture", "planning"],
-      "file": "method_8_impact_first.json"
+      "name": "Incremental Development",
+      "categories": ["code", "iteration", "agile"],
+      "applicable_modalities": ["code"],
+      "file": "method_8_incremental.json"
     },
     {
       "methodology_id": 9,
-      "name": "Documentation Standards",
-      "categories": ["code", "documentation", "quality"],
-      "file": "method_9_documentation.json"
+      "name": "Data Analysis Methodology",
+      "categories": ["data", "analysis", "statistics"],
+      "applicable_modalities": ["text", "code"],
+      "file": "method_9_data_analysis.json"
     },
     {
       "methodology_id": 10,
-      "name": "Testing Strategy",
-      "categories": ["code", "testing", "quality"],
-      "file": "method_10_testing.json"
+      "name": "API Design Principles",
+      "categories": ["code", "api", "design"],
+      "applicable_modalities": ["code"],
+      "file": "method_10_api_design.json"
     },
     {
       "methodology_id": 11,
-      "name": "Minimal Change Principle",
-      "categories": ["code", "update", "maintenance"],
-      "file": "method_11_minimal_change.json"
+      "name": "Documentation Standards",
+      "categories": ["documentation", "writing"],
+      "applicable_modalities": ["text", "code"],
+      "file": "method_11_documentation.json"
+    },
+    {
+      "methodology_id": 12,
+      "name": "Technical Writing",
+      "categories": ["writing", "documentation", "clarity"],
+      "applicable_modalities": ["text"],
+      "file": "method_12_technical_writing.json"
+    },
+    {
+      "methodology_id": 13,
+      "name": "Exploratory Analysis",
+      "categories": ["data", "exploration", "discovery"],
+      "applicable_modalities": ["text", "code", "image"],
+      "file": "method_13_exploratory.json"
+    },
+    {
+      "methodology_id": 14,
+      "name": "Formal Proof Methods",
+      "categories": ["math", "proof", "formal"],
+      "applicable_modalities": ["math", "code"],
+      "file": "method_14_formal_proof.json"
+    },
+    {
+      "methodology_id": 15,
+      "name": "Mathematical Rigor",
+      "categories": ["math", "rigor", "verification"],
+      "applicable_modalities": ["math"],
+      "file": "method_15_mathematical_rigor.json"
+    },
+    {
+      "methodology_id": 16,
+      "name": "Scientific Data Analysis",
+      "categories": ["science", "data", "research"],
+      "applicable_modalities": ["chemistry", "dna", "eeg"],
+      "file": "method_16_scientific_data.json"
+    },
+    {
+      "methodology_id": 17,
+      "name": "Image Analysis Standards",
+      "categories": ["image", "analysis", "computer_vision"],
+      "applicable_modalities": ["image", "video"],
+      "file": "method_17_image_analysis.json"
+    },
+    {
+      "methodology_id": 18,
+      "name": "Audio Processing Guidelines",
+      "categories": ["audio", "processing", "signal"],
+      "applicable_modalities": ["audio", "video"],
+      "file": "method_18_audio_processing.json"
     }
   ]
 }

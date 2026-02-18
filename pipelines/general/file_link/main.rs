@@ -1,20 +1,28 @@
 //! FileLinkPipeline - Pipeline #30
 //! Link local files to projects. Files are referenced, not copied.
-//! 
+//!
 //! STORAGE: Persists file references to JSON files in the data directory
 //! Called FROM WorkspaceTab UI - does NOT need its own tab
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::fs;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum FileLinkInput {
     /// Link a single file to a project
-    Link { project_id: u64, file_path: String, analyze: bool },
+    Link {
+        project_id: u64,
+        file_path: String,
+        analyze: bool,
+    },
     /// Link multiple files to a project
-    LinkMultiple { project_id: u64, file_paths: Vec<String>, analyze: bool },
+    LinkMultiple {
+        project_id: u64,
+        file_paths: Vec<String>,
+        analyze: bool,
+    },
     /// Unlink a file from a project
     Unlink { project_id: u64, file_ref_id: u64 },
     /// Refresh file status (check if exists, updated, etc.)
@@ -28,7 +36,7 @@ pub enum FileLinkInput {
 /// File reference info - stored and returned
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRefInfo {
-    pub id: u64,         // Use 'id' for consistency with UI
+    pub id: u64, // Use 'id' for consistency with UI
     pub project_id: u64,
     pub path: String,
     pub name: String,
@@ -53,8 +61,7 @@ pub struct FileLinkOutput {
 // ============================================================================
 
 fn storage_path() -> PathBuf {
-    let base = std::env::var("OZONE_DATA_PATH")
-        .unwrap_or_else(|_| "./data".to_string());
+    let base = std::env::var("OZONE_DATA_PATH").unwrap_or_else(|_| "./data".to_string());
     PathBuf::from(base).join("workspaces")
 }
 
@@ -74,8 +81,8 @@ fn save_file_refs(project_id: u64, refs: &[FileRefInfo]) -> Result<(), String> {
     let dir = storage_path();
     fs::create_dir_all(&dir).map_err(|e| format!("Failed to create dir: {}", e))?;
     let path = dir.join(format!("files_{}.json", project_id));
-    let content = serde_json::to_string_pretty(refs)
-        .map_err(|e| format!("Failed to serialize: {}", e))?;
+    let content =
+        serde_json::to_string_pretty(refs).map_err(|e| format!("Failed to serialize: {}", e))?;
     fs::write(&path, content).map_err(|e| format!("Failed to write: {}", e))?;
     Ok(())
 }
@@ -85,7 +92,8 @@ fn generate_id() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos() as u64 % 10_000_000_000
+        .as_nanos() as u64
+        % 10_000_000_000
 }
 
 fn now() -> u64 {
@@ -102,37 +110,76 @@ fn detect_modality(path: &str) -> String {
         .and_then(|e| e.to_str())
         .unwrap_or("")
         .to_lowercase();
-    
+
+    // Comprehensive extension mapping matching ModalityType
     match ext.as_str() {
         // Code
-        "rs" | "py" | "js" | "ts" | "jsx" | "tsx" | "c" | "cpp" | "h" | "hpp" |
-        "java" | "go" | "rb" | "php" | "swift" | "kt" | "cs" | "vue" | "svelte" => "Code".to_string(),
-        // Data
-        "json" | "yaml" | "yml" | "toml" | "xml" | "csv" | "sql" | "graphql" => "Data".to_string(),
-        // Documentation
-        "md" | "txt" | "rst" | "adoc" => "Documentation".to_string(),
+        "rs" | "py" | "js" | "ts" | "jsx" | "tsx" | "c" | "cpp" | "h" | "hpp" | "java" | "go"
+        | "rb" | "php" | "swift" | "kt" | "cs" | "vue" | "svelte" | "scala" | "r" | "jl"
+        | "lua" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" | "sql" | "graphql"
+        | "elm" | "clj" | "ex" | "exs" | "erl" | "hs" | "ml" | "fs" | "nim" | "zig" | "v" | "d"
+        | "ada" | "pas" | "pl" | "pm" | "tcl" | "awk" | "sed" | "makefile" | "cmake"
+        | "dockerfile" => "Code",
+
+        // Text/Documentation
+        "txt" | "md" | "rst" | "adoc" | "org" => "Text",
+
+        // Data formats (text-based)
+        "json" | "yaml" | "yml" | "toml" | "xml" | "csv" => "Data",
+
         // Config
-        "conf" | "cfg" | "ini" | "env" | "gitignore" | "dockerignore" => "Config".to_string(),
-        // Script
-        "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" => "Script".to_string(),
+        "conf" | "cfg" | "ini" | "env" | "gitignore" | "dockerignore" | "editorconfig" => "Config",
+
         // Web
-        "html" | "css" | "scss" | "sass" | "less" => "Web".to_string(),
+        "html" | "htm" | "css" | "scss" | "sass" | "less" => "Web",
+
+        // Documents
+        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" | "odt" | "rtf" => "Document",
+
         // Image
-        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" => "Image".to_string(),
-        // Binary
-        "pdf" | "doc" | "docx" | "xls" | "xlsx" | "ppt" | "pptx" => "Document".to_string(),
+        "png" | "jpg" | "jpeg" | "gif" | "svg" | "webp" | "ico" | "bmp" | "tiff" | "tif"
+        | "heic" | "heif" | "raw" | "cr2" | "nef" | "arw" | "dng" | "psd" | "ai" | "eps" => "Image",
+
+        // Audio
+        "mp3" | "wav" | "flac" | "ogg" | "m4a" | "aac" | "wma" | "aiff" | "aif" | "opus"
+        | "mid" | "midi" => "Audio",
+
+        // Video
+        "mp4" | "mov" | "avi" | "mkv" | "webm" | "wmv" | "flv" | "m4v" | "mpeg" | "mpg" | "3gp"
+        | "ogv" | "ts" | "mts" | "m2ts" => "Video",
+
+        // Math
+        "tex" | "latex" | "nb" | "m" | "mpl" | "maple" | "mw" | "wxm" | "wxmx" | "sage"
+        | "ipynb" | "rmd" | "qmd" => "Math",
+
+        // Chemistry
+        "mol" | "sdf" | "pdb" | "xyz" | "cif" | "mol2" | "cml" | "cdx" | "cdxml" | "rxn"
+        | "smi" | "smiles" | "inchi" => "Chemistry",
+
+        // DNA/Genomics
+        "fasta" | "fa" | "fna" | "ffn" | "faa" | "frn" | "fastq" | "fq" | "gbk" | "gb"
+        | "genbank" | "gff" | "gff3" | "gtf" | "vcf" | "sam" | "bam" | "cram" | "bed" | "wig"
+        | "bigwig" | "bw" | "2bit" => "DNA",
+
+        // EEG/Neural
+        "edf" | "bdf" | "gdf" | "set" | "fif" | "vhdr" | "vmrk" | "eeg" | "cnt" | "avg" | "mff"
+        | "ncs" | "nev" | "plx" => "EEG",
+
         // Archive
-        "zip" | "tar" | "gz" | "rar" | "7z" => "Archive".to_string(),
+        "zip" | "tar" | "gz" | "rar" | "7z" | "bz2" | "xz" => "Archive",
+
         // Default
-        _ => "Unknown".to_string(),
+        _ => "Unknown",
     }
+    .to_string()
 }
 
 /// Get file metadata
 fn get_file_metadata(path: &str) -> (bool, u64, u64) {
     let path = std::path::Path::new(path);
     if let Ok(meta) = fs::metadata(path) {
-        let modified = meta.modified()
+        let modified = meta
+            .modified()
             .ok()
             .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|d| d.as_secs())
@@ -152,7 +199,7 @@ fn create_file_ref(project_id: u64, file_path: &str, analyze: bool) -> FileRefIn
         .unwrap_or("unknown")
         .to_string();
     let modality = detect_modality(file_path);
-    
+
     FileRefInfo {
         id: generate_id(),
         project_id,
@@ -170,9 +217,9 @@ fn create_file_ref(project_id: u64, file_path: &str, analyze: bool) -> FileRefIn
 /// Analyze a file using CodeAnalysis or TextAnalysis based on modality
 fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, String> {
     // Read file content
-    let content = fs::read_to_string(file_path)
-        .map_err(|e| format!("Failed to read file: {}", e))?;
-    
+    let content =
+        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+
     match modality {
         "Code" | "Script" | "Web" => {
             // Call CodeAnalysis pipeline (#18) via subprocess
@@ -183,20 +230,27 @@ fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, St
                 "file_path": file_path,
                 "use_llm": false // Structural analysis only
             });
-            
+
             // For now, perform basic structural analysis inline
             let lines: Vec<&str> = content.lines().collect();
-            let functions = lines.iter()
+            let functions = lines
+                .iter()
                 .filter(|l| l.contains("fn ") || l.contains("function ") || l.contains("def "))
                 .count();
-            let classes = lines.iter()
+            let classes = lines
+                .iter()
                 .filter(|l| l.contains("class ") || l.contains("struct ") || l.contains("impl "))
                 .count();
-            let imports = lines.iter()
-                .filter(|l| l.trim().starts_with("use ") || l.trim().starts_with("import ") || 
-                           l.trim().starts_with("from ") || l.trim().starts_with("#include"))
+            let imports = lines
+                .iter()
+                .filter(|l| {
+                    l.trim().starts_with("use ")
+                        || l.trim().starts_with("import ")
+                        || l.trim().starts_with("from ")
+                        || l.trim().starts_with("#include")
+                })
                 .count();
-            
+
             Ok(serde_json::json!({
                 "analysis_type": "code",
                 "lines": lines.len(),
@@ -209,9 +263,15 @@ fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, St
         "Documentation" | "Data" => {
             // Call TextAnalysis pipeline (#20) via subprocess
             let words: Vec<&str> = content.split_whitespace().collect();
-            let sentences = content.chars().filter(|c| *c == '.' || *c == '!' || *c == '?').count();
-            let paragraphs = content.split("\n\n").filter(|p| !p.trim().is_empty()).count();
-            
+            let sentences = content
+                .chars()
+                .filter(|c| *c == '.' || *c == '!' || *c == '?')
+                .count();
+            let paragraphs = content
+                .split("\n\n")
+                .filter(|p| !p.trim().is_empty())
+                .count();
+
             Ok(serde_json::json!({
                 "analysis_type": "text",
                 "words": words.len(),
@@ -232,18 +292,19 @@ fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, St
 }
 
 /// Store analysis result in ZSEI
-fn store_analysis(project_id: u64, file_ref_id: u64, analysis: &serde_json::Value) -> Result<(), String> {
-    let zsei_path = std::env::var("OZONE_ZSEI_PATH")
-        .unwrap_or_else(|_| "./zsei_data".to_string());
+fn store_analysis(
+    project_id: u64,
+    file_ref_id: u64,
+    analysis: &serde_json::Value,
+) -> Result<(), String> {
+    let zsei_path = std::env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".to_string());
     let analysis_dir = format!("{}/local/file_analysis", zsei_path);
     fs::create_dir_all(&analysis_dir).ok();
-    
+
     let analysis_file = format!("{}/{}_{}.json", analysis_dir, project_id, file_ref_id);
-    let content = serde_json::to_string_pretty(analysis)
-        .map_err(|e| e.to_string())?;
-    fs::write(&analysis_file, content)
-        .map_err(|e| format!("Failed to write analysis: {}", e))?;
-    
+    let content = serde_json::to_string_pretty(analysis).map_err(|e| e.to_string())?;
+    fs::write(&analysis_file, content).map_err(|e| format!("Failed to write analysis: {}", e))?;
+
     Ok(())
 }
 
@@ -253,9 +314,13 @@ fn store_analysis(project_id: u64, file_ref_id: u64, analysis: &serde_json::Valu
 
 pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
     match input {
-        FileLinkInput::Link { project_id, file_path, analyze } => {
+        FileLinkInput::Link {
+            project_id,
+            file_path,
+            analyze,
+        } => {
             let mut refs = load_file_refs(project_id);
-            
+
             // Check if already linked
             if refs.iter().any(|r| r.path == file_path) {
                 return Ok(FileLinkOutput {
@@ -265,9 +330,9 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     error: Some("File already linked to this project".to_string()),
                 });
             }
-            
+
             let mut file_ref = create_file_ref(project_id, &file_path, analyze);
-            
+
             // Perform analysis if requested and file exists
             if analyze && file_ref.exists {
                 match analyze_file(&file_path, &file_ref.modality) {
@@ -283,10 +348,10 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     }
                 }
             }
-            
+
             refs.push(file_ref.clone());
             save_file_refs(project_id, &refs)?;
-            
+
             Ok(FileLinkOutput {
                 success: true,
                 file_ref: Some(file_ref),
@@ -294,19 +359,23 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: None,
             })
         }
-        
-        FileLinkInput::LinkMultiple { project_id, file_paths, analyze } => {
+
+        FileLinkInput::LinkMultiple {
+            project_id,
+            file_paths,
+            analyze,
+        } => {
             let mut refs = load_file_refs(project_id);
             let mut new_refs = vec![];
-            
+
             for file_path in file_paths {
                 // Skip if already linked
                 if refs.iter().any(|r| r.path == file_path) {
                     continue;
                 }
-                
+
                 let mut file_ref = create_file_ref(project_id, &file_path, analyze);
-                
+
                 // Perform analysis if requested and file exists
                 if analyze && file_ref.exists {
                     if let Ok(analysis) = analyze_file(&file_path, &file_ref.modality) {
@@ -315,13 +384,13 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                         }
                     }
                 }
-                
+
                 refs.push(file_ref.clone());
                 new_refs.push(file_ref);
             }
-            
+
             save_file_refs(project_id, &refs)?;
-            
+
             Ok(FileLinkOutput {
                 success: true,
                 file_ref: None,
@@ -329,12 +398,15 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: None,
             })
         }
-        
-        FileLinkInput::Unlink { project_id, file_ref_id } => {
+
+        FileLinkInput::Unlink {
+            project_id,
+            file_ref_id,
+        } => {
             let mut refs = load_file_refs(project_id);
             let initial_len = refs.len();
             refs.retain(|r| r.id != file_ref_id);
-            
+
             if refs.len() < initial_len {
                 save_file_refs(project_id, &refs)?;
                 Ok(FileLinkOutput {
@@ -352,7 +424,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 })
             }
         }
-        
+
         FileLinkInput::Refresh { file_ref_id } => {
             // Find the file ref across all projects (could be optimized with an index)
             let dir = storage_path();
@@ -362,19 +434,24 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         if name.starts_with("files_") && name.ends_with(".json") {
                             if let Ok(content) = fs::read_to_string(&path) {
-                                if let Ok(mut refs) = serde_json::from_str::<Vec<FileRefInfo>>(&content) {
-                                    if let Some(file_ref) = refs.iter_mut().find(|r| r.id == file_ref_id) {
+                                if let Ok(mut refs) =
+                                    serde_json::from_str::<Vec<FileRefInfo>>(&content)
+                                {
+                                    if let Some(file_ref) =
+                                        refs.iter_mut().find(|r| r.id == file_ref_id)
+                                    {
                                         // Refresh metadata
-                                        let (exists, size, modified) = get_file_metadata(&file_ref.path);
+                                        let (exists, size, modified) =
+                                            get_file_metadata(&file_ref.path);
                                         file_ref.exists = exists;
                                         file_ref.size = size;
                                         file_ref.modified = modified;
-                                        
+
                                         // Save updated refs
                                         let content = serde_json::to_string_pretty(&refs)
                                             .map_err(|e| e.to_string())?;
                                         fs::write(&path, content).map_err(|e| e.to_string())?;
-                                        
+
                                         return Ok(FileLinkOutput {
                                             success: true,
                                             file_ref: Some(file_ref.clone()),
@@ -388,7 +465,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     }
                 }
             }
-            
+
             Ok(FileLinkOutput {
                 success: false,
                 file_ref: None,
@@ -396,7 +473,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: Some("File reference not found".to_string()),
             })
         }
-        
+
         FileLinkInput::GetStatus { file_ref_id } => {
             // Find the file ref
             let dir = storage_path();
@@ -406,8 +483,11 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         if name.starts_with("files_") && name.ends_with(".json") {
                             if let Ok(content) = fs::read_to_string(&path) {
-                                if let Ok(refs) = serde_json::from_str::<Vec<FileRefInfo>>(&content) {
-                                    if let Some(file_ref) = refs.iter().find(|r| r.id == file_ref_id) {
+                                if let Ok(refs) = serde_json::from_str::<Vec<FileRefInfo>>(&content)
+                                {
+                                    if let Some(file_ref) =
+                                        refs.iter().find(|r| r.id == file_ref_id)
+                                    {
                                         return Ok(FileLinkOutput {
                                             success: true,
                                             file_ref: Some(file_ref.clone()),
@@ -421,7 +501,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     }
                 }
             }
-            
+
             Ok(FileLinkOutput {
                 success: false,
                 file_ref: None,
@@ -429,7 +509,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 error: Some("File reference not found".to_string()),
             })
         }
-        
+
         FileLinkInput::ListFiles { project_id } => {
             let refs = load_file_refs(project_id);
             Ok(FileLinkOutput {

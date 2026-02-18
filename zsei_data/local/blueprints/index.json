@@ -1,62 +1,143 @@
 {
-  "version": 1,
-  "last_updated": 1706400000,
-  "blueprint_count": 5,
+  "version": 2,
+  "last_updated": 1707897600,
+  "blueprint_count": 7,
   "blueprints": [
     {
       "blueprint_id": 1,
-      "name": "General Prompt Response",
-      "signature_hash": "bp_general_prompt_001",
-      "input_types": ["text"],
-      "output_types": ["text"],
-      "keywords": ["chat", "conversation", "question", "answer", "help"],
+      "name": "General Assistant",
+      "signature_hash": "bp_general_assistant_v2",
+      "input_types": ["text", "image", "audio", "video", "code"],
+      "output_types": ["text", "code"],
+      "keywords": [
+        "help",
+        "explain",
+        "what is",
+        "how does",
+        "question",
+        "assist",
+        "general"
+      ],
       "use_count": 0,
       "success_rate": 1.0,
-      "file": "bp_1_general_prompt.json"
+      "file": "bp_1_general_assistant.json"
     },
     {
       "blueprint_id": 2,
-      "name": "Code Analysis with Semantic Understanding",
-      "signature_hash": "bp_code_semantic_001",
+      "name": "Code Review",
+      "signature_hash": "bp_code_review_v2",
       "input_types": ["code", "file_reference"],
       "output_types": ["code_analysis", "suggestions"],
-      "keywords": ["code", "analyze", "review", "explain", "understand"],
+      "keywords": [
+        "review",
+        "code review",
+        "analyze code",
+        "check code",
+        "audit",
+        "quality",
+        "lint"
+      ],
       "use_count": 0,
       "success_rate": 1.0,
-      "file": "bp_2_code_semantic.json"
+      "file": "bp_2_code_review.json"
     },
     {
       "blueprint_id": 3,
-      "name": "Document Summarization",
-      "signature_hash": "bp_summarize_001",
-      "input_types": ["text", "document_reference"],
-      "output_types": ["summary", "key_points"],
-      "keywords": ["summarize", "summary", "document", "key points", "overview"],
+      "name": "Documentation",
+      "signature_hash": "bp_documentation_v2",
+      "input_types": ["code", "text", "requirements"],
+      "output_types": ["documentation", "markdown"],
+      "keywords": [
+        "document",
+        "documentation",
+        "readme",
+        "tutorial",
+        "guide",
+        "api docs",
+        "explain code"
+      ],
       "use_count": 0,
       "success_rate": 1.0,
-      "file": "bp_3_summarize.json"
+      "file": "bp_3_documentation.json"
     },
     {
       "blueprint_id": 4,
-      "name": "Code Creation from Specification",
-      "signature_hash": "bp_code_create_001",
-      "input_types": ["specification", "requirements"],
+      "name": "Code Creation",
+      "signature_hash": "bp_code_creation_v2",
+      "input_types": ["specification", "requirements", "text"],
       "output_types": ["code", "documentation"],
-      "keywords": ["create", "code", "generate", "implement", "build", "new"],
+      "keywords": [
+        "create",
+        "generate",
+        "write code",
+        "implement",
+        "build",
+        "scaffold",
+        "new project"
+      ],
       "use_count": 0,
       "success_rate": 1.0,
-      "file": "bp_4_code_create.json"
+      "file": "bp_4_code_creation.json"
     },
     {
       "blueprint_id": 5,
-      "name": "Code Update",
-      "signature_hash": "bp_code_update_001",
-      "input_types": ["code_reference", "change_request"],
-      "output_types": ["updated_code", "diff"],
-      "keywords": ["update", "modify", "change", "fix", "refactor", "edit"],
+      "name": "Testing and Debugging",
+      "signature_hash": "bp_testing_debugging_v2",
+      "input_types": ["code", "error", "test_results"],
+      "output_types": ["code", "test_code", "fix"],
+      "keywords": [
+        "test",
+        "debug",
+        "fix bug",
+        "error",
+        "failing",
+        "broken",
+        "unit test",
+        "integration test"
+      ],
       "use_count": 0,
       "success_rate": 1.0,
-      "file": "bp_5_code_update.json"
+      "file": "bp_5_testing_debugging.json"
+    },
+    {
+      "blueprint_id": 6,
+      "name": "Data Analysis",
+      "signature_hash": "bp_data_analysis_v2",
+      "input_types": ["data", "csv", "json", "text"],
+      "output_types": ["analysis", "visualization", "report"],
+      "keywords": [
+        "analyze",
+        "analysis",
+        "data",
+        "statistics",
+        "chart",
+        "visualize",
+        "insights",
+        "trends"
+      ],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_6_data_analysis.json"
+    },
+    {
+      "blueprint_id": 7,
+      "name": "Mathematical Proof Verification",
+      "signature_hash": "bp_math_proof_v2",
+      "input_types": ["math", "proof", "text"],
+      "output_types": ["verification", "analysis"],
+      "keywords": [
+        "prove",
+        "proof",
+        "verify",
+        "theorem",
+        "lemma",
+        "mathematical",
+        "formal",
+        "logic"
+      ],
+      "use_count": 0,
+      "success_rate": 1.0,
+      "file": "bp_7_math_proof_verification.json"
     }
   ]
 }
