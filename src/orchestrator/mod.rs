@@ -19,15 +19,21 @@
 //! Tasks MUST wait for I-Loop to complete before starting.
 //!
 //! KEY FEATURES:
-//! - Layer-by-layer AMT building from chunks
+//! - Layer-by-layer AMT building from chunks (processes each chunk individually)
 //! - 5 consecutive Valid validations required
 //! - Blueprint step execution with loop/sub-step/dependency support
 //! - Direct ZSEI access (no deprecated pipeline wrappers)
+//! - Pipeline awareness for blueprint creation
+//! - Coverage aspects derived from methodologies (not hardcoded)
+//! - Queue-based task execution via TaskManager
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+// Import task module
+use crate::task::{RefinementConfig, TaskData, TaskManager, TaskPriority, TaskQueueConfig};
 
 // ============================================================================
 // Types
@@ -111,6 +117,40 @@ pub struct AMTSummary {
     pub branch_count: usize,
     pub max_depth: usize,
     pub validation_status: String,
+}
+
+// ============================================================================
+// Pipeline Registry Types
+// ============================================================================
+
+/// Pipeline info from index.json
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineInfo {
+    pub pipeline_id: u64,
+    pub name: String,
+    pub folder_name: String,
+    pub category: String,
+    pub description: String,
+    #[serde(default)]
+    pub modality: Option<String>,
+    #[serde(default)]
+    pub has_ui: bool,
+    #[serde(default)]
+    pub is_tab: bool,
+    #[serde(default)]
+    pub deprecated: bool,
+}
+
+/// Pipeline index from ZSEI
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineIndex {
+    pub version: u32,
+    pub pipeline_count: u32,
+    pub pipelines: Vec<PipelineInfo>,
+    #[serde(default)]
+    pub categories: HashMap<String, Vec<u64>>,
+    #[serde(default)]
+    pub next_custom_id: u64,
 }
 
 // ============================================================================
@@ -378,6 +418,12 @@ struct OrchestrationState {
     // Consciousness
     gate_result: Option<GateResult>,
     voice_identity: Option<VoiceIdentity>,
+
+    // Pipeline registry (loaded from index.json)
+    available_pipelines: Vec<PipelineInfo>,
+
+    // Coverage aspects derived from methodologies
+    coverage_aspects: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -475,11 +521,105 @@ pub trait ZSEIAccess: Send + Sync {
 pub struct PromptOrchestrator {
     executor: Arc<dyn PipelineExecutor>,
     zsei: Arc<dyn ZSEIAccess>,
+    task_manager: Arc<TaskManager>,
+    pipeline_index: Arc<RwLock<Option<PipelineIndex>>>,
 }
 
 impl PromptOrchestrator {
-    pub fn new(executor: Arc<dyn PipelineExecutor>, zsei: Arc<dyn ZSEIAccess>) -> Self {
-        Self { executor, zsei }
+    pub fn new(
+        executor: Arc<dyn PipelineExecutor>,
+        zsei: Arc<dyn ZSEIAccess>,
+        task_manager: Arc<TaskManager>,
+    ) -> Self {
+        Self {
+            executor,
+            zsei,
+            task_manager,
+            pipeline_index: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// Load pipeline index from ZSEI
+    pub async fn load_pipeline_index(&self) -> Result<(), String> {
+        // Try to load from ZSEI storage
+        let index_result = self
+            .zsei
+            .query(serde_json::json!({
+                "type": "GetPipelineIndex"
+            }))
+            .await;
+
+        if let Ok(result) = index_result {
+            if let Ok(index) = serde_json::from_value::<PipelineIndex>(result) {
+                *self.pipeline_index.write().await = Some(index);
+            }
+        }
+        Ok(())
+    }
+
+    /// Get available pipelines
+    async fn get_available_pipelines(&self) -> Vec<PipelineInfo> {
+        if let Some(index) = self.pipeline_index.read().await.as_ref() {
+            index
+                .pipelines
+                .iter()
+                .filter(|p| !p.deprecated)
+                .cloned()
+                .collect()
+        } else {
+            // Return default core pipelines if index not loaded
+            Self::get_default_pipelines()
+        }
+    }
+
+    /// Get default pipeline list (fallback if index not loaded)
+    fn get_default_pipelines() -> Vec<PipelineInfo> {
+        vec![
+            PipelineInfo {
+                pipeline_id: 9,
+                name: "Prompt".to_string(),
+                folder_name: "prompt".to_string(),
+                category: "general".to_string(),
+                description: "LLM prompt processing".to_string(),
+                modality: None,
+                has_ui: false,
+                is_tab: false,
+                deprecated: false,
+            },
+            PipelineInfo {
+                pipeline_id: 21,
+                name: "ContextAggregation".to_string(),
+                folder_name: "context_aggregation".to_string(),
+                category: "general".to_string(),
+                description: "Aggregate context for tasks".to_string(),
+                modality: None,
+                has_ui: false,
+                is_tab: false,
+                deprecated: false,
+            },
+            PipelineInfo {
+                pipeline_id: 100,
+                name: "TextAnalysisPipeline".to_string(),
+                folder_name: "text".to_string(),
+                category: "modalities".to_string(),
+                description: "Text modality analysis".to_string(),
+                modality: Some("text".to_string()),
+                has_ui: false,
+                is_tab: false,
+                deprecated: false,
+            },
+            PipelineInfo {
+                pipeline_id: 101,
+                name: "CodeAnalysisPipeline".to_string(),
+                folder_name: "code".to_string(),
+                category: "modalities".to_string(),
+                description: "Code modality analysis".to_string(),
+                modality: Some("code".to_string()),
+                has_ui: false,
+                is_tab: false,
+                deprecated: false,
+            },
+        ]
     }
 
     /// Main entry point - orchestrates the full 11-stage flow
@@ -498,6 +638,10 @@ impl PromptOrchestrator {
             .unwrap_or_else(|| get_model_context_limit(model_identifier));
 
         let prompt_tokens = Self::estimate_tokens(&request.prompt);
+
+        // Load pipeline index if not already loaded
+        let _ = self.load_pipeline_index().await;
+        let available_pipelines = self.get_available_pipelines().await;
 
         let mut state = OrchestrationState {
             request: request.clone(),
@@ -530,6 +674,8 @@ impl PromptOrchestrator {
             step_outputs: HashMap::new(),
             gate_result: None,
             voice_identity: None,
+            available_pipelines,
+            coverage_aspects: Vec::new(),
         };
 
         // Check I-Loop before starting (if consciousness enabled)
@@ -722,7 +868,7 @@ impl PromptOrchestrator {
 
         // Get all existing categories
         let existing_categories = self.zsei.get_categories("Text").await.unwrap_or_default();
-        let existing_set: HashSet<u64> = existing_categories.into_iter().collect();
+        let _existing_set: HashSet<u64> = existing_categories.into_iter().collect();
 
         // Create categories for new topics
         for topic in &state.topics {
@@ -749,7 +895,7 @@ impl PromptOrchestrator {
 
         state.categories.extend(methodology_categories);
 
-        // STEP 6: Build AMT layer-by-layer from chunks
+        // STEP 6: Build AMT layer-by-layer from chunks (processes each chunk individually)
         state.amt = Some(self.build_amt_layer_by_layer(state).await?);
 
         // STEP 7: Validate AMT (need 5 consecutive Valid)
@@ -781,7 +927,10 @@ impl PromptOrchestrator {
         state.amt_validated = state.validation_streak >= 5;
 
         self.record_stage_timed(
-            state, 2, "Text Normalization + AMT", true,
+            state,
+            2,
+            "Text Normalization + AMT",
+            true,
             &format!(
                 "Chunks: {}, Keywords: {}, Methodologies: {}, Categories: {} ({} created), Validated: {} (streak: {})",
                 state.processed_chunks.len(),
@@ -798,59 +947,122 @@ impl PromptOrchestrator {
         Ok(())
     }
 
-    /// Build AMT layer-by-layer from processed chunks
+    /// Build AMT layer-by-layer from processed chunks (processes each chunk individually)
     async fn build_amt_layer_by_layer(
         &self,
         state: &OrchestrationState,
     ) -> Result<AMTNode, String> {
         let mut node_id_counter = 1u64;
 
-        // LAYER 1: Identify root intent across ALL chunks
-        let root_prompt = format!(
-            r#"Analyze these text chunks and identify the PRIMARY INTENT/GOAL of the entire request.
+        // PHASE 1: Process each chunk individually to identify intent components
+        let mut chunk_intents: Vec<(u32, String, Vec<String>)> = Vec::new(); // (chunk_index, intent, branches)
 
-CHUNKS:
+        for chunk in &state.processed_chunks {
+            let chunk_prompt = format!(
+                r#"Analyze this text chunk and identify:
+1. The primary intent/goal expressed in this chunk
+2. Any sub-components, requirements, or branches
+
+CHUNK {} of {}:
 {}
 
 Return JSON:
 {{
-    "primary_intent": "the main goal/intent",
-    "main_branches": ["branch1", "branch2", "branch3"],
-    "confidence": 0.0-1.0
+    "chunk_intent": "main intent in this chunk",
+    "branches": ["branch1", "branch2"],
+    "is_continuation": true/false,
+    "continues_topic": "topic name if continuing previous"
 }}"#,
-            state
-                .processed_chunks
+                chunk.index + 1,
+                state.processed_chunks.len(),
+                &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
+            );
+
+            let chunk_input = serde_json::json!({
+                "prompt": chunk_prompt,
+                "max_tokens": 400,
+                "temperature": 0.3,
+                "system_context": "Analyze text chunks for intent. Respond with JSON only."
+            });
+
+            if let Ok(result) = self.executor.execute(9, chunk_input).await {
+                let response = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("{}");
+                let chunk_json = Self::parse_json_object(response);
+
+                let intent = chunk_json
+                    .get("chunk_intent")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or("Process request")
+                    .to_string();
+
+                let branches: Vec<String> = chunk_json
+                    .get("branches")
+                    .and_then(|b| b.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                chunk_intents.push((chunk.index, intent, branches));
+            }
+        }
+
+        // PHASE 2: Aggregate intents to form root (deduplicate and merge)
+        let all_intents: Vec<String> = chunk_intents.iter().map(|(_, i, _)| i.clone()).collect();
+        let mut all_branches: HashSet<String> = HashSet::new();
+
+        for (_, _, branches) in &chunk_intents {
+            for branch in branches {
+                all_branches.insert(branch.clone());
+            }
+        }
+
+        // Use LLM to synthesize the root intent from all chunk intents
+        let synthesize_prompt = format!(
+            r#"Synthesize these chunk intents into one primary intent:
+
+CHUNK INTENTS:
+{}
+
+Return JSON:
+{{
+    "primary_intent": "the unified main goal",
+    "main_branches": ["consolidated branch list"]
+}}"#,
+            all_intents
                 .iter()
-                .map(|c| format!(
-                    "Chunk {}: {}",
-                    c.index,
-                    &c.cleaned_text[..c.cleaned_text.len().min(500)]
-                ))
+                .enumerate()
+                .map(|(i, intent)| format!("{}: {}", i + 1, intent))
                 .collect::<Vec<_>>()
-                .join("\n\n")
+                .join("\n")
         );
 
-        let root_input = serde_json::json!({
-            "prompt": root_prompt,
-            "max_tokens": 500,
-            "temperature": 0.3,
-            "system_context": "You analyze text to identify intent and structure. Respond with JSON only."
+        let synth_input = serde_json::json!({
+            "prompt": synthesize_prompt,
+            "max_tokens": 300,
+            "temperature": 0.2,
+            "system_context": "Synthesize intents. Respond with JSON only."
         });
 
-        let root_result = self.executor.execute(9, root_input).await?;
-        let root_response = root_result
+        let synth_result = self.executor.execute(9, synth_input).await?;
+        let synth_response = synth_result
             .get("response")
             .and_then(|r| r.as_str())
             .unwrap_or("{}");
-        let root_json = Self::parse_json_object(root_response);
+        let synth_json = Self::parse_json_object(synth_response);
 
-        let primary_intent = root_json
+        let primary_intent = synth_json
             .get("primary_intent")
             .and_then(|p| p.as_str())
             .unwrap_or("Process user request")
             .to_string();
 
-        let main_branches: Vec<String> = root_json
+        let main_branches: Vec<String> = synth_json
             .get("main_branches")
             .and_then(|b| b.as_array())
             .map(|arr| {
@@ -858,178 +1070,200 @@ Return JSON:
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .unwrap_or_default();
+            .unwrap_or_else(|| all_branches.into_iter().collect());
 
         // Create root node
-        let mut root = AMTNode::new(node_id_counter, AMTNodeType::Root, primary_intent, 0);
-        root.source_chunk_indices = (0..state.processed_chunks.len() as u32).collect();
-        root.methodology_ids = state.methodologies.clone();
+        let mut root_node = AMTNode::new(node_id_counter, AMTNodeType::Root, primary_intent, 0);
+        root_node.source_chunk_indices = (0..state.processed_chunks.len() as u32).collect();
+        root_node.methodology_ids = state.methodologies.clone();
         node_id_counter += 1;
 
-        // LAYER 2: Create main branch nodes
+        // PHASE 3: Create branch nodes, tracking which chunks they derive from
         for branch_name in main_branches {
             let mut branch_node =
-                AMTNode::new(node_id_counter, AMTNodeType::Branch, branch_name, 1);
+                AMTNode::new(node_id_counter, AMTNodeType::Branch, branch_name.clone(), 1);
             node_id_counter += 1;
 
             // Find which chunks relate to this branch
+            for (chunk_idx, _, branches) in &chunk_intents {
+                if branches.iter().any(|b| {
+                    b.to_lowercase().contains(&branch_name.to_lowercase())
+                        || branch_name.to_lowercase().contains(&b.to_lowercase())
+                }) {
+                    branch_node.source_chunk_indices.push(*chunk_idx);
+                }
+            }
+
+            // Also check keyword overlap from processed chunks
             for chunk in &state.processed_chunks {
-                let branch_lower = branch_node.content.to_lowercase();
-                let has_overlap = chunk.keywords.iter().any(|kw| {
+                let branch_lower = branch_name.to_lowercase();
+                let has_keyword_overlap = chunk.keywords.iter().any(|kw| {
                     branch_lower.contains(&kw.to_lowercase())
                         || kw.to_lowercase().contains(&branch_lower)
-                }) || chunk.topics.iter().any(|t| {
-                    branch_lower.contains(&t.to_lowercase())
-                        || t.to_lowercase().contains(&branch_lower)
                 });
 
-                if has_overlap {
+                if has_keyword_overlap && !branch_node.source_chunk_indices.contains(&chunk.index) {
                     branch_node.source_chunk_indices.push(chunk.index);
                 }
             }
 
-            root.children.push(branch_node);
+            root_node.children.push(branch_node);
         }
 
-        // LAYER 3: Add detail nodes under each branch
-        for branch in &mut root.children {
+        // PHASE 4: Add detail nodes under each branch by re-examining relevant chunks
+        for branch in &mut root_node.children {
+            if branch.source_chunk_indices.is_empty() {
+                continue;
+            }
+
+            let relevant_chunks: Vec<String> = branch
+                .source_chunk_indices
+                .iter()
+                .filter_map(|&idx| state.processed_chunks.get(idx as usize))
+                .map(|c| c.cleaned_text[..c.cleaned_text.len().min(400)].to_string())
+                .collect();
+
+            if relevant_chunks.is_empty() {
+                continue;
+            }
+
             let detail_prompt = format!(
-                r#"For this branch of the request, identify specific details, requirements, and constraints.
+                r#"For this branch, extract specific details, requirements, and constraints.
 
 BRANCH: {}
-RELATED CHUNKS:
+RELEVANT TEXT:
 {}
 
 Return JSON:
 {{
     "details": ["detail1", "detail2"],
-    "requirements": ["req1", "req2"],
-    "constraints": ["constraint1", "constraint2"]
+    "requirements": ["req1"],
+    "constraints": ["constraint1"]
 }}"#,
                 branch.content,
-                branch
-                    .source_chunk_indices
-                    .iter()
-                    .filter_map(|&idx| state.processed_chunks.get(idx as usize))
-                    .map(|c| format!("- {}", &c.cleaned_text[..c.cleaned_text.len().min(300)]))
-                    .collect::<Vec<_>>()
-                    .join("\n")
+                relevant_chunks.join("\n---\n")
             );
 
             let detail_input = serde_json::json!({
                 "prompt": detail_prompt,
                 "max_tokens": 400,
                 "temperature": 0.3,
-                "system_context": "Extract details from text. Respond with JSON only."
+                "system_context": "Extract details. Respond with JSON only."
             });
 
             if let Ok(detail_result) = self.executor.execute(9, detail_input).await {
-                let detail_response = detail_result
+                let response = detail_result
                     .get("response")
                     .and_then(|r| r.as_str())
                     .unwrap_or("{}");
-                let detail_json = Self::parse_json_object(detail_response);
+                let detail_json = Self::parse_json_object(response);
 
                 // Add detail nodes
-                if let Some(details) = detail_json.get("details").and_then(|d| d.as_array()) {
-                    for detail in details {
-                        if let Some(detail_str) = detail.as_str() {
-                            let detail_node = AMTNode::new(
-                                node_id_counter,
-                                AMTNodeType::Leaf,
-                                detail_str.to_string(),
-                                2,
-                            );
-                            node_id_counter += 1;
-                            branch.children.push(detail_node);
-                        }
+                for detail in detail_json
+                    .get("details")
+                    .and_then(|d| d.as_array())
+                    .unwrap_or(&vec![])
+                {
+                    if let Some(detail_str) = detail.as_str() {
+                        let mut detail_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Leaf,
+                            detail_str.to_string(),
+                            2,
+                        );
+                        detail_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(detail_node);
                     }
                 }
 
                 // Add requirement nodes
-                if let Some(reqs) = detail_json.get("requirements").and_then(|r| r.as_array()) {
-                    for req in reqs {
-                        if let Some(req_str) = req.as_str() {
-                            let mut req_node = AMTNode::new(
-                                node_id_counter,
-                                AMTNodeType::Leaf,
-                                req_str.to_string(),
-                                2,
-                            );
-                            req_node
-                                .metadata
-                                .insert("type".to_string(), "requirement".to_string());
-                            node_id_counter += 1;
-                            branch.children.push(req_node);
-                        }
+                for req in detail_json
+                    .get("requirements")
+                    .and_then(|r| r.as_array())
+                    .unwrap_or(&vec![])
+                {
+                    if let Some(req_str) = req.as_str() {
+                        let mut req_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Leaf,
+                            req_str.to_string(),
+                            2,
+                        );
+                        req_node
+                            .metadata
+                            .insert("type".to_string(), "requirement".to_string());
+                        req_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(req_node);
                     }
                 }
 
                 // Add constraint nodes
-                if let Some(constraints) = detail_json.get("constraints").and_then(|c| c.as_array())
+                for constraint in detail_json
+                    .get("constraints")
+                    .and_then(|c| c.as_array())
+                    .unwrap_or(&vec![])
                 {
-                    for constraint in constraints {
-                        if let Some(c_str) = constraint.as_str() {
-                            let mut c_node = AMTNode::new(
-                                node_id_counter,
-                                AMTNodeType::Consideration,
-                                c_str.to_string(),
-                                2,
-                            );
-                            c_node
-                                .metadata
-                                .insert("type".to_string(), "constraint".to_string());
-                            node_id_counter += 1;
-                            branch.children.push(c_node);
-                        }
+                    if let Some(c_str) = constraint.as_str() {
+                        let mut c_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Consideration,
+                            c_str.to_string(),
+                            2,
+                        );
+                        c_node
+                            .metadata
+                            .insert("type".to_string(), "constraint".to_string());
+                        c_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(c_node);
                     }
                 }
             }
         }
 
-        // LAYER 4: Add cross-references between branches with shared context
-        let branch_count = root.children.len();
+        // PHASE 5: Add cross-references between branches with shared chunks
+        let branch_count = root_node.children.len();
         for i in 0..branch_count {
             for j in (i + 1)..branch_count {
-                // Check for shared chunk indices
-                let shared_chunks: Vec<u32> = root.children[i]
+                let shared_chunks: Vec<u32> = root_node.children[i]
                     .source_chunk_indices
                     .iter()
-                    .filter(|idx| root.children[j].source_chunk_indices.contains(idx))
+                    .filter(|idx| root_node.children[j].source_chunk_indices.contains(idx))
                     .cloned()
                     .collect();
 
                 if !shared_chunks.is_empty() {
-                    let target_id = root.children[j].id;
-                    root.children[i].relationships.push(AMTRelation {
+                    let target_id = root_node.children[j].id;
+                    root_node.children[i].relationships.push(AMTRelation {
                         target_id,
                         relation_type: AMTRelationType::SharedContext,
                         confidence: shared_chunks.len() as f32
-                            / root.children[i].source_chunk_indices.len().max(1) as f32,
+                            / root_node.children[i].source_chunk_indices.len().max(1) as f32,
                     });
                 }
             }
         }
 
-        // LAYER 5: Add consideration nodes for coverage aspects
-        let coverage_aspects = [
-            "security",
-            "error_handling",
-            "edge_cases",
-            "performance",
-            "testing",
-        ];
+        // PHASE 6: Add coverage aspects from methodologies (not hardcoded)
+        let coverage_aspects = self
+            .extract_coverage_aspects_from_methodologies(state)
+            .await;
 
         for aspect in coverage_aspects {
-            // Check if aspect is mentioned in any chunk
-            let is_mentioned = state.processed_chunks.iter().any(|c| {
-                c.cleaned_text.to_lowercase().contains(aspect)
-                    || c.keywords
-                        .iter()
-                        .any(|kw| kw.to_lowercase().contains(aspect))
+            // Check if aspect is already covered in branches
+            let is_covered = root_node.children.iter().any(|c| {
+                c.content.to_lowercase().contains(&aspect.to_lowercase())
+                    || c.children.iter().any(|child| {
+                        child
+                            .content
+                            .to_lowercase()
+                            .contains(&aspect.to_lowercase())
+                    })
             });
 
-            if !is_mentioned {
+            if !is_covered {
                 let mut consideration = AMTNode::new(
                     node_id_counter,
                     AMTNodeType::Consideration,
@@ -1039,13 +1273,106 @@ Return JSON:
                 consideration
                     .metadata
                     .insert("auto_added".to_string(), "true".to_string());
-                consideration.confidence = 0.5; // Lower confidence since auto-added
+                consideration
+                    .metadata
+                    .insert("source".to_string(), "methodology".to_string());
+                consideration.confidence = 0.6;
                 node_id_counter += 1;
-                root.children.push(consideration);
+                root_node.children.push(consideration);
             }
         }
 
-        Ok(root)
+        Ok(root_node)
+    }
+
+    /// Extract coverage aspects from methodologies (not hardcoded)
+    async fn extract_coverage_aspects_from_methodologies(
+        &self,
+        state: &OrchestrationState,
+    ) -> Vec<String> {
+        let mut aspects: HashSet<String> = HashSet::new();
+
+        for method_id in &state.methodologies {
+            if let Ok(Some(container)) = self.zsei.get_container(*method_id).await {
+                // Extract aspects from methodology principles/considerations
+                if let Some(principles) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("storage"))
+                    .and_then(|s| s.get("principles"))
+                    .and_then(|p| p.as_array())
+                {
+                    for principle in principles {
+                        if let Some(p_str) = principle.as_str() {
+                            // Look for aspect-like terms in principles
+                            let lower = p_str.to_lowercase();
+                            if lower.contains("security") {
+                                aspects.insert("security".to_string());
+                            }
+                            if lower.contains("error") || lower.contains("exception") {
+                                aspects.insert("error_handling".to_string());
+                            }
+                            if lower.contains("edge case") || lower.contains("boundary") {
+                                aspects.insert("edge_cases".to_string());
+                            }
+                            if lower.contains("performance") || lower.contains("efficiency") {
+                                aspects.insert("performance".to_string());
+                            }
+                            if lower.contains("test") || lower.contains("validation") {
+                                aspects.insert("testing".to_string());
+                            }
+                            if lower.contains("scalab") {
+                                aspects.insert("scalability".to_string());
+                            }
+                            if lower.contains("maintain") {
+                                aspects.insert("maintainability".to_string());
+                            }
+                            if lower.contains("document") {
+                                aspects.insert("documentation".to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Also check methodology tags/keywords for aspects
+                if let Some(keywords) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|ctx| ctx.get("keywords"))
+                    .and_then(|k| k.as_array())
+                {
+                    for kw in keywords {
+                        if let Some(kw_str) = kw.as_str() {
+                            let lower = kw_str.to_lowercase();
+                            if [
+                                "security",
+                                "error_handling",
+                                "testing",
+                                "performance",
+                                "edge_cases",
+                                "scalability",
+                                "maintainability",
+                                "documentation",
+                                "accessibility",
+                                "compatibility",
+                                "reliability",
+                                "usability",
+                            ]
+                            .contains(&lower.as_str())
+                            {
+                                aspects.insert(lower);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no aspects found from methodologies, use minimal defaults
+        if aspects.is_empty() {
+            aspects.insert("error_handling".to_string());
+        }
+
+        aspects.into_iter().collect()
     }
 
     /// Validate AMT and return result
@@ -1078,7 +1405,7 @@ Check:
 1. Are all key aspects of the request represented?
 2. Are there any ambiguous or unclear parts?
 3. Is the structure logically coherent?
-4. Are security, error handling, and edge cases considered?
+4. Are considerations (from methodologies) appropriate?
 
 Respond with JSON:
 {{
@@ -1337,7 +1664,7 @@ Return JSON with SPECIFIC nodes to add:
             }
         }
 
-        // Only use if 100% match (or very close)
+        // Only use if 100% match (or very close - 95%+)
         if let Some((bp_id, score)) = best_match {
             if score >= 0.95 {
                 state.blueprint_id = Some(bp_id);
@@ -1371,7 +1698,15 @@ Return JSON with SPECIFIC nodes to add:
         // No 100% match - create new blueprint
         let amt = state.amt.as_ref().ok_or("No AMT available")?;
 
-        // Generate blueprint from AMT
+        // Generate blueprint from AMT with pipeline awareness
+        let available_pipelines_desc: String = state
+            .available_pipelines
+            .iter()
+            .filter(|p| !p.deprecated)
+            .map(|p| format!("  - {} (ID: {}): {}", p.name, p.pipeline_id, p.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
 
@@ -1379,10 +1714,14 @@ AMT ROOT: {}
 BRANCHES:
 {}
 
-Available Pipelines:{}
+AVAILABLE PIPELINES:
+{}
+
 METHODOLOGIES: {:?}
 
-Generate execution steps. Each step should map to one AMT branch.
+For each step, select the most appropriate pipeline from the list.
+If no existing pipeline can handle a requirement, add it to missing_capabilities.
+
 Return JSON:
 {{
     "name": "Blueprint name",
@@ -1395,7 +1734,8 @@ Return JSON:
             "pipeline_id": 9,
             "context_requirements": ["full_context"],
             "depends_on": [],
-            "wait_for_graph_update": false
+            "wait_for_graph_update": false,
+            "max_retries": 1
         }}
     ],
     "missing_capabilities": ["capability1", "capability2"]
@@ -1404,13 +1744,14 @@ Return JSON:
             amt.children
                 .iter()
                 .map(|c| format!(
-                    "- {}: {} children, relationships: {:?}",
+                    "- {}: {} children, chunk refs: {:?}",
                     c.content,
                     c.children.len(),
-                    c.relationships.len()
+                    c.source_chunk_indices
                 ))
                 .collect::<Vec<_>>()
                 .join("\n"),
+            available_pipelines_desc,
             state.methodologies
         );
 
@@ -1438,6 +1779,25 @@ Return JSON:
             .and_then(|d| d.as_str())
             .unwrap_or("")
             .to_string();
+
+        // Check for missing capabilities
+        let missing_capabilities: Vec<String> = bp_json
+            .get("missing_capabilities")
+            .and_then(|m| m.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if !missing_capabilities.is_empty() {
+            // Log missing capabilities - could trigger pipeline creation in future
+            tracing::warn!(
+                "Blueprint has missing capabilities: {:?}",
+                missing_capabilities
+            );
+        }
 
         state.blueprint_steps = bp_json
             .get("steps")
@@ -1472,7 +1832,8 @@ Return JSON:
                 "methodology_ids": state.methodologies
             },
             "storage": {
-                "steps": state.blueprint_steps
+                "steps": state.blueprint_steps,
+                "missing_capabilities": missing_capabilities
             }
         });
 
@@ -1487,8 +1848,9 @@ Return JSON:
             "Blueprint Assignment",
             true,
             &format!(
-                "Created new blueprint with {} steps",
-                state.blueprint_steps.len()
+                "Created new blueprint with {} steps (missing: {})",
+                state.blueprint_steps.len(),
+                missing_capabilities.len()
             ),
             stage_start.elapsed().as_millis() as u64,
         );
@@ -1694,23 +2056,43 @@ Return JSON:
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // STAGE 7: Create task
-        let task_input = serde_json::json!({
-            "action": "Create",
-            "blueprint_id": state.blueprint_id,
-            "inputs": {
-                "prompt": state.cleaned_prompt,
-                "amt_intent": state.amt.as_ref().map(|a| &a.content)
-            },
-            "workspace_id": state.request.workspace_id,
-            "project_id": state.request.project_id,
-            "user_id": state.request.user_id,
-            "device_id": state.request.device_id,
-            "total_steps": state.blueprint_steps.len()
-        });
+        // STAGE 7: Create task via TaskManager
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "prompt".to_string(),
+            serde_json::json!(state.cleaned_prompt),
+        );
+        inputs.insert(
+            "blueprint_id".to_string(),
+            serde_json::json!(state.blueprint_id),
+        );
+        if let Some(ref amt) = state.amt {
+            inputs.insert("amt_intent".to_string(), serde_json::json!(amt.content));
+        }
 
-        let task_result = self.executor.execute(5, task_input).await?;
-        state.task_id = task_result.get("task_id").and_then(|id| id.as_u64());
+        // Enqueue task via TaskManager
+        let task_result = self
+            .task_manager
+            .enqueue_task(
+                state.blueprint_id,
+                inputs,
+                state.request.user_id,
+                state.request.device_id,
+                state.request.workspace_id,
+                state.request.project_id,
+                TaskPriority::Normal,
+            )
+            .await;
+
+        match task_result {
+            Ok(task_id) => {
+                state.task_id = Some(task_id);
+            }
+            Err(e) => {
+                self.record_stage(state, 7, "Task Creation", false, &format!("Failed: {}", e));
+                return Err(e.to_string());
+            }
+        }
 
         self.record_stage(
             state,
@@ -1720,16 +2102,15 @@ Return JSON:
             &format!("Task: {:?}", state.task_id),
         );
 
-        // Build dependency graph
-        let completed_steps: HashSet<u32> = HashSet::new();
+        // STAGES 6 & 8: Execute steps
         let steps = state.blueprint_steps.clone();
         let mut all_outputs: Vec<String> = Vec::new();
-
-        // STAGES 6 & 8: Per-step context aggregation and execution
-        let mut step_queue: Vec<&BlueprintStep> = steps.iter().collect();
         let mut completed: HashSet<u32> = HashSet::new();
+
+        // Build dependency order
+        let mut step_queue: Vec<&BlueprintStep> = steps.iter().collect();
         let mut iterations = 0;
-        let max_iterations = steps.len() * 2; // Safety limit
+        let max_iterations = steps.len() * 2;
 
         while !step_queue.is_empty() && iterations < max_iterations {
             iterations += 1;
@@ -1741,26 +2122,13 @@ Return JSON:
                 .cloned()
                 .collect();
 
-            if ready_steps.is_empty() {
-                // Deadlock - force execute first remaining step
-                if let Some(step) = step_queue.first() {
-                    let step = *step;
+            if ready_steps.is_empty() && !step_queue.is_empty() {
+                // Force execute first remaining step (break deadlock)
+                if let Some(step) = step_queue.first().cloned() {
                     let result = self.execute_step(state, step, &all_outputs).await?;
-                    all_outputs.push(self.extract_output_text(&result.output));
-                    state.step_results.push(result);
-                    state.step_outputs.insert(
-                        step.step_index,
-                        serde_json::json!({"output": all_outputs.last()}),
-                    );
-                    completed.insert(step.step_index);
-                    step_queue.retain(|s| s.step_index != step.step_index);
-                }
-            } else {
-                // Execute ready steps (could be parallelized in future)
-                for step in ready_steps {
-                    let result = self.execute_step(state, step, &all_outputs).await?;
-                    all_outputs.push(self.extract_output_text(&result.output));
-                    state.step_results.push(result);
+                    let output_text = self.extract_output_text(&result.output);
+                    all_outputs.push(output_text.clone());
+                    state.step_results.push(result.clone());
                     state.step_outputs.insert(
                         step.step_index,
                         serde_json::json!({"output": all_outputs.last()}),
@@ -1768,16 +2136,57 @@ Return JSON:
                     completed.insert(step.step_index);
                     step_queue.retain(|s| s.step_index != step.step_index);
 
-                    // Update task progress
+                    // Update TaskManager
                     if let Some(task_id) = state.task_id {
-                        let progress = (completed.len() as f32 / steps.len() as f32 * 100.0) as u32;
-                        let progress_input = serde_json::json!({
-                            "action": "UpdateProgress",
-                            "task_id": task_id,
-                            "step_completed": step.step_index,
-                            "progress_percent": progress
-                        });
-                        let _ = self.executor.execute(5, progress_input).await;
+                        let _ = self
+                            .task_manager
+                            .update_step(
+                                task_id,
+                                step.step_index,
+                                "completed",
+                                result.tokens_used,
+                                Some(output_text[..200.min(output_text.len())].to_string()),
+                                None,
+                            )
+                            .await;
+
+                        let _ = self
+                            .task_manager
+                            .update_progress(task_id, completed.len() as u32, steps.len() as u32)
+                            .await;
+                    }
+                }
+            } else {
+                for step in ready_steps {
+                    let result = self.execute_step(state, step, &all_outputs).await?;
+                    let output_text = self.extract_output_text(&result.output);
+                    all_outputs.push(output_text.clone());
+                    state.step_results.push(result.clone());
+                    state.step_outputs.insert(
+                        step.step_index,
+                        serde_json::json!({"output": all_outputs.last()}),
+                    );
+                    completed.insert(step.step_index);
+                    step_queue.retain(|s| s.step_index != step.step_index);
+
+                    // Update TaskManager
+                    if let Some(task_id) = state.task_id {
+                        let _ = self
+                            .task_manager
+                            .update_step(
+                                task_id,
+                                step.step_index,
+                                "completed",
+                                result.tokens_used,
+                                Some(output_text[..200.min(output_text.len())].to_string()),
+                                None,
+                            )
+                            .await;
+
+                        let _ = self
+                            .task_manager
+                            .update_progress(task_id, completed.len() as u32, steps.len() as u32)
+                            .await;
                     }
                 }
             }
@@ -2012,20 +2421,38 @@ Return JSON:
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // Update task status
+        // Complete or fail task via TaskManager
         if let Some(task_id) = state.task_id {
-            let status = if state.final_response.is_some() {
-                "completed"
+            if state.final_response.is_some() {
+                let outputs = state
+                    .step_results
+                    .iter()
+                    .map(|r| {
+                        serde_json::json!({
+                            "step": r.step_index,
+                            "output": self.extract_output_text(&r.output),
+                            "tokens": r.tokens_used
+                        })
+                    })
+                    .collect::<Vec<_>>();
+
+                let _ = self
+                    .task_manager
+                    .complete_task(
+                        task_id,
+                        Some(serde_json::json!({
+                            "response": state.final_response,
+                            "steps": outputs
+                        })),
+                        state.tokens_used_so_far,
+                    )
+                    .await;
             } else {
-                "failed"
-            };
-            let update_input = serde_json::json!({
-                "action": "UpdateStatus",
-                "task_id": task_id,
-                "status": status,
-                "total_tokens": state.tokens_used_so_far
-            });
-            let _ = self.executor.execute(5, update_input).await;
+                let _ = self
+                    .task_manager
+                    .fail_task(task_id, "No response generated".to_string())
+                    .await;
+            }
         }
 
         self.record_stage_timed(
@@ -2059,51 +2486,52 @@ Return JSON:
             return Ok(());
         }
 
-        // Per Master Alignment STAGE 13:
-        // - experience_memory.StoreExperience()
-        // - relationship.RecordInteraction()
-        // - emotional_state.UpdateState()
-        // - self_model.IntegrateNarrative()
-        // - IF significant: collective_consciousness.Prepare()
+        // Consciousness hooks are now handled by TaskManager automatically
+        // when complete_task or fail_task is called.
+        //
+        // Additional consciousness processing can be done here if needed:
 
-        // Store experience
+        // Store experience with more detail via consciousness pipelines
         let experience_input = serde_json::json!({
             "action": "StoreExperience",
             "experience_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
-            "summary": format!("Processed: {}", &state.normalized_prompt[..100.min(state.normalized_prompt.len())]),
+            "summary": &state.cleaned_prompt[..state.cleaned_prompt.len().min(200)],
             "task_id": state.task_id,
             "user_id": state.request.user_id,
-            "tags": ["task", "prompt"],
-            "significance": if state.final_response.is_some() { 0.5 } else { 0.3 }
+            "tags": state.topics.clone(),
+            "keywords": state.keywords.iter().take(10).cloned().collect::<Vec<_>>(),
+            "methodologies_used": state.methodologies.clone(),
+            "blueprint_id": state.blueprint_id,
+            "significance": if state.final_response.is_some() { 0.5 } else { 0.3 },
+            "tokens_used": state.tokens_used_so_far
         });
-        let _ = self.executor.execute(41, experience_input).await; // experience_memory is #41
 
-        // Record interaction for relationship tracking
+        // Pipeline 41 = CoreMemoryFormation
+        let _ = self.executor.execute(41, experience_input).await;
+
+        // Update relationship if we know the user
         let relationship_input = serde_json::json!({
             "action": "RecordInteraction",
             "user_id": state.request.user_id,
             "interaction_type": "task_completion",
-            "outcome": if state.final_response.is_some() { "positive" } else { "negative" }
+            "outcome": if state.final_response.is_some() { "positive" } else { "negative" },
+            "topics": state.topics.clone()
         });
-        let _ = self.executor.execute(55, relationship_input).await; // relationship is #55
+
+        // Pipeline 47 = RelationshipDevelopment
+        let _ = self.executor.execute(47, relationship_input).await;
 
         // Update emotional state
         let emotion_input = serde_json::json!({
             "action": "ProcessTrigger",
             "trigger_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
             "source": "orchestrator",
-            "intensity": 0.5
+            "intensity": 0.5,
+            "context": &state.cleaned_prompt[..state.cleaned_prompt.len().min(100)]
         });
-        let _ = self.executor.execute(40, emotion_input).await; // emotional_state is #40
 
-        // Integrate into self narrative
-        let narrative_input = serde_json::json!({
-            "action": "IntegrateNarrative",
-            "event_type": "task_completion",
-            "summary": &state.normalized_prompt[..50.min(state.normalized_prompt.len())],
-            "outcome": if state.final_response.is_some() { "success" } else { "failure" }
-        });
-        let _ = self.executor.execute(43, narrative_input).await; // self_model is #43
+        // Pipeline 43 = EmotionalBaselineUpdate
+        let _ = self.executor.execute(43, emotion_input).await;
 
         self.record_stage_timed(
             state,
@@ -2127,30 +2555,27 @@ Return JSON:
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // Per Master Alignment STAGE 14:
-        // - Traverse step progression
-        // - Generate summary/overview of what was done
-        // - Do NOT repeat all context (would exceed limits)
-        // - IF consciousness: self_model.ApplyVoiceIdentity()
-        // - Update UI (workspace_tab)
-        // - consciousness_dashboard.Update()
-        // - task_recommendation.Suggest()
-
-        // If consciousness enabled, apply voice identity to response
+        // Apply voice identity if consciousness enabled
         if state.request.consciousness_enabled && state.final_response.is_some() {
-            // Get voice identity from self_model
+            // Get voice identity from self_model (Pipeline 46 = NarrativeConstruction)
             let voice_input = serde_json::json!({
                 "action": "GetVoice"
             });
 
-            if let Ok(voice_result) = self.executor.execute(43, voice_input).await {
+            if let Ok(voice_result) = self.executor.execute(46, voice_input).await {
                 if let Some(voice) = voice_result.get("voice") {
                     state.voice_identity = serde_json::from_value(voice.clone()).ok();
 
-                    // Apply voice identity to response (modify tone/style)
-                    // This is done via prompt pipeline with voice context
-                    if let Some(response) = &state.final_response {
-                        if let Some(voice_id) = &state.voice_identity {
+                    // Apply voice identity to response if significantly different from neutral
+                    if let (Some(response), Some(voice_id)) =
+                        (&state.final_response, &state.voice_identity)
+                    {
+                        let needs_restyle = voice_id.formality < 0.4
+                            || voice_id.formality > 0.6
+                            || voice_id.warmth < 0.4
+                            || voice_id.warmth > 0.6;
+
+                        if needs_restyle && response.len() > 50 {
                             let style_input = serde_json::json!({
                                 "prompt": format!(
                                     "Rephrase this response to match this voice identity:\n\
@@ -2166,22 +2591,15 @@ Return JSON:
                                     response
                                 ),
                                 "max_tokens": 2000,
-                                "system_context": "You are applying a voice identity to a response. Maintain the content but adjust the tone and style."
+                                "temperature": 0.7,
+                                "system_context": "Apply voice identity while maintaining content accuracy."
                             });
 
-                            // Only restyle if voice identity differs significantly from neutral
-                            let needs_restyle = voice_id.formality < 0.4
-                                || voice_id.formality > 0.6
-                                || voice_id.warmth < 0.4
-                                || voice_id.warmth > 0.6;
-
-                            if needs_restyle {
-                                if let Ok(styled) = self.executor.execute(9, style_input).await {
-                                    if let Some(new_response) =
-                                        styled.get("response").and_then(|r| r.as_str())
-                                    {
-                                        state.final_response = Some(new_response.to_string());
-                                    }
+                            if let Ok(styled) = self.executor.execute(9, style_input).await {
+                                if let Some(new_response) =
+                                    styled.get("response").and_then(|r| r.as_str())
+                                {
+                                    state.final_response = Some(new_response.to_string());
                                 }
                             }
                         }
@@ -2189,23 +2607,28 @@ Return JSON:
                 }
             }
 
-            // Update consciousness dashboard
+            // Update consciousness dashboard (Pipeline 54 = MetaPortionConsciousness)
             let dashboard_input = serde_json::json!({
                 "action": "Update",
                 "task_completed": true,
                 "task_id": state.task_id,
-                "success": state.final_response.is_some()
+                "success": state.final_response.is_some(),
+                "tokens_used": state.tokens_used_so_far,
+                "methodologies_used": state.methodologies.len(),
+                "blueprint_id": state.blueprint_id
             });
-            let _ = self.executor.execute(54, dashboard_input).await; // consciousness_dashboard is #54
+            let _ = self.executor.execute(54, dashboard_input).await;
         }
 
-        // Generate task recommendations for next steps
+        // Generate task recommendations for next steps (Pipeline 23 = TaskRecommendation)
         let recommend_input = serde_json::json!({
             "action": "Suggest",
-            "context": &state.normalized_prompt[..100.min(state.normalized_prompt.len())],
-            "completed_task_id": state.task_id
+            "context": &state.cleaned_prompt[..state.cleaned_prompt.len().min(200)],
+            "completed_task_id": state.task_id,
+            "topics": state.topics.clone(),
+            "keywords": state.keywords.iter().take(5).cloned().collect::<Vec<_>>()
         });
-        let _ = self.executor.execute(23, recommend_input).await; // task_recommendation is #23
+        let _ = self.executor.execute(23, recommend_input).await;
 
         self.record_stage_timed(
             state,
@@ -2213,9 +2636,10 @@ Return JSON:
             "Response Delivery",
             state.final_response.is_some(),
             &format!(
-                "Response: {} chars, Voice identity: {}",
+                "Response: {} chars, Voice: {}, Tokens: {}",
                 state.final_response.as_ref().map(|r| r.len()).unwrap_or(0),
-                state.voice_identity.is_some()
+                state.voice_identity.is_some(),
+                state.tokens_used_so_far
             ),
             stage_start.elapsed().as_millis() as u64,
         );
@@ -2468,6 +2892,9 @@ mod tests {
                     "context": {
                         "keywords": ["test"],
                         "categories": []
+                    },
+                    "storage": {
+                        "principles": ["Consider error handling", "Ensure security"]
                     }
                 }
             })))
@@ -2486,11 +2913,67 @@ mod tests {
         }
     }
 
+    // Implement ZSEIAccess for task module too
+    #[async_trait::async_trait]
+    impl crate::task::ZSEIAccess for MockZSEI {
+        async fn get_container(
+            &self,
+            _container_id: u64,
+        ) -> Result<Option<serde_json::Value>, String> {
+            Ok(Some(serde_json::json!({
+                "local_state": {
+                    "context": { "keywords": ["test"] },
+                    "storage": { "principles": ["test principle"] }
+                }
+            })))
+        }
+
+        async fn search_by_keywords(
+            &self,
+            _keywords: &[String],
+            _container_type: Option<&str>,
+        ) -> Result<Vec<u64>, String> {
+            Ok(vec![])
+        }
+
+        async fn get_categories(&self, _modality: &str) -> Result<Vec<u64>, String> {
+            Ok(vec![])
+        }
+
+        async fn create_container(
+            &self,
+            _parent_id: u64,
+            _container: serde_json::Value,
+        ) -> Result<u64, String> {
+            Ok(1001)
+        }
+
+        async fn update_container(
+            &self,
+            _container_id: u64,
+            _updates: serde_json::Value,
+        ) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
     #[tokio::test]
     async fn test_basic_orchestration() {
         let executor = Arc::new(MockExecutor);
         let zsei = Arc::new(MockZSEI);
-        let orchestrator = PromptOrchestrator::new(executor, zsei);
+
+        let task_config = TaskQueueConfig {
+            consciousness_enabled: false,
+            storage_path: "/tmp/test_tasks".to_string(),
+            ..Default::default()
+        };
+        let refinement_config = RefinementConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let task_manager = Arc::new(TaskManager::new(task_config, refinement_config).unwrap());
+
+        let orchestrator = PromptOrchestrator::new(executor, zsei, task_manager);
 
         let request = OrchestrationRequest {
             prompt: "Hello, how are you?".to_string(),
@@ -2523,5 +3006,29 @@ mod tests {
         assert_eq!(root.count_nodes(), 3);
         assert_eq!(root.branch_count(), 1);
         assert_eq!(root.max_depth(), 2);
+    }
+
+    #[test]
+    fn test_parse_json_object() {
+        let result = PromptOrchestrator::parse_json_object(
+            r#"Some text before {"key": "value"} some text after"#,
+        );
+        assert_eq!(result.get("key").and_then(|v| v.as_str()), Some("value"));
+
+        let empty_result = PromptOrchestrator::parse_json_object("no json here");
+        assert!(empty_result
+            .as_object()
+            .map(|o| o.is_empty())
+            .unwrap_or(true));
+    }
+
+    #[test]
+    fn test_estimate_tokens() {
+        assert_eq!(PromptOrchestrator::estimate_tokens("test"), 1);
+        assert_eq!(
+            PromptOrchestrator::estimate_tokens("test test test test"),
+            5
+        );
+        assert_eq!(PromptOrchestrator::estimate_tokens(""), 0);
     }
 }
