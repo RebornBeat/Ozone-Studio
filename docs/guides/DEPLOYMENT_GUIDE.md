@@ -1,6 +1,6 @@
 # OZONE STUDIO — DEPLOYMENT GUIDE v0.4.0
 
-**OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine**  
+**OZONE STUDIO — Omnidirectional Zero-Shot Neural Engine**
 **A Collective AGI Framework with Optional Consciousness**
 
 ---
@@ -87,7 +87,7 @@ source ~/.cargo/env
 
 # Verify versions
 rustc --version    # 1.75+ required
-node --version     # 18+ required  
+node --version     # 18+ required
 npm --version      # 9+ required
 cmake --version    # 3.14+ required
 ```
@@ -132,25 +132,27 @@ cd llama.cpp
 # Create build directory
 mkdir -p build && cd build
 
-# Configure (pick ONE based on your hardware):
+# Configure & Build (pick ONE based on your hardware):
 
 # Option A: CPU-only
 cmake .. -DGGML_BLAS=ON
+cmake --build . --config Release -j$(nproc)
 
 # Option B: NVIDIA GPU (CUDA)
-cmake .. -DGGML_CUDA=ON
+cmake .. -DGGML_CUDA=
+cmake --build . --config Release -j$(nproc)
 
 # Option C: AMD GPU (ROCm)
 cmake .. -DGGML_HIPBLAS=ON
+cmake --build . --config Release -j$(nproc)
 
 # Option D: Apple Silicon (Metal)
 cmake .. -DGGML_METAL=ON
-
-# Build
 cmake --build . --config Release -j$(nproc)
 ```
 
 ### Install Binaries
+From the root of the Ozone-Studio repository:
 
 ```bash
 # Option 1: Copy to /usr/local/bin
@@ -158,7 +160,8 @@ sudo cp build/bin/llama-cli /usr/local/bin/
 sudo cp build/bin/llama-server /usr/local/bin/
 
 # Option 2: Add to PATH (in ~/.bashrc)
-export PATH="$HOME/Projects/Ozone-Studio/llama.cpp/build/bin:$PATH"
+cd llama.cpp/build/bin
+export PATH="$(pwd):$PATH"
 source ~/.bashrc
 ```
 
@@ -175,15 +178,35 @@ llama-server --version
 
 BitNet provides ultra-efficient 1-bit quantized models. Ideal for low-resource systems.
 
-### Build BitNet
+⚠️ IMPORTANT:
+BitNet depends on llama.cpp for its runtime interface.
+If you have already completed **Section 4 (Build llama.cpp)**,
+you STILL need to build the internal `3rdparty/llama.cpp` inside BitNet as BitNet relies on a specific version of llama.cpp which may differ from your global one.
+
+# Clone BitNet with submodules
+git clone --recursive https://github.com/microsoft/BitNet.git
 
 ```bash
 cd BitNet
 
-# Install Python dependencies (for model download script)
-pip3 install -r requirements.txt --break-system-packages
+### Create a virtual environment
+python3 -m venv bitnet-venv
 
-# Build inference engine
+### Activate it
+source bitnet-venv/bin/activate
+
+
+### Install dependencies
+pip install --break-system-packages -r requirements.txt
+
+
+### Install the gguf helper inside the venv
+cd 3rdparty/llama.cpp
+pip install ./gguf-py
+cd ../../
+
+### Build BitNet
+
 mkdir -p build && cd build
 cmake .. -DGGML_BLAS=ON
 cmake --build . --config Release -j$(nproc)
@@ -194,8 +217,12 @@ cmake --build . --config Release -j$(nproc)
 ```bash
 cd BitNet
 
+# Install Install Hugging Face CLI
+pip install huggingface_hub
+
 # Download BitNet 1.58-bit 2B model (recommended starter)
-python3 download_model.py --model bitnet_b1_58-2B-4T --output ~/ozone-models/bitnet/
+huggingface-cli download microsoft/BitNet-b1.58-2B-4T-gguf \
+  --local-dir ~/ozone-models/bitnet/
 
 # Verify
 ls -la ~/ozone-models/bitnet/
@@ -630,7 +657,7 @@ log_level = "debug"
 
 **Development Mode:** Logs in terminal running `npm run electron`
 
-**Production Mode:** 
+**Production Mode:**
 - Linux: `~/.config/ozone-studio/logs/`
 - macOS: `~/Library/Logs/ozone-studio/`
 - Windows: `%APPDATA%/ozone-studio/logs/`
@@ -735,6 +762,6 @@ cd ui && npm run electron
 
 ---
 
-**Document Version:** 0.3.1  
-**Last Updated:** 2025-02-03  
+**Document Version:** 0.3.1
+**Last Updated:** 2025-02-03
 **Author:** Christian Liz-Fonts

@@ -1,0 +1,728 @@
+In our Text Modality Pipeline we have two seperate Clean Chunk process one in process_chunk and one outside of it, we should only have one meaning that the one in process_chunk should be removed and ensuring we have a fully functional cleaned chunk outside, now the way we are formatting it when we send the prompt we tell the LLM to return only the clean text no explanations nothing but the truth is most LLM's fail at this terribly they always start with a explanation most of the time meaning that we need to also tell it to return the cleaned text in say a JSON and from there we can then just grab the JSON from the returned prompt slicing out before and after it completely ensuring that we do not by mistake include explanations from a LLM when it should be there
+
+and that would be corrected here
+
+    /// Clean a chunk via zero-shot LLM
+    async fn clean_chunk(&self, chunk: RawChunk) -> TextModalityOutput {
+        let clean_prompt = format!(
+            r#"Clean and normalize the following text. Fix any:
+- Spelling errors
+- Grammar issues
+- Formatting inconsistencies
+- Broken sentences or words from chunking
+
+Preserve the meaning exactly. Return ONLY the cleaned text with no explanation.
+
+TEXT:
+{}"#,
+            chunk.text
+        );
+
+        let clean_input = serde_json::json!({
+            "prompt": clean_prompt,
+            "max_tokens": (chunk.token_count + 100) as u32,
+            "temperature": 0.1,
+            "system_context": "You are a text cleaning assistant. Return only cleaned text with no explanation or preamble."
+        });
+
+        match self.executor.execute(9, clean_input).await {
+            Ok(result) => {
+                let cleaned_text = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or(&chunk.text)
+                    .trim()
+                    .to_string();
+
+                TextModalityOutput {
+                    success: true,
+                    cleaned_text: Some(cleaned_text),
+                    ..Default::default()
+                }
+            }
+            Err(e) => {
+                // Fallback to original text if LLM fails
+                TextModalityOutput {
+                    success: true,
+                    cleaned_text: Some(chunk.text),
+                    error: Some(format!("LLM cleaning failed, using original: {}", e)),
+                    ..Default::default()
+                }
+            }
+        }
+    }
+
+now see here are well we have part of it right where we request it to be fitted into JSON but we aren't slicing and expecting it to return only as JSON with no explanation so we need to actually grab the JSON from it correctly no spaces before or after etc by slicing
+
+    /// Extract keywords from text via LLM (internal helper)
+    async fn extract_keywords_from_text(&self, text: &str) -> Vec<String> {
+        let prompt = format!(
+            r#"Extract all important keywords and key phrases from this text.
+Return as a JSON array of strings. Focus on: topics, concepts, named entities, technical terms.
+
+TEXT:
+{}
+
+RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
+            text
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 300,
+            "temperature": 0.2,
+            "system_context": "Extract keywords. Respond only with valid JSON array."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .and_then(|s| Self::parse_json_array(s))
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Extract entities from text via LLM (internal helper)
+    async fn extract_entities_from_text(&self, text: &str) -> Vec<ExtractedEntity> {
+        let prompt = format!(
+            r#"Extract named entities from this text.
+Return as JSON array with objects: {{"text": "entity", "type": "PERSON|ORG|LOCATION|DATE|PRODUCT|EVENT|TECHNOLOGY|OTHER", "confidence": 0.0-1.0}}
+
+TEXT:
+{}
+
+RESPOND ONLY WITH JSON ARRAY."#,
+            text
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 500,
+            "temperature": 0.2,
+            "system_context": "Extract named entities. Respond only with valid JSON array."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .and_then(|s| {
+                    let json_str = Self::extract_json_from_response(s, '[', ']');
+                    serde_json::from_str::<Vec<serde_json::Value>>(&json_str).ok()
+                })
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| {
+                            Some(ExtractedEntity {
+                                text: v.get("text")?.as_str()?.to_string(),
+                                entity_type: v.get("type")?.as_str()?.to_string(),
+                                confidence: v.get("confidence")?.as_f64()? as f32,
+                                start_offset: None,
+                                end_offset: None,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Extract topics from text via LLM (internal helper)
+    async fn extract_topics_from_text(&self, text: &str) -> Vec<String> {
+        let prompt = format!(
+            r#"What are the main topics/themes in this text?
+Return as JSON array of topic strings.
+
+TEXT:
+{}
+
+RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
+            text
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 200,
+            "temperature": 0.2,
+            "system_context": "Identify topics. Respond only with valid JSON array."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .and_then(|s| Self::parse_json_array(s))
+                .unwrap_or_default(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Extract keywords via zero-shot LLM (public action)
+    async fn extract_keywords_llm(&self, text: &str, max_keywords: usize) -> TextModalityOutput {
+        let keywords_raw = self.extract_keywords_from_text(text).await;
+
+        let keywords: Vec<Keyword> = keywords_raw
+            .into_iter()
+            .take(max_keywords)
+            .enumerate()
+            .map(|(i, term)| Keyword {
+                term,
+                frequency: 1,
+                relevance: 1.0 - (i as f32 * 0.05).min(0.9),
+                is_phrase: false,
+            })
+            .collect();
+
+        TextModalityOutput {
+            success: true,
+            keywords: Some(keywords),
+            ..Default::default()
+        }
+    }
+
+    /// Extract entities via zero-shot LLM (public action)
+    async fn extract_entities_llm(&self, text: &str) -> TextModalityOutput {
+        let extracted = self.extract_entities_from_text(text).await;
+
+        let entities: Vec<Entity> = extracted
+            .into_iter()
+            .map(|e| Entity {
+                text: e.text,
+                entity_type: EntityType::from_str(&e.entity_type),
+                start_offset: e.start_offset.unwrap_or(0),
+                end_offset: e.end_offset.unwrap_or(0),
+                confidence: e.confidence,
+                metadata: HashMap::new(),
+            })
+            .collect();
+
+        TextModalityOutput {
+            success: true,
+            entities: Some(entities),
+            ..Default::default()
+        }
+    }
+
+    /// Extract topics via zero-shot LLM (public action)
+    async fn extract_topics_llm(&self, text: &str) -> TextModalityOutput {
+        let topics = self.extract_topics_from_text(text).await;
+
+        TextModalityOutput {
+            success: true,
+            topics: Some(topics),
+            ..Default::default()
+        }
+    }
+
+now for this it is actually not verifying if topics aren't in the categories so it isn't just if methodologies is empty the categories but if the topic isn't in the list obtained from categories from the aggretaded methodologies obtained from the keyword search
+
+        // Create categories for new topics
+        for topic in &state.topics {
+            // Check if topic matches any existing category (simplified check)
+            let needs_creation = !topic.is_empty() && methodology_categories.is_empty();
+
+            if needs_creation {
+                let new_category = serde_json::json!({
+                    "container_type": "Category",
+                    "modality": "Text",
+                    "metadata": {
+                        "name": topic,
+                        "description": format!("Auto-created category for topic: {}", topic),
+                        "created_by": "orchestrator"
+                    }
+                });
+
+                if let Ok(new_id) = self.zsei.create_container(0, new_category).await {
+                    state.categories.push(new_id);
+                    state.categories_created += 1;
+                }
+            }
+        }
+
+** ensure to now check also ZSEI access that its being called correctly for all zsei calls
+
+
+Abstract Meaning Tree (AMT) / Abstract Textual Meaning Tree (ATMT)OverviewThe Abstract Meaning Tree (AMT), also referred to as the Abstract Textual Meaning Tree (ATMT), is a conceptual framework inspired by the Abstract Syntax Tree (AST) used in programming languages. While an AST captures the structural and syntactic relationships in code to enable parsing, compilation, and automation, the AMT aims to do the same for natural language text, such as prompts, documents, or queries. It breaks down textual content into a hierarchical tree structure that represents functional, semantic, and relational meanings, allowing for automated reasoning, completion, and expansion—particularly in large language model (LLM) systems.The core idea is to transform unstructured or semi-structured text into a tree where:Nodes represent key concepts, actions, entities, or intents.
+Edges represent relationships (e.g., hierarchy, dependency, sequence, or linkage).
+The tree can be dynamically built and refined through zero-shot prompting in LLMs, identifying incompleteness and branching out to fill gaps based on expert knowledge or contextual inference.
+This structure facilitates automation by enabling systems to traverse, query, or augment the tree, much like how ASTs support code analysis and transformation.Key PrinciplesAnalogy to ASTIn code, an AST abstracts syntax into a tree (e.g., a function call node with child nodes for arguments).
+In text, an AMT abstracts meaning into a tree (e.g., a root intent like "build an app" with child nodes for specifications, steps, or related tasks).
+Unlike ASTs, which are rigidly syntactic, AMTs are semantic and flexible, allowing for abstraction, inference, and handling of ambiguity in natural language.
+Building the Tree
+Root Node: The primary intent or high-level goal extracted from the text.
+Branching: Sub-nodes are created for details, dependencies, or expansions. Incompleteness is detected by comparing against domain knowledge (e.g., via LLM zero-shot reasoning).
+Relations and Linkages:
+Edges can denote:
+Hierarchy (e.g., sub-tasks under a main task).
+Sequence (e.g., ordered steps).
+Parallelism (e.g., independent branches).
+Linkage (e.g., cross-references between branches if related).
+Zero-Shot Expansion: LLMs can iteratively "zero-shot" (reason without examples) to complete the tree, adding nodes for implied elements like security, edge cases, or prerequisites.
+Handling Multiplicity: If the text mentions multiple unrelated items, create parallel top-level branches. For related items, nest or link them appropriately.
+Abstraction and Condensation Concrete vs. Abstract: A concrete AMT might expand to be larger than the original text by including inferred details (e.g., full steps for app building). To abstract it:Group similar concepts into higher-level nodes.
+Use placeholders or wildcards for variable elements (e.g., "app type: *").
+Prune redundant branches based on context.
+Represent as a condensed outline, focusing on core semantics rather than verbatim text.
+This keeps the tree efficient for automation, avoiding bloat while preserving meaning.
+Incompleteness Detection: Trees are evaluated for completeness using domain expertise embedded in LLMs (e.g., "building an app requires UI design, backend, testing—add branches if missing").
+Iterative refinement: Query the LLM N times to branch out until a "complete" threshold is met (e.g., no critical gaps).
+
+Examples
+
+Simple Prompt: "I want to write an app"
+Initial Tree (Incomplete):
+Root: Write App
+Detection: Incomplete—lacks specifics like type, features, tech stack.
+Expanded Tree (via LLM zero-shot):
+Root: Write App
+Branch: App Type? (e.g., mobile, web)
+Branch: Features (e.g., user auth, data storage)
+Branch: Steps
+Sub: Planning
+Sub: Development
+Sub: Testing
+Sub: Deployment
+Branch: Considerations (e.g., security, scalability)
+
+Progressed Prompt: "I want to write an app that books appointments"
+Tree:
+Root: Write App
+Branch: Purpose
+Sub: Books Appointments
+Sub: Features (e.g., calendar integration, user notifications)
+Sub: User Roles (e.g., client, provider)
+Branch: Tech Stack? (inferred gap)
+Branch: Security Measures (e.g., data privacy, authentication)
+
+Progression: Builds on the initial tree by filling a branch, but still identifies gaps for further automation.
+
+Multiple Items: "I want to build two apps"
+Tree:
+Root: Build Apps
+Branch 1: App 1
+Sub: Type/Details (inferred: prompt for specifics)
+Branch 2: App 2
+Sub: Type/Details
+
+Note: Parallel branches from root, assuming independence unless specified.
+Related/Unrelated Items: "I want to build an App, I also want to create a Textbook"
+If Unrelated:
+Root: Projects
+Branch 1: Build App
+Sub: Details (e.g., features, steps)
+Branch 2: Create Textbook
+Sub: Topic? (e.g., inferred from context)
+If Related (e.g., textbook about the app):
+Root: Build App
+Branch: Core Development
+Branch: Documentation
+Sub: Create Textbook (nested as a sub-task)
+Alternative with Linkage:
+Root: Projects
+Branch 1: Build App
+Branch 2: Create Textbook
+Link: Textbook relates to App (cross-edge for dependency)
+Ordering: Define sequence based on text cues (e.g., "first build app, then textbook") or logical inference.
+Use Cases: For Prompts in LLM Systems to break down user queries for better response generation.
+Automate follow-up questions by identifying incomplete branches.
+Enable multi-step reasoning: Traverse the tree to plan actions.
+
+For Documents and Text Analysis: Parse long-form content (e.g., reports, articles) into semantic hierarchies.
+Summarization: Collapse branches into abstracts.
+Search/Retrieval: Query tree nodes for related concepts.
+Automation and IntegrationIn development pipelines: Use AMT to generate code scaffolds from natural language specs.
+Security/Compliance: Auto-add branches for best practices (e.g., GDPR in app building).
+Scalability: Apply to any text corpus, from short prompts to full documents.
+
+Implementation Considerations
+LLM Integration: Build via recursive zero-shot prompting (e.g., "Given this text, extract root intent and suggest branches").
+Representation: Use JSON/YAML for machine-readable trees, or visual tools like Mermaid for diagrams.
+Challenges:Ambiguity in natural language: Resolve via context or multi-pass LLM evaluation.
+Size Management: Abstract by prioritizing high-impact nodes; use thresholds for depth.
+Extensions: Combine with other structures (e.g., knowledge graphs for richer linkages).
+This framework empowers LLMs and automation systems to handle text with the same structural rigor as code, fostering more intelligent and complete interactions. For project integration, adapt the AMT builder as a module in your pipeline.
+
+So this is what AMT means
+
+now I what to look at this phase step by step
+
+        // PHASE 1: Process each chunk individually to identify intent components
+        let mut chunk_intents: Vec<(u32, String, Vec<String>)> = Vec::new(); // (chunk_index, intent, branches)
+
+        for chunk in &state.processed_chunks {
+            let chunk_prompt = format!(
+                r#"Analyze this text chunk and identify:
+1. The primary intent/goal expressed in this chunk
+2. Any sub-components, requirements, or branches
+
+CHUNK {} of {}:
+{}
+
+Return JSON:
+{{
+    "chunk_intent": "main intent in this chunk",
+    "branches": ["branch1", "branch2"],
+    "is_continuation": true/false,
+    "continues_topic": "topic name if continuing previous"
+}}"#,
+                chunk.index + 1,
+                state.processed_chunks.len(),
+                &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
+            );
+
+            let chunk_input = serde_json::json!({
+                "prompt": chunk_prompt,
+                "max_tokens": 400,
+                "temperature": 0.3,
+                "system_context": "Analyze text chunks for intent. Respond with JSON only."
+            });
+
+            if let Ok(result) = self.executor.execute(9, chunk_input).await {
+                let response = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("{}");
+                let chunk_json = Self::parse_json_object(response);
+
+                let intent = chunk_json
+                    .get("chunk_intent")
+                    .and_then(|i| i.as_str())
+                    .unwrap_or("Process request")
+                    .to_string();
+
+                let branches: Vec<String> = chunk_json
+                    .get("branches")
+                    .and_then(|b| b.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                chunk_intents.push((chunk.index, intent, branches));
+            }
+        }
+
+now the first thing we are missing here is handling Handling Multiplicity: If the text mentions multiple unrelated items, create parallel top-level branches. For related items, nest or link them appropriately.
+
+there may be times where a chunk may show more than one intent and we want to be sure to capture it all in a JSON now as you can see here right it suffers from the same thing as all other prompt processing its not slicing properly neither thinking itwill just return the JSON only no explanations no spaces etc
+
+        // PHASE 2: Aggregate intents to form root (deduplicate and merge)
+        let all_intents: Vec<String> = chunk_intents.iter().map(|(_, i, _)| i.clone()).collect();
+        let mut all_branches: HashSet<String> = HashSet::new();
+
+        for (_, _, branches) in &chunk_intents {
+            for branch in branches {
+                all_branches.insert(branch.clone());
+            }
+        }
+
+        // Use LLM to synthesize the root intent from all chunk intents
+        let synthesize_prompt = format!(
+            r#"Synthesize these chunk intents into one primary intent:
+
+CHUNK INTENTS:
+{}
+
+Return JSON:
+{{
+    "primary_intent": "the unified main goal",
+    "main_branches": ["consolidated branch list"]
+}}"#,
+            all_intents
+                .iter()
+                .enumerate()
+                .map(|(i, intent)| format!("{}: {}", i + 1, intent))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        let synth_input = serde_json::json!({
+            "prompt": synthesize_prompt,
+            "max_tokens": 300,
+            "temperature": 0.2,
+            "system_context": "Synthesize intents. Respond with JSON only."
+        });
+
+        let synth_result = self.executor.execute(9, synth_input).await?;
+        let synth_response = synth_result
+            .get("response")
+            .and_then(|r| r.as_str())
+            .unwrap_or("{}");
+        let synth_json = Self::parse_json_object(synth_response);
+
+        let primary_intent = synth_json
+            .get("primary_intent")
+            .and_then(|p| p.as_str())
+            .unwrap_or("Process user request")
+            .to_string();
+
+        let main_branches: Vec<String> = synth_json
+            .get("main_branches")
+            .and_then(|b| b.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_else(|| all_branches.into_iter().collect());
+
+        // Create root node
+        let mut root_node = AMTNode::new(node_id_counter, AMTNodeType::Root, primary_intent, 0);
+        root_node.source_chunk_indices = (0..state.processed_chunks.len() as u32).collect();
+        root_node.methodology_ids = state.methodologies.clone();
+        node_id_counter += 1;
+
+this here completely misses Multiplicity: If the text mentions multiple unrelated items, create parallel top-level branches. For related items, nest or link them appropriately.
+ as well there isn't a limit to only one intent there may be multiple
+
+ so for phase 1
+
+    "is_continuation": true/false,
+    "continues_topic": "topic name if continuing previous"
+
+look here how would it know if it is a continuation or not without knowledge of  chunk_intents? so we need to only look for intent and branches in the first phase first but we need to pass in chunk_intents now as well but here if the thing because we may need to loop over our chunks more then once, one the first loop it would be best if we just identify intents to build out and idetify all inents root intents, but again as we progress in the loop it is aware of intents we have found so we don't create duplicates it fints intents and if it finds intents that we currently ahven't identified to then return it in the JSON so we can add it to the chunk_intents as we progerss into the loop now after we loop over all chunks in the first iteraction we will now have identified all intents now in our 2nd iteraction which from the start it is now aware of all intents it now looks for branches.
+
+Branching: Sub-nodes are created for details, dependencies, or expansions. Incompleteness is detected by comparing against domain knowledge (e.g., via LLM zero-shot reasoning).
+
+So when we say comparing it to domain knowledge this is our gathered methodologies which we gathered in Step 4 from our processed chunks
+
+        // STEP 4: Search methodologies by keywords via ZSEI
+        let methodology_ids = self
+            .zsei
+            .search_by_keywords(
+                &state.keywords.iter().take(20).cloned().collect::<Vec<_>>(),
+                Some("Methodology"),
+            )
+            .await
+            .unwrap_or_default();
+
+        state.methodologies = methodology_ids;
+
+so in the second iteration we want to identify any details from branches now the thing is we before starting the 2nd iteration over chunks we first want to iterate over methodologies obtained from keywords aggregated over our chunks and compare it to our captured intents
+
+so the purpose of this iteraction before we start the 2nd iteraction on the processed chunk is to now with the list of intents we have obtained to obtain a list of branches by cross-referencing our list of intents via all methodologies, so here we as we loop through each methodology we provide our captured intents and ask if based on the captured intents if there are any relevant branches we should take into account and include under each intent so here we build out fully branches per intent  we provide here as we progress also the captured branches per intent as well to ensure we don't create duplicates now with this iteraction completing we can now go to the 2nd iteraction of the chunks processed after having identified all branches of details we will need to complete and answer right, so again with the 2nd iteration of the processed chunks right we now are passing in captured intents from the 1st iteraction and the captured branches of each intent from the iteraction over the methodologies with the captured intents to now identify sub nodes of branches IE details/answers/specifications to branches as well as identifying any branches we may have missed if there are any details to a branch we don't have already listed under a intent
+
+now with this then allows us to capture Incompleteness Detection: Trees are evaluated for completeness using domain expertise it allows us to capture incompleted branches
+
+** for incomplete branch detection we then based on config send to the user for confirmation or allow the the LLM to auto complete
+
+after all branches are completed we then but we need to specify more and this is related to the sub task of a branch
+
+
+        // PHASE 4: Add detail nodes under each branch by re-examining relevant chunks
+        for branch in &mut root_node.children {
+            if branch.source_chunk_indices.is_empty() {
+                continue;
+            }
+
+            let relevant_chunks: Vec<String> = branch
+                .source_chunk_indices
+                .iter()
+                .filter_map(|&idx| state.processed_chunks.get(idx as usize))
+                .map(|c| c.cleaned_text[..c.cleaned_text.len().min(400)].to_string())
+                .collect();
+
+            if relevant_chunks.is_empty() {
+                continue;
+            }
+
+            let detail_prompt = format!(
+                r#"For this branch, extract specific details, requirements, and constraints.
+
+BRANCH: {}
+RELEVANT TEXT:
+{}
+
+Return JSON:
+{{
+    "details": ["detail1", "detail2"],
+    "requirements": ["req1"],
+    "constraints": ["constraint1"]
+}}"#,
+                branch.content,
+                relevant_chunks.join("\n---\n")
+            );
+
+            let detail_input = serde_json::json!({
+                "prompt": detail_prompt,
+                "max_tokens": 400,
+                "temperature": 0.3,
+                "system_context": "Extract details. Respond with JSON only."
+            });
+
+            if let Ok(detail_result) = self.executor.execute(9, detail_input).await {
+                let response = detail_result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("{}");
+                let detail_json = Self::parse_json_object(response);
+
+                // Add detail nodes
+                for detail in detail_json
+                    .get("details")
+                    .and_then(|d| d.as_array())
+                    .unwrap_or(&vec![])
+                {
+                    if let Some(detail_str) = detail.as_str() {
+                        let mut detail_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Leaf,
+                            detail_str.to_string(),
+                            2,
+                        );
+                        detail_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(detail_node);
+                    }
+                }
+
+                // Add requirement nodes
+                for req in detail_json
+                    .get("requirements")
+                    .and_then(|r| r.as_array())
+                    .unwrap_or(&vec![])
+                {
+                    if let Some(req_str) = req.as_str() {
+                        let mut req_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Leaf,
+                            req_str.to_string(),
+                            2,
+                        );
+                        req_node
+                            .metadata
+                            .insert("type".to_string(), "requirement".to_string());
+                        req_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(req_node);
+                    }
+                }
+
+                // Add constraint nodes
+                for constraint in detail_json
+                    .get("constraints")
+                    .and_then(|c| c.as_array())
+                    .unwrap_or(&vec![])
+                {
+                    if let Some(c_str) = constraint.as_str() {
+                        let mut c_node = AMTNode::new(
+                            node_id_counter,
+                            AMTNodeType::Consideration,
+                            c_str.to_string(),
+                            2,
+                        );
+                        c_node
+                            .metadata
+                            .insert("type".to_string(), "constraint".to_string());
+                        c_node.source_chunk_indices = branch.source_chunk_indices.clone();
+                        node_id_counter += 1;
+                        branch.children.push(c_node);
+                    }
+                }
+            }
+        }
+
+then we iterate through all branches while cross-rerenceing all branches 1x1 with a LLM prompt to identify Linkage (e.g., cross-references between branches if related).
+
+so as you can see we don't need Phase 2 as we already aggregate by multi pass iteration in Phase 1
+
+for this
+
+    /// Extract coverage aspects from methodologies (not hardcoded)
+    async fn extract_coverage_aspects_from_methodologies(
+        &self,
+        state: &OrchestrationState,
+    ) -> Vec<String> {
+        let mut aspects: HashSet<String> = HashSet::new();
+
+        for method_id in &state.methodologies {
+            if let Ok(Some(container)) = self.zsei.get_container(*method_id).await {
+                // Extract aspects from methodology principles/considerations
+                if let Some(principles) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("storage"))
+                    .and_then(|s| s.get("principles"))
+                    .and_then(|p| p.as_array())
+                {
+                    for principle in principles {
+                        if let Some(p_str) = principle.as_str() {
+                            // Look for aspect-like terms in principles
+                            let lower = p_str.to_lowercase();
+                            if lower.contains("security") {
+                                aspects.insert("security".to_string());
+                            }
+                            if lower.contains("error") || lower.contains("exception") {
+                                aspects.insert("error_handling".to_string());
+                            }
+                            if lower.contains("edge case") || lower.contains("boundary") {
+                                aspects.insert("edge_cases".to_string());
+                            }
+                            if lower.contains("performance") || lower.contains("efficiency") {
+                                aspects.insert("performance".to_string());
+                            }
+                            if lower.contains("test") || lower.contains("validation") {
+                                aspects.insert("testing".to_string());
+                            }
+                            if lower.contains("scalab") {
+                                aspects.insert("scalability".to_string());
+                            }
+                            if lower.contains("maintain") {
+                                aspects.insert("maintainability".to_string());
+                            }
+                            if lower.contains("document") {
+                                aspects.insert("documentation".to_string());
+                            }
+                        }
+                    }
+                }
+
+                // Also check methodology tags/keywords for aspects
+                if let Some(keywords) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|ctx| ctx.get("keywords"))
+                    .and_then(|k| k.as_array())
+                {
+                    for kw in keywords {
+                        if let Some(kw_str) = kw.as_str() {
+                            let lower = kw_str.to_lowercase();
+                            if [
+                                "security",
+                                "error_handling",
+                                "testing",
+                                "performance",
+                                "edge_cases",
+                                "scalability",
+                                "maintainability",
+                                "documentation",
+                                "accessibility",
+                                "compatibility",
+                                "reliability",
+                                "usability",
+                            ]
+                            .contains(&lower.as_str())
+                            {
+                                aspects.insert(lower);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If no aspects found from methodologies, use minimal defaults
+        if aspects.is_empty() {
+            aspects.insert("error_handling".to_string());
+        }
+
+        aspects.into_iter().collect()
+    }
+
+we don't want it as is, we are replacing it with what I stated as we can't predict what branches may be it can be different per use case so this is nd would be to limiting
+
+so take into account now for phase 1 we are with intent capturing we do want to track where each intent was found in the chunk and also extract the exact Sentence or Parapgrah capturing it. For when capturing branches with the iterartion over methodologies we want to track which branch came from which methodology or aggregate if multiple as well same for intent now also for the 2nd iteration of processed chunks we want to as well when finding subtasks per branch storing the chunk and the exact text referencing this the sentence or paragrapg now again these can also be aggregated as well for intent and sub tasks as these may be found in more then one chunk or hrough different sentences or pargrahs etc.
