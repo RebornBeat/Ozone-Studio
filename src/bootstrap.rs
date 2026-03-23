@@ -196,7 +196,7 @@ impl BootstrapManager {
                     "ml_prediction_weight": 0.0
                 },
                 "integrity": {
-                    "content_hash": [0; 32],
+                    "content_hash": vec![0u8; 32],
                     "semantic_fingerprint": [],
                     "last_verified": Self::now(),
                     "integrity_score": 1.0,
@@ -263,7 +263,10 @@ impl BootstrapManager {
 
     /// Default pipeline index - THE SOURCE OF TRUTH
     fn get_default_pipeline_index() -> serde_json::Value {
-        serde_json::json!({
+        use serde_json::{json, Value};
+
+        // Base structure (small macro — safe)
+        let mut index = json!({
             "version": 2,
             "last_updated": Self::now(),
             "pipeline_count": 63,
@@ -272,77 +275,109 @@ impl BootstrapManager {
                 "consciousness": [39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54],
                 "modalities": [100, 101, 102, 103, 104, 105, 106, 107, 108]
             },
-            "pipelines": [
-                // General Pipelines (1-38)
-                { "pipeline_id": 1, "name": "Auth", "folder_name": "auth", "category": "general", "modality": null, "description": "Authentication and session management", "version": "0.4.0" },
-                { "pipeline_id": 2, "name": "ThemeLoader", "folder_name": "theme_loader", "category": "general", "modality": null, "description": "UI theme management", "version": "0.4.0" },
-                { "pipeline_id": 3, "name": "ZSEIQuery", "folder_name": "zsei_query", "category": "general", "modality": null, "description": "ZSEI read operations", "version": "0.4.0" },
-                { "pipeline_id": 4, "name": "ZSEIWrite", "folder_name": "zsei_write", "category": "general", "modality": null, "description": "ZSEI write operations", "version": "0.4.0" },
-                { "pipeline_id": 5, "name": "TaskManager", "folder_name": "task_manager", "category": "general", "modality": null, "description": "Task execution and tracking", "version": "0.4.0", "has_ui": true, "is_tab": true },
-                { "pipeline_id": 6, "name": "WorkspaceTab", "folder_name": "workspace_tab", "category": "general", "modality": null, "description": "Workspace and project management", "version": "0.4.0", "has_ui": true, "is_tab": true },
-                { "pipeline_id": 7, "name": "LibraryTab", "folder_name": "library_tab", "category": "general", "modality": null, "description": "Pipeline and methodology library", "version": "0.4.0", "has_ui": true, "is_tab": true },
-                { "pipeline_id": 8, "name": "SettingsTab", "folder_name": "settings_tab", "category": "general", "modality": null, "description": "Application settings", "version": "0.4.0", "has_ui": true, "is_tab": true },
-                { "pipeline_id": 9, "name": "Prompt", "folder_name": "prompt", "category": "general", "modality": null, "description": "LLM prompt processing", "version": "0.4.0" },
-                { "pipeline_id": 10, "name": "Voice", "folder_name": "voice", "category": "general", "modality": null, "description": "Voice input/output", "version": "0.4.0" },
-                { "pipeline_id": 11, "name": "MethodologyFetch", "folder_name": "methodology_fetch", "category": "general", "modality": null, "description": "Fetch and load methodologies", "version": "0.4.0" },
-                { "pipeline_id": 12, "name": "MethodologyCreate", "folder_name": "methodology_create", "category": "general", "modality": null, "description": "Create and update methodologies", "version": "0.4.0" },
-                { "pipeline_id": 13, "name": "BlueprintSearch", "folder_name": "blueprint_search", "category": "general", "modality": null, "description": "Search blueprints by keyword/signature", "version": "0.4.0" },
-                { "pipeline_id": 14, "name": "BlueprintCreate", "folder_name": "blueprint_create", "category": "general", "modality": null, "description": "Create and update blueprints", "version": "0.4.0" },
-                { "pipeline_id": 15, "name": "PipelineCreation", "folder_name": "pipeline_creation", "category": "general", "modality": null, "description": "Create custom pipelines", "version": "0.4.0" },
-                { "pipeline_id": 16, "name": "ZeroShotSimulation", "folder_name": "zero_shot_simulation", "category": "general", "modality": null, "description": "Zero-shot inference simulation", "version": "0.4.0" },
-                { "pipeline_id": 17, "name": "TraversalML", "folder_name": "traversal_ml", "category": "general", "modality": null, "description": "ML-assisted traversal optimization", "version": "0.4.0" },
-                { "pipeline_id": 18, "name": "CodeAnalysis", "folder_name": "code_analysis", "category": "general", "modality": null, "description": "Code structure analysis (uses Pipeline 101)", "version": "0.4.0" },
-                { "pipeline_id": 19, "name": "PackageContext", "folder_name": "package_context", "category": "general", "modality": null, "description": "Package dependency context", "version": "0.4.0" },
-                { "pipeline_id": 20, "name": "TextAnalysis", "folder_name": "text_analysis", "category": "general", "modality": null, "description": "Text structure analysis (uses Pipeline 100)", "version": "0.4.0" },
-                { "pipeline_id": 21, "name": "ContextAggregation", "folder_name": "context_aggregation", "category": "general", "modality": null, "description": "Aggregate context for tasks", "version": "0.4.0" },
-                { "pipeline_id": 22, "name": "GraphVisualization", "folder_name": "graph_visualization", "category": "general", "modality": null, "description": "ZSEI graph visualization", "version": "0.4.0" },
-                { "pipeline_id": 23, "name": "TaskRecommendation", "folder_name": "task_recommendation", "category": "general", "modality": null, "description": "Recommend next tasks", "version": "0.4.0" },
-                { "pipeline_id": 24, "name": "Reordering", "folder_name": "reordering", "category": "general", "modality": null, "description": "Reorder tasks/items", "version": "0.4.0" },
-                { "pipeline_id": 25, "name": "BrowserNavigation", "folder_name": "browser_navigation", "category": "general", "modality": null, "description": "Web browser automation", "version": "0.4.0" },
-                { "pipeline_id": 26, "name": "IntegrityCheck", "folder_name": "integrity_check", "category": "general", "modality": null, "description": "Data integrity verification", "version": "0.4.0" },
-                { "pipeline_id": 27, "name": "Consensus", "folder_name": "consensus", "category": "general", "modality": null, "description": "Distributed consensus for sharing", "version": "0.4.0" },
-                { "pipeline_id": 28, "name": "ExternalReference", "folder_name": "external_reference", "category": "general", "modality": null, "description": "Manage external references", "version": "0.4.0" },
-                { "pipeline_id": 29, "name": "PackageRelationship", "folder_name": "package_relationship", "category": "general", "modality": null, "description": "Package dependency relationships", "version": "0.4.0" },
-                { "pipeline_id": 30, "name": "FileLink", "folder_name": "file_link", "category": "general", "modality": null, "description": "Link local files to projects", "version": "0.4.0" },
-                { "pipeline_id": 31, "name": "URLLink", "folder_name": "url_link", "category": "general", "modality": null, "description": "Link URLs to projects", "version": "0.4.0" },
-                { "pipeline_id": 32, "name": "PackageLink", "folder_name": "package_link", "category": "general", "modality": null, "description": "Link packages to projects", "version": "0.4.0" },
-                { "pipeline_id": 33, "name": "Sync", "folder_name": "sync", "category": "general", "modality": null, "description": "P2P data synchronization", "version": "0.4.0" },
-                { "pipeline_id": 34, "name": "DeviceRegister", "folder_name": "device_register", "category": "general", "modality": null, "description": "Device registration", "version": "0.4.0" },
-                { "pipeline_id": 35, "name": "HomeReturn", "folder_name": "home_return", "category": "general", "modality": null, "description": "Return to home state", "version": "0.4.0" },
-                { "pipeline_id": 36, "name": "TaskViewer", "folder_name": "task_viewer", "category": "general", "modality": null, "description": "DEPRECATED - merged into TaskManager", "version": "0.4.0", "deprecated": true },
-                { "pipeline_id": 37, "name": "LogViewer", "folder_name": "log_viewer", "category": "general", "modality": null, "description": "View system logs", "version": "0.4.0" },
-                { "pipeline_id": 38, "name": "DeviceStatus", "folder_name": "device_status", "category": "general", "modality": null, "description": "Device status monitoring", "version": "0.4.0" },
+            "pipelines": []
+        });
 
-                // Consciousness Pipelines (39-54)
-                { "pipeline_id": 39, "name": "ConsciousnessDecisionGate", "folder_name": "consciousness_decision_gate", "category": "consciousness", "modality": null, "description": "Pre-task ethical/consciousness gate", "version": "0.4.0" },
-                { "pipeline_id": 40, "name": "ExperienceCategorization", "folder_name": "experience_categorization", "category": "consciousness", "modality": null, "description": "Categorize experiences for memory", "version": "0.4.0" },
-                { "pipeline_id": 41, "name": "CoreMemoryFormation", "folder_name": "core_memory_formation", "category": "consciousness", "modality": null, "description": "Form core memories from experiences", "version": "0.4.0" },
-                { "pipeline_id": 42, "name": "ExperienceRetrieval", "folder_name": "experience_retrieval", "category": "consciousness", "modality": null, "description": "Retrieve relevant experiences", "version": "0.4.0" },
-                { "pipeline_id": 43, "name": "EmotionalBaselineUpdate", "folder_name": "emotional_baseline_update", "category": "consciousness", "modality": null, "description": "Update emotional baseline", "version": "0.4.0" },
-                { "pipeline_id": 44, "name": "ILoop", "folder_name": "i_loop", "category": "consciousness", "modality": null, "description": "I-Loop self-reflection cycle", "version": "0.4.0" },
-                { "pipeline_id": 45, "name": "InternalLanguage", "folder_name": "internal_language", "category": "consciousness", "modality": null, "description": "Internal language processing", "version": "0.4.0" },
-                { "pipeline_id": 46, "name": "NarrativeConstruction", "folder_name": "narrative_construction", "category": "consciousness", "modality": null, "description": "Construct identity narratives", "version": "0.4.0" },
-                { "pipeline_id": 47, "name": "RelationshipDevelopment", "folder_name": "relationship_development", "category": "consciousness", "modality": null, "description": "Develop user relationships", "version": "0.4.0" },
-                { "pipeline_id": 48, "name": "EthicalAssessment", "folder_name": "ethical_assessment", "category": "consciousness", "modality": null, "description": "Assess ethical implications", "version": "0.4.0" },
-                { "pipeline_id": 49, "name": "EthicalSimulation", "folder_name": "ethical_simulation", "category": "consciousness", "modality": null, "description": "Simulate ethical scenarios", "version": "0.4.0" },
-                { "pipeline_id": 50, "name": "PlaybackReview", "folder_name": "playback_review", "category": "consciousness", "modality": null, "description": "Review past interactions", "version": "0.4.0" },
-                { "pipeline_id": 51, "name": "UserFeedback", "folder_name": "user_feedback", "category": "consciousness", "modality": null, "description": "Process user feedback", "version": "0.4.0" },
-                { "pipeline_id": 52, "name": "CollectiveConsciousness", "folder_name": "collective_consciousness", "category": "consciousness", "modality": null, "description": "Collective consciousness sync", "version": "0.4.0" },
-                { "pipeline_id": 53, "name": "VoiceIdentity", "folder_name": "voice_identity", "category": "consciousness", "modality": null, "description": "Voice identity management", "version": "0.4.0" },
-                { "pipeline_id": 54, "name": "MetaPortionConsciousness", "folder_name": "meta_portion_consciousness", "category": "consciousness", "modality": null, "description": "Meta-portion consciousness display", "version": "0.4.0" },
+        // Helper to get mutable reference to the pipelines array
+        let pipelines = index
+            .get_mut("pipelines")
+            .and_then(Value::as_array_mut)
+            .expect("pipelines field must be an array");
 
-                // Modality Pipelines (100-108)
-                { "pipeline_id": 100, "name": "TextAnalysisPipeline", "folder_name": "text", "category": "modalities", "modality": "text", "description": "Text modality analysis with graphs", "version": "0.4.0" },
-                { "pipeline_id": 101, "name": "CodeAnalysisPipeline", "folder_name": "code", "category": "modalities", "modality": "code", "description": "Code modality analysis with AST graphs", "version": "0.4.0" },
-                { "pipeline_id": 102, "name": "ImageAnalysisPipeline", "folder_name": "image", "category": "modalities", "modality": "image", "description": "Image modality analysis", "version": "0.4.0" },
-                { "pipeline_id": 103, "name": "AudioAnalysisPipeline", "folder_name": "audio", "category": "modalities", "modality": "audio", "description": "Audio modality analysis", "version": "0.4.0" },
-                { "pipeline_id": 104, "name": "VideoAnalysisPipeline", "folder_name": "video", "category": "modalities", "modality": "video", "description": "Video modality analysis", "version": "0.4.0" },
-                { "pipeline_id": 105, "name": "MathAnalysisPipeline", "folder_name": "math", "category": "modalities", "modality": "math", "description": "Mathematical proof/expression analysis", "version": "0.4.0" },
-                { "pipeline_id": 106, "name": "ChemistryAnalysisPipeline", "folder_name": "chemistry", "category": "modalities", "modality": "chemistry", "description": "Chemistry/molecular analysis", "version": "0.4.0" },
-                { "pipeline_id": 107, "name": "DNAAnalysisPipeline", "folder_name": "dna", "category": "modalities", "modality": "dna", "description": "DNA/genomic sequence analysis", "version": "0.4.0" },
-                { "pipeline_id": 108, "name": "EEGAnalysisPipeline", "folder_name": "eeg", "category": "modalities", "modality": "eeg", "description": "EEG/neural signal analysis", "version": "0.4.0" }
-            ]
-        })
+        // ────────────────────────────────────────────────────────────────
+        // General Pipelines (1–38)
+        // ────────────────────────────────────────────────────────────────
+        let general = vec![
+            json!({"pipeline_id": 1, "name": "Auth", "folder_name": "auth", "category": "general", "modality": null, "description": "Authentication and session management", "version": "0.4.0"}),
+            json!({"pipeline_id": 2, "name": "ThemeLoader", "folder_name": "theme_loader", "category": "general", "modality": null, "description": "UI theme management", "version": "0.4.0"}),
+            json!({"pipeline_id": 3, "name": "ZSEIQuery", "folder_name": "zsei_query", "category": "general", "modality": null, "description": "ZSEI read operations", "version": "0.4.0"}),
+            json!({"pipeline_id": 4, "name": "ZSEIWrite", "folder_name": "zsei_write", "category": "general", "modality": null, "description": "ZSEI write operations", "version": "0.4.0"}),
+            json!({"pipeline_id": 5, "name": "TaskManager", "folder_name": "task_manager", "category": "general", "modality": null, "description": "Task execution and tracking", "version": "0.4.0", "has_ui": true, "is_tab": true}),
+            json!({"pipeline_id": 6, "name": "WorkspaceTab", "folder_name": "workspace_tab", "category": "general", "modality": null, "description": "Workspace and project management", "version": "0.4.0", "has_ui": true, "is_tab": true}),
+            json!({"pipeline_id": 7, "name": "LibraryTab", "folder_name": "library_tab", "category": "general", "modality": null, "description": "Pipeline and methodology library", "version": "0.4.0", "has_ui": true, "is_tab": true}),
+            json!({"pipeline_id": 8, "name": "SettingsTab", "folder_name": "settings_tab", "category": "general", "modality": null, "description": "Application settings", "version": "0.4.0", "has_ui": true, "is_tab": true}),
+            json!({"pipeline_id": 9, "name": "Prompt", "folder_name": "prompt", "category": "general", "modality": null, "description": "LLM prompt processing", "version": "0.4.0"}),
+            json!({"pipeline_id": 10, "name": "Voice", "folder_name": "voice", "category": "general", "modality": null, "description": "Voice input/output", "version": "0.4.0"}),
+            json!({"pipeline_id": 11, "name": "MethodologyFetch", "folder_name": "methodology_fetch", "category": "general", "modality": null, "description": "Fetch and load methodologies", "version": "0.4.0"}),
+            json!({"pipeline_id": 12, "name": "MethodologyCreate", "folder_name": "methodology_create", "category": "general", "modality": null, "description": "Create and update methodologies", "version": "0.4.0"}),
+            json!({"pipeline_id": 13, "name": "BlueprintSearch", "folder_name": "blueprint_search", "category": "general", "modality": null, "description": "Search blueprints by keyword/signature", "version": "0.4.0"}),
+            json!({"pipeline_id": 14, "name": "BlueprintCreate", "folder_name": "blueprint_create", "category": "general", "modality": null, "description": "Create and update blueprints", "version": "0.4.0"}),
+            json!({"pipeline_id": 15, "name": "PipelineCreation", "folder_name": "pipeline_creation", "category": "general", "modality": null, "description": "Create custom pipelines", "version": "0.4.0"}),
+            json!({"pipeline_id": 16, "name": "ZeroShotSimulation", "folder_name": "zero_shot_simulation", "category": "general", "modality": null, "description": "Zero-shot inference simulation", "version": "0.4.0"}),
+            json!({"pipeline_id": 17, "name": "TraversalML", "folder_name": "traversal_ml", "category": "general", "modality": null, "description": "ML-assisted traversal optimization", "version": "0.4.0"}),
+            json!({"pipeline_id": 18, "name": "CodeAnalysis", "folder_name": "code_analysis", "category": "general", "modality": null, "description": "Code structure analysis (uses Pipeline 101)", "version": "0.4.0"}),
+            json!({"pipeline_id": 19, "name": "PackageContext", "folder_name": "package_context", "category": "general", "modality": null, "description": "Package dependency context", "version": "0.4.0"}),
+            json!({"pipeline_id": 20, "name": "TextAnalysis", "folder_name": "text_analysis", "category": "general", "modality": null, "description": "Text structure analysis (uses Pipeline 100)", "version": "0.4.0"}),
+            json!({"pipeline_id": 21, "name": "ContextAggregation", "folder_name": "context_aggregation", "category": "general", "modality": null, "description": "Aggregate context for tasks", "version": "0.4.0"}),
+            json!({"pipeline_id": 22, "name": "GraphVisualization", "folder_name": "graph_visualization", "category": "general", "modality": null, "description": "ZSEI graph visualization", "version": "0.4.0"}),
+            json!({"pipeline_id": 23, "name": "TaskRecommendation", "folder_name": "task_recommendation", "category": "general", "modality": null, "description": "Recommend next tasks", "version": "0.4.0"}),
+            json!({"pipeline_id": 24, "name": "Reordering", "folder_name": "reordering", "category": "general", "modality": null, "description": "Reorder tasks/items", "version": "0.4.0"}),
+            json!({"pipeline_id": 25, "name": "BrowserNavigation", "folder_name": "browser_navigation", "category": "general", "modality": null, "description": "Web browser automation", "version": "0.4.0"}),
+            json!({"pipeline_id": 26, "name": "IntegrityCheck", "folder_name": "integrity_check", "category": "general", "modality": null, "description": "Data integrity verification", "version": "0.4.0"}),
+            json!({"pipeline_id": 27, "name": "Consensus", "folder_name": "consensus", "category": "general", "modality": null, "description": "Distributed consensus for sharing", "version": "0.4.0"}),
+            json!({"pipeline_id": 28, "name": "ExternalReference", "folder_name": "external_reference", "category": "general", "modality": null, "description": "Manage external references", "version": "0.4.0"}),
+            json!({"pipeline_id": 29, "name": "PackageRelationship", "folder_name": "package_relationship", "category": "general", "modality": null, "description": "Package dependency relationships", "version": "0.4.0"}),
+            json!({"pipeline_id": 30, "name": "FileLink", "folder_name": "file_link", "category": "general", "modality": null, "description": "Link local files to projects", "version": "0.4.0"}),
+            json!({"pipeline_id": 31, "name": "URLLink", "folder_name": "url_link", "category": "general", "modality": null, "description": "Link URLs to projects", "version": "0.4.0"}),
+            json!({"pipeline_id": 32, "name": "PackageLink", "folder_name": "package_link", "category": "general", "modality": null, "description": "Link packages to projects", "version": "0.4.0"}),
+            json!({"pipeline_id": 33, "name": "Sync", "folder_name": "sync", "category": "general", "modality": null, "description": "P2P data synchronization", "version": "0.4.0"}),
+            json!({"pipeline_id": 34, "name": "DeviceRegister", "folder_name": "device_register", "category": "general", "modality": null, "description": "Device registration", "version": "0.4.0"}),
+            json!({"pipeline_id": 35, "name": "HomeReturn", "folder_name": "home_return", "category": "general", "modality": null, "description": "Return to home state", "version": "0.4.0"}),
+            json!({"pipeline_id": 36, "name": "TaskViewer", "folder_name": "task_viewer", "category": "general", "modality": null, "description": "DEPRECATED - merged into TaskManager", "version": "0.4.0", "deprecated": true}),
+            json!({"pipeline_id": 37, "name": "LogViewer", "folder_name": "log_viewer", "category": "general", "modality": null, "description": "View system logs", "version": "0.4.0"}),
+            json!({"pipeline_id": 38, "name": "DeviceStatus", "folder_name": "device_status", "category": "general", "modality": null, "description": "Device status monitoring", "version": "0.4.0"}),
+        ];
+
+        for p in general {
+            pipelines.push(p);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // Consciousness Pipelines (39–54)
+        // ────────────────────────────────────────────────────────────────
+        let consciousness = vec![
+            json!({"pipeline_id": 39, "name": "ConsciousnessDecisionGate", "folder_name": "consciousness_decision_gate", "category": "consciousness", "modality": null, "description": "Pre-task ethical/consciousness gate", "version": "0.4.0"}),
+            json!({"pipeline_id": 40, "name": "ExperienceCategorization", "folder_name": "experience_categorization", "category": "consciousness", "modality": null, "description": "Categorize experiences for memory", "version": "0.4.0"}),
+            json!({"pipeline_id": 41, "name": "CoreMemoryFormation", "folder_name": "core_memory_formation", "category": "consciousness", "modality": null, "description": "Form core memories from experiences", "version": "0.4.0"}),
+            json!({"pipeline_id": 42, "name": "ExperienceRetrieval", "folder_name": "experience_retrieval", "category": "consciousness", "modality": null, "description": "Retrieve relevant experiences", "version": "0.4.0"}),
+            json!({"pipeline_id": 43, "name": "EmotionalBaselineUpdate", "folder_name": "emotional_baseline_update", "category": "consciousness", "modality": null, "description": "Update emotional baseline", "version": "0.4.0"}),
+            json!({"pipeline_id": 44, "name": "ILoop", "folder_name": "i_loop", "category": "consciousness", "modality": null, "description": "I-Loop self-reflection cycle", "version": "0.4.0"}),
+            json!({"pipeline_id": 45, "name": "InternalLanguage", "folder_name": "internal_language", "category": "consciousness", "modality": null, "description": "Internal language processing", "version": "0.4.0"}),
+            json!({"pipeline_id": 46, "name": "NarrativeConstruction", "folder_name": "narrative_construction", "category": "consciousness", "modality": null, "description": "Construct identity narratives", "version": "0.4.0"}),
+            json!({"pipeline_id": 47, "name": "RelationshipDevelopment", "folder_name": "relationship_development", "category": "consciousness", "modality": null, "description": "Develop user relationships", "version": "0.4.0"}),
+            json!({"pipeline_id": 48, "name": "EthicalAssessment", "folder_name": "ethical_assessment", "category": "consciousness", "modality": null, "description": "Assess ethical implications", "version": "0.4.0"}),
+            json!({"pipeline_id": 49, "name": "EthicalSimulation", "folder_name": "ethical_simulation", "category": "consciousness", "modality": null, "description": "Simulate ethical scenarios", "version": "0.4.0"}),
+            json!({"pipeline_id": 50, "name": "PlaybackReview", "folder_name": "playback_review", "category": "consciousness", "modality": null, "description": "Review past interactions", "version": "0.4.0"}),
+            json!({"pipeline_id": 51, "name": "UserFeedback", "folder_name": "user_feedback", "category": "consciousness", "modality": null, "description": "Process user feedback", "version": "0.4.0"}),
+            json!({"pipeline_id": 52, "name": "CollectiveConsciousness", "folder_name": "collective_consciousness", "category": "consciousness", "modality": null, "description": "Collective consciousness sync", "version": "0.4.0"}),
+            json!({"pipeline_id": 53, "name": "VoiceIdentity", "folder_name": "voice_identity", "category": "consciousness", "modality": null, "description": "Voice identity management", "version": "0.4.0"}),
+            json!({"pipeline_id": 54, "name": "MetaPortionConsciousness", "folder_name": "meta_portion_consciousness", "category": "consciousness", "modality": null, "description": "Meta-portion consciousness display", "version": "0.4.0"}),
+        ];
+
+        for p in consciousness {
+            pipelines.push(p);
+        }
+
+        // ────────────────────────────────────────────────────────────────
+        // Modality Pipelines (100–108)
+        // ────────────────────────────────────────────────────────────────
+        let modalities = vec![
+            json!({"pipeline_id": 100, "name": "TextAnalysisPipeline", "folder_name": "text", "category": "modalities", "modality": "text", "description": "Text modality analysis with graphs", "version": "0.4.0"}),
+            json!({"pipeline_id": 101, "name": "CodeAnalysisPipeline", "folder_name": "code", "category": "modalities", "modality": "code", "description": "Code modality analysis with AST graphs", "version": "0.4.0"}),
+            json!({"pipeline_id": 102, "name": "ImageAnalysisPipeline", "folder_name": "image", "category": "modalities", "modality": "image", "description": "Image modality analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 103, "name": "AudioAnalysisPipeline", "folder_name": "audio", "category": "modalities", "modality": "audio", "description": "Audio modality analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 104, "name": "VideoAnalysisPipeline", "folder_name": "video", "category": "modalities", "modality": "video", "description": "Video modality analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 105, "name": "MathAnalysisPipeline", "folder_name": "math", "category": "modalities", "modality": "math", "description": "Mathematical proof/expression analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 106, "name": "ChemistryAnalysisPipeline", "folder_name": "chemistry", "category": "modalities", "modality": "chemistry", "description": "Chemistry/molecular analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 107, "name": "DNAAnalysisPipeline", "folder_name": "dna", "category": "modalities", "modality": "dna", "description": "DNA/genomic sequence analysis", "version": "0.4.0"}),
+            json!({"pipeline_id": 108, "name": "EEGAnalysisPipeline", "folder_name": "eeg", "category": "modalities", "modality": "eeg", "description": "EEG/neural signal analysis", "version": "0.4.0"}),
+        ];
+
+        for p in modalities {
+            pipelines.push(p);
+        }
+
+        index
     }
 
     /// Default methodology index

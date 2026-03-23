@@ -1,20 +1,26 @@
 /**
  * Ozone Studio - Electron Main Process v0.4.0
- * 
+ *
  * BEHAVIOR:
  * 1. Check if backend is running
  * 2. If not, show countdown (5 seconds) then try to launch backend ONCE
  * 3. Continue checking for connection - UI stays on loading screen until connected
  * 4. Once connected, check if first launch and show setup wizard if needed
- * 
+ *
  * IMPORTANT: UI navigation does NOT create tasks. Only PromptPipeline creates tasks.
  */
 
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
-const path = require('path');
-const http = require('http');
-const { spawn } = require('child_process');
-const fs = require('fs');
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const path = require("path");
+const http = require("http");
+const { spawn } = require("child_process");
+const fs = require("fs");
+
+const log = require("electron-log");
+log.transports.file.level = "info";
+log.transports.file.resolvePath = () =>
+  path.join(app.getPath("userData"), "ozone-studio.log");
+log.info("Ozone Studio starting - logging enabled");
 
 let mainWindow = null;
 let isBackendConnected = false;
@@ -22,9 +28,9 @@ let backendProcess = null;
 let hasAttemptedAutoLaunch = false;
 
 // Configuration
-const BACKEND_HOST = '127.0.0.1';
+const BACKEND_HOST = "127.0.0.1";
 const BACKEND_PORT = 50051;
-const DEV_SERVER = 'http://localhost:5173';
+const DEV_SERVER = "http://localhost:5173";
 const AUTO_LAUNCH_DELAY_SECONDS = 5;
 
 /**
@@ -32,22 +38,25 @@ const AUTO_LAUNCH_DELAY_SECONDS = 5;
  */
 function checkBackendConnection() {
   return new Promise((resolve) => {
-    const req = http.request({
-      hostname: BACKEND_HOST,
-      port: BACKEND_PORT,
-      path: '/health',
-      method: 'GET',
-      timeout: 2000,
-    }, (res) => {
-      resolve(true);
-    });
-    
-    req.on('error', () => resolve(false));
-    req.on('timeout', () => {
+    const req = http.request(
+      {
+        hostname: BACKEND_HOST,
+        port: BACKEND_PORT,
+        path: "/health",
+        method: "GET",
+        timeout: 2000,
+      },
+      (res) => {
+        resolve(true);
+      },
+    );
+
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
       req.destroy();
       resolve(false);
     });
-    
+
     req.end();
   });
 }
@@ -58,76 +67,83 @@ function checkBackendConnection() {
 function tryLaunchBackend() {
   if (hasAttemptedAutoLaunch) return false;
   hasAttemptedAutoLaunch = true;
-  
+
   const isProduction = app.isPackaged;
   const backendPath = isProduction
-    ? path.join(process.resourcesPath, 'ozone-studio')
-    : path.join(__dirname, '..', '..', 'target', 'release', 'ozone-studio');
-  
-  console.log('Attempting to auto-launch backend:', backendPath);
-  
+    ? path.join(process.resourcesPath, "ozone-studio")
+    : path.join(__dirname, "..", "..", "target", "release", "ozone-studio");
+
+  console.log("Attempting to auto-launch backend:", backendPath);
+
   // Check if file exists
   if (!fs.existsSync(backendPath)) {
-    console.log('Backend binary not found at:', backendPath);
+    console.log("Backend binary not found at:", backendPath);
     if (mainWindow) {
-      mainWindow.webContents.send('backend-launch-status', {
+      mainWindow.webContents.send("backend-launch-status", {
         success: false,
-        error: 'Backend not found. Start manually: ./ozone-studio',
-        path: backendPath
+        error: "Backend not found. Start manually: ./ozone-studio",
+        path: backendPath,
       });
     }
     return false;
   }
-  
+
   try {
     backendProcess = spawn(backendPath, [], {
       detached: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ["ignore", "pipe", "pipe"],
       env: {
         ...process.env,
-        OZONE_CONFIG: isProduction 
-          ? path.join(app.getPath('userData'), 'config.toml')
-          : path.join(__dirname, '..', '..', 'target', 'release', 'config.toml'),
+        OZONE_CONFIG: isProduction
+          ? path.join(app.getPath("userData"), "config.toml")
+          : path.join(
+              __dirname,
+              "..",
+              "..",
+              "target",
+              "release",
+              "config.toml",
+            ),
       },
     });
-    
-    backendProcess.stdout.on('data', (data) => {
-      console.log('[Backend]', data.toString().trim());
+
+    backendProcess.stdout.on("data", (data) => {
+      console.log("[Backend]", data.toString().trim());
     });
-    
-    backendProcess.stderr.on('data', (data) => {
-      console.error('[Backend Error]', data.toString().trim());
+
+    backendProcess.stderr.on("data", (data) => {
+      console.error("[Backend Error]", data.toString().trim());
     });
-    
-    backendProcess.on('error', (err) => {
-      console.error('Failed to start backend:', err.message);
+
+    backendProcess.on("error", (err) => {
+      console.error("Failed to start backend:", err.message);
       if (mainWindow) {
-        mainWindow.webContents.send('backend-launch-status', {
+        mainWindow.webContents.send("backend-launch-status", {
           success: false,
-          error: `Launch failed: ${err.message}`
+          error: `Launch failed: ${err.message}`,
         });
       }
     });
-    
-    backendProcess.on('close', (code) => {
-      console.log('Backend process exited with code:', code);
+
+    backendProcess.on("close", (code) => {
+      console.log("Backend process exited with code:", code);
       backendProcess = null;
     });
-    
+
     if (mainWindow) {
-      mainWindow.webContents.send('backend-launch-status', {
+      mainWindow.webContents.send("backend-launch-status", {
         success: true,
-        message: 'Backend launched, awaiting connection...'
+        message: "Backend launched, awaiting connection...",
       });
     }
-    
+
     return true;
   } catch (err) {
-    console.error('Error spawning backend:', err.message);
+    console.error("Error spawning backend:", err.message);
     if (mainWindow) {
-      mainWindow.webContents.send('backend-launch-status', {
+      mainWindow.webContents.send("backend-launch-status", {
         success: false,
-        error: `Spawn error: ${err.message}`
+        error: `Spawn error: ${err.message}`,
       });
     }
     return false;
@@ -143,34 +159,39 @@ let countdownValue = AUTO_LAUNCH_DELAY_SECONDS;
 async function monitorBackendConnection() {
   const wasConnected = isBackendConnected;
   isBackendConnected = await checkBackendConnection();
-  
+
   // Connection state changed
   if (isBackendConnected !== wasConnected && mainWindow) {
-    mainWindow.webContents.send('connection-change', { connected: isBackendConnected });
-    console.log('Backend connection:', isBackendConnected ? 'CONNECTED' : 'DISCONNECTED');
-    
+    mainWindow.webContents.send("connection-change", {
+      connected: isBackendConnected,
+    });
+    console.log(
+      "Backend connection:",
+      isBackendConnected ? "CONNECTED" : "DISCONNECTED",
+    );
+
     if (isBackendConnected) {
       countdownStarted = false;
       countdownValue = AUTO_LAUNCH_DELAY_SECONDS;
     }
   }
-  
+
   // Handle countdown and auto-launch when not connected
   if (!isBackendConnected) {
     if (!countdownStarted) {
       countdownStarted = true;
       countdownValue = AUTO_LAUNCH_DELAY_SECONDS;
     }
-    
+
     // Send countdown to UI
     if (mainWindow) {
-      mainWindow.webContents.send('connection-countdown', {
+      mainWindow.webContents.send("connection-countdown", {
         secondsUntilRetry: Math.max(0, countdownValue),
         willAutoLaunch: !hasAttemptedAutoLaunch,
-        hasAttemptedLaunch: hasAttemptedAutoLaunch
+        hasAttemptedLaunch: hasAttemptedAutoLaunch,
       });
     }
-    
+
     // Decrement countdown
     if (countdownValue > 0) {
       countdownValue--;
@@ -179,9 +200,9 @@ async function monitorBackendConnection() {
       tryLaunchBackend();
     }
   }
-  
+
   // Check every second during countdown, every 3 seconds after
-  const interval = (!isBackendConnected && !hasAttemptedAutoLaunch) ? 1000 : 3000;
+  const interval = !isBackendConnected && !hasAttemptedAutoLaunch ? 1000 : 3000;
   setTimeout(monitorBackendConnection, interval);
 }
 
@@ -197,25 +218,25 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, "preload.js"),
     },
-    titleBarStyle: 'hiddenInset',
-    title: 'Ozone Studio',
+    titleBarStyle: "hiddenInset",
+    title: "Ozone Studio",
     show: false,
   });
-  
-  if (process.env.NODE_ENV === 'development') {
+
+  if (process.env.NODE_ENV === "development") {
     mainWindow.loadURL(DEV_SERVER);
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    mainWindow.loadFile(path.join(__dirname, "..", "dist", "index.html"));
   }
-  
-  mainWindow.once('ready-to-show', () => {
+
+  mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
-  
-  mainWindow.on('closed', () => {
+
+  mainWindow.on("closed", () => {
     mainWindow = null;
   });
 }
@@ -225,20 +246,25 @@ function createWindow() {
 // ============================================================================
 
 async function backendRequest(method, path, body = null) {
+  const start = Date.now();
+  log.info(
+    `[HTTP] ${method} ${path} body=${JSON.stringify(body).slice(0, 200)}...`,
+  );
+
   return new Promise((resolve, reject) => {
     const options = {
       hostname: BACKEND_HOST,
       port: BACKEND_PORT,
       path: path,
       method: method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { "Content-Type": "application/json" },
       timeout: 10000,
     };
-    
+
     const req = http.request(options, (res) => {
-      let data = '';
-      res.on('data', chunk => data += chunk);
-      res.on('end', () => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
         try {
           resolve(JSON.parse(data));
         } catch (e) {
@@ -246,47 +272,72 @@ async function backendRequest(method, path, body = null) {
         }
       });
     });
-    
-    req.on('error', reject);
-    req.on('timeout', () => {
-      req.destroy();
-      reject(new Error('Request timeout'));
+
+    req.on("error", (err) => {
+      log.error(`[HTTP ERROR] ${method} ${path}:`, err);
+      reject(err);
     });
-    
+    req.on("timeout", () => {
+      log.error(`[HTTP TIMEOUT] ${method} ${path}`);
+      req.destroy();
+      reject(new Error("timeout"));
+    });
+
     if (body) req.write(JSON.stringify(body));
     req.end();
+
+    res.on("end", () => {
+      log.info(`[HTTP OK] ${method} ${path} - ${Date.now() - start}ms`);
+      try {
+        resolve(JSON.parse(data));
+      } catch {
+        resolve(data);
+      }
+    });
   });
 }
 
 function requireConnection() {
   if (!isBackendConnected) {
-    throw new Error('Backend not connected');
+    throw new Error("Backend not connected");
   }
 }
 
 // Configuration
-ipcMain.handle('config:get', async () => {
+
+ipcMain.handle("config:get", async () => {
   requireConnection();
-  const result = await backendRequest('POST', '/config/get', { session_token: '' });
+  const result = await backendRequest("POST", "/config/get", {
+    session_token: "",
+  });
+
+  const fullConfig = result.config || {};
+  const setupComplete = fullConfig.general?.setup_complete ?? false;
+
   return {
     backend_connected: true,
-    is_first_launch: !result.config?.setup_complete,
-    ...result.config
+    is_first_launch: !setupComplete,
+    ...fullConfig, // keep everything else
   };
 });
 
-ipcMain.handle('config:set', async (event, updates) => {
+ipcMain.handle("config:set", async (event, updates) => {
   requireConnection();
-  return await backendRequest('POST', '/config/set', { updates, session_token: '' });
+  return await backendRequest("POST", "/config/set", {
+    updates,
+    session_token: "",
+  });
 });
 
 // System
-ipcMain.handle('system:getStats', async () => {
+ipcMain.handle("system:getStats", async () => {
   requireConnection();
-  const health = await backendRequest('GET', '/health');
-  const configResult = await backendRequest('POST', '/config/get', { session_token: '' });
+  const health = await backendRequest("GET", "/health");
+  const configResult = await backendRequest("POST", "/config/get", {
+    session_token: "",
+  });
   const config = configResult.config || {};
-  
+
   return {
     backendConnected: true,
     p2pEnabled: config.p2p?.enabled ?? true,
@@ -299,151 +350,177 @@ ipcMain.handle('system:getStats', async () => {
     zseiContainers: config.stats?.zsei_containers ?? 1,
     zseiDepth: config.stats?.zsei_depth ?? 0,
     consciousnessEnabled: config.consciousness?.enabled ?? false,
-    consciousnessState: config.consciousness?.enabled ? 'Active' : undefined,
-    iLoopStatus: config.consciousness?.enabled ? 'Running' : undefined,
+    consciousnessState: config.consciousness?.enabled ? "Active" : undefined,
+    iLoopStatus: config.consciousness?.enabled ? "Running" : undefined,
     uptime: health.uptime_secs || 0,
-    memoryUsage: process.memoryUsage().heapUsed / process.memoryUsage().heapTotal * 100,
+    memoryUsage:
+      (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) * 100,
     activeTaskCount: health.active_tasks || 0,
   };
 });
 
-ipcMain.handle('system:isFirstLaunch', async () => {
+// System - isFirstLaunch
+ipcMain.handle("system:isFirstLaunch", async () => {
   try {
     requireConnection();
-    const config = await backendRequest('POST', '/config/get', { session_token: '' });
-    return !config.config?.setup_complete;
+    const resp = await backendRequest("POST", "/config/get", {
+      session_token: "",
+    });
+    const fullConfig = resp.config || {};
+    return !(fullConfig.general?.setup_complete ?? false);
   } catch (err) {
+    console.error("[isFirstLaunch] failed:", err);
     return true;
   }
 });
 
-ipcMain.handle('system:markSetupComplete', async () => {
+ipcMain.handle("system:markSetupComplete", async () => {
   requireConnection();
-  return await backendRequest('POST', '/config/set', { 
+  return await backendRequest("POST", "/config/set", {
     updates: { setup_complete: true },
-    session_token: '' 
+    session_token: "",
   });
 });
 
 // File selection dialog
-ipcMain.handle('system:selectFile', async (event, options) => {
+ipcMain.handle("system:selectFile", async (event, options) => {
   const filters = [];
   if (options?.filters && options.filters.length > 0) {
     filters.push({
-      name: 'Model Files',
-      extensions: options.filters.map(f => f.replace('.', ''))
+      name: "Model Files",
+      extensions: options.filters.map((f) => f.replace(".", "")),
     });
   }
-  filters.push({ name: 'All Files', extensions: ['*'] });
-  
+  filters.push({ name: "All Files", extensions: ["*"] });
+
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
-    filters: filters
+    properties: ["openFile"],
+    filters: filters,
   });
-  
+
   if (result.canceled || result.filePaths.length === 0) {
     return null;
   }
-  
+
   return result.filePaths[0];
 });
 
 // Check which whisper models are installed
-ipcMain.handle('system:checkWhisperModels', async () => {
-  const whisperDir = path.join(app.getPath('userData'), 'whisper');
-  const modelNames = ['tiny', 'base', 'small', 'medium', 'large'];
+ipcMain.handle("system:checkWhisperModels", async () => {
+  const whisperDir = path.join(app.getPath("userData"), "whisper");
+  const modelNames = ["tiny", "base", "small", "medium", "large"];
   const installed = [];
-  
+
   try {
     if (fs.existsSync(whisperDir)) {
       const files = fs.readdirSync(whisperDir);
       for (const name of modelNames) {
         // Check for various whisper model file patterns
-        if (files.some(f => f.includes(`ggml-${name}`) || f.includes(`whisper-${name}`))) {
+        if (
+          files.some(
+            (f) => f.includes(`ggml-${name}`) || f.includes(`whisper-${name}`),
+          )
+        ) {
           installed.push(name);
         }
       }
     }
   } catch (err) {
-    console.warn('Could not check whisper models:', err);
+    console.warn("Could not check whisper models:", err);
   }
-  
+
   return installed;
 });
 
 // Authentication
-ipcMain.handle('auth:challenge', async (event, publicKey) => {
+ipcMain.handle("auth:challenge", async (event, publicKey) => {
   requireConnection();
-  return await backendRequest('POST', '/auth/challenge', { public_key: publicKey });
+  return await backendRequest("POST", "/auth/challenge", {
+    public_key: publicKey,
+  });
 });
 
-ipcMain.handle('auth:authenticate', async (event, { publicKey, signature }) => {
+ipcMain.handle("auth:authenticate", async (event, { publicKey, signature }) => {
   requireConnection();
-  return await backendRequest('POST', '/auth/authenticate', { 
-    public_key: publicKey, 
-    signature: signature 
+  return await backendRequest("POST", "/auth/authenticate", {
+    public_key: publicKey,
+    signature: signature,
   });
 });
 
 // Pipeline execution - ONLY this creates tasks (via PromptPipeline)
-ipcMain.handle('pipeline:execute', async (event, { pipelineId, input, sessionToken }) => {
-  requireConnection();
-  return await backendRequest('POST', '/pipeline/execute', {
-    pipeline_id: pipelineId,
-    input: input,
-    session_token: sessionToken || ''
-  });
-});
+ipcMain.handle(
+  "pipeline:execute",
+  async (event, { pipelineId, input, sessionToken }) => {
+    requireConnection();
+    return await backendRequest("POST", "/pipeline/execute", {
+      pipeline_id: pipelineId,
+      input: input,
+      session_token: sessionToken || "",
+    });
+  },
+);
 
-ipcMain.handle('pipeline:list', async () => {
+ipcMain.handle("pipeline:list", async () => {
   requireConnection();
   return {
     pipelines: [
-      { id: 1, name: 'AuthPipeline' },
-      { id: 2, name: 'ThemeLoaderPipeline' },
-      { id: 3, name: 'ZSEIQueryPipeline' },
-      { id: 9, name: 'PromptPipeline' },
-      { id: 10, name: 'VoicePipeline' },
-      { id: 11, name: 'SettingsPipeline' },
+      { id: 1, name: "AuthPipeline" },
+      { id: 2, name: "ThemeLoaderPipeline" },
+      { id: 3, name: "ZSEIQueryPipeline" },
+      { id: 9, name: "PromptPipeline" },
+      { id: 10, name: "VoicePipeline" },
+      { id: 11, name: "SettingsPipeline" },
     ],
   };
 });
 
 // v0.4.0 - Pipeline Registry - THE SINGLE SOURCE OF TRUTH
-ipcMain.handle('pipeline:registry', async () => {
+ipcMain.handle("pipeline:registry", async () => {
   requireConnection();
-  return await backendRequest('POST', '/pipeline/registry', { session_token: '' });
+  return await backendRequest("POST", "/pipeline/registry", {
+    session_token: "",
+  });
 });
 
 // v0.4.0 - Get Pipeline UI Component (component.js content)
-ipcMain.handle('pipeline:ui-component', async (event, pipelineId) => {
+ipcMain.handle("pipeline:ui-component", async (event, pipelineId) => {
   requireConnection();
-  return await backendRequest('POST', '/pipeline/ui-component', { 
+  return await backendRequest("POST", "/pipeline/ui-component", {
     pipeline_id: pipelineId,
-    session_token: '' 
+    session_token: "",
   });
 });
 
 // Task management - ONLY retrieves tasks, UI NEVER creates tasks directly
-ipcMain.handle('task:list', async () => {
+ipcMain.handle("task:list", async () => {
   requireConnection();
-  return await backendRequest('POST', '/task/list', { session_token: '' });
+  return await backendRequest("POST", "/task/list", { session_token: "" });
 });
 
-ipcMain.handle('task:status', async (event, taskId) => {
+ipcMain.handle("task:status", async (event, taskId) => {
   requireConnection();
-  return await backendRequest('POST', '/task/get', { task_id: taskId, session_token: '' });
+  return await backendRequest("POST", "/task/get", {
+    task_id: taskId,
+    session_token: "",
+  });
 });
 
-ipcMain.handle('task:cancel', async (event, taskId) => {
+ipcMain.handle("task:cancel", async (event, taskId) => {
   requireConnection();
-  return await backendRequest('POST', '/task/cancel', { task_id: taskId, session_token: '' });
+  return await backendRequest("POST", "/task/cancel", {
+    task_id: taskId,
+    session_token: "",
+  });
 });
 
 // ZSEI queries
-ipcMain.handle('zsei:query', async (event, query) => {
+ipcMain.handle("zsei:query", async (event, query) => {
   requireConnection();
-  return await backendRequest('POST', '/zsei/query', { query, session_token: '' });
+  return await backendRequest("POST", "/zsei/query", {
+    query,
+    session_token: "",
+  });
 });
 
 // ============================================================================
@@ -451,37 +528,48 @@ ipcMain.handle('zsei:query', async (event, query) => {
 // ============================================================================
 
 app.whenReady().then(async () => {
-  console.log('╔═══════════════════════════════════════════════════════════════════╗');
-  console.log('║                    OZONE STUDIO UI v0.4.0                         ║');
-  console.log('╚═══════════════════════════════════════════════════════════════════╝');
-  console.log('');
-  
+  console.log(
+    "╔═══════════════════════════════════════════════════════════════════╗",
+  );
+  console.log(
+    "║                    OZONE STUDIO UI v0.4.0                         ║",
+  );
+  console.log(
+    "╚═══════════════════════════════════════════════════════════════════╝",
+  );
+  console.log("");
+
   isBackendConnected = await checkBackendConnection();
-  console.log('Initial backend status:', isBackendConnected ? 'CONNECTED' : 'NOT RUNNING');
-  
+  console.log(
+    "Initial backend status:",
+    isBackendConnected ? "CONNECTED" : "NOT RUNNING",
+  );
+
   if (!isBackendConnected) {
-    console.log(`Will attempt auto-launch in ${AUTO_LAUNCH_DELAY_SECONDS} seconds...`);
+    console.log(
+      `Will attempt auto-launch in ${AUTO_LAUNCH_DELAY_SECONDS} seconds...`,
+    );
   }
-  
+
   monitorBackendConnection();
   createWindow();
-  
-  app.on('activate', () => {
+
+  app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
     }
   });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") {
     app.quit();
   }
 });
 
-app.on('before-quit', () => {
+app.on("before-quit", () => {
   if (backendProcess) {
-    console.log('Stopping backend process...');
+    console.log("Stopping backend process...");
     backendProcess.kill();
   }
 });

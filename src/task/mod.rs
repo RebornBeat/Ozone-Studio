@@ -622,6 +622,10 @@ impl TaskManager {
         Ok(manager)
     }
 
+    pub async fn active_count(&self) -> usize {
+        self.running.read().await.len()
+    }
+
     /// Load tasks from disk (sync version for initialization)
     fn load_from_disk_sync(&self) {
         let path = Path::new(&self.storage_path);

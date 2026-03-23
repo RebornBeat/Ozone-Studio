@@ -17,10 +17,10 @@ pub struct OzoneConfig {
     pub pipelines: PipelineConfig,
 
     /// Methodology configuration
-    methodologies: MethodologyConfig::default(),
+    /// methodologies: MethodologyConfig::default(),
 
     /// Blueprint configuration
-    blueprints: BlueprintConfig::default(),
+    /// blueprints: BlueprintConfig::default(),
 
     /// Task configuration
     pub tasks: TaskConfig,
@@ -372,6 +372,7 @@ pub struct ModelConfig {
     pub api_model: Option<String>,
 
     /// For local models (GGUF/ONNX)
+    pub local_model_type: Option<String>,
     pub local_model_path: Option<String>,
     pub context_length: usize,
     pub gpu_layers: Option<u32>,
@@ -388,6 +389,7 @@ impl Default for ModelConfig {
             api_endpoint: Some("https://api.anthropic.com/v1/messages".into()),
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
             api_model: Some("claude-sonnet-4-20250514".into()),
+            local_model_type: None,
             local_model_path: None,
             context_length: 8192, // Default, overridden by per-model setting
             gpu_layers: None,
@@ -423,6 +425,8 @@ fn default_context_length() -> usize {
 /// Voice configuration for speech input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VoiceConfig {
+    pub enabled: bool,
+
     /// Voice backend: "whisper_rs" (integrated), "whisper_cpp" (standalone), "api"
     pub backend: String,
 
@@ -442,6 +446,7 @@ pub struct VoiceConfig {
 impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
+            enabled: false,
             backend: "whisper_rs".into(), // Integrated by default
             whisper_model_path: None,     // User sets via UI
             whisper_cpp_path: Some("/usr/local/bin/whisper-cli".into()),

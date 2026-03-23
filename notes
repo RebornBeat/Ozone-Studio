@@ -726,3 +726,12 @@ for this
 we don't want it as is, we are replacing it with what I stated as we can't predict what branches may be it can be different per use case so this is nd would be to limiting
 
 so take into account now for phase 1 we are with intent capturing we do want to track where each intent was found in the chunk and also extract the exact Sentence or Parapgrah capturing it. For when capturing branches with the iterartion over methodologies we want to track which branch came from which methodology or aggregate if multiple as well same for intent now also for the 2nd iteration of processed chunks we want to as well when finding subtasks per branch storing the chunk and the exact text referencing this the sentence or paragrapg now again these can also be aggregated as well for intent and sub tasks as these may be found in more then one chunk or hrough different sentences or pargrahs etc.
+
+
+
+Bonus: Future progress tracking with ExecutionIDYou can now:Store a HashMap<ExecutionID, PipelineProgress> in PipelineExecutor (with atomic progress %, status, start time, etc.)
+Expose a new endpoint /pipeline/progress/{execution_id}
+Send WebSocket events on progress updates
+Allow cancellation via /pipeline/cancel/{execution_id}
+
+implement this for tracking pipeline progress for per tasks and out of

@@ -130,7 +130,7 @@ impl ModalityType {
         // Check each modality's extensions
         for modality in Self::all() {
             if modality.file_extensions().contains(&ext_str) {
-                return modality;
+                return *modality;
             }
         }
 

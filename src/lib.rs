@@ -45,6 +45,8 @@ use bootstrap::BootstrapManager;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use task::{RefinementConfig, TaskQueueConfig};
+
 /// Main Ozone Studio runtime
 pub struct OzoneRuntime {
     /// Configuration
@@ -56,7 +58,6 @@ pub struct OzoneRuntime {
     /// Pipeline registry
     pub pipeline_registry: Arc<RwLock<pipeline::PipelineRegistry>>,
 
-    /// Task manager
     pub task_manager: Arc<RwLock<task::TaskManager>>,
 
     /// Authentication system
@@ -103,7 +104,8 @@ impl OzoneRuntime {
         let pipeline_registry = pipeline::PipelineRegistry::new(&config.pipelines)?;
 
         // Initialize task manager
-        let task_manager = task::TaskManager::new(&config.tasks)?;
+        let task_manager =
+            task::TaskManager::new(TaskQueueConfig::default(), RefinementConfig::default())?;
 
         // Initialize auth system
         let auth = auth::AuthSystem::new(&config.auth)?;
@@ -188,37 +190,9 @@ impl OzoneRuntime {
             .as_ref()
             .ok_or_else(|| OzoneError::AuthError("Not authenticated".into()))?;
 
-        // Create task for tracking
-        let task_id = self
-            .task_manager
-            .write()
-            .await
-            .create_task(pipeline_id, session.user_id, session.device_id)
-            .await?;
-
         // Execute pipeline
         let registry = self.pipeline_registry.read().await;
-        let result = registry.execute(pipeline_id, input, task_id).await;
-
-        // Update task status
-        match &result {
-            Ok(_) => {
-                self.task_manager
-                    .write()
-                    .await
-                    .complete_task(task_id)
-                    .await?;
-            }
-            Err(e) => {
-                self.task_manager
-                    .write()
-                    .await
-                    .fail_task(task_id, e.to_string())
-                    .await?;
-            }
-        }
-
-        result
+        registry.execute(pipeline_id, input, None).await
     }
 
     /// Query ZSEI

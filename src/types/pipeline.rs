@@ -1,8 +1,9 @@
 //! Pipeline types - Section 10 of the specification
 
+use super::{Blake3Hash, ContainerID, PipelineID, PublicKey, SemVer, TaskID, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::{PipelineID, TaskID, Blake3Hash, PublicKey, Value, SemVer, ContainerID};
+use uuid::Uuid;
 
 /// Pipeline metadata (§10.1)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,8 +97,9 @@ pub struct PipelineInput {
 /// Pipeline output
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineOutput {
-    pub data: HashMap<String, Value>,
-    pub task_id: TaskID,
+    pub data: HashMap<String, serde_json::Value>,
+    pub execution_id: ExecutionID,
+    pub task_id: Option<TaskID>,
     pub success: bool,
     pub error: Option<String>,
 }
@@ -290,39 +292,38 @@ pub enum BuiltinPipeline {
     TaskViewer = 36,
     LogViewer = 37,
     DeviceStatus = 38,
-    
+
     // Consciousness Pipelines (39-54) - only with feature
-    
     ConsciousnessDecisionGate = 39,
-    
+
     ExperienceCategorization = 40,
-    
+
     CoreMemoryFormation = 41,
-    
+
     ExperienceRetrieval = 42,
-    
+
     EmotionalBaselineUpdate = 43,
-    
+
     ILoop = 44,
-    
+
     InternalLanguage = 45,
-    
+
     NarrativeConstruction = 46,
-    
+
     RelationshipDevelopment = 47,
-    
+
     EthicalAssessment = 48,
-    
+
     EthicalSimulation = 49,
-    
+
     PlaybackReview = 50,
-    
+
     UserFeedback = 51,
-    
+
     CollectiveConsciousness = 52,
-    
+
     VoiceIdentity = 53,
-    
+
     MetaPortionConsciousness = 54,
 }
 
@@ -330,7 +331,7 @@ impl BuiltinPipeline {
     pub fn id(&self) -> PipelineID {
         *self as PipelineID
     }
-    
+
     pub fn name(&self) -> &'static str {
         match self {
             Self::Auth => "AuthPipeline",
@@ -371,38 +372,62 @@ impl BuiltinPipeline {
             Self::TaskViewer => "TaskViewerPipeline",
             Self::LogViewer => "LogViewerPipeline",
             Self::DeviceStatus => "DeviceStatusPipeline",
-            
+
             Self::ConsciousnessDecisionGate => "ConsciousnessDecisionGatePipeline",
-            
+
             Self::ExperienceCategorization => "ExperienceCategorizationPipeline",
-            
+
             Self::CoreMemoryFormation => "CoreMemoryFormationPipeline",
-            
+
             Self::ExperienceRetrieval => "ExperienceRetrievalPipeline",
-            
+
             Self::EmotionalBaselineUpdate => "EmotionalBaselineUpdatePipeline",
-            
+
             Self::ILoop => "ILoopPipeline",
-            
+
             Self::InternalLanguage => "InternalLanguagePipeline",
-            
+
             Self::NarrativeConstruction => "NarrativeConstructionPipeline",
-            
+
             Self::RelationshipDevelopment => "RelationshipDevelopmentPipeline",
-            
+
             Self::EthicalAssessment => "EthicalAssessmentPipeline",
-            
+
             Self::EthicalSimulation => "EthicalSimulationPipeline",
-            
+
             Self::PlaybackReview => "PlaybackReviewPipeline",
-            
+
             Self::UserFeedback => "UserFeedbackPipeline",
-            
+
             Self::CollectiveConsciousness => "CollectiveConsciousnessPipeline",
-            
+
             Self::VoiceIdentity => "VoiceIdentityPipeline",
-            
+
             Self::MetaPortionConsciousness => "MetaPortionConsciousnessPipeline",
         }
+    }
+}
+
+/// Unique identifier for a single pipeline execution instance
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ExecutionID(Uuid);
+
+impl ExecutionID {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    pub fn as_str(&self) -> String {
+        self.0.to_string()
+    }
+}
+
+impl std::fmt::Display for ExecutionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "exec:{}",
+            self.0.to_string().chars().take(8).collect::<String>()
+        )
     }
 }

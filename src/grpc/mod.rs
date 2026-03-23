@@ -68,7 +68,7 @@ pub struct PipelineRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PipelineResponse {
     pub success: bool,
-    pub task_id: u64,
+    pub task_id: Option<u64>,
     pub output: Option<serde_json::Value>,
     pub error: Option<String>,
 }
@@ -90,8 +90,8 @@ pub struct TaskListRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskInfo {
     pub task_id: u64,
-    pub pipeline_id: u64,
-    pub pipeline_name: String,
+    pub blueprint_id: Option<u64>,
+    pub blueprint_name: String,
     pub status: String,
     pub progress: f32,
     pub created_at: u64,
@@ -204,7 +204,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         healthy: true,
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_secs: state.start_time.elapsed().as_secs(),
-        active_tasks: task_mgr.active_count() as u32,
+        active_tasks: task_mgr.active_count().await as u32,
     })
 }
 
@@ -298,7 +298,7 @@ async fn execute_pipeline(
             Err(_) => {
                 return Json(PipelineResponse {
                     success: false,
-                    task_id: 0,
+                    task_id: Some(0),
                     output: None,
                     error: Some("Invalid session".into()),
                 })
@@ -311,7 +311,7 @@ async fn execute_pipeline(
         Err(e) => {
             return Json(PipelineResponse {
                 success: false,
-                task_id: 0,
+                task_id: Some(0),
                 output: None,
                 error: Some(format!("Invalid input: {}", e)),
             })
@@ -327,7 +327,7 @@ async fn execute_pipeline(
         }),
         Err(e) => Json(PipelineResponse {
             success: false,
-            task_id: 0,
+            task_id: Some(0),
             output: None,
             error: Some(e.to_string()),
         }),
@@ -340,12 +340,13 @@ async fn get_task(
 ) -> Json<Option<TaskInfo>> {
     let runtime = state.runtime.read().await;
     let task_mgr = runtime.task_manager.read().await;
+    let active_tasks = task_mgr.active_count().await as u32;
 
     match task_mgr.get_task(req.task_id).await {
         Some(task) => Json(Some(TaskInfo {
             task_id: task.task_id,
-            pipeline_id: task.pipeline_used,
-            pipeline_name: format!("Pipeline #{}", task.pipeline_used),
+            blueprint_id: task.blueprint_id,
+            blueprint_name: format!("Blueprint #{}", task.blueprint_id.unwrap_or(0)),
             status: format!("{:?}", task.status),
             progress: task.progress,
             created_at: task.created_at,
@@ -368,7 +369,9 @@ async fn list_tasks(
     let limit = req.limit.unwrap_or(50) as usize;
     let offset = req.offset.unwrap_or(0) as usize;
 
-    let tasks = task_mgr.list_tasks(status_filter, limit, offset).await;
+    let tasks = task_mgr
+        .list_tasks(status_filter, None, limit, offset)
+        .await;
     let total = tasks.len() as u32;
 
     Json(TaskListResponse {
@@ -376,8 +379,8 @@ async fn list_tasks(
             .into_iter()
             .map(|t| TaskInfo {
                 task_id: t.task_id,
-                pipeline_id: t.pipeline_used,
-                pipeline_name: format!("Pipeline #{}", t.pipeline_used),
+                blueprint_id: t.blueprint_id,
+                blueprint_name: format!("Blueprint #{}", t.blueprint_id.unwrap_or(0)),
                 status: format!("{:?}", t.status),
                 progress: t.progress,
                 created_at: t.created_at,
@@ -470,9 +473,34 @@ async fn set_config(
 
         // Handle model updates
         if let Some(models) = updates.get("models") {
-            if let Ok(model_config) = serde_json::from_value(models.clone()) {
-                runtime.config.models = model_config;
+            let mut model_config = runtime.config.models.clone();
+
+            if let Some(v) = models.get("model_type").and_then(|v| v.as_str()) {
+                model_config.model_type = v.to_string();
             }
+            if let Some(v) = models.get("api_provider").and_then(|v| v.as_str()) {
+                // map to your actual fields
+                model_config.api_endpoint = match v {
+                    "anthropic" => Some("https://api.anthropic.com/v1/messages".to_string()),
+                    "openai" => Some("https://api.openai.com/v1/chat/completions".to_string()),
+                    "google" => {
+                        Some("https://generativelanguage.googleapis.com/v1beta".to_string())
+                    }
+                    _ => model_config.api_endpoint, // already Option<String>
+                };
+            }
+            if let Some(v) = models.get("api_key").and_then(|v| v.as_str()) {
+                // you probably want to store it in env or a secure place, but for now:
+                model_config.api_key_env = Some(v.to_string()); // or however you store it
+            }
+            if let Some(v) = models.get("local_model_path").and_then(|v| v.as_str()) {
+                model_config.local_model_path = Some(v.to_string());
+            }
+            if let Some(v) = models.get("local_model_type").and_then(|v| v.as_str()) {
+                model_config.local_model_type = Some(v.to_string());
+            }
+
+            runtime.config.models = model_config;
         }
 
         // Handle consciousness updates
@@ -482,11 +510,19 @@ async fn set_config(
             }
         }
 
-        // Handle voice updates
         if let Some(voice) = updates.get("voice") {
-            if let Ok(voice_config) = serde_json::from_value(voice.clone()) {
-                runtime.config.voice = voice_config;
+            let mut voice_config = runtime.config.voice.clone();
+
+            if let Some(enabled) = voice.get("enabled").and_then(|v| v.as_bool()) {
+                voice_config.enabled = enabled;
             }
+            if let Some(path) = voice.get("whisper_model_path").and_then(|v| v.as_str()) {
+                voice_config.whisper_model_path = Some(path.to_string());
+            }
+            // Optional: add more fields if your wizard ever sends them
+            // e.g. backend type, model size preference, etc.
+
+            runtime.config.voice = voice_config;
         }
 
         // Handle UI updates

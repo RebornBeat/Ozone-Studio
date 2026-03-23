@@ -3552,6 +3552,7 @@ name = "ozone-studio"
 version = "0.4.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum 0.7.9",
  "blake3",
  "chrono",
