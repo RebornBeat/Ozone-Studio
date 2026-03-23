@@ -334,40 +334,22 @@ function App() {
 
     if (setupStep === 1) {
       if (setupConfig.voiceEnabled) {
-        if (!setupConfig.whisperModel) {
-          errors.push("Please select a Whisper model when voice is enabled");
-        } else {
-          const selected = whisperModels.find(
-            (m) => m.name === setupConfig.whisperModel,
+        if (!setupConfig.whisperModelPath?.trim()) {
+          errors.push(
+            "Please select a Whisper model file when voice input is enabled",
           );
-          if (selected && !selected.installed) {
-            errors.push(
-              `Whisper model "${setupConfig.whisperModel}" is not installed`,
-            );
-          }
+        }
+        // Optional: you could add very basic file extension check here
+        else if (!/\.(bin|pt|pth|onnx)$/i.test(setupConfig.whisperModelPath)) {
+          errors.push(
+            "Selected file should have extension .bin, .pt, .pth or .onnx",
+          );
         }
       }
     }
 
     setSetupErrors(errors);
     return errors.length === 0;
-  };
-
-  // Check which whisper models are installed
-  const checkWhisperModels = async () => {
-    if (window.ozone?.system?.checkWhisperModels) {
-      try {
-        const installed = await window.ozone.system.checkWhisperModels();
-        setWhisperModels((prev) =>
-          prev.map((m) => ({
-            ...m,
-            installed: installed.includes(m.name),
-          })),
-        );
-      } catch (e) {
-        console.warn("Could not check whisper models");
-      }
-    }
   };
 
   // Handle file selection for local model
@@ -390,9 +372,6 @@ function App() {
     const nextStep = setupStep + 1;
     if (nextStep < 4) {
       setSetupStep(nextStep);
-      if (nextStep === 1) {
-        checkWhisperModels();
-      }
     }
   };
 
@@ -752,7 +731,7 @@ function App() {
             {setupStep === 1 && (
               <div className="setup-step">
                 <h2>🎤 Voice Configuration</h2>
-                <p>Enable voice input (optional)</p>
+                <p>Enable voice input for hands-free interaction (optional)</p>
 
                 <div className="voice-toggle">
                   <label className="toggle-label">
@@ -763,9 +742,6 @@ function App() {
                         setSetupConfig((prev) => ({
                           ...prev,
                           voiceEnabled: e.target.checked,
-                          whisperModelPath: e.target.checked
-                            ? prev.whisperModelPath
-                            : "", // optional: clear path when disabling
                         }))
                       }
                     />
@@ -779,22 +755,21 @@ function App() {
                     <div className="file-input-group">
                       <input
                         type="text"
-                        placeholder="Select Whisper model file..."
+                        placeholder="No file selected"
                         value={setupConfig.whisperModelPath}
                         readOnly
-                        className="readonly-path-input"
                         onClick={handleSelectWhisperFile}
                       />
                       <button
                         className="browse-btn"
                         onClick={handleSelectWhisperFile}
                       >
-                        Browse...
+                        Browse…
                       </button>
                     </div>
                     <p className="config-hint">
-                      Select a Whisper model file (.bin, .pt, .pth). Place
-                      models in the whisper/ folder if preferred.
+                      Select a Whisper model file (usually .bin, .pt, .pth or
+                      .onnx)
                     </p>
                   </div>
                 )}
@@ -884,7 +859,13 @@ function App() {
                     <span className="summary-label">Voice Input:</span>
                     <span className="summary-value">
                       {setupConfig.voiceEnabled
-                        ? `Enabled (${setupConfig.whisperModel})`
+                        ? `Enabled (${
+                            setupConfig.whisperModelPath
+                              ? setupConfig.whisperModelPath
+                                  .split(/[\\/]/)
+                                  .pop() // show only filename
+                              : "path missing?"
+                          })`
                         : "Disabled"}
                     </span>
                   </div>
