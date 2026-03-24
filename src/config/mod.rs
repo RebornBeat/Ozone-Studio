@@ -134,7 +134,7 @@ pub struct ZSEIConfig {
 impl Default for ZSEIConfig {
     fn default() -> Self {
         Self {
-            global_path: "zsei_data/global".into(),
+            global_path: "zsei_data/global.mmap".into(),
             local_path: "zsei_data/local".into(),
             cache_path: "zsei_data/cache".into(),
             ml_path: "zsei_data/ml".into(),
