@@ -729,6 +729,80 @@ so take into account now for phase 1 we are with intent capturing we do want to 
 
 
 
+in config setup_complete is being utilized for both bootstrap in lib.rs for the backend setup and for the frontend there is no differential between the extract_keywords_from_text
+
+    /// Create a new Ozone runtime with the given configuration
+    pub async fn new(config: OzoneConfig) -> Result<Self, OzoneError> {
+        tracing::info!("Initializing Ozone Studio v{}", env!("CARGO_PKG_VERSION"));
+
+        // Run bootstrap if first time setup
+        if !config.general.setup_complete {
+            tracing::info!("First-time setup detected, running bootstrap...");
+            let bootstrap = BootstrapManager::new(&config);
+            bootstrap.run()?;
+
+            // Mark setup complete and save config
+            // Note: We clone and modify since config is borrowed
+            let mut updated_config = config.clone();
+            updated_config.general.setup_complete = true;
+            let config_path = std::path::Path::new("config.toml");
+            if let Err(e) = updated_config.save(config_path) {
+                tracing::warn!("Failed to save config after bootstrap: {}", e);
+            }
+        }
+
+
+
+Where to view logs:macOS: ~/Library/Application Support/Ozone Studio/ozone-studio.log
+Windows: %APPDATA%\Ozone Studio\ozone-studio.log
+Linux: ~/.config/Ozone Studio/ozone-studio.log
+
+2. UI Loading Fix — Root CauseThe backend get_pipeline_ui_component looks for:rust
+
+"./pipelines/{category}/{folder_name}/ui/component.js"
+
+But your bootstrap only copies index.json files — not the full pipeline folders that contain ui/component.js.That’s why every tab shows “Loading pipeline UI...”.3. Bootstrap Fix — Copy Full Pipeline Folders (with UI)Replace your current copy_pipelines method in bootstrap.rs with this version:rust
+
+/// Copy full pipeline folders (including ui/component.js and source files)
+fn copy_pipelines(&self) -> OzoneResult<()> {
+    let src_dir = self.assets_dir.join("pipelines");
+    let dst_dir = self.data_dir.join("pipelines");
+
+    if !src_dir.exists() {
+        tracing::warn!("No pipelines assets found at {}", src_dir.display());
+        self.generate_default_pipeline_index(&dst_dir.join("index.json"))?;
+        return Ok(());
+    }
+
+    // Copy entire pipeline structure (recursive)
+    copy_dir_all(&src_dir, &dst_dir)?;
+
+    tracing::info!("Copied full pipeline structure (including UI components) to {}", dst_dir.display());
+    Ok(())
+}
+
+/// Helper to recursively copy directory
+fn copy_dir_all(src: &Path, dst: &Path) -> OzoneResult<()> {
+    fs::create_dir_all(dst)
+        .map_err(|e| OzoneError::StorageError(format!("Failed to create {}: {}", dst.display(), e)))?;
+
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+
+        if entry.file_type()?.is_dir() {
+            copy_dir_all(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)
+                .map_err(|e| OzoneError::StorageError(format!("Failed to copy {}: {}", src_path.display(), e)))?;
+        }
+    }
+    Ok(())
+}
+
+Do the same pattern for copy_methodologies and copy_blueprints if they also have UI components or extra files.
+
 Bonus: Future progress tracking with ExecutionIDYou can now:Store a HashMap<ExecutionID, PipelineProgress> in PipelineExecutor (with atomic progress %, status, start time, etc.)
 Expose a new endpoint /pipeline/progress/{execution_id}
 Send WebSocket events on progress updates

@@ -236,6 +236,10 @@ function createWindow() {
     mainWindow.show();
   });
 
+  mainWindow.webContents.on("console-message", (event, level, message) => {
+    log.info(`[Renderer] ${message}`);
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -265,7 +269,10 @@ async function backendRequest(method, path, body = null) {
       let data = "";
       res.on("data", (chunk) => (data += chunk));
       res.on("end", () => {
+        const duration = Date.now() - start;
+        log.info(`[HTTP OK] ${method} ${path} - ${Date.now() - start}ms`);
         try {
+          log.debug(`HTTP Response:`, JSON.parse(data));
           resolve(JSON.parse(data));
         } catch (e) {
           resolve(data);
@@ -285,15 +292,6 @@ async function backendRequest(method, path, body = null) {
 
     if (body) req.write(JSON.stringify(body));
     req.end();
-
-    res.on("end", () => {
-      log.info(`[HTTP OK] ${method} ${path} - ${Date.now() - start}ms`);
-      try {
-        resolve(JSON.parse(data));
-      } catch {
-        resolve(data);
-      }
-    });
   });
 }
 
