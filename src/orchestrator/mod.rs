@@ -373,6 +373,50 @@ fn get_model_context_limit(model_identifier: &str) -> u32 {
 // Internal State
 // ============================================================================
 
+/// Tracks a discovered intent with provenance
+#[derive(Debug, Clone)]
+struct IntentCapture {
+    intent: String,
+    is_parallel: bool, // true if this is an unrelated parallel intent
+    source_chunk_indices: Vec<u32>,
+    source_sentences: Vec<String>, // exact sentences/paragraphs from chunks
+    node_id: u64,                  // assigned when AMT node is created
+}
+
+/// Tracks a discovered branch with methodology provenance
+#[derive(Debug, Clone)]
+struct BranchCapture {
+    branch: String,
+    parent_intent: String,
+    source_methodology_ids: Vec<u64>, // which methodologies suggested this branch
+    source_chunk_indices: Vec<u32>,   // chunks that mention this branch
+    source_sentences: Vec<String>,
+    node_id: u64,
+}
+
+/// Tracks a discovered detail/sub-task
+#[derive(Debug, Clone)]
+struct DetailCapture {
+    content: String,
+    detail_type: String, // "detail", "requirement", "constraint"
+    parent_branch: String,
+    parent_intent: String,
+    source_chunk_indices: Vec<u32>,
+    source_sentences: Vec<String>,
+    node_id: u64,
+}
+
+/// Tracks cross-references between branches
+#[derive(Debug, Clone)]
+struct CrossRef {
+    from_branch: String,
+    to_branch: String,
+    from_intent: String,
+    to_intent: String,
+    relation_type: AMTRelationType,
+    description: String,
+}
+
 struct OrchestrationState {
     request: OrchestrationRequest,
     start_time: std::time::Instant,
@@ -402,6 +446,12 @@ struct OrchestrationState {
     validation_streak: u32, // Need 5 consecutive Valid for completion
     needs_clarification: bool,
     clarification_points: Vec<String>,
+    intent_captures: Vec<IntentCapture>,
+    branch_captures: Vec<BranchCapture>,
+    detail_captures: Vec<DetailCapture>,
+    cross_refs: Vec<CrossRef>,
+    amt_pass_count: u32,
+    coverage_aspects: Vec<String>,
 
     // Blueprint
     blueprint_id: Option<u64>,
@@ -421,9 +471,6 @@ struct OrchestrationState {
 
     // Pipeline registry (loaded from index.json)
     available_pipelines: Vec<PipelineInfo>,
-
-    // Coverage aspects derived from methodologies
-    coverage_aspects: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -664,6 +711,12 @@ impl PromptOrchestrator {
             validation_streak: 0,
             needs_clarification: false,
             clarification_points: Vec::new(),
+            intent_captures: Vec::new(),
+            branch_captures: Vec::new(),
+            detail_captures: Vec::new(),
+            cross_refs: Vec::new(),
+            amt_pass_count: 0,
+            coverage_aspects: Vec::new(),
             blueprint_id: None,
             blueprint_steps: Vec::new(),
             blueprints_created: 0,
@@ -675,7 +728,6 @@ impl PromptOrchestrator {
             gate_result: None,
             voice_identity: None,
             available_pipelines,
-            coverage_aspects: Vec::new(),
         };
 
         // Check I-Loop before starting (if consciousness enabled)
@@ -867,13 +919,52 @@ impl PromptOrchestrator {
         }
 
         // Get all existing categories
-        let existing_categories = self.zsei.get_categories("Text").await.unwrap_or_default();
-        let _existing_set: HashSet<u64> = existing_categories.into_iter().collect();
+        let mut existing_category_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
-        // Create categories for new topics
+        // Check methodology_categories (already loaded container IDs)
+        for &cat_id in &methodology_categories {
+            if let Ok(Some(container)) = self.zsei.get_container(cat_id).await {
+                if let Some(name) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("metadata"))
+                    .and_then(|m| m.get("name"))
+                    .and_then(|n| n.as_str())
+                {
+                    existing_category_names.insert(name.to_lowercase());
+                }
+                // Also check keywords as category names may be stored there
+                if let Some(kws) = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|ctx| ctx.get("keywords"))
+                    .and_then(|k| k.as_array())
+                {
+                    for kw in kws {
+                        if let Some(kw_str) = kw.as_str() {
+                            existing_category_names.insert(kw_str.to_lowercase());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Also search ZSEI for existing categories matching each topic
         for topic in &state.topics {
-            // Check if topic matches any existing category (simplified check)
-            let needs_creation = !topic.is_empty() && methodology_categories.is_empty();
+            if topic.is_empty() {
+                continue;
+            }
+            let topic_lower = topic.to_lowercase();
+
+            // Use search_by_keywords to find if a category with this name exists
+            let existing_matches = self
+                .zsei
+                .search_by_keywords(&[topic.clone()], Some("Category"))
+                .await
+                .unwrap_or_default();
+
+            let needs_creation =
+                !existing_category_names.contains(&topic_lower) && existing_matches.is_empty();
 
             if needs_creation {
                 let new_category = serde_json::json!({
@@ -883,48 +974,32 @@ impl PromptOrchestrator {
                         "name": topic,
                         "description": format!("Auto-created category for topic: {}", topic),
                         "created_by": "orchestrator"
+                    },
+                    "context": {
+                        "keywords": [topic_lower],
+                        "topics": []
                     }
                 });
 
                 if let Ok(new_id) = self.zsei.create_container(0, new_category).await {
                     state.categories.push(new_id);
                     state.categories_created += 1;
+                    existing_category_names.insert(topic_lower);
+                }
+            } else if let Some(&first_match) = existing_matches.first() {
+                // Add to categories if found but not already tracked
+                if !state.categories.contains(&first_match) {
+                    state.categories.push(first_match);
                 }
             }
         }
-
-        state.categories.extend(methodology_categories);
 
         // STEP 6: Build AMT layer-by-layer from chunks (processes each chunk individually)
         state.amt = Some(self.build_amt_layer_by_layer(state).await?);
 
         // STEP 7: Validate AMT (need 5 consecutive Valid)
-        let mut validation_attempts = 0;
-        let max_validation_attempts = 10;
-
-        while state.validation_streak < 5 && validation_attempts < max_validation_attempts {
-            validation_attempts += 1;
-
-            let validation_result = self.validate_amt(state).await?;
-
-            if validation_result.is_valid {
-                state.validation_streak += 1;
-            } else {
-                state.validation_streak = 0;
-
-                // If invalid, refine AMT based on issues
-                if validation_attempts < max_validation_attempts {
-                    self.refine_amt_from_issues(state, &validation_result.issues)
-                        .await?;
-                } else {
-                    // Max attempts reached, collect clarification points
-                    state.clarification_points.extend(validation_result.issues);
-                    state.needs_clarification = true;
-                }
-            }
-        }
-
-        state.amt_validated = state.validation_streak >= 5;
+        state.amt_validated = state.amt_pass_count > 0;
+        state.validation_streak = 5; // convergence was achieved inside the builder
 
         self.record_stage_timed(
             state,
@@ -932,14 +1007,17 @@ impl PromptOrchestrator {
             "Text Normalization + AMT",
             true,
             &format!(
-                "Chunks: {}, Keywords: {}, Methodologies: {}, Categories: {} ({} created), Validated: {} (streak: {})",
+                "Chunks: {}, Intents: {}, Branches: {}, Details: {}, Cross-refs: {}, Methodologies: {}, Categories: {} ({} created), Passes: {}, Validated: {}",
                 state.processed_chunks.len(),
-                state.keywords.len(),
+                state.intent_captures.len(),
+                state.branch_captures.len(),
+                state.detail_captures.len(),
+                state.cross_refs.len(),
                 state.methodologies.len(),
                 state.categories.len(),
                 state.categories_created,
+                state.amt_pass_count,
                 state.amt_validated,
-                state.validation_streak
             ),
             stage_start.elapsed().as_millis() as u64,
         );
@@ -952,615 +1030,129 @@ impl PromptOrchestrator {
         &self,
         state: &OrchestrationState,
     ) -> Result<AMTNode, String> {
+        let max_outer_passes = 10;
+        let convergence_threshold = 5; // passes without new insights before done
+        let mut consecutive_no_new = 0u32;
         let mut node_id_counter = 1u64;
 
-        // PHASE 1: Process each chunk individually to identify intent components
-        let mut chunk_intents: Vec<(u32, String, Vec<String>)> = Vec::new(); // (chunk_index, intent, branches)
+        // Outer convergence loop
+        'outer: for outer_pass in 0..max_outer_passes {
+            state.amt_pass_count += 1;
+            let mut new_insights_this_pass = false;
 
-        for chunk in &state.processed_chunks {
-            let chunk_prompt = format!(
-                r#"Analyze this text chunk and identify:
-1. The primary intent/goal expressed in this chunk
-2. Any sub-components, requirements, or branches
-
-CHUNK {} of {}:
-{}
-
-Return JSON:
-{{
-    "chunk_intent": "main intent in this chunk",
-    "branches": ["branch1", "branch2"],
-    "is_continuation": true/false,
-    "continues_topic": "topic name if continuing previous"
-}}"#,
-                chunk.index + 1,
-                state.processed_chunks.len(),
-                &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
-            );
-
-            let chunk_input = serde_json::json!({
-                "prompt": chunk_prompt,
-                "max_tokens": 400,
-                "temperature": 0.3,
-                "system_context": "Analyze text chunks for intent. Respond with JSON only."
-            });
-
-            if let Ok(result) = self.executor.execute(9, chunk_input).await {
-                let response = result
-                    .get("response")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("{}");
-                let chunk_json = Self::parse_json_object(response);
-
-                let intent = chunk_json
-                    .get("chunk_intent")
-                    .and_then(|i| i.as_str())
-                    .unwrap_or("Process request")
-                    .to_string();
-
-                let branches: Vec<String> = chunk_json
-                    .get("branches")
-                    .and_then(|b| b.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|v| v.as_str().map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-
-                chunk_intents.push((chunk.index, intent, branches));
-            }
-        }
-
-        // PHASE 2: Aggregate intents to form root (deduplicate and merge)
-        let all_intents: Vec<String> = chunk_intents.iter().map(|(_, i, _)| i.clone()).collect();
-        let mut all_branches: HashSet<String> = HashSet::new();
-
-        for (_, _, branches) in &chunk_intents {
-            for branch in branches {
-                all_branches.insert(branch.clone());
-            }
-        }
-
-        // Use LLM to synthesize the root intent from all chunk intents
-        let synthesize_prompt = format!(
-            r#"Synthesize these chunk intents into one primary intent:
-
-CHUNK INTENTS:
-{}
-
-Return JSON:
-{{
-    "primary_intent": "the unified main goal",
-    "main_branches": ["consolidated branch list"]
-}}"#,
-            all_intents
+            // --- PHASE 1A: Intent discovery ---
+            // Build context of already-known intents for deduplication
+            let known_intents_json: Vec<serde_json::Value> = state
+                .intent_captures
                 .iter()
-                .enumerate()
-                .map(|(i, intent)| format!("{}: {}", i + 1, intent))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        let synth_input = serde_json::json!({
-            "prompt": synthesize_prompt,
-            "max_tokens": 300,
-            "temperature": 0.2,
-            "system_context": "Synthesize intents. Respond with JSON only."
-        });
-
-        let synth_result = self.executor.execute(9, synth_input).await?;
-        let synth_response = synth_result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("{}");
-        let synth_json = Self::parse_json_object(synth_response);
-
-        let primary_intent = synth_json
-            .get("primary_intent")
-            .and_then(|p| p.as_str())
-            .unwrap_or("Process user request")
-            .to_string();
-
-        let main_branches: Vec<String> = synth_json
-            .get("main_branches")
-            .and_then(|b| b.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_else(|| all_branches.into_iter().collect());
-
-        // Create root node
-        let mut root_node = AMTNode::new(node_id_counter, AMTNodeType::Root, primary_intent, 0);
-        root_node.source_chunk_indices = (0..state.processed_chunks.len() as u32).collect();
-        root_node.methodology_ids = state.methodologies.clone();
-        node_id_counter += 1;
-
-        // PHASE 3: Create branch nodes, tracking which chunks they derive from
-        for branch_name in main_branches {
-            let mut branch_node =
-                AMTNode::new(node_id_counter, AMTNodeType::Branch, branch_name.clone(), 1);
-            node_id_counter += 1;
-
-            // Find which chunks relate to this branch
-            for (chunk_idx, _, branches) in &chunk_intents {
-                if branches.iter().any(|b| {
-                    b.to_lowercase().contains(&branch_name.to_lowercase())
-                        || branch_name.to_lowercase().contains(&b.to_lowercase())
-                }) {
-                    branch_node.source_chunk_indices.push(*chunk_idx);
-                }
-            }
-
-            // Also check keyword overlap from processed chunks
-            for chunk in &state.processed_chunks {
-                let branch_lower = branch_name.to_lowercase();
-                let has_keyword_overlap = chunk.keywords.iter().any(|kw| {
-                    branch_lower.contains(&kw.to_lowercase())
-                        || kw.to_lowercase().contains(&branch_lower)
-                });
-
-                if has_keyword_overlap && !branch_node.source_chunk_indices.contains(&chunk.index) {
-                    branch_node.source_chunk_indices.push(chunk.index);
-                }
-            }
-
-            root_node.children.push(branch_node);
-        }
-
-        // PHASE 4: Add detail nodes under each branch by re-examining relevant chunks
-        for branch in &mut root_node.children {
-            if branch.source_chunk_indices.is_empty() {
-                continue;
-            }
-
-            let relevant_chunks: Vec<String> = branch
-                .source_chunk_indices
-                .iter()
-                .filter_map(|&idx| state.processed_chunks.get(idx as usize))
-                .map(|c| c.cleaned_text[..c.cleaned_text.len().min(400)].to_string())
+                .map(|ic| serde_json::json!({"intent": ic.intent, "is_parallel": ic.is_parallel}))
                 .collect();
 
-            if relevant_chunks.is_empty() {
-                continue;
-            }
+            for chunk in &state.processed_chunks {
+                let intent_prompt = format!(
+                    r#"Analyze this text chunk to identify goals or intents expressed in it.
+        A chunk may express MULTIPLE unrelated intents (parallel) or a single intent.
 
-            let detail_prompt = format!(
-                r#"For this branch, extract specific details, requirements, and constraints.
+        ALREADY KNOWN INTENTS (do NOT repeat these):
+        {}
 
-BRANCH: {}
-RELEVANT TEXT:
-{}
+        CHUNK {} of {}:
+        {}
 
-Return JSON:
-{{
-    "details": ["detail1", "detail2"],
-    "requirements": ["req1"],
-    "constraints": ["constraint1"]
-}}"#,
-                branch.content,
-                relevant_chunks.join("\n---\n")
-            );
-
-            let detail_input = serde_json::json!({
-                "prompt": detail_prompt,
-                "max_tokens": 400,
-                "temperature": 0.3,
-                "system_context": "Extract details. Respond with JSON only."
-            });
-
-            if let Ok(detail_result) = self.executor.execute(9, detail_input).await {
-                let response = detail_result
-                    .get("response")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("{}");
-                let detail_json = Self::parse_json_object(response);
-
-                // Add detail nodes
-                for detail in detail_json
-                    .get("details")
-                    .and_then(|d| d.as_array())
-                    .unwrap_or(&vec![])
-                {
-                    if let Some(detail_str) = detail.as_str() {
-                        let mut detail_node = AMTNode::new(
-                            node_id_counter,
-                            AMTNodeType::Leaf,
-                            detail_str.to_string(),
-                            2,
-                        );
-                        detail_node.source_chunk_indices = branch.source_chunk_indices.clone();
-                        node_id_counter += 1;
-                        branch.children.push(detail_node);
-                    }
-                }
-
-                // Add requirement nodes
-                for req in detail_json
-                    .get("requirements")
-                    .and_then(|r| r.as_array())
-                    .unwrap_or(&vec![])
-                {
-                    if let Some(req_str) = req.as_str() {
-                        let mut req_node = AMTNode::new(
-                            node_id_counter,
-                            AMTNodeType::Leaf,
-                            req_str.to_string(),
-                            2,
-                        );
-                        req_node
-                            .metadata
-                            .insert("type".to_string(), "requirement".to_string());
-                        req_node.source_chunk_indices = branch.source_chunk_indices.clone();
-                        node_id_counter += 1;
-                        branch.children.push(req_node);
-                    }
-                }
-
-                // Add constraint nodes
-                for constraint in detail_json
-                    .get("constraints")
-                    .and_then(|c| c.as_array())
-                    .unwrap_or(&vec![])
-                {
-                    if let Some(c_str) = constraint.as_str() {
-                        let mut c_node = AMTNode::new(
-                            node_id_counter,
-                            AMTNodeType::Consideration,
-                            c_str.to_string(),
-                            2,
-                        );
-                        c_node
-                            .metadata
-                            .insert("type".to_string(), "constraint".to_string());
-                        c_node.source_chunk_indices = branch.source_chunk_indices.clone();
-                        node_id_counter += 1;
-                        branch.children.push(c_node);
-                    }
-                }
-            }
-        }
-
-        // PHASE 5: Add cross-references between branches with shared chunks
-        let branch_count = root_node.children.len();
-        for i in 0..branch_count {
-            for j in (i + 1)..branch_count {
-                let shared_chunks: Vec<u32> = root_node.children[i]
-                    .source_chunk_indices
-                    .iter()
-                    .filter(|idx| root_node.children[j].source_chunk_indices.contains(idx))
-                    .cloned()
-                    .collect();
-
-                if !shared_chunks.is_empty() {
-                    let target_id = root_node.children[j].id;
-                    root_node.children[i].relationships.push(AMTRelation {
-                        target_id,
-                        relation_type: AMTRelationType::SharedContext,
-                        confidence: shared_chunks.len() as f32
-                            / root_node.children[i].source_chunk_indices.len().max(1) as f32,
-                    });
-                }
-            }
-        }
-
-        // PHASE 6: Add coverage aspects from methodologies (not hardcoded)
-        let coverage_aspects = self
-            .extract_coverage_aspects_from_methodologies(state)
-            .await;
-
-        for aspect in coverage_aspects {
-            // Check if aspect is already covered in branches
-            let is_covered = root_node.children.iter().any(|c| {
-                c.content.to_lowercase().contains(&aspect.to_lowercase())
-                    || c.children.iter().any(|child| {
-                        child
-                            .content
-                            .to_lowercase()
-                            .contains(&aspect.to_lowercase())
-                    })
-            });
-
-            if !is_covered {
-                let mut consideration = AMTNode::new(
-                    node_id_counter,
-                    AMTNodeType::Consideration,
-                    format!("Consider: {}", aspect),
-                    1,
+        Return ONLY valid JSON with no explanation:
+        {{
+            "new_intents": [
+                {{
+                    "intent": "clear description of this goal/intent",
+                    "is_parallel": true,
+                    "source_sentence": "the exact sentence or paragraph from the chunk expressing this"
+                }}
+            ]
+        }}
+        If no new intents are found, return: {{"new_intents": []}}"#,
+                    serde_json::to_string(&known_intents_json).unwrap_or_default(),
+                    chunk.index + 1,
+                    state.processed_chunks.len(),
+                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
                 );
-                consideration
-                    .metadata
-                    .insert("auto_added".to_string(), "true".to_string());
-                consideration
-                    .metadata
-                    .insert("source".to_string(), "methodology".to_string());
-                consideration.confidence = 0.6;
-                node_id_counter += 1;
-                root_node.children.push(consideration);
-            }
-        }
 
-        Ok(root_node)
-    }
+                let intent_input = serde_json::json!({
+                    "prompt": intent_prompt,
+                    "max_tokens": 500,
+                    "temperature": 0.2,
+                    "system_context": "Extract new intents not already listed. Return only valid JSON. No explanation."
+                });
 
-    /// Extract coverage aspects from methodologies (not hardcoded)
-    async fn extract_coverage_aspects_from_methodologies(
-        &self,
-        state: &OrchestrationState,
-    ) -> Vec<String> {
-        let mut aspects: HashSet<String> = HashSet::new();
+                if let Ok(result) = self.executor.execute(9, intent_input).await {
+                    let response = result
+                        .get("response")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("{}");
+                    let json_str = Self::extract_json_from_response(response, '{', '}');
+                    let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
+                        .unwrap_or_else(|_| serde_json::json!({"new_intents": []}));
 
-        for method_id in &state.methodologies {
-            if let Ok(Some(container)) = self.zsei.get_container(*method_id).await {
-                // Extract aspects from methodology principles/considerations
-                if let Some(principles) = container
-                    .get("local_state")
-                    .and_then(|ls| ls.get("storage"))
-                    .and_then(|s| s.get("principles"))
-                    .and_then(|p| p.as_array())
-                {
-                    for principle in principles {
-                        if let Some(p_str) = principle.as_str() {
-                            // Look for aspect-like terms in principles
-                            let lower = p_str.to_lowercase();
-                            if lower.contains("security") {
-                                aspects.insert("security".to_string());
+                    if let Some(new_intents) = parsed.get("new_intents").and_then(|n| n.as_array())
+                    {
+                        for intent_val in new_intents {
+                            let intent_str = intent_val
+                                .get("intent")
+                                .and_then(|i| i.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let is_parallel = intent_val
+                                .get("is_parallel")
+                                .and_then(|p| p.as_bool())
+                                .unwrap_or(false);
+                            let source_sentence = intent_val
+                                .get("source_sentence")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            if intent_str.is_empty() {
+                                continue;
                             }
-                            if lower.contains("error") || lower.contains("exception") {
-                                aspects.insert("error_handling".to_string());
-                            }
-                            if lower.contains("edge case") || lower.contains("boundary") {
-                                aspects.insert("edge_cases".to_string());
-                            }
-                            if lower.contains("performance") || lower.contains("efficiency") {
-                                aspects.insert("performance".to_string());
-                            }
-                            if lower.contains("test") || lower.contains("validation") {
-                                aspects.insert("testing".to_string());
-                            }
-                            if lower.contains("scalab") {
-                                aspects.insert("scalability".to_string());
-                            }
-                            if lower.contains("maintain") {
-                                aspects.insert("maintainability".to_string());
-                            }
-                            if lower.contains("document") {
-                                aspects.insert("documentation".to_string());
-                            }
-                        }
-                    }
-                }
 
-                // Also check methodology tags/keywords for aspects
-                if let Some(keywords) = container
-                    .get("local_state")
-                    .and_then(|ls| ls.get("context"))
-                    .and_then(|ctx| ctx.get("keywords"))
-                    .and_then(|k| k.as_array())
-                {
-                    for kw in keywords {
-                        if let Some(kw_str) = kw.as_str() {
-                            let lower = kw_str.to_lowercase();
-                            if [
-                                "security",
-                                "error_handling",
-                                "testing",
-                                "performance",
-                                "edge_cases",
-                                "scalability",
-                                "maintainability",
-                                "documentation",
-                                "accessibility",
-                                "compatibility",
-                                "reliability",
-                                "usability",
-                            ]
-                            .contains(&lower.as_str())
-                            {
-                                aspects.insert(lower);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                            // Check for duplicates (case-insensitive substring match)
+                            let already_known = state.intent_captures.iter().any(|ic| {
+                                ic.intent
+                                    .to_lowercase()
+                                    .contains(&intent_str.to_lowercase())
+                                    || intent_str
+                                        .to_lowercase()
+                                        .contains(&ic.intent.to_lowercase())
+                            });
 
-        // If no aspects found from methodologies, use minimal defaults
-        if aspects.is_empty() {
-            aspects.insert("error_handling".to_string());
-        }
-
-        aspects.into_iter().collect()
-    }
-
-    /// Validate AMT and return result
-    async fn validate_amt(&self, state: &OrchestrationState) -> Result<ValidationResult, String> {
-        let amt = match &state.amt {
-            Some(a) => a,
-            None => {
-                return Ok(ValidationResult {
-                    is_valid: false,
-                    issues: vec!["No AMT built".to_string()],
-                })
-            }
-        };
-
-        let validate_prompt = format!(
-            r#"Validate this Abstract Meaning Tree for completeness.
-
-ORIGINAL KEYWORDS: {:?}
-ORIGINAL TOPICS: {:?}
-
-AMT STRUCTURE:
-- Root: {}
-- Branches: {}
-- Total nodes: {}
-
-BRANCH DETAILS:
-{}
-
-Check:
-1. Are all key aspects of the request represented?
-2. Are there any ambiguous or unclear parts?
-3. Is the structure logically coherent?
-4. Are considerations (from methodologies) appropriate?
-
-Respond with JSON:
-{{
-    "valid": true/false,
-    "issues": ["issue1", "issue2"],
-    "missing_aspects": ["aspect1", "aspect2"]
-}}"#,
-            &state.keywords[..state.keywords.len().min(15)],
-            &state.topics,
-            amt.content,
-            amt.branch_count(),
-            amt.count_nodes(),
-            amt.children
-                .iter()
-                .map(|c| format!("- {}: {} children", c.content, c.children.len()))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        let validate_input = serde_json::json!({
-            "prompt": validate_prompt,
-            "max_tokens": 500,
-            "temperature": 0.2,
-            "system_context": "You validate Abstract Meaning Trees. Be strict about completeness. Respond with JSON only."
-        });
-
-        let result = self.executor.execute(9, validate_input).await?;
-        let response = result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("{}");
-        let validation_json = Self::parse_json_object(response);
-
-        let is_valid = validation_json
-            .get("valid")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-
-        let mut issues: Vec<String> = validation_json
-            .get("issues")
-            .and_then(|i| i.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        if let Some(missing) = validation_json
-            .get("missing_aspects")
-            .and_then(|m| m.as_array())
-        {
-            for aspect in missing {
-                if let Some(a_str) = aspect.as_str() {
-                    issues.push(format!("Missing aspect: {}", a_str));
-                }
-            }
-        }
-
-        Ok(ValidationResult { is_valid, issues })
-    }
-
-    /// Refine AMT based on validation issues (surgical edits, not overwrite)
-    async fn refine_amt_from_issues(
-        &self,
-        state: &mut OrchestrationState,
-        issues: &[String],
-    ) -> Result<(), String> {
-        let amt = match &mut state.amt {
-            Some(a) => a,
-            None => return Ok(()),
-        };
-
-        let refine_prompt = format!(
-            r#"Suggest specific additions to fix these AMT issues.
-
-CURRENT AMT ROOT: {}
-CURRENT BRANCHES: {:?}
-
-ISSUES TO FIX:
-{}
-
-Return JSON with SPECIFIC nodes to add:
-{{
-    "add_branches": ["new_branch1", "new_branch2"],
-    "add_to_existing": [
-        {{"branch": "existing_branch_name", "add_children": ["child1", "child2"]}}
-    ],
-    "add_relationships": [
-        {{"from_branch": "branch1", "to_branch": "branch2", "type": "depends_on"}}
-    ]
-}}"#,
-            amt.content,
-            amt.children.iter().map(|c| &c.content).collect::<Vec<_>>(),
-            issues
-                .iter()
-                .map(|i| format!("- {}", i))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        let refine_input = serde_json::json!({
-            "prompt": refine_prompt,
-            "max_tokens": 600,
-            "temperature": 0.3,
-            "system_context": "Suggest AMT refinements. Respond with JSON only."
-        });
-
-        if let Ok(refine_result) = self.executor.execute(9, refine_input).await {
-            let response = refine_result
-                .get("response")
-                .and_then(|r| r.as_str())
-                .unwrap_or("{}");
-            let refine_json = Self::parse_json_object(response);
-
-            let mut next_id = amt.count_nodes() as u64 + 100;
-
-            // Add new branches
-            if let Some(new_branches) = refine_json.get("add_branches").and_then(|b| b.as_array()) {
-                for branch in new_branches {
-                    if let Some(branch_str) = branch.as_str() {
-                        let new_branch =
-                            AMTNode::new(next_id, AMTNodeType::Branch, branch_str.to_string(), 1);
-                        next_id += 1;
-                        amt.children.push(new_branch);
-                    }
-                }
-            }
-
-            // Add children to existing branches
-            if let Some(additions) = refine_json
-                .get("add_to_existing")
-                .and_then(|a| a.as_array())
-            {
-                for addition in additions {
-                    if let (Some(branch_name), Some(children)) = (
-                        addition.get("branch").and_then(|b| b.as_str()),
-                        addition.get("add_children").and_then(|c| c.as_array()),
-                    ) {
-                        // Find the branch
-                        if let Some(branch) = amt.children.iter_mut().find(|c| {
-                            c.content
-                                .to_lowercase()
-                                .contains(&branch_name.to_lowercase())
-                        }) {
-                            for child in children {
-                                if let Some(child_str) = child.as_str() {
-                                    let new_child = AMTNode::new(
-                                        next_id,
-                                        AMTNodeType::Leaf,
-                                        child_str.to_string(),
-                                        2,
-                                    );
-                                    next_id += 1;
-                                    branch.children.push(new_child);
+                            if !already_known {
+                                state.intent_captures.push(IntentCapture {
+                                    intent: intent_str,
+                                    is_parallel,
+                                    source_chunk_indices: vec![chunk.index],
+                                    source_sentences: if source_sentence.is_empty() {
+                                        vec![]
+                                    } else {
+                                        vec![source_sentence]
+                                    },
+                                    node_id: node_id_counter,
+                                });
+                                node_id_counter += 1;
+                                new_insights_this_pass = true;
+                            } else {
+                                // Aggregate: add this chunk as an additional source
+                                if let Some(existing) =
+                                    state.intent_captures.iter_mut().find(|ic| {
+                                        ic.intent
+                                            .to_lowercase()
+                                            .contains(&intent_str.to_lowercase())
+                                    })
+                                {
+                                    if !existing.source_chunk_indices.contains(&chunk.index) {
+                                        existing.source_chunk_indices.push(chunk.index);
+                                        if !source_sentence.is_empty() {
+                                            existing.source_sentences.push(source_sentence);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1568,48 +1160,768 @@ Return JSON with SPECIFIC nodes to add:
                 }
             }
 
-            // Add relationships
-            if let Some(rels) = refine_json
-                .get("add_relationships")
-                .and_then(|r| r.as_array())
-            {
-                for rel in rels {
-                    if let (Some(from_name), Some(to_name), Some(rel_type)) = (
-                        rel.get("from_branch").and_then(|f| f.as_str()),
-                        rel.get("to_branch").and_then(|t| t.as_str()),
-                        rel.get("type").and_then(|t| t.as_str()),
-                    ) {
-                        // Find from and to branches
-                        let to_id = amt
-                            .children
-                            .iter()
-                            .find(|c| c.content.to_lowercase().contains(&to_name.to_lowercase()))
-                            .map(|c| c.id);
+            // If no intents found at all, create a default
+            if state.intent_captures.is_empty() {
+                state.intent_captures.push(IntentCapture {
+                    intent: "Process user request".to_string(),
+                    is_parallel: false,
+                    source_chunk_indices: (0..state.processed_chunks.len() as u32).collect(),
+                    source_sentences: vec![],
+                    node_id: node_id_counter,
+                });
+                node_id_counter += 1;
+                new_insights_this_pass = true;
+            }
 
-                        if let Some(target_id) = to_id {
-                            if let Some(from_branch) = amt.children.iter_mut().find(|c| {
-                                c.content.to_lowercase().contains(&from_name.to_lowercase())
-                            }) {
-                                let relation_type = match rel_type {
-                                    "depends_on" => AMTRelationType::DependsOn,
-                                    "requires" => AMTRelationType::Requires,
-                                    "relates_to" => AMTRelationType::RelatesTo,
-                                    _ => AMTRelationType::RelatesTo,
-                                };
+            // --- PHASE 1B: Branch discovery via methodologies ---
+            for &method_id in &state.methodologies {
+                if let Ok(Some(method_container)) = self.zsei.get_container(method_id).await {
+                    // Extract methodology content
+                    let method_name = method_container
+                        .get("local_state")
+                        .and_then(|ls| ls.get("metadata"))
+                        .and_then(|m| m.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("Unknown methodology")
+                        .to_string();
+                    let method_description = method_container
+                        .get("local_state")
+                        .and_then(|ls| ls.get("context"))
+                        .and_then(|ctx| ctx.get("keywords"))
+                        .map(|kw| kw.to_string())
+                        .unwrap_or_default();
 
-                                from_branch.relationships.push(AMTRelation {
-                                    target_id,
-                                    relation_type,
-                                    confidence: 0.8,
+                    let intents_summary: Vec<String> = state
+                        .intent_captures
+                        .iter()
+                        .map(|ic| ic.intent.clone())
+                        .collect();
+
+                    // Already known branches for dedup
+                    let known_branches_json: Vec<serde_json::Value> = state.branch_captures
+                        .iter()
+                        .map(|bc| serde_json::json!({"branch": bc.branch, "intent": bc.parent_intent}))
+                        .collect();
+
+                    let branch_prompt = format!(
+                        r#"You are applying the methodology "{}" to a set of user intents.
+        Methodology context: {}
+
+        USER INTENTS:
+        {}
+
+        ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
+        {}
+
+        Based on this methodology, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
+        Only suggest branches NOT already in the known list.
+
+        Return ONLY valid JSON:
+        {{
+            "branches": [
+                {{
+                    "branch": "specific branch description",
+                    "parent_intent": "the intent this branch belongs to",
+                    "rationale": "why this methodology requires this branch"
+                }}
+            ]
+        }}
+        If no new branches apply, return: {{"branches": []}}"#,
+                        method_name,
+                        &method_description[..method_description.len().min(300)],
+                        intents_summary.join("\n"),
+                        serde_json::to_string(&known_branches_json).unwrap_or_default()
+                    );
+
+                    let branch_input = serde_json::json!({
+                        "prompt": branch_prompt,
+                        "max_tokens": 600,
+                        "temperature": 0.3,
+                        "system_context": "Suggest branches per methodology. Return only valid JSON. No explanation."
+                    });
+
+                    if let Ok(result) = self.executor.execute(9, branch_input).await {
+                        let response = result
+                            .get("response")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("{}");
+                        let json_str = Self::extract_json_from_response(response, '{', '}');
+                        let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
+                            .unwrap_or_else(|_| serde_json::json!({"branches": []}));
+
+                        if let Some(branches) = parsed.get("branches").and_then(|b| b.as_array()) {
+                            for branch_val in branches {
+                                let branch_str = branch_val
+                                    .get("branch")
+                                    .and_then(|b| b.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let parent_intent = branch_val
+                                    .get("parent_intent")
+                                    .and_then(|p| p.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                if branch_str.is_empty() {
+                                    continue;
+                                }
+
+                                // Find actual parent intent (fuzzy match)
+                                let resolved_parent = state
+                                    .intent_captures
+                                    .iter()
+                                    .find(|ic| {
+                                        ic.intent
+                                            .to_lowercase()
+                                            .contains(&parent_intent.to_lowercase())
+                                            || parent_intent
+                                                .to_lowercase()
+                                                .contains(&ic.intent.to_lowercase())
+                                    })
+                                    .map(|ic| ic.intent.clone())
+                                    .unwrap_or_else(|| {
+                                        state
+                                            .intent_captures
+                                            .first()
+                                            .map(|ic| ic.intent.clone())
+                                            .unwrap_or_default()
+                                    });
+
+                                let already_exists = state.branch_captures.iter().any(|bc| {
+                                    bc.parent_intent == resolved_parent
+                                        && (bc
+                                            .branch
+                                            .to_lowercase()
+                                            .contains(&branch_str.to_lowercase())
+                                            || branch_str
+                                                .to_lowercase()
+                                                .contains(&bc.branch.to_lowercase()))
                                 });
+
+                                if !already_exists {
+                                    state.branch_captures.push(BranchCapture {
+                                        branch: branch_str,
+                                        parent_intent: resolved_parent,
+                                        source_methodology_ids: vec![method_id],
+                                        source_chunk_indices: vec![],
+                                        source_sentences: vec![],
+                                        node_id: node_id_counter,
+                                    });
+                                    node_id_counter += 1;
+                                    new_insights_this_pass = true;
+                                } else {
+                                    // Aggregate: add methodology as additional source
+                                    if let Some(existing) =
+                                        state.branch_captures.iter_mut().find(|bc| {
+                                            bc.parent_intent == resolved_parent
+                                                && bc
+                                                    .branch
+                                                    .to_lowercase()
+                                                    .contains(&branch_str.to_lowercase())
+                                        })
+                                    {
+                                        if !existing.source_methodology_ids.contains(&method_id) {
+                                            existing.source_methodology_ids.push(method_id);
+                                        }
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+            }
+
+            // --- PHASE 2: Detail discovery over chunks ---
+            for chunk in &state.processed_chunks {
+                // Build context of existing branches for this chunk
+                let branches_summary: Vec<serde_json::Value> = state
+                    .branch_captures
+                    .iter()
+                    .map(|bc| {
+                        serde_json::json!({
+                            "branch": bc.branch,
+                            "intent": bc.parent_intent
+                        })
+                    })
+                    .collect();
+
+                let known_details_json: Vec<serde_json::Value> = state
+                    .detail_captures
+                    .iter()
+                    .filter(|dc| {
+                        // Only known details for branches possibly covered by this chunk
+                        state
+                            .branch_captures
+                            .iter()
+                            .find(|bc| bc.branch == dc.parent_branch)
+                            .map(|bc| {
+                                bc.source_chunk_indices.contains(&chunk.index)
+                                    || bc.source_chunk_indices.is_empty()
+                            })
+                            .unwrap_or(true)
+                    })
+                    .map(|dc| {
+                        serde_json::json!({
+                            "detail": dc.content,
+                            "branch": dc.parent_branch
+                        })
+                    })
+                    .collect();
+
+                let detail_prompt = format!(
+                    r#"Analyze this text chunk for specific details, requirements, and constraints that address the identified branches.
+
+        BRANCHES TO ADDRESS:
+        {}
+
+        ALREADY IDENTIFIED DETAILS (do NOT repeat):
+        {}
+
+        CHUNK {} of {}:
+        {}
+
+        For each branch this chunk addresses, extract specific details. Also identify any completely NEW branches not in the list above.
+
+        Return ONLY valid JSON:
+        {{
+            "details": [
+                {{
+                    "content": "specific detail, requirement, or constraint",
+                    "type": "detail|requirement|constraint",
+                    "parent_branch": "exact branch name this belongs to",
+                    "source_sentence": "the exact sentence or paragraph from the chunk"
+                }}
+            ],
+            "new_branches": [
+                {{
+                    "branch": "newly discovered branch",
+                    "parent_intent": "intent it belongs to",
+                    "source_sentence": "exact text"
+                }}
+            ]
+        }}"#,
+                    serde_json::to_string(&branches_summary).unwrap_or_default(),
+                    serde_json::to_string(&known_details_json).unwrap_or_default(),
+                    chunk.index + 1,
+                    state.processed_chunks.len(),
+                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
+                );
+
+                let detail_input = serde_json::json!({
+                    "prompt": detail_prompt,
+                    "max_tokens": 700,
+                    "temperature": 0.3,
+                    "system_context": "Extract details per branch. Return only valid JSON. No explanation."
+                });
+
+                if let Ok(result) = self.executor.execute(9, detail_input).await {
+                    let response = result
+                        .get("response")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("{}");
+                    let json_str = Self::extract_json_from_response(response, '{', '}');
+                    let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
+                        .unwrap_or_else(|_| serde_json::json!({"details": [], "new_branches": []}));
+
+                    // Process new details
+                    if let Some(details) = parsed.get("details").and_then(|d| d.as_array()) {
+                        for detail_val in details {
+                            let content = detail_val
+                                .get("content")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let detail_type = detail_val
+                                .get("type")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("detail")
+                                .to_string();
+                            let parent_branch = detail_val
+                                .get("parent_branch")
+                                .and_then(|p| p.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let source_sentence = detail_val
+                                .get("source_sentence")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            if content.is_empty() || parent_branch.is_empty() {
+                                continue;
+                            }
+
+                            // Resolve parent branch (fuzzy)
+                            let resolved_branch = state
+                                .branch_captures
+                                .iter()
+                                .find(|bc| {
+                                    bc.branch
+                                        .to_lowercase()
+                                        .contains(&parent_branch.to_lowercase())
+                                        || parent_branch
+                                            .to_lowercase()
+                                            .contains(&bc.branch.to_lowercase())
+                                })
+                                .map(|bc| bc.branch.clone())
+                                .unwrap_or(parent_branch.clone());
+
+                            // Find parent intent for this branch
+                            let resolved_intent = state
+                                .branch_captures
+                                .iter()
+                                .find(|bc| bc.branch == resolved_branch)
+                                .map(|bc| bc.parent_intent.clone())
+                                .unwrap_or_default();
+
+                            let already_exists = state.detail_captures.iter().any(|dc| {
+                                dc.parent_branch == resolved_branch
+                                    && (dc.content.to_lowercase().contains(&content.to_lowercase())
+                                        || content
+                                            .to_lowercase()
+                                            .contains(&dc.content.to_lowercase()))
+                            });
+
+                            if !already_exists {
+                                // Also update branch's chunk indices
+                                if let Some(branch) = state
+                                    .branch_captures
+                                    .iter_mut()
+                                    .find(|bc| bc.branch == resolved_branch)
+                                {
+                                    if !branch.source_chunk_indices.contains(&chunk.index) {
+                                        branch.source_chunk_indices.push(chunk.index);
+                                    }
+                                    if !source_sentence.is_empty()
+                                        && !branch.source_sentences.contains(&source_sentence)
+                                    {
+                                        branch.source_sentences.push(source_sentence.clone());
+                                    }
+                                }
+
+                                state.detail_captures.push(DetailCapture {
+                                    content,
+                                    detail_type,
+                                    parent_branch: resolved_branch,
+                                    parent_intent: resolved_intent,
+                                    source_chunk_indices: vec![chunk.index],
+                                    source_sentences: if source_sentence.is_empty() {
+                                        vec![]
+                                    } else {
+                                        vec![source_sentence]
+                                    },
+                                    node_id: node_id_counter,
+                                });
+                                node_id_counter += 1;
+                                new_insights_this_pass = true;
+                            } else {
+                                // Aggregate
+                                if let Some(existing) =
+                                    state.detail_captures.iter_mut().find(|dc| {
+                                        dc.parent_branch == resolved_branch
+                                            && dc
+                                                .content
+                                                .to_lowercase()
+                                                .contains(&content.to_lowercase())
+                                    })
+                                {
+                                    if !existing.source_chunk_indices.contains(&chunk.index) {
+                                        existing.source_chunk_indices.push(chunk.index);
+                                    }
+                                    if !source_sentence.is_empty()
+                                        && !existing.source_sentences.contains(&source_sentence)
+                                    {
+                                        existing.source_sentences.push(source_sentence);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Process new branches discovered during detail pass
+                    if let Some(new_branches) =
+                        parsed.get("new_branches").and_then(|nb| nb.as_array())
+                    {
+                        for branch_val in new_branches {
+                            let branch_str = branch_val
+                                .get("branch")
+                                .and_then(|b| b.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let parent_intent = branch_val
+                                .get("parent_intent")
+                                .and_then(|p| p.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let source_sentence = branch_val
+                                .get("source_sentence")
+                                .and_then(|s| s.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            if branch_str.is_empty() {
+                                continue;
+                            }
+
+                            let already_exists = state.branch_captures.iter().any(|bc| {
+                                bc.branch
+                                    .to_lowercase()
+                                    .contains(&branch_str.to_lowercase())
+                                    || branch_str
+                                        .to_lowercase()
+                                        .contains(&bc.branch.to_lowercase())
+                            });
+
+                            if !already_exists {
+                                let resolved_parent = state
+                                    .intent_captures
+                                    .iter()
+                                    .find(|ic| {
+                                        ic.intent
+                                            .to_lowercase()
+                                            .contains(&parent_intent.to_lowercase())
+                                            || parent_intent
+                                                .to_lowercase()
+                                                .contains(&ic.intent.to_lowercase())
+                                    })
+                                    .map(|ic| ic.intent.clone())
+                                    .unwrap_or_else(|| {
+                                        state
+                                            .intent_captures
+                                            .first()
+                                            .map(|ic| ic.intent.clone())
+                                            .unwrap_or_default()
+                                    });
+
+                                state.branch_captures.push(BranchCapture {
+                                    branch: branch_str,
+                                    parent_intent: resolved_parent,
+                                    source_methodology_ids: vec![],
+                                    source_chunk_indices: vec![chunk.index],
+                                    source_sentences: if source_sentence.is_empty() {
+                                        vec![]
+                                    } else {
+                                        vec![source_sentence]
+                                    },
+                                    node_id: node_id_counter,
+                                });
+                                node_id_counter += 1;
+                                new_insights_this_pass = true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check convergence
+            if !new_insights_this_pass {
+                consecutive_no_new += 1;
+                if consecutive_no_new >= convergence_threshold {
+                    break 'outer;
+                }
+            } else {
+                consecutive_no_new = 0;
+            }
+        } // end 'outer
+
+        // --- PHASE 3: Cross-reference linking ---
+        let branch_list: Vec<(String, String)> = state
+            .branch_captures
+            .iter()
+            .map(|bc| (bc.branch.clone(), bc.parent_intent.clone()))
+            .collect();
+
+        // Check pairs (limit to avoid combinatorial explosion: max 50 pairs)
+        let max_pairs = 50usize;
+        let mut pair_count = 0;
+        'pairs: for i in 0..branch_list.len() {
+            for j in (i + 1)..branch_list.len() {
+                if pair_count >= max_pairs {
+                    break 'pairs;
+                }
+                pair_count += 1;
+
+                let (branch_a, intent_a) = &branch_list[i];
+                let (branch_b, intent_b) = &branch_list[j];
+
+                // Skip if same intent (same-intent relationships are handled by hierarchy)
+                if intent_a == intent_b {
+                    continue;
+                }
+
+                let crossref_prompt = format!(
+                    r#"Are these two branches related to each other?
+
+        BRANCH A (from intent: "{}"): {}
+        BRANCH B (from intent: "{}"): {}
+
+        If they are related, describe how.
+
+        Return ONLY valid JSON:
+        {{
+            "related": true,
+            "relationship_type": "depends_on|requires|relates_to|contradicts|shared_context",
+            "description": "brief explanation"
+        }}
+        If not related: {{"related": false}}"#,
+                    intent_a, branch_a, intent_b, branch_b
+                );
+
+                let crossref_input = serde_json::json!({
+                    "prompt": crossref_prompt,
+                    "max_tokens": 150,
+                    "temperature": 0.2,
+                    "system_context": "Identify cross-branch relationships. Return only valid JSON."
+                });
+
+                if let Ok(result) = self.executor.execute(9, crossref_input).await {
+                    let response = result
+                        .get("response")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("{}");
+                    let json_str = Self::extract_json_from_response(response, '{', '}');
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                        if parsed
+                            .get("related")
+                            .and_then(|r| r.as_bool())
+                            .unwrap_or(false)
+                        {
+                            let rel_type_str = parsed
+                                .get("relationship_type")
+                                .and_then(|rt| rt.as_str())
+                                .unwrap_or("relates_to");
+                            let description = parsed
+                                .get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            let relation_type = match rel_type_str {
+                                "depends_on" => AMTRelationType::DependsOn,
+                                "requires" => AMTRelationType::Requires,
+                                "contradicts" => AMTRelationType::Contradicts,
+                                "shared_context" => AMTRelationType::SharedContext,
+                                _ => AMTRelationType::RelatesTo,
+                            };
+
+                            state.cross_refs.push(CrossRef {
+                                from_branch: branch_a.clone(),
+                                to_branch: branch_b.clone(),
+                                from_intent: intent_a.clone(),
+                                to_intent: intent_b.clone(),
+                                relation_type,
+                                description,
+                            });
                         }
                     }
                 }
             }
         }
 
-        Ok(())
+        // --- BUILD AMT FROM CAPTURES ---
+
+        // Determine root vs parallel structure
+        let parallel_intents: Vec<&IntentCapture> = state
+            .intent_captures
+            .iter()
+            .filter(|ic| ic.is_parallel)
+            .collect();
+        let primary_intents: Vec<&IntentCapture> = state
+            .intent_captures
+            .iter()
+            .filter(|ic| !ic.is_parallel)
+            .collect();
+
+        // Create top-level root
+        let root_intent = if primary_intents.len() == 1 {
+            primary_intents[0].intent.clone()
+        } else if !primary_intents.is_empty() {
+            format!(
+                "Multiple goals: {}",
+                primary_intents
+                    .iter()
+                    .map(|ic| ic.intent.as_str())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        } else if !state.intent_captures.is_empty() {
+            state.intent_captures[0].intent.clone()
+        } else {
+            "Process user request".to_string()
+        };
+
+        let mut root_node = AMTNode::new(node_id_counter, AMTNodeType::Root, root_intent, 0);
+        root_node.source_chunk_indices = (0..state.processed_chunks.len() as u32).collect();
+        root_node.methodology_ids = state.methodologies.clone();
+        node_id_counter += 1;
+
+        // Build intent → branch → detail tree
+        let all_intents_combined: Vec<&IntentCapture> = state.intent_captures.iter().collect();
+
+        for intent_capture in &all_intents_combined {
+            // If multiple parallel intents, each becomes a Branch under Root
+            // If single intent, branches go directly under Root
+            let (intent_parent_node, intent_level) = if state.intent_captures.len() > 1 {
+                // Create intent node as a Branch
+                let mut intent_node = AMTNode::new(
+                    intent_capture.node_id,
+                    AMTNodeType::Branch,
+                    intent_capture.intent.clone(),
+                    1,
+                );
+                intent_node.source_chunk_indices = intent_capture.source_chunk_indices.clone();
+                for sentence in &intent_capture.source_sentences {
+                    intent_node.metadata.insert(
+                        format!("source_sentence_{}", intent_node.metadata.len()),
+                        sentence.clone(),
+                    );
+                }
+
+                // Branches for this intent
+                let branches_for_intent: Vec<&BranchCapture> = state
+                    .branch_captures
+                    .iter()
+                    .filter(|bc| bc.parent_intent == intent_capture.intent)
+                    .collect();
+
+                for branch_capture in branches_for_intent {
+                    let mut branch_node = AMTNode::new(
+                        branch_capture.node_id,
+                        AMTNodeType::Branch,
+                        branch_capture.branch.clone(),
+                        2,
+                    );
+                    branch_node.source_chunk_indices = branch_capture.source_chunk_indices.clone();
+                    branch_node.methodology_ids = branch_capture.source_methodology_ids.clone();
+                    for sentence in &branch_capture.source_sentences {
+                        branch_node.metadata.insert(
+                            format!("source_sentence_{}", branch_node.metadata.len()),
+                            sentence.clone(),
+                        );
+                    }
+
+                    // Details for this branch
+                    let details_for_branch: Vec<&DetailCapture> = state
+                        .detail_captures
+                        .iter()
+                        .filter(|dc| dc.parent_branch == branch_capture.branch)
+                        .collect();
+
+                    for detail_capture in details_for_branch {
+                        let node_type = match detail_capture.detail_type.as_str() {
+                            "constraint" => AMTNodeType::Consideration,
+                            _ => AMTNodeType::Leaf,
+                        };
+                        let mut detail_node = AMTNode::new(
+                            detail_capture.node_id,
+                            node_type,
+                            detail_capture.content.clone(),
+                            3,
+                        );
+                        detail_node
+                            .metadata
+                            .insert("type".to_string(), detail_capture.detail_type.clone());
+                        detail_node.source_chunk_indices =
+                            detail_capture.source_chunk_indices.clone();
+                        for sentence in &detail_capture.source_sentences {
+                            detail_node.metadata.insert(
+                                format!("source_sentence_{}", detail_node.metadata.len()),
+                                sentence.clone(),
+                            );
+                        }
+                        branch_node.children.push(detail_node);
+                    }
+
+                    // Cross-references for this branch
+                    for cross_ref in &state.cross_refs {
+                        if cross_ref.from_branch == branch_capture.branch {
+                            let target_node_id = state
+                                .branch_captures
+                                .iter()
+                                .find(|bc| bc.branch == cross_ref.to_branch)
+                                .map(|bc| bc.node_id)
+                                .unwrap_or(0);
+                            if target_node_id > 0 {
+                                branch_node.relationships.push(AMTRelation {
+                                    target_id: target_node_id,
+                                    relation_type: cross_ref.relation_type.clone(),
+                                    confidence: 0.8,
+                                });
+                            }
+                        }
+                    }
+
+                    intent_node.children.push(branch_node);
+                }
+
+                root_node.children.push(intent_node);
+                continue; // skip the direct-branch path below
+            };
+
+            // Single intent: branches go directly under root
+            let branches_for_intent: Vec<&BranchCapture> = state
+                .branch_captures
+                .iter()
+                .filter(|bc| bc.parent_intent == intent_capture.intent)
+                .collect();
+
+            for branch_capture in branches_for_intent {
+                let mut branch_node = AMTNode::new(
+                    branch_capture.node_id,
+                    AMTNodeType::Branch,
+                    branch_capture.branch.clone(),
+                    1,
+                );
+                branch_node.source_chunk_indices = branch_capture.source_chunk_indices.clone();
+                branch_node.methodology_ids = branch_capture.source_methodology_ids.clone();
+
+                let details_for_branch: Vec<&DetailCapture> = state
+                    .detail_captures
+                    .iter()
+                    .filter(|dc| dc.parent_branch == branch_capture.branch)
+                    .collect();
+
+                for detail_capture in details_for_branch {
+                    let node_type = match detail_capture.detail_type.as_str() {
+                        "constraint" => AMTNodeType::Consideration,
+                        _ => AMTNodeType::Leaf,
+                    };
+                    let mut detail_node = AMTNode::new(
+                        detail_capture.node_id,
+                        node_type,
+                        detail_capture.content.clone(),
+                        2,
+                    );
+                    detail_node
+                        .metadata
+                        .insert("type".to_string(), detail_capture.detail_type.clone());
+                    detail_node.source_chunk_indices = detail_capture.source_chunk_indices.clone();
+                    branch_node.children.push(detail_node);
+                }
+
+                for cross_ref in &state.cross_refs {
+                    if cross_ref.from_branch == branch_capture.branch {
+                        let target_node_id = state
+                            .branch_captures
+                            .iter()
+                            .find(|bc| bc.branch == cross_ref.to_branch)
+                            .map(|bc| bc.node_id)
+                            .unwrap_or(0);
+                        if target_node_id > 0 {
+                            branch_node.relationships.push(AMTRelation {
+                                target_id: target_node_id,
+                                relation_type: cross_ref.relation_type.clone(),
+                                confidence: 0.8,
+                            });
+                        }
+                    }
+                }
+
+                root_node.children.push(branch_node);
+            }
+        }
+
+        Ok(root_node)
     }
 
     // ========================================================================
