@@ -44,6 +44,9 @@ impl BootstrapManager {
         // 5. Initialize root container in ZSEI
         self.initialize_root_container()?;
 
+        // 6. Initialize Root Consciousness Spheres in ZSEI
+        self.initialize_consciousness_roots()?;
+
         tracing::info!("Bootstrap complete!");
         Ok(())
     }
@@ -194,6 +197,34 @@ impl BootstrapManager {
             tracing::info!("Initialized root container");
         }
 
+        Ok(())
+    }
+
+    fn initialize_consciousness_roots(&self) -> OzoneResult<()> {
+        let consciousness_dir = self.data_dir.join("consciousness");
+        fs::create_dir_all(&consciousness_dir)?;
+
+        // Create sphere root containers
+        let spheres = [
+            "ExperienceMemory",
+            "CoreMemories",
+            "EmotionalContext",
+            "Identity",
+            "Metacognition",
+            "Relationships",
+            "Ethics",
+            "Narratives",
+            "Collective",
+        ];
+
+        for sphere in spheres {
+            let container = self.create_consciousness_container(sphere);
+            // TODO: store via ZSEI once you expose the method
+            // For now, just create the directory
+            let _ = fs::create_dir_all(consciousness_dir.join(sphere));
+        }
+
+        tracing::info!("Initialized consciousness hierarchy roots");
         Ok(())
     }
 
