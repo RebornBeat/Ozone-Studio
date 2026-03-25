@@ -218,7 +218,7 @@ impl BootstrapManager {
         ];
 
         for sphere in spheres {
-            let container = self.create_consciousness_container(sphere);
+            // let container = self.create_consciousness_container(sphere);
             // TODO: store via ZSEI once you expose the method
             // For now, just create the directory
             let _ = fs::create_dir_all(consciousness_dir.join(sphere));

@@ -310,7 +310,7 @@ ipcMain.handle("config:get", async () => {
   });
 
   const fullConfig = result.config || {};
-  const setupComplete = fullConfig.general?.setup_complete ?? false;
+  const setupComplete = fullConfig.general?.user_setup_complete ?? false;
 
   return {
     backend_connected: true,
@@ -365,7 +365,7 @@ ipcMain.handle("system:isFirstLaunch", async () => {
       session_token: "",
     });
     const fullConfig = resp.config || {};
-    return !(fullConfig.general?.setup_complete ?? false);
+    return !(fullConfig.general?.user_setup_complete ?? false);
   } catch (err) {
     console.error("[isFirstLaunch] failed:", err);
     return true;
@@ -375,7 +375,7 @@ ipcMain.handle("system:isFirstLaunch", async () => {
 ipcMain.handle("system:markSetupComplete", async () => {
   requireConnection();
   return await backendRequest("POST", "/config/set", {
-    updates: { setup_complete: true },
+    updates: { user_setup_complete: true },
     session_token: "",
   });
 });

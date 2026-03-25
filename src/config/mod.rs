@@ -104,6 +104,8 @@ pub struct GeneralConfig {
     pub log_level: String,
     #[serde(default)]
     pub setup_complete: bool,
+    #[serde(default)]
+    pub user_setup_complete: bool,
 }
 
 impl Default for GeneralConfig {
@@ -112,6 +114,7 @@ impl Default for GeneralConfig {
             data_dir: "zsei_data".into(),
             log_level: "info".into(),
             setup_complete: false,
+            user_setup_complete: false,
         }
     }
 }

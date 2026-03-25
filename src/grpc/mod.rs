@@ -471,6 +471,13 @@ async fn set_config(
             }
         }
 
+        // Handle user_setup_complete flag
+        if let Some(user_setup) = updates.get("user_setup_complete") {
+            if let Some(val) = user_setup.as_bool() {
+                runtime.config.general.user_setup_complete = val;
+            }
+        }
+
         // Handle model updates
         if let Some(models) = updates.get("models") {
             let mut model_config = runtime.config.models.clone();

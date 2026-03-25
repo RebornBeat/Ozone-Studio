@@ -757,51 +757,6 @@ Where to view logs:macOS: ~/Library/Application Support/Ozone Studio/ozone-studi
 Windows: %APPDATA%\Ozone Studio\ozone-studio.log
 Linux: ~/.config/Ozone Studio/ozone-studio.log
 
-2. UI Loading Fix — Root CauseThe backend get_pipeline_ui_component looks for:rust
-
-"./pipelines/{category}/{folder_name}/ui/component.js"
-
-But your bootstrap only copies index.json files — not the full pipeline folders that contain ui/component.js.That’s why every tab shows “Loading pipeline UI...”.3. Bootstrap Fix — Copy Full Pipeline Folders (with UI)Replace your current copy_pipelines method in bootstrap.rs with this version:rust
-
-/// Copy full pipeline folders (including ui/component.js and source files)
-fn copy_pipelines(&self) -> OzoneResult<()> {
-    let src_dir = self.assets_dir.join("pipelines");
-    let dst_dir = self.data_dir.join("pipelines");
-
-    if !src_dir.exists() {
-        tracing::warn!("No pipelines assets found at {}", src_dir.display());
-        self.generate_default_pipeline_index(&dst_dir.join("index.json"))?;
-        return Ok(());
-    }
-
-    // Copy entire pipeline structure (recursive)
-    copy_dir_all(&src_dir, &dst_dir)?;
-
-    tracing::info!("Copied full pipeline structure (including UI components) to {}", dst_dir.display());
-    Ok(())
-}
-
-/// Helper to recursively copy directory
-fn copy_dir_all(src: &Path, dst: &Path) -> OzoneResult<()> {
-    fs::create_dir_all(dst)
-        .map_err(|e| OzoneError::StorageError(format!("Failed to create {}: {}", dst.display(), e)))?;
-
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-
-        if entry.file_type()?.is_dir() {
-            copy_dir_all(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)
-                .map_err(|e| OzoneError::StorageError(format!("Failed to copy {}: {}", src_path.display(), e)))?;
-        }
-    }
-    Ok(())
-}
-
-Do the same pattern for copy_methodologies and copy_blueprints if they also have UI components or extra files.
 
 Bonus: Future progress tracking with ExecutionIDYou can now:Store a HashMap<ExecutionID, PipelineProgress> in PipelineExecutor (with atomic progress %, status, start time, etc.)
 Expose a new endpoint /pipeline/progress/{execution_id}
@@ -809,3 +764,365 @@ Send WebSocket events on progress updates
 Allow cancellation via /pipeline/cancel/{execution_id}
 
 implement this for tracking pipeline progress for per tasks and out of
+
+
+// Do this:
+pub experiences: HashMap<u64, ContainerID>,   // only IDs
+
+// When storing:
+pub fn store_experience(&mut self, mut experience: ExperienceMemory) -> u64 {
+    let id = self.next_experience_id;
+    // ... set id etc.
+
+    let container = Container {
+        global_state: GlobalState { container_id: id, parent_id: CONSCIOUSNESS_EXPERIENCE_MEMORY_ROOT, ... },
+        local_state: LocalState {
+            metadata: Metadata { container_type: ContainerType::Experience, ... },
+            context: Context { keywords: experience.tags, ... },
+            // put the rest of the data in a content_ref or directly in local_state
+        },
+    };
+
+    self.zsei.store_container(container)?;   // ← delegate to ZSEI
+    self.experiences.insert(id, id);         // store only ID
+    id
+}
+
+
+### Recommended Pipeline Container Design
+
+```rust
+// In types/container.rs (or wherever you define ContainerType)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainerType {
+    Root,
+    Modality,
+    Category,
+    Methodology,
+    Blueprint,
+    Pipeline,           // ← NEW: one container per pipeline (e.g. Prompt, CodeAnalysis)
+    PipelineGraph,      // ← runtime graph produced by a pipeline execution
+    Experience,
+    CoreMemory,
+    EmotionalState,
+    Reflection,
+    // ... other types
+}
+```
+
+A **Pipeline container** looks like this:
+
+```rust
+Container {
+    id: some_id,
+    container_type: ContainerType::Pipeline,
+    parent_id: modality_root_id,        // e.g. /Modality/General or /Modality/Code
+    materialized_path: Some("/Modality/General/Prompt".to_string()),
+
+    metadata: {
+        "name": "Prompt",
+        "pipeline_id": 9,
+        "version": "0.4.0",
+        "category": "general",
+        "has_ui": false,
+        "is_tab": false,
+        "folder_name": "prompt"
+    },
+
+    context: {
+        "keywords": ["prompt", "llm", "generation"],
+        "description": "LLM prompt processing",
+        "relationships": []   // can link to methodologies it uses
+    },
+
+    // Light reference — does NOT duplicate the Rust code or UI files
+    content_ref: ContentReference::IndexReference {
+        index_type: "pipeline".to_string(),
+        id: 9,
+        file: "prompt/pipeline.toml"   // or just the folder name
+    }
+}
+```
+
+### Example: Pipeline Store / Registry Integration with ZSEI
+
+Here’s a clean `PipelineStore` that lives **on top of** ZSEI (recommended pattern):
+
+```rust
+// pipelines/store.rs
+
+use crate::zsei::{ZSEI, Container, ContainerType, ContentReference};
+use crate::types::{OzoneResult, PipelineID};
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+pub struct PipelineStore {
+    zsei: Arc<RwLock<ZSEI>>,
+}
+
+impl PipelineStore {
+    pub fn new(zsei: Arc<RwLock<ZSEI>>) -> Self {
+        Self { zsei }
+    }
+
+    /// Called during bootstrap — creates one container per pipeline
+    pub async fn register_all_pipelines(&self) -> OzoneResult<()> {
+        let zsei = self.zsei.write().await;
+
+        // Get the General and Consciousness modality roots (created in bootstrap)
+        let general_root = self.find_or_create_modality_root(&zsei, "general").await?;
+        let consciousness_root = self.find_or_create_modality_root(&zsei, "consciousness").await?;
+
+        for (id, info) in registry::PIPELINE_INFO.iter() {
+            let parent_id = if info.category == "consciousness" {
+                consciousness_root
+            } else {
+                general_root
+            };
+
+            let container = Container {
+                global_state: GlobalState {
+                    container_id: self.generate_pipeline_container_id(*id),
+                    parent_id,
+                    child_ids: vec![],
+                    child_count: 0,
+                    version: 1,
+                },
+                local_state: LocalState {
+                    metadata: {
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("container_type".to_string(), serde_json::json!("Pipeline"));
+                        m.insert("name".to_string(), serde_json::json!(info.name));
+                        m.insert("pipeline_id".to_string(), serde_json::json!(*id));
+                        m.insert("folder_name".to_string(), serde_json::json!(info.folder_name));
+                        m.insert("category".to_string(), serde_json::json!(info.category));
+                        m.insert("has_ui".to_string(), serde_json::json!(info.has_ui));
+                        m.insert("is_tab".to_string(), serde_json::json!(info.is_tab));
+                        m.insert("description".to_string(), serde_json::json!(info.description));
+                        m
+                    },
+                    context: crate::types::container::Context {
+                        keywords: vec![info.name.to_lowercase(), "pipeline".to_string()],
+                        topics: vec![],
+                        categories: vec![info.category.to_string()],
+                        relationships: vec![],
+                        learned_associations: vec![],
+                        embedding: None,
+                    },
+                    // ... other fields default
+                    ..Default::default()
+                },
+            };
+
+            zsei.store_container(container).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn find_or_create_modality_root(&self, zsei: &ZSEI, name: &str) -> OzoneResult<u64> {
+        // Simple lookup or create logic — you can make this more robust
+        // For now, assume modality roots are created in bootstrap with known IDs
+        // or search by materialized_path
+        Ok(1000 + (name.len() as u64)) // placeholder — replace with real lookup
+    }
+
+    fn generate_pipeline_container_id(&self, pipeline_id: PipelineID) -> u64 {
+        10000 + pipeline_id as u64   // offset so they don't collide with root/modality IDs
+    }
+}
+```
+
+### How This Fits the Vision
+
+- Every pipeline becomes a **real ZSEI container** → fully traversable.
+- You can now do queries like:
+  - “Find all pipelines under Modality/Code”
+  - “What experiences were created by Pipeline 101 (CodeAnalysis)?”
+  - Combined traversal across modality graphs and consciousness data.
+
+- The existing `PIPELINE_INFO` stays as the **compile-time source of truth** for metadata.
+- `PipelineRegistry` can query ZSEI for runtime containers when needed.
+
+**✅ Full `MethodologyStore` for ZSEI Integration**
+
+### 1. `methodologies/store.rs`
+
+```rust
+//! Methodology Store - ZSEI integration for methodologies
+//!
+//! Creates one ZSEI Container per methodology during bootstrap.
+//! Methodologies become first-class traversable entities under the
+//! logical hierarchy (e.g. /Modality/.../Methodology/...).
+
+use crate::zsei::{ZSEI, Container, ContainerType, GlobalState, LocalState, ContentReference};
+use crate::types::{OzoneResult, ContainerID};
+use serde_json::json;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
+
+pub struct MethodologyStore {
+    zsei: Arc<RwLock<ZSEI>>,
+    index_path: PathBuf,
+}
+
+impl MethodologyStore {
+    pub fn new(zsei: Arc<RwLock<ZSEI>>, index_path: PathBuf) -> Self {
+        Self { zsei, index_path }
+    }
+
+    /// Called from bootstrap — registers every methodology as a ZSEI Container
+    pub async fn register_all_methodologies(&self) -> OzoneResult<()> {
+        let index = self.load_methodology_index()?;
+
+        let zsei = self.zsei.write().await;
+
+        // Get or create the root for methodologies (under Modality or a top-level Methodology root)
+        let methodology_root_id = self.find_or_create_methodology_root(&zsei).await?;
+
+        for method in index.methodologies {
+            let container_id = self.generate_methodology_container_id(method.methodology_id);
+
+            let container = Container {
+                global_state: GlobalState {
+                    container_id,
+                    parent_id: methodology_root_id,
+                    child_ids: vec![],
+                    child_count: 0,
+                    version: 1,
+                },
+                local_state: LocalState {
+                    metadata: {
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("container_type".to_string(), json!("Methodology"));
+                        m.insert("name".to_string(), json!(method.name));
+                        m.insert("methodology_id".to_string(), json!(method.methodology_id));
+                        m.insert("file".to_string(), json!(method.file));
+                        m.insert("categories".to_string(), json!(method.categories));
+                        m
+                    },
+                    context: crate::types::container::Context {
+                        categories: method.categories.clone(),
+                        keywords: method.categories
+                            .iter()
+                            .map(|c| c.to_lowercase())
+                            .collect(),
+                        topics: vec![],
+                        relationships: vec![],
+                        learned_associations: vec![],
+                        embedding: None,
+                    },
+                    // Other fields default to empty
+                    ..Default::default()
+                },
+            };
+
+            // Link to the actual JSON file without copying content
+            // container.local_state.storage.content_ref = ContentReference::IndexReference { ... }
+
+            zsei.store_container(container).await?;
+        }
+
+        tracing::info!("Registered {} methodologies as ZSEI containers", index.methodologies.len());
+        Ok(())
+    }
+
+    fn load_methodology_index(&self) -> OzoneResult<MethodologyIndex> {
+        let content = std::fs::read_to_string(&self.index_path)
+            .map_err(|e| crate::OzoneError::StorageError(format!("Failed to read methodology index: {}", e)))?;
+
+        serde_json::from_str(&content)
+            .map_err(|e| crate::OzoneError::StorageError(format!("Failed to parse methodology index: {}", e)))
+    }
+
+    async fn find_or_create_methodology_root(&self, zsei: &ZSEI) -> OzoneResult<ContainerID> {
+        // You can make this more robust later (search by materialized_path)
+        // For now we assume bootstrap creates a known root ID for methodologies
+        // Example: 2000 = Methodology root
+        const METHODOLOGY_ROOT_ID: ContainerID = 2000;
+
+        // Ensure the root exists
+        if zsei.get_container(METHODOLOGY_ROOT_ID).await?.is_none() {
+            let root = Container {
+                global_state: GlobalState {
+                    container_id: METHODOLOGY_ROOT_ID,
+                    parent_id: 0, // under global root
+                    child_ids: vec![],
+                    child_count: 0,
+                    version: 1,
+                },
+                local_state: LocalState {
+                    metadata: {
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("container_type".to_string(), json!("MethodologyRoot"));
+                        m.insert("name".to_string(), json!("Methodologies"));
+                        m
+                    },
+                    ..Default::default()
+                },
+            };
+            zsei.store_container(root).await?;
+        }
+
+        Ok(METHODOLOGY_ROOT_ID)
+    }
+
+    fn generate_methodology_container_id(&self, methodology_id: u64) -> ContainerID {
+        30000 + methodology_id // offset to avoid collision with pipelines, etc.
+    }
+}
+
+// Simple index structure matching your current index.json
+#[derive(Debug, serde::Deserialize)]
+pub struct MethodologyIndex {
+    pub version: u64,
+    pub last_updated: u64,
+    pub methodology_count: usize,
+    pub methodologies: Vec<MethodologyEntry>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct MethodologyEntry {
+    pub methodology_id: u64,
+    pub name: String,
+    pub categories: Vec<String>,
+    pub file: String,
+}
+```
+
+### 2. How to Wire It In (Bootstrap)
+
+In your `BootstrapManager::run()` method, after copying the full folders, add:
+
+```rust
+// After copy_methodologies() and copy_pipelines()
+
+// Register methodologies as ZSEI containers
+let methodology_store = MethodologyStore::new(
+    runtime.zsei.clone(),
+    self.data_dir.join("methodologies/index.json")
+);
+methodology_store.register_all_methodologies().await?;
+```
+
+Do the same for blueprints and pipelines if you want them as containers too.
+
+### 3. ContainerType Addition
+
+Add these to your `ContainerType` enum:
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ContainerType {
+    Root,
+    Modality,
+    Category,
+    Methodology,           // ← new
+    Blueprint,             // ← new
+    Pipeline,              // ← new
+    PipelineGraph,
+    Experience,
+    // ... rest of your types
+}
+```
