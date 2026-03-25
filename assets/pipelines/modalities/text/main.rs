@@ -953,24 +953,21 @@ impl TextModalityPipeline {
     /// Clean a chunk via zero-shot LLM
     async fn clean_chunk(&self, chunk: RawChunk) -> TextModalityOutput {
         let clean_prompt = format!(
-            r#"Clean and normalize the following text. Fix any:
-- Spelling errors
-- Grammar issues
-- Formatting inconsistencies
-- Broken sentences or words from chunking
+            r#"Clean and normalize the following text chunk. Fix spelling errors, grammar issues, formatting inconsistencies, and broken words from chunking. Preserve the original meaning exactly.
 
-Preserve the meaning exactly. Return ONLY the cleaned text with no explanation.
+        TEXT TO CLEAN:
+        {}
 
-TEXT:
-{}"#,
+        Return ONLY valid JSON with no explanation, preamble, or markdown:
+        {{"cleaned_text": "the fully cleaned text here"}}"#,
             chunk.text
         );
 
         let clean_input = serde_json::json!({
             "prompt": clean_prompt,
-            "max_tokens": (chunk.token_count + 100) as u32,
+            "max_tokens": (chunk.token_count + 150) as u32,
             "temperature": 0.1,
-            "system_context": "You are a text cleaning assistant. Return only cleaned text with no explanation or preamble."
+            "system_context": "You are a text cleaning assistant. Return only valid JSON: {\"cleaned_text\": \"...\"}. No explanation. No markdown. No preamble."
         });
 
         match self.executor.execute(9, clean_input).await {
@@ -978,9 +975,14 @@ TEXT:
                 let cleaned_text = result
                     .get("response")
                     .and_then(|r| r.as_str())
-                    .unwrap_or(&chunk.text)
-                    .trim()
-                    .to_string();
+                    .map(|s| {
+                        let json_str = Self::extract_json_from_response(s, '{', '}');
+                        serde_json::from_str::<serde_json::Value>(&json_str)
+                            .ok()
+                            .and_then(|v| v.get("cleaned_text")?.as_str().map(|t| t.to_string()))
+                            .unwrap_or_else(|| chunk.text.clone())
+                    })
+                    .unwrap_or_else(|| chunk.text.clone());
 
                 TextModalityOutput {
                     success: true,
@@ -1003,33 +1005,19 @@ TEXT:
     /// Process a chunk: clean + extract keywords/entities/topics
     async fn process_chunk(&self, chunk: RawChunk) -> TextModalityOutput {
         // Step 1: Clean the chunk
-        let cleaned_text = {
-            let clean_prompt = format!(
-                r#"Clean and normalize the following text. Fix spelling, grammar, and formatting issues.
-Return ONLY the cleaned text.
-
-TEXT:
-{}"#,
-                chunk.text
-            );
-
-            let clean_input = serde_json::json!({
-                "prompt": clean_prompt,
-                "max_tokens": (chunk.token_count + 100) as u32,
-                "temperature": 0.1,
-                "system_context": "Return only cleaned text."
-            });
-
-            match self.executor.execute(9, clean_input).await {
-                Ok(result) => result
-                    .get("response")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or(&chunk.text)
-                    .trim()
-                    .to_string(),
-                Err(_) => chunk.text.clone(),
-            }
-        };
+        let clean_output = self
+            .clean_chunk(RawChunk {
+                index: chunk.index,
+                text: chunk.text.clone(),
+                start_char: chunk.start_char,
+                end_char: chunk.end_char,
+                token_count: chunk.token_count,
+                is_complete_paragraph: chunk.is_complete_paragraph,
+            })
+            .await;
+        let cleaned_text = clean_output
+            .cleaned_text
+            .unwrap_or_else(|| chunk.text.clone());
 
         // Step 2: Extract keywords via LLM
         let keywords = self.extract_keywords_from_text(&cleaned_text).await;
@@ -1111,7 +1099,7 @@ RESPOND ONLY WITH JSON ARRAY."#,
             "prompt": prompt,
             "max_tokens": 500,
             "temperature": 0.2,
-            "system_context": "Extract named entities. Respond only with valid JSON array."
+            "system_context": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
         });
 
         match self.executor.execute(9, input).await {
@@ -1157,7 +1145,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             "prompt": prompt,
             "max_tokens": 200,
             "temperature": 0.2,
-            "system_context": "Identify topics. Respond only with valid JSON array."
+            "system_context": "Output only a valid JSON array of strings. No explanation. No markdown. Start directly with [."
         });
 
         match self.executor.execute(9, input).await {
@@ -2041,14 +2029,14 @@ RESPOND ONLY WITH JSON."#,
 
     fn parse_json_array(s: &str) -> Option<Vec<String>> {
         let json_str = Self::extract_json_from_response(s, '[', ']');
-        serde_json::from_str::<Vec<String>>(&json_str).ok()
+        serde_json::from_str::<Vec<String>>(json_str.trim()).ok()
     }
 
     fn extract_json_from_response(s: &str, start_char: char, end_char: char) -> String {
         let trimmed = s.trim();
         if let Some(start) = trimmed.find(start_char) {
             if let Some(end) = trimmed.rfind(end_char) {
-                return trimmed[start..=end].to_string();
+                return trimmed[start..=end].trim().to_string();
             }
         }
         trimmed.to_string()
