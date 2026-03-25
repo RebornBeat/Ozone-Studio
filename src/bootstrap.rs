@@ -73,88 +73,64 @@ impl BootstrapManager {
     }
 
     /// Copy pipeline assets (index + any bundled pipelines)
+
     fn copy_pipelines(&self) -> OzoneResult<()> {
-        let src_index = self.assets_dir.join("pipelines").join("index.json");
-        let dst_index = self.data_dir.join("pipelines").join("index.json");
-
-        if src_index.exists() {
-            fs::copy(&src_index, &dst_index).map_err(|e| {
-                OzoneError::StorageError(format!("Failed to copy pipeline index: {}", e))
-            })?;
-            tracing::info!("Copied pipeline index");
-        } else {
-            // Generate default index if asset doesn't exist
-            self.generate_default_pipeline_index(&dst_index)?;
-        }
-
+        let src = self.assets_dir.join("pipelines");
+        let dst = self.data_dir.join("pipelines");
+        self.copy_dir_recursive(&src, &dst, "pipelines")?;
         Ok(())
     }
 
     /// Copy methodology assets
     fn copy_methodologies(&self) -> OzoneResult<()> {
-        let src_dir = self.assets_dir.join("methodologies");
-        let dst_dir = self.data_dir.join("methodologies");
-
-        if src_dir.exists() {
-            // Copy index
-            let src_index = src_dir.join("index.json");
-            let dst_index = dst_dir.join("index.json");
-            if src_index.exists() {
-                fs::copy(&src_index, &dst_index).map_err(|e| {
-                    OzoneError::StorageError(format!("Failed to copy methodology index: {}", e))
-                })?;
-            }
-
-            // Copy individual methodology files
-            if let Ok(entries) = fs::read_dir(&src_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map(|e| e == "json").unwrap_or(false) {
-                        let filename = path.file_name().unwrap();
-                        let dst_path = dst_dir.join(filename);
-                        fs::copy(&path, &dst_path).ok();
-                    }
-                }
-            }
-            tracing::info!("Copied methodology assets");
-        } else {
-            self.generate_default_methodology_index(&dst_dir.join("index.json"))?;
-        }
-
+        let src = self.assets_dir.join("methodologies");
+        let dst = self.data_dir.join("methodologies");
+        self.copy_dir_recursive(&src, &dst, "methodologies")?;
         Ok(())
     }
 
     /// Copy blueprint assets
     fn copy_blueprints(&self) -> OzoneResult<()> {
-        let src_dir = self.assets_dir.join("blueprints");
-        let dst_dir = self.data_dir.join("blueprints");
+        let src = self.assets_dir.join("blueprints");
+        let dst = self.data_dir.join("blueprints");
+        self.copy_dir_recursive(&src, &dst, "blueprints")?;
+        Ok(())
+    }
 
-        if src_dir.exists() {
-            // Copy index
-            let src_index = src_dir.join("index.json");
-            let dst_index = dst_dir.join("index.json");
-            if src_index.exists() {
-                fs::copy(&src_index, &dst_index).map_err(|e| {
-                    OzoneError::StorageError(format!("Failed to copy blueprint index: {}", e))
-                })?;
-            }
-
-            // Copy individual blueprint files
-            if let Ok(entries) = fs::read_dir(&src_dir) {
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().map(|e| e == "json").unwrap_or(false) {
-                        let filename = path.file_name().unwrap();
-                        let dst_path = dst_dir.join(filename);
-                        fs::copy(&path, &dst_path).ok();
-                    }
-                }
-            }
-            tracing::info!("Copied blueprint assets");
-        } else {
-            self.generate_default_blueprint_index(&dst_dir.join("index.json"))?;
+    /// Recursive copy helper (idempotent, logs what it does)
+    fn copy_dir_recursive(&self, src: &Path, dst: &Path, name: &str) -> OzoneResult<()> {
+        if !src.exists() {
+            tracing::warn!("No {} assets found at {}", name, src.display());
+            return Ok(());
         }
 
+        fs::create_dir_all(dst).map_err(|e| {
+            OzoneError::StorageError(format!("Failed to create {}: {}", dst.display(), e))
+        })?;
+
+        for entry in fs::read_dir(src)? {
+            let entry = entry?;
+            let src_path = entry.path();
+            let dst_path = dst.join(entry.file_name());
+
+            if entry.file_type()?.is_dir() {
+                self.copy_dir_recursive(&src_path, &dst_path, name)?;
+            } else {
+                fs::copy(&src_path, &dst_path).map_err(|e| {
+                    OzoneError::StorageError(format!(
+                        "Failed to copy {}: {}",
+                        src_path.display(),
+                        e
+                    ))
+                })?;
+            }
+        }
+
+        tracing::info!(
+            "Copied full {} structure (including UI components) → {}",
+            name,
+            dst.display()
+        );
         Ok(())
     }
 
