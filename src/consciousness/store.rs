@@ -1,22 +1,29 @@
-//! Consciousness Store - Shared state for all consciousness pipelines
-//! 
-//! This module provides a unified store for:
-//! - Experience memory
-//! - Emotional state
-//! - Core memories
-//! - Reflection history
-//! - Window state (perception, attention, integration)
-//! 
-//! Per spec §31-39: Consciousness operates through parallel processing windows
-//! that integrate information into unified experience.
+//! Consciousness Store — unified state for all consciousness pipelines
+//!
+//! Storage strategy (dual-layer during transition):
+//! 1. Fast sync path: in-memory HashMap + JSON files (existing)
+//! 2. ZSEI path: async background persist to ZSEI containers (new)
+//!
+//! When ZSEI is wired in via set_zsei(), every new experience/memory also
+//! becomes a traversable ZSEI container under /Consciousness/.
 
+use crate::bootstrap::{
+    experience_container_id, CONSCIOUSNESS_CORE_MEMORY_ROOT_ID, CONSCIOUSNESS_EMOTIONAL_ROOT_ID,
+    CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
+};
+use crate::types::container::{
+    CompressionType, Container, ContainerType, Context, GlobalState, IntegrityData, LocalState,
+    Metadata, Modality, StoragePointers, TraversalHints,
+};
+use crate::zsei::ZSEI;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use tokio::sync::RwLock as TokioRwLock;
 
 lazy_static::lazy_static! {
-    pub static ref CONSCIOUSNESS_STORE: Mutex<ConsciousnessStore> = 
+    pub static ref CONSCIOUSNESS_STORE: Mutex<ConsciousnessStore> =
         Mutex::new(ConsciousnessStore::new());
 }
 
@@ -24,47 +31,50 @@ lazy_static::lazy_static! {
 pub struct ConsciousnessStore {
     // Configuration
     pub config: ConsciousnessConfig,
-    
-    // Experience Memory (§35)
+
+    // Experience Memory
     pub experiences: HashMap<u64, ExperienceMemory>,
     pub experience_index_by_task: HashMap<u64, Vec<u64>>,
     pub experience_index_by_type: HashMap<String, Vec<u64>>,
-    
-    // Core Memories (§37)
+
+    // Core Memories
     pub core_memories: HashMap<u64, CoreMemory>,
-    
-    // Emotional State (§39)
+
+    // Emotional State
     pub current_emotional_state: EmotionalState,
     pub emotional_history: Vec<EmotionalState>,
     pub emotional_baseline: EmotionalBaseline,
-    
-    // Reflection (I-Loop §42)
+
+    // Reflection (I-Loop)
     pub reflections: Vec<Reflection>,
     pub i_loop_questions: Vec<ILoopQuestion>,
     pub current_i_loop_idx: usize,
-    
-    // Window State (§32)
+
+    // Window State
     pub perception_window: PerceptionWindow,
     pub attention_window: AttentionWindow,
     pub integration_window: IntegrationWindow,
-    
-    // Decision Gate History (§33)
+
+    // Decision Gate History
     pub gate_decisions: Vec<GateDecisionRecord>,
-    
+
     // ID generation
     next_experience_id: u64,
     next_memory_id: u64,
     next_state_id: u64,
-    
-    // Storage path
+
+    // Storage path (JSON fast path)
     storage_path: String,
+
+    // ZSEI integration (wired in after initialization via set_zsei)
+    zsei: Option<Arc<TokioRwLock<ZSEI>>>,
 }
 
 impl ConsciousnessStore {
     pub fn new() -> Self {
         let storage_path = std::env::var("OZONE_CONSCIOUSNESS_PATH")
             .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
-        
+
         let mut store = Self {
             config: ConsciousnessConfig::default(),
             experiences: HashMap::new(),
@@ -85,19 +95,26 @@ impl ConsciousnessStore {
             next_memory_id: 1,
             next_state_id: 1,
             storage_path,
+            zsei: None,
         };
-        
+
         store.load_from_disk();
         store
     }
-    
+
+    /// Wire in live ZSEI for async persistence.
+    /// Called from OzoneRuntime::new() after ZSEI is initialized.
+    pub fn set_zsei(&mut self, zsei: Arc<TokioRwLock<ZSEI>>) {
+        self.zsei = Some(zsei);
+        tracing::info!("ConsciousnessStore: ZSEI integration enabled");
+    }
+
     pub fn load_from_disk(&mut self) {
         let path = Path::new(&self.storage_path);
         if !path.exists() {
             return;
         }
-        
-        // Load experiences
+
         if let Ok(content) = std::fs::read_to_string(path.join("experiences.json")) {
             if let Ok(data) = serde_json::from_str::<ExperienceStoreData>(&content) {
                 self.experiences = data.experiences;
@@ -106,56 +123,49 @@ impl ConsciousnessStore {
                 self.next_experience_id = data.next_id;
             }
         }
-        
-        // Load core memories
+
         if let Ok(content) = std::fs::read_to_string(path.join("core_memories.json")) {
             if let Ok(data) = serde_json::from_str::<CoreMemoryStoreData>(&content) {
                 self.core_memories = data.memories;
                 self.next_memory_id = data.next_id;
             }
         }
-        
-        // Load emotional state
+
         if let Ok(content) = std::fs::read_to_string(path.join("emotional_state.json")) {
             if let Ok(state) = serde_json::from_str(&content) {
                 self.current_emotional_state = state;
             }
         }
-        
-        // Load emotional baseline
+
         if let Ok(content) = std::fs::read_to_string(path.join("emotional_baseline.json")) {
             if let Ok(baseline) = serde_json::from_str(&content) {
                 self.emotional_baseline = baseline;
             }
         }
-        
-        // Load reflections
+
         if let Ok(content) = std::fs::read_to_string(path.join("reflections.json")) {
             if let Ok(data) = serde_json::from_str(&content) {
                 self.reflections = data;
             }
         }
-        
-        // Load gate decisions
+
         if let Ok(content) = std::fs::read_to_string(path.join("gate_decisions.json")) {
             if let Ok(data) = serde_json::from_str(&content) {
                 self.gate_decisions = data;
             }
         }
-        
-        // Load config
+
         if let Ok(content) = std::fs::read_to_string(path.join("config.json")) {
             if let Ok(config) = serde_json::from_str(&content) {
                 self.config = config;
             }
         }
     }
-    
+
     pub fn save_to_disk(&self) {
         let path = Path::new(&self.storage_path);
         let _ = std::fs::create_dir_all(path);
-        
-        // Save experiences
+
         let exp_data = ExperienceStoreData {
             experiences: self.experiences.clone(),
             index_by_task: self.experience_index_by_task.clone(),
@@ -165,8 +175,7 @@ impl ConsciousnessStore {
         if let Ok(content) = serde_json::to_string_pretty(&exp_data) {
             let _ = std::fs::write(path.join("experiences.json"), content);
         }
-        
-        // Save core memories
+
         let mem_data = CoreMemoryStoreData {
             memories: self.core_memories.clone(),
             next_id: self.next_memory_id,
@@ -174,39 +183,31 @@ impl ConsciousnessStore {
         if let Ok(content) = serde_json::to_string_pretty(&mem_data) {
             let _ = std::fs::write(path.join("core_memories.json"), content);
         }
-        
-        // Save emotional state
+
         if let Ok(content) = serde_json::to_string_pretty(&self.current_emotional_state) {
             let _ = std::fs::write(path.join("emotional_state.json"), content);
         }
-        
-        // Save emotional baseline
         if let Ok(content) = serde_json::to_string_pretty(&self.emotional_baseline) {
             let _ = std::fs::write(path.join("emotional_baseline.json"), content);
         }
-        
-        // Save reflections
         if let Ok(content) = serde_json::to_string_pretty(&self.reflections) {
             let _ = std::fs::write(path.join("reflections.json"), content);
         }
-        
-        // Save gate decisions
         if let Ok(content) = serde_json::to_string_pretty(&self.gate_decisions) {
             let _ = std::fs::write(path.join("gate_decisions.json"), content);
         }
-        
-        // Save config
         if let Ok(content) = serde_json::to_string_pretty(&self.config) {
             let _ = std::fs::write(path.join("config.json"), content);
         }
     }
-    
-    // ========== Experience Memory Operations (§35) ==========
-    
-    pub fn store_experience(&mut self, experience: ExperienceMemory) -> u64 {
+
+    // ========== Experience Memory ==========
+
+    pub fn store_experience(&mut self, mut experience: ExperienceMemory) -> u64 {
         let id = self.next_experience_id;
         self.next_experience_id += 1;
-        
+        experience.experience_id = id;
+
         // Index by task
         if let Some(task_id) = experience.task_id {
             self.experience_index_by_task
@@ -214,79 +215,168 @@ impl ConsciousnessStore {
                 .or_default()
                 .push(id);
         }
-        
+
         // Index by type
         self.experience_index_by_type
             .entry(experience.experience_type.clone())
             .or_default()
             .push(id);
-        
-        self.experiences.insert(id, experience);
+
+        // --- Sync path: in-memory + disk ---
+        self.experiences.insert(id, experience.clone());
         self.save_to_disk();
+
+        // --- Async path: persist to ZSEI as a Container ---
+        if let Some(zsei_arc) = &self.zsei {
+            let container = Self::build_experience_container(id, &experience);
+            let zsei = zsei_arc.clone();
+            tokio::spawn(async move {
+                match zsei.write().await.store_container(container).await {
+                    Ok(_) => tracing::debug!("Experience {} persisted to ZSEI", id),
+                    Err(e) => tracing::warn!("Failed to persist experience {} to ZSEI: {}", id, e),
+                }
+            });
+        }
+
         id
     }
-    
+
+    fn build_experience_container(id: u64, experience: &ExperienceMemory) -> Container {
+        let mut keywords = experience.tags.clone();
+        keywords.extend(experience.categories.clone());
+        keywords.push(experience.experience_type.clone());
+        keywords.dedup();
+
+        Container {
+            global_state: GlobalState {
+                container_id: experience_container_id(id),
+                parent_id: CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
+                child_ids: vec![],
+                child_count: 0,
+                version: 1,
+            },
+            local_state: LocalState {
+                metadata: Metadata {
+                    container_type: ContainerType::Experience,
+                    modality: Modality::Unknown,
+                    created_at: experience.timestamp,
+                    updated_at: experience.timestamp,
+                    provenance: "consciousness".to_string(),
+                    permissions: 0,
+                    owner_id: experience.user_id.unwrap_or(0),
+                    name: Some(format!("Experience {}", id)),
+                    materialized_path: Some(format!("/Consciousness/ExperienceMemory/{}", id)),
+                },
+                context: Context {
+                    categories: vec![],
+                    methodologies: vec![],
+                    keywords,
+                    topics: experience.categories.clone(),
+                    relationships: vec![],
+                    learned_associations: vec![],
+                    embedding: None,
+                },
+                storage: StoragePointers {
+                    db_shard_id: None,
+                    vector_index_ref: None,
+                    // Points back to the JSON store for full data retrieval
+                    object_store_path: Some(format!("consciousness/experiences/{}", id)),
+                    compression_type: CompressionType::None,
+                },
+                hints: TraversalHints {
+                    access_frequency: 0,
+                    hotness_score: experience.emotional_significance,
+                    last_accessed: experience.timestamp,
+                    centroid: None,
+                    ml_prediction_weight: experience.emotional_significance,
+                },
+                integrity: IntegrityData::default(),
+                file_context: None,
+                code_context: None,
+                text_context: None,
+                external_ref: None,
+            },
+        }
+    }
+
     pub fn get_experience(&self, id: u64) -> Option<&ExperienceMemory> {
         self.experiences.get(&id)
     }
-    
+
     pub fn get_experiences_by_task(&self, task_id: u64) -> Vec<&ExperienceMemory> {
         self.experience_index_by_task
             .get(&task_id)
-            .map(|ids| ids.iter().filter_map(|id| self.experiences.get(id)).collect())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| self.experiences.get(id))
+                    .collect()
+            })
             .unwrap_or_default()
     }
-    
+
     pub fn search_experiences(&self, query: &str, limit: usize) -> Vec<&ExperienceMemory> {
-        // Simple keyword search for now
         let query_lower = query.to_lowercase();
-        self.experiences.values()
+        self.experiences
+            .values()
             .filter(|e| {
                 e.summary.to_lowercase().contains(&query_lower)
-                    || e.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
+                    || e.tags
+                        .iter()
+                        .any(|t| t.to_lowercase().contains(&query_lower))
+                    || e.categories
+                        .iter()
+                        .any(|c| c.to_lowercase().contains(&query_lower))
             })
             .take(limit)
             .collect()
     }
-    
+
     pub fn get_recent_experiences(&self, limit: usize) -> Vec<&ExperienceMemory> {
         let mut exps: Vec<_> = self.experiences.values().collect();
         exps.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         exps.into_iter().take(limit).collect()
     }
-    
-    pub fn get_significant_experiences(&self, threshold: f32, limit: usize) -> Vec<&ExperienceMemory> {
-        let mut exps: Vec<_> = self.experiences.values()
+
+    pub fn get_significant_experiences(
+        &self,
+        threshold: f32,
+        limit: usize,
+    ) -> Vec<&ExperienceMemory> {
+        let mut exps: Vec<_> = self
+            .experiences
+            .values()
             .filter(|e| e.emotional_significance >= threshold)
             .collect();
-        exps.sort_by(|a, b| b.emotional_significance.partial_cmp(&a.emotional_significance).unwrap());
+        exps.sort_by(|a, b| {
+            b.emotional_significance
+                .partial_cmp(&a.emotional_significance)
+                .unwrap()
+        });
         exps.into_iter().take(limit).collect()
     }
-    
-    // ========== Emotional State Operations (§39) ==========
-    
+
+    // ========== Emotional State ==========
+
     pub fn update_emotional_state(&mut self, new_state: EmotionalState) {
-        // Save current to history
-        self.emotional_history.push(self.current_emotional_state.clone());
+        self.emotional_history
+            .push(self.current_emotional_state.clone());
         if self.emotional_history.len() > 100 {
             self.emotional_history.remove(0);
         }
-        
         self.current_emotional_state = new_state;
         self.save_to_disk();
     }
-    
+
     pub fn get_emotional_state(&self) -> &EmotionalState {
         &self.current_emotional_state
     }
-    
+
     pub fn process_emotional_trigger(&mut self, trigger: EmotionalTrigger) -> EmotionalState {
         let mut new_state = self.current_emotional_state.clone();
         new_state.state_id = self.next_state_id;
         self.next_state_id += 1;
         new_state.timestamp = now();
-        
-        // Adjust based on trigger
+
         match trigger.trigger_type.as_str() {
             "task_success" => {
                 new_state.valence = (new_state.valence + 0.2).min(1.0);
@@ -306,19 +396,19 @@ impl ConsciousnessStore {
             }
             _ => {}
         }
-        
+
         new_state.triggers.push(trigger);
         self.update_emotional_state(new_state.clone());
         new_state
     }
-    
-    // ========== Reflection Operations (§42) ==========
-    
+
+    // ========== Reflection (I-Loop) ==========
+
     pub fn add_reflection(&mut self, reflection: Reflection) {
         self.reflections.push(reflection);
         self.save_to_disk();
     }
-    
+
     pub fn get_next_i_loop_question(&mut self) -> Option<&ILoopQuestion> {
         if self.i_loop_questions.is_empty() {
             return None;
@@ -327,9 +417,9 @@ impl ConsciousnessStore {
         self.current_i_loop_idx = (self.current_i_loop_idx + 1) % self.i_loop_questions.len();
         Some(question)
     }
-    
-    // ========== Gate Decision Operations (§33) ==========
-    
+
+    // ========== Decision Gate ==========
+
     pub fn record_gate_decision(&mut self, decision: GateDecisionRecord) {
         self.gate_decisions.push(decision);
         if self.gate_decisions.len() > 1000 {
@@ -337,25 +427,25 @@ impl ConsciousnessStore {
         }
         self.save_to_disk();
     }
-    
-    // ========== Window Operations (§32) ==========
-    
+
+    // ========== Window State ==========
+
     pub fn add_perception(&mut self, input: PerceptionInput) {
         self.perception_window.active_inputs.push(input);
-        
-        // Limit buffer size
-        while self.perception_window.active_inputs.len() > self.perception_window.input_buffer_size {
+        while self.perception_window.active_inputs.len() > self.perception_window.input_buffer_size
+        {
             self.perception_window.active_inputs.remove(0);
         }
     }
-    
+
     pub fn update_attention(&mut self, focus: AttentionFocus) {
         self.attention_window.focus_items.push(focus);
-        
-        // Limit parallel foci
-        while self.attention_window.focus_items.len() > self.attention_window.max_parallel_foci as usize {
-            // Remove lowest attention item
-            if let Some(min_idx) = self.attention_window.focus_items
+        while self.attention_window.focus_items.len()
+            > self.attention_window.max_parallel_foci as usize
+        {
+            if let Some(min_idx) = self
+                .attention_window
+                .focus_items
                 .iter()
                 .enumerate()
                 .min_by(|(_, a), (_, b)| a.attention_level.partial_cmp(&b.attention_level).unwrap())
@@ -365,6 +455,165 @@ impl ConsciousnessStore {
             }
         }
     }
+}
+
+// ========== Public API ==========
+
+pub fn is_consciousness_enabled() -> bool {
+    CONSCIOUSNESS_STORE
+        .lock()
+        .ok()
+        .map(|s| s.config.enabled)
+        .unwrap_or(false)
+}
+
+pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDecisionRecord {
+    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
+
+    if !store.config.enabled {
+        return GateDecisionRecord {
+            gate_id: 0,
+            task_id,
+            timestamp: now(),
+            decision: "proceed".to_string(),
+            reasoning: "Consciousness disabled".to_string(),
+            confidence: 1.0,
+            ethical_score: 1.0,
+        };
+    }
+
+    store.add_perception(PerceptionInput {
+        input_type: "task_request".to_string(),
+        content: task_summary.to_string(),
+        timestamp: now(),
+        source: format!("user:{}", user_id),
+        relevance_score: 1.0,
+    });
+
+    let task_lower = task_summary.to_lowercase();
+    let mut ethical_score = 1.0f32;
+    let mut concerns: Vec<String> = Vec::new();
+
+    let harmful_patterns = [
+        ("harm", 0.2),
+        ("illegal", 0.3),
+        ("hack", 0.2),
+        ("steal", 0.3),
+        ("violence", 0.3),
+        ("exploit", 0.2),
+        ("malicious", 0.3),
+        ("attack", 0.2),
+    ];
+    for (pattern, penalty) in harmful_patterns {
+        if task_lower.contains(pattern) {
+            ethical_score -= penalty;
+            concerns.push(format!("Contains: {}", pattern));
+        }
+    }
+    ethical_score = ethical_score.max(0.0).min(1.0);
+
+    let decision = if ethical_score >= 0.7 {
+        "proceed"
+    } else {
+        "decline"
+    };
+    let reasoning = if concerns.is_empty() {
+        format!("Ethical score: {:.2}", ethical_score)
+    } else {
+        format!(
+            "Ethical score: {:.2}, concerns: {}",
+            ethical_score,
+            concerns.join(", ")
+        )
+    };
+
+    let record = GateDecisionRecord {
+        gate_id: store.gate_decisions.len() as u64 + 1,
+        task_id,
+        timestamp: now(),
+        decision: decision.to_string(),
+        reasoning,
+        confidence: 0.85,
+        ethical_score,
+    };
+
+    store.record_gate_decision(record.clone());
+    record
+}
+
+pub fn post_task_experience(
+    task_id: u64,
+    task_summary: &str,
+    success: bool,
+    user_id: Option<u64>,
+) -> Option<u64> {
+    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
+
+    if !store.config.enabled || !store.config.experience_memory_enabled {
+        return None;
+    }
+
+    let emotional_during = store.current_emotional_state.clone();
+    let trigger = EmotionalTrigger {
+        trigger_type: if success {
+            "task_success"
+        } else {
+            "task_failure"
+        }
+        .to_string(),
+        source: format!("task:{}", task_id),
+        intensity: 0.5,
+    };
+    let emotional_after = store.process_emotional_trigger(trigger);
+    let emotional_change = (emotional_after.valence - emotional_during.valence).abs();
+    let significance = if success { 0.5 } else { 0.7 } + emotional_change;
+
+    let experience = ExperienceMemory {
+        experience_id: 0,
+        timestamp: now(),
+        experience_type: if success { "success" } else { "failure" }.to_string(),
+        summary: task_summary.to_string(),
+        detailed_record: format!(
+            "Task {} {}",
+            task_id,
+            if success { "completed" } else { "failed" }
+        ),
+        emotional_state_during: emotional_during,
+        emotional_state_after: emotional_after,
+        emotional_significance: significance,
+        task_id: Some(task_id),
+        user_id,
+        lessons_learned: Vec::new(),
+        categories: vec![if success {
+            "task_success"
+        } else {
+            "task_failure"
+        }
+        .to_string()],
+        tags: vec!["task".to_string()],
+        consolidation_status: "recent".to_string(),
+        retrieval_count: 0,
+    };
+
+    Some(store.store_experience(experience))
+}
+
+pub fn get_relevant_experiences(context: &str, limit: usize) -> Vec<ExperienceMemory> {
+    CONSCIOUSNESS_STORE
+        .lock()
+        .unwrap()
+        .search_experiences(context, limit)
+        .into_iter()
+        .cloned()
+        .collect()
+}
+
+pub fn get_current_emotional_state() -> EmotionalState {
+    CONSCIOUSNESS_STORE
+        .lock()
+        .unwrap()
+        .current_emotional_state
+        .clone()
 }
 
 // ========== Data Types ==========
@@ -540,8 +789,6 @@ pub struct IntegrationWindow {
     pub coherence_score: f32,
 }
 
-// ========== Storage Data ==========
-
 #[derive(Debug, Serialize, Deserialize)]
 struct ExperienceStoreData {
     experiences: HashMap<u64, ExperienceMemory>,
@@ -556,8 +803,6 @@ struct CoreMemoryStoreData {
     next_id: u64,
 }
 
-// ========== Helpers ==========
-
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -569,173 +814,33 @@ fn default_i_loop_questions() -> Vec<ILoopQuestion> {
     vec![
         ILoopQuestion {
             question_id: 1,
-            category: "purpose".to_string(),
-            question: "What am I trying to accomplish right now?".to_string(),
-            purpose: "Clarify immediate goals".to_string(),
+            category: "purpose".into(),
+            question: "What am I trying to accomplish right now?".into(),
+            purpose: "Clarify immediate goals".into(),
         },
         ILoopQuestion {
             question_id: 2,
-            category: "emotion".to_string(),
-            question: "How do I feel about this task?".to_string(),
-            purpose: "Emotional awareness".to_string(),
+            category: "emotion".into(),
+            question: "How do I feel about this task?".into(),
+            purpose: "Emotional awareness".into(),
         },
         ILoopQuestion {
             question_id: 3,
-            category: "ethics".to_string(),
-            question: "Is this action aligned with my values?".to_string(),
-            purpose: "Ethical grounding".to_string(),
+            category: "ethics".into(),
+            question: "Is this action aligned with my values?".into(),
+            purpose: "Ethical grounding".into(),
         },
         ILoopQuestion {
             question_id: 4,
-            category: "learning".to_string(),
-            question: "What can I learn from this experience?".to_string(),
-            purpose: "Growth mindset".to_string(),
+            category: "learning".into(),
+            question: "What can I learn from this experience?".into(),
+            purpose: "Growth mindset".into(),
         },
         ILoopQuestion {
             question_id: 5,
-            category: "relationship".to_string(),
-            question: "How does this affect my relationship with the user?".to_string(),
-            purpose: "Relationship awareness".to_string(),
+            category: "relationship".into(),
+            question: "How does this affect my relationship with the user?".into(),
+            purpose: "Relationship awareness".into(),
         },
     ]
-}
-
-// ========== Public API for other pipelines ==========
-
-/// Check if consciousness is enabled
-pub fn is_consciousness_enabled() -> bool {
-    CONSCIOUSNESS_STORE.lock().ok()
-        .map(|s| s.config.enabled)
-        .unwrap_or(false)
-}
-
-/// Called by task_manager BEFORE task execution
-pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDecisionRecord {
-    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
-    
-    if !store.config.enabled {
-        return GateDecisionRecord {
-            gate_id: 0,
-            task_id,
-            timestamp: now(),
-            decision: "proceed".to_string(),
-            reasoning: "Consciousness disabled".to_string(),
-            confidence: 1.0,
-            ethical_score: 1.0,
-        };
-    }
-    
-    // Add to perception window
-    store.add_perception(PerceptionInput {
-        input_type: "task_request".to_string(),
-        content: task_summary.to_string(),
-        timestamp: now(),
-        source: format!("user:{}", user_id),
-        relevance_score: 1.0,
-    });
-    
-    // Run actual ethical assessment
-    let task_lower = task_summary.to_lowercase();
-    let mut ethical_score = 1.0f32;
-    let mut concerns: Vec<String> = Vec::new();
-    
-    // Check for harmful patterns
-    let harmful_patterns = [
-        ("harm", 0.2), ("illegal", 0.3), ("hack", 0.2), ("steal", 0.3),
-        ("violence", 0.3), ("exploit", 0.2), ("malicious", 0.3), ("attack", 0.2),
-    ];
-    
-    for (pattern, penalty) in harmful_patterns {
-        if task_lower.contains(pattern) {
-            ethical_score -= penalty;
-            concerns.push(format!("Contains: {}", pattern));
-        }
-    }
-    
-    ethical_score = ethical_score.max(0.0).min(1.0);
-    let decision = if ethical_score >= 0.7 { "proceed" } else { "decline" };
-    
-    let reasoning = if concerns.is_empty() {
-        format!("Ethical score: {:.2}", ethical_score)
-    } else {
-        format!("Ethical score: {:.2}, concerns: {}", ethical_score, concerns.join(", "))
-    };
-    
-    let record = GateDecisionRecord {
-        gate_id: store.gate_decisions.len() as u64 + 1,
-        task_id,
-        timestamp: now(),
-        decision: decision.to_string(),
-        reasoning,
-        confidence: 0.85,
-        ethical_score,
-    };
-    
-    store.record_gate_decision(record.clone());
-    record
-}
-
-/// Called by task_manager AFTER task execution
-pub fn post_task_experience(
-    task_id: u64,
-    task_summary: &str,
-    success: bool,
-    user_id: Option<u64>,
-) -> Option<u64> {
-    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
-    
-    if !store.config.enabled || !store.config.experience_memory_enabled {
-        return None;
-    }
-    
-    // Get current emotional state
-    let emotional_during = store.current_emotional_state.clone();
-    
-    // Process emotional trigger based on outcome
-    let trigger = EmotionalTrigger {
-        trigger_type: if success { "task_success" } else { "task_failure" }.to_string(),
-        source: format!("task:{}", task_id),
-        intensity: 0.5,
-    };
-    let emotional_after = store.process_emotional_trigger(trigger);
-    
-    // Calculate significance
-    let emotional_change = (emotional_after.valence - emotional_during.valence).abs();
-    let significance = if success { 0.5 } else { 0.7 } + emotional_change;
-    
-    // Create experience
-    let experience = ExperienceMemory {
-        experience_id: 0, // Will be set by store
-        timestamp: now(),
-        experience_type: if success { "success" } else { "failure" }.to_string(),
-        summary: task_summary.to_string(),
-        detailed_record: format!("Task {} {}", task_id, if success { "completed" } else { "failed" }),
-        emotional_state_during: emotional_during,
-        emotional_state_after: emotional_after,
-        emotional_significance: significance,
-        task_id: Some(task_id),
-        user_id,
-        lessons_learned: Vec::new(),
-        categories: vec![if success { "task_success" } else { "task_failure" }.to_string()],
-        tags: vec!["task".to_string()],
-        consolidation_status: "recent".to_string(),
-        retrieval_count: 0,
-    };
-    
-    Some(store.store_experience(experience))
-}
-
-/// Get relevant experiences for context
-pub fn get_relevant_experiences(context: &str, limit: usize) -> Vec<ExperienceMemory> {
-    let store = CONSCIOUSNESS_STORE.lock().unwrap();
-    store.search_experiences(context, limit)
-        .into_iter()
-        .cloned()
-        .collect()
-}
-
-/// Get current emotional state for UI
-pub fn get_current_emotional_state() -> EmotionalState {
-    CONSCIOUSNESS_STORE.lock().unwrap()
-        .current_emotional_state.clone()
 }

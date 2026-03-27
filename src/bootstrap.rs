@@ -8,6 +8,50 @@ use crate::types::{OzoneError, OzoneResult};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+// ============================================================================
+// RESERVED CONTAINER IDs — structural roots of the ZSEI hierarchy
+// IDs 0-9: system roots
+// IDs 10-19: modality nodes
+// IDs 20-31: consciousness sphere roots
+// IDs 30000+: methodology containers (30000 + methodology_id)
+// IDs 40000+: blueprint containers (40000 + blueprint_id)
+// IDs 10000+: pipeline containers (10000 + pipeline_id)
+// IDs 100000+: runtime containers (experiences, graphs, etc.)
+// ============================================================================
+pub const ROOT_CONTAINER_ID: u64 = 0;
+pub const MODALITY_ROOT_ID: u64 = 1;
+pub const METHODOLOGY_ROOT_ID: u64 = 2;
+pub const BLUEPRINT_ROOT_ID: u64 = 3;
+pub const PIPELINE_ROOT_ID: u64 = 4;
+pub const CONSCIOUSNESS_ROOT_ID: u64 = 5;
+pub const EXTERNAL_ROOT_ID: u64 = 6;
+
+// Modality nodes under /Modality/
+pub const MODALITY_TEXT_ID: u64 = 10;
+pub const MODALITY_CODE_ID: u64 = 11;
+pub const MODALITY_IMAGE_ID: u64 = 12;
+pub const MODALITY_AUDIO_ID: u64 = 13;
+pub const MODALITY_VIDEO_ID: u64 = 14;
+pub const MODALITY_MATH_ID: u64 = 15;
+pub const MODALITY_CHEMISTRY_ID: u64 = 16;
+pub const MODALITY_DNA_ID: u64 = 17;
+pub const MODALITY_EEG_ID: u64 = 18;
+
+// Consciousness sphere roots under /Consciousness/
+pub const CONSCIOUSNESS_EXPERIENCE_ROOT_ID: u64 = 20;
+pub const CONSCIOUSNESS_CORE_MEMORY_ROOT_ID: u64 = 21;
+pub const CONSCIOUSNESS_EMOTIONAL_ROOT_ID: u64 = 22;
+pub const CONSCIOUSNESS_IDENTITY_ROOT_ID: u64 = 23;
+pub const CONSCIOUSNESS_METACOGNITION_ROOT_ID: u64 = 24;
+pub const CONSCIOUSNESS_RELATIONSHIPS_ROOT_ID: u64 = 25;
+pub const CONSCIOUSNESS_ETHICS_ROOT_ID: u64 = 26;
+pub const CONSCIOUSNESS_NARRATIVES_ROOT_ID: u64 = 27;
+pub const CONSCIOUSNESS_COLLECTIVE_ROOT_ID: u64 = 28;
+
+// External roots
+pub const EXTERNAL_PACKAGES_ROOT_ID: u64 = 30;
+pub const EXTERNAL_URLS_ROOT_ID: u64 = 31;
+
 /// Bootstrap manager for first-run setup
 pub struct BootstrapManager {
     config: OzoneConfig,

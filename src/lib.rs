@@ -102,6 +102,39 @@ impl OzoneRuntime {
         // Initialize ZSEI
         let zsei = zsei::ZSEI::new(&config.zsei)?;
 
+        let zsei_arc = Arc::new(RwLock::new(zsei));
+
+        // --- Register artifacts as ZSEI containers (idempotent, runs every startup) ---
+        {
+            let methodology_store = crate::methodologies::store::MethodologyStore::new(
+                zsei_arc.clone(),
+                std::path::PathBuf::from(&config.zsei.methodology_index_path),
+            );
+            if let Err(e) = methodology_store.register_all().await {
+                tracing::warn!("Methodology ZSEI registration: {}", e);
+            }
+
+            let blueprint_store = crate::blueprints::store::BlueprintStore::new(
+                zsei_arc.clone(),
+                std::path::PathBuf::from(&config.zsei.blueprint_index_path),
+            );
+            if let Err(e) = blueprint_store.register_all().await {
+                tracing::warn!("Blueprint ZSEI registration: {}", e);
+            }
+
+            let pipeline_store = crate::pipeline::store::PipelineStore::new(zsei_arc.clone());
+            if let Err(e) = pipeline_store.register_all().await {
+                tracing::warn!("Pipeline ZSEI registration: {}", e);
+            }
+        }
+
+        // Wire ZSEI into ConsciousnessStore (so experiences persist to ZSEI)
+        {
+            if let Ok(mut store) = crate::consciousness::CONSCIOUSNESS_STORE.lock() {
+                store.set_zsei(zsei_arc.clone());
+            }
+        }
+
         // Initialize pipeline registry
         let pipeline_registry = pipeline::PipelineRegistry::new(&config.pipelines)?;
 

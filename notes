@@ -1341,3 +1341,8 @@ In `PipelineRegistry` or wherever you need blueprint access, inject the `Bluepri
             // For now, just create the directory
             let _ = fs::create_dir_all(consciousness_dir.join(sphere));
         }
+
+
+now in our amt layer by layer build or in our text modality when processing chunks we know obtain all modalities in a chunk extract all modalities in a chunk it may be text because the text modality being processed in the text in prompt which is just that text and inside that text it can include modalities again reconfirming text modalities and others we want to identify all modalities per chunk this is used to build relationships as we have stated then after the AMT is built or during
+
+IN our text modality when processing chunks we can identify the start of the first chunk or the start of what is n the chunk for identifying the end cmpletion of the prior chunk if not the first chunk in relations to our windowed processing to ensure we aren't cutting anythign off a sentence mid sentence or etc while cleaning chunks/
