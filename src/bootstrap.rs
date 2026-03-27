@@ -76,20 +76,20 @@ impl BootstrapManager {
         // 1. Create directory structure
         self.create_directories()?;
 
-        // 2. Copy pipeline index and built-in pipelines
+        // 2. Create Consciousness Spheres Directories
+        self.create_consciousness_directories()?;
+
+        // 3. Copy pipeline index and built-in pipelines
         self.copy_pipelines()?;
 
-        // 3. Copy methodology index and built-in methodologies
+        // 4. Copy methodology index and built-in methodologies
         self.copy_methodologies()?;
 
-        // 4. Copy blueprint index and built-in blueprints
+        // 5. Copy blueprint index and built-in blueprints
         self.copy_blueprints()?;
 
-        // 5. Initialize root container in ZSEI
-        self.initialize_root_container()?;
-
-        // 6. Initialize Root Consciousness Spheres in ZSEI
-        self.initialize_consciousness_roots()?;
+        // 6. Initialize root container in ZSEI
+        self.create_zsei_root_containers()?;
 
         tracing::info!("Bootstrap complete!");
         Ok(())
@@ -116,6 +116,35 @@ impl BootstrapManager {
             tracing::debug!("Created directory: {}", dir.display());
         }
 
+        Ok(())
+    }
+
+    fn create_consciousness_directories(&self) -> OzoneResult<()> {
+        let consciousness_dir = self.data_dir.join("consciousness");
+        fs::create_dir_all(&consciousness_dir)?;
+
+        let spheres = [
+            "ExperienceMemory",
+            "CoreMemories",
+            "EmotionalContext",
+            "Identity",
+            "Metacognition",
+            "Relationships",
+            "Ethics",
+            "Narratives",
+            "Collective",
+        ];
+
+        for sphere in spheres {
+            fs::create_dir_all(consciousness_dir.join(sphere)).map_err(|e| {
+                OzoneError::StorageError(format!(
+                    "Failed to create consciousness/{}: {}",
+                    sphere, e
+                ))
+            })?;
+        }
+
+        tracing::info!("Initialized consciousness directory structure");
         Ok(())
     }
 
@@ -181,94 +210,230 @@ impl BootstrapManager {
         Ok(())
     }
 
-    /// Initialize root container (container ID 0)
-    fn initialize_root_container(&self) -> OzoneResult<()> {
-        let root_path = self.data_dir.join("local").join("0.json");
+    fn create_zsei_root_containers(&self) -> OzoneResult<()> {
+        // These containers are created as JSON files in local/ directly
+        // They are also referenced in the mmap global state via next_id tracking
 
-        if !root_path.exists() {
-            let root_container = serde_json::json!({
-                "metadata": {
-                    "container_type": "Root",
-                    "modality": "Unknown",
-                    "created_at": Self::now(),
-                    "updated_at": Self::now(),
-                    "provenance": "bootstrap",
-                    "permissions": 0,
-                    "owner_id": 0
-                },
-                "context": {
-                    "categories": ["system"],
-                    "methodologies": [],
-                    "keywords": ["root", "system"],
-                    "topics": [],
-                    "relationships": [],
-                    "learned_associations": [],
-                    "embedding": null
-                },
-                "storage": {
-                    "db_shard_id": null,
-                    "vector_index_ref": null,
-                    "object_store_path": null,
-                    "compression_type": "None"
-                },
-                "hints": {
-                    "access_frequency": 0,
-                    "hotness_score": 0.0,
-                    "last_accessed": 0,
-                    "centroid": null,
-                    "ml_prediction_weight": 0.0
-                },
-                "integrity": {
-                    "content_hash": vec![0u8; 32],
-                    "semantic_fingerprint": [],
-                    "last_verified": Self::now(),
-                    "integrity_score": 1.0,
-                    "version_history": []
-                },
-                "file_context": null,
-                "code_context": null,
-                "text_context": null,
-                "external_ref": null
-            });
-
-            let content = serde_json::to_string_pretty(&root_container)
-                .map_err(|e| OzoneError::StorageError(e.to_string()))?;
-
-            fs::write(&root_path, content).map_err(|e| {
-                OzoneError::StorageError(format!("Failed to write root container: {}", e))
-            })?;
-
-            tracing::info!("Initialized root container");
-        }
-
-        Ok(())
-    }
-
-    fn initialize_consciousness_roots(&self) -> OzoneResult<()> {
-        let consciousness_dir = self.data_dir.join("consciousness");
-        fs::create_dir_all(&consciousness_dir)?;
-
-        // Create sphere root containers
-        let spheres = [
-            "ExperienceMemory",
-            "CoreMemories",
-            "EmotionalContext",
-            "Identity",
-            "Metacognition",
-            "Relationships",
-            "Ethics",
-            "Narratives",
-            "Collective",
+        let containers = vec![
+            (ROOT_CONTAINER_ID, "Root", "Root", ContainerType::Root),
+            (
+                MODALITY_ROOT_ID,
+                "Modality",
+                "/Modality",
+                ContainerType::ModalityRoot,
+            ),
+            (
+                METHODOLOGY_ROOT_ID,
+                "Methodologies",
+                "/Methodologies",
+                ContainerType::MethodologyRoot,
+            ),
+            (
+                BLUEPRINT_ROOT_ID,
+                "Blueprints",
+                "/Blueprints",
+                ContainerType::BlueprintRoot,
+            ),
+            (
+                PIPELINE_ROOT_ID,
+                "Pipelines",
+                "/Pipelines",
+                ContainerType::PipelineRoot,
+            ),
+            (
+                CONSCIOUSNESS_ROOT_ID,
+                "Consciousness",
+                "/Consciousness",
+                ContainerType::ConsciousnessRoot,
+            ),
+            (
+                EXTERNAL_ROOT_ID,
+                "External",
+                "/External",
+                ContainerType::ExternalRoot,
+            ),
+            // Modality children
+            (
+                MODALITY_TEXT_ID,
+                "Text",
+                "/Modality/Text",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_CODE_ID,
+                "Code",
+                "/Modality/Code",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_IMAGE_ID,
+                "Image",
+                "/Modality/Image",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_AUDIO_ID,
+                "Audio",
+                "/Modality/Audio",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_VIDEO_ID,
+                "Video",
+                "/Modality/Video",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_MATH_ID,
+                "Math",
+                "/Modality/Math",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_CHEMISTRY_ID,
+                "Chemistry",
+                "/Modality/Chemistry",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_DNA_ID,
+                "DNA",
+                "/Modality/DNA",
+                ContainerType::Modality,
+            ),
+            (
+                MODALITY_EEG_ID,
+                "EEG",
+                "/Modality/EEG",
+                ContainerType::Modality,
+            ),
+            // Consciousness spheres
+            (
+                CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
+                "ExperienceMemory",
+                "/Consciousness/ExperienceMemory",
+                ContainerType::ExperienceMemory,
+            ),
+            (
+                CONSCIOUSNESS_CORE_MEMORY_ROOT_ID,
+                "CoreMemories",
+                "/Consciousness/CoreMemories",
+                ContainerType::ConsciousnessRoot,
+            ),
+            (
+                CONSCIOUSNESS_EMOTIONAL_ROOT_ID,
+                "EmotionalContext",
+                "/Consciousness/EmotionalContext",
+                ContainerType::ConsciousnessRoot,
+            ),
+            (
+                CONSCIOUSNESS_IDENTITY_ROOT_ID,
+                "Identity",
+                "/Consciousness/Identity",
+                ContainerType::ConsciousnessRoot,
+            ),
+            (
+                CONSCIOUSNESS_METACOGNITION_ROOT_ID,
+                "Metacognition",
+                "/Consciousness/Metacognition",
+                ContainerType::ConsciousnessRoot,
+            ),
+            (
+                CONSCIOUSNESS_RELATIONSHIPS_ROOT_ID,
+                "Relationships",
+                "/Consciousness/Relationships",
+                ContainerType::RelationshipRoot,
+            ),
+            (
+                CONSCIOUSNESS_ETHICS_ROOT_ID,
+                "Ethics",
+                "/Consciousness/Ethics",
+                ContainerType::EthicsRoot,
+            ),
+            (
+                CONSCIOUSNESS_NARRATIVES_ROOT_ID,
+                "Narratives",
+                "/Consciousness/Narratives",
+                ContainerType::NarrativeRoot,
+            ),
+            (
+                CONSCIOUSNESS_COLLECTIVE_ROOT_ID,
+                "Collective",
+                "/Consciousness/Collective",
+                ContainerType::ConsciousnessRoot,
+            ),
+            // External
+            (
+                EXTERNAL_PACKAGES_ROOT_ID,
+                "Packages",
+                "/External/Packages",
+                ContainerType::PackageRoot,
+            ),
+            (
+                EXTERNAL_URLS_ROOT_ID,
+                "URLs",
+                "/External/URLs",
+                ContainerType::URLRoot,
+            ),
         ];
 
-        for sphere in spheres {
-            // let container = self.create_consciousness_container(sphere);
-            // TODO: store via ZSEI once you expose the method
-            // For now, just create the directory
-            let _ = fs::create_dir_all(consciousness_dir.join(sphere));
+        for (id, name, path, container_type) in containers {
+            let path = self.data_dir.join("local").join(format!("{}.json", id));
+            if !path.exists() {
+                let container_json = serde_json::json!({
+                    "metadata": {
+                        "container_type": format!("{:?}", container_type),
+                        "modality": "Unknown",
+                        "name": name,
+                        "materialized_path": path,
+                        "created_at": Self::now(),
+                        "updated_at": Self::now(),
+                        "provenance": "bootstrap",
+                        "permissions": 0,
+                        "owner_id": 0
+                    },
+                    "context": {
+                        "categories": [],
+                        "methodologies": [],
+                        "keywords": [name.to_lowercase()],
+                        "topics": [],
+                        "relationships": [],
+                        "learned_associations": [],
+                        "embedding": null
+                    },
+                    "storage": {
+                        "db_shard_id": null,
+                        "vector_index_ref": null,
+                        "object_store_path": null,
+                        "compression_type": "None"
+                    },
+                    "hints": {
+                        "access_frequency": 0,
+                        "hotness_score": 0.0,
+                        "last_accessed": 0,
+                        "centroid": null,
+                        "ml_prediction_weight": 0.0
+                    },
+                    "integrity": {
+                        "content_hash": vec![0u8; 32],
+                        "semantic_fingerprint": [],
+                        "last_verified": Self::now(),
+                        "integrity_score": 1.0,
+                        "version_history": []
+                    }
+                });
+                let content = serde_json::to_string_pretty(&container_json)
+                    .map_err(|e| OzoneError::StorageError(e.to_string()))?;
+                fs::write(&path, content).map_err(|e| {
+                    OzoneError::StorageError(format!(
+                        "Failed to write root container {}: {}",
+                        id, e
+                    ))
+                })?;
+            }
         }
 
-        tracing::info!("Initialized consciousness hierarchy roots");
+        tracing::info!("Created ZSEI structural root containers");
         Ok(())
     }
 

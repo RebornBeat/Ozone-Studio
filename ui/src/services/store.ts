@@ -405,11 +405,11 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   setTheme: (theme: string) => {
     set({ currentTheme: theme });
-
-    if (!window.ozone) return;
-
-    const { executePipeline } = get();
-    executePipeline(2, { theme }).catch(console.warn);
+    // Persist to config only
+    if (window.ozone) {
+      window.ozone.config.set({ ui: { theme } }).catch(console.warn);
+    }
+    // Note: actual tab re-injection is handled by ThemeArea if theme changes
   },
 
   setSelectedModel: (model: string) => {
