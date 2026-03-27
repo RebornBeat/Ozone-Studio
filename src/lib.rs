@@ -26,11 +26,13 @@
 //! - Integrity always
 
 pub mod auth;
+pub mod blueprints;
 pub mod bootstrap;
 pub mod config;
 pub mod consciousness;
 pub mod grpc;
 pub mod integrity;
+pub mod methodologies;
 pub mod network;
 pub mod pipeline;
 pub mod task;

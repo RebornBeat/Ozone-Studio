@@ -13,9 +13,11 @@
 
 mod executor;
 mod registry;
+mod store;
 
 pub use executor::*;
 pub use registry::*;
+pub use store::*;
 
 use crate::config::PipelineConfig;
 use crate::types::pipeline::{

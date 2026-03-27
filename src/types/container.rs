@@ -1,8 +1,8 @@
 //! Container types - Section 6 of the specification (ZSEI Core)
 
+use super::{Blake3Hash, ContainerID, PublicKey, SemVer, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use super::{ContainerID, Blake3Hash, PublicKey, Value, SemVer};
 
 /// Container - the fundamental unit in ZSEI (§6.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,7 +41,7 @@ pub struct LocalState {
     pub storage: StoragePointers,
     pub hints: TraversalHints,
     pub integrity: IntegrityData,
-    
+
     // Type-specific context
     pub file_context: Option<FileContext>,
     pub code_context: Option<CodeContext>,
@@ -75,6 +75,8 @@ pub struct Metadata {
     pub provenance: String,
     pub permissions: u64,
     pub owner_id: u64,
+    pub name: Option<String>,
+    pub materialized_path: Option<String>,
 }
 
 impl Default for Metadata {
@@ -87,6 +89,8 @@ impl Default for Metadata {
             provenance: String::new(),
             permissions: 0,
             owner_id: 0,
+            name: None,
+            materialized_path: None,
         }
     }
 }
@@ -120,13 +124,13 @@ pub enum RelationType {
     DependsOn = 1,
     PartOf = 2,
     Contains = 3,
-    
+
     // Semantic
     SimilarTo = 10,
     RelatedTo = 11,
     Contradicts = 12,
     Supersedes = 13,
-    
+
     // Code-specific
     ImportsFrom = 20,
     ExportsTo = 21,
@@ -134,19 +138,19 @@ pub enum RelationType {
     CalledBy = 23,
     Implements = 24,
     Extends = 25,
-    
+
     // Temporal
     Precedes = 30,
     Follows = 31,
-    
+
     // Reference
     References = 40,
     ReferencedBy = 41,
-    
+
     // External
     DocumentedAt = 50,
     SourcedFrom = 51,
-    
+
     Custom = 65535,
 }
 
@@ -249,54 +253,54 @@ pub enum ContainerType {
     // System
     #[default]
     Root = 0,
-    
+
     // User Organization
     User = 1,
     Workspace = 2,
     Project = 3,
-    
+
     // Global/Distributed
     Modality = 10,
     Category = 11,
     SubCategory = 12,
-    
+
     // Knowledge
     Methodology = 20,
     Blueprint = 21,
     Pipeline = 22,
-    
+
     // Execution
     Task = 30,
     TaskContext = 31,
     TaskExecutionState = 32,
-    
+
     // Data
     Dataset = 40,
     Shard = 41,
     Document = 42,
     Chunk = 43,
     Embedding = 44,
-    
+
     // File References (NOT copies)
     FileReference = 50,
     DirectoryReference = 51,
-    
+
     // External References (NOT copies)
     URLReference = 55,
     PackageReference = 56,
-    
+
     // Code Specific
     CodeModule = 60,
     CodeFunction = 61,
     CodeClass = 62,
     CodeDependency = 63,
-    
+
     // Text Specific
     TextDocument = 70,
     TextSection = 71,
     TextParagraph = 72,
     TextTheme = 73,
-    
+
     // Consciousness (Part II)
     ExperienceMemory = 100,
     CoreMemory = 101,
@@ -306,7 +310,22 @@ pub enum ContainerType {
     EthicalPrinciple = 105,
     Narrative = 106,
     CollectiveWisdom = 107,
-    
+    Experience = 108,
+    EmotionalStateRecord = 109,
+
+    // Hierarchy Root Nodes
+    ModalityRoot = 200,      // /Modality/ root
+    MethodologyRoot = 201,   // /Methodologies/ root
+    BlueprintRoot = 202,     // /Blueprints/ root
+    PipelineRoot = 203,      // /Pipelines/ root
+    ConsciousnessRoot = 204, // /Consciousness/ root
+    ExternalRoot = 205,      // /External/ root
+    PackageRoot = 206,       // /External/Packages/
+    URLRoot = 207,           // /External/URLs/
+
+    // Modality
+    ModalityGraph = 210,
+
     // Computed
     Derived = 80,
     Virtual = 99,
@@ -379,12 +398,12 @@ pub enum ChunkType {
     Class,
     Module,
     Import,
-    
+
     // Text
     Paragraph,
     Section,
     Heading,
-    
+
     // Generic
     Block,
 }
