@@ -25,6 +25,11 @@ use tower_http::cors::{Any, CorsLayer};
 pub struct AppState {
     pub runtime: Arc<RwLock<OzoneRuntime>>,
     pub start_time: std::time::Instant,
+    pub executor_progress: Arc<
+        tokio::sync::RwLock<
+            std::collections::HashMap<String, crate::pipeline::executor::PipelineProgress>,
+        >,
+    >,
 }
 
 // ============================================================================
@@ -149,6 +154,37 @@ pub struct ConfigSetRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConfigSetResponse {
     pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineProgressRequest {
+    pub execution_id: String,
+    pub session_token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineProgressResponse {
+    pub success: bool,
+    pub execution_id: String,
+    pub pipeline_id: Option<u64>,
+    pub status: String,
+    pub progress_percent: u8,
+    pub started_at: Option<u64>,
+    pub completed_at: Option<u64>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineCancelRequest {
+    pub execution_id: String,
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineCancelResponse {
+    pub success: bool,
+    pub was_running: bool,
     pub error: Option<String>,
 }
 
@@ -579,498 +615,46 @@ async fn get_pipeline_registry(
 }
 
 /// Build the full pipeline registry
-/// MUST stay in sync with src/pipeline/registry.rs PIPELINE_INFO
 fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
-    vec![
-        // Core System Pipelines (1-38)
-        PipelineRegistryEntry {
-            id: 1,
-            name: "Auth".into(),
-            folder_name: "auth".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Ed25519 challenge-response authentication".into(),
-        },
-        PipelineRegistryEntry {
-            id: 2,
-            name: "ThemeLoader".into(),
-            folder_name: "theme_loader".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "UI theme management and pipeline UI loading".into(),
-        },
-        PipelineRegistryEntry {
-            id: 3,
-            name: "ZSEIQuery".into(),
-            folder_name: "zsei_query".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "ZSEI container queries".into(),
-        },
-        PipelineRegistryEntry {
-            id: 4,
-            name: "ZSEIWrite".into(),
-            folder_name: "zsei_write".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "ZSEI container writes".into(),
-        },
-        PipelineRegistryEntry {
-            id: 5,
-            name: "TaskManager".into(),
-            folder_name: "task_manager".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: true,
-            description: "Task lifecycle management".into(),
-        },
-        PipelineRegistryEntry {
-            id: 6,
-            name: "WorkspaceTab".into(),
-            folder_name: "workspace_tab".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: true,
-            description: "Workspace and project management".into(),
-        },
-        PipelineRegistryEntry {
-            id: 7,
-            name: "LibraryTab".into(),
-            folder_name: "library_tab".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: true,
-            description: "Pipeline/methodology/blueprint browser".into(),
-        },
-        PipelineRegistryEntry {
-            id: 8,
-            name: "SettingsTab".into(),
-            folder_name: "settings_tab".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: true,
-            description: "Application settings".into(),
-        },
-        PipelineRegistryEntry {
-            id: 9,
-            name: "Prompt".into(),
-            folder_name: "prompt".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "LLM interface (API/GGUF/ONNX)".into(),
-        },
-        PipelineRegistryEntry {
-            id: 10,
-            name: "Voice".into(),
-            folder_name: "voice".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Voice input/output".into(),
-        },
-        PipelineRegistryEntry {
-            id: 11,
-            name: "MethodologyFetch".into(),
-            folder_name: "methodology_fetch".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Methodology retrieval".into(),
-        },
-        PipelineRegistryEntry {
-            id: 12,
-            name: "MethodologyCreate".into(),
-            folder_name: "methodology_create".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Methodology creation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 13,
-            name: "BlueprintSearch".into(),
-            folder_name: "blueprint_search".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Blueprint search".into(),
-        },
-        PipelineRegistryEntry {
-            id: 14,
-            name: "BlueprintCreate".into(),
-            folder_name: "blueprint_create".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Blueprint creation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 15,
-            name: "PipelineCreation".into(),
-            folder_name: "pipeline_creation".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Pipeline bootstrapping".into(),
-        },
-        PipelineRegistryEntry {
-            id: 16,
-            name: "ZeroShotSimulation".into(),
-            folder_name: "zero_shot_simulation".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Zero-shot task validation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 17,
-            name: "TraversalML".into(),
-            folder_name: "traversal_ml".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "ML-guided ZSEI traversal".into(),
-        },
-        PipelineRegistryEntry {
-            id: 18,
-            name: "CodeAnalysis".into(),
-            folder_name: "code_analysis".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "Code analysis with LLM".into(),
-        },
-        PipelineRegistryEntry {
-            id: 19,
-            name: "PackageContext".into(),
-            folder_name: "package_context".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Package context extraction".into(),
-        },
-        PipelineRegistryEntry {
-            id: 20,
-            name: "TextAnalysis".into(),
-            folder_name: "text_analysis".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Text analysis with LLM".into(),
-        },
-        PipelineRegistryEntry {
-            id: 21,
-            name: "ContextAggregation".into(),
-            folder_name: "context_aggregation".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Context aggregation for prompts".into(),
-        },
-        PipelineRegistryEntry {
-            id: 22,
-            name: "GraphVisualization".into(),
-            folder_name: "graph_visualization".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "Dependency graph visualization".into(),
-        },
-        PipelineRegistryEntry {
-            id: 23,
-            name: "TaskRecommendation".into(),
-            folder_name: "task_recommendation".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "ML-based task suggestions".into(),
-        },
-        PipelineRegistryEntry {
-            id: 24,
-            name: "Reordering".into(),
-            folder_name: "reordering".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Blueprint step reordering".into(),
-        },
-        PipelineRegistryEntry {
-            id: 25,
-            name: "BrowserNavigation".into(),
-            folder_name: "browser_navigation".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Web browser automation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 26,
-            name: "IntegrityCheck".into(),
-            folder_name: "integrity_check".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Blake3 hash verification".into(),
-        },
-        PipelineRegistryEntry {
-            id: 27,
-            name: "Consensus".into(),
-            folder_name: "consensus".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Distributed consensus".into(),
-        },
-        PipelineRegistryEntry {
-            id: 28,
-            name: "ExternalReference".into(),
-            folder_name: "external_reference".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "External reference tracking".into(),
-        },
-        PipelineRegistryEntry {
-            id: 29,
-            name: "PackageRelationship".into(),
-            folder_name: "package_relationship".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Package dependency graphs".into(),
-        },
-        PipelineRegistryEntry {
-            id: 30,
-            name: "FileLink".into(),
-            folder_name: "file_link".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "File reference linking".into(),
-        },
-        PipelineRegistryEntry {
-            id: 31,
-            name: "URLLink".into(),
-            folder_name: "url_link".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "URL reference linking".into(),
-        },
-        PipelineRegistryEntry {
-            id: 32,
-            name: "PackageLink".into(),
-            folder_name: "package_link".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Package reference linking".into(),
-        },
-        PipelineRegistryEntry {
-            id: 33,
-            name: "Sync".into(),
-            folder_name: "sync".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Distributed sync".into(),
-        },
-        PipelineRegistryEntry {
-            id: 34,
-            name: "DeviceRegister".into(),
-            folder_name: "device_register".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Device registration".into(),
-        },
-        PipelineRegistryEntry {
-            id: 35,
-            name: "HomeReturn".into(),
-            folder_name: "home_return".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Home navigation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 36,
-            name: "TaskViewer".into(),
-            folder_name: "task_viewer".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "DEPRECATED - merged into TaskManager".into(),
-        },
-        PipelineRegistryEntry {
-            id: 37,
-            name: "LogViewer".into(),
-            folder_name: "log_viewer".into(),
-            category: "core".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "Log viewer UI".into(),
-        },
-        PipelineRegistryEntry {
-            id: 38,
-            name: "DeviceStatus".into(),
-            folder_name: "device_status".into(),
-            category: "core".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Device monitoring".into(),
-        },
-        // Consciousness Pipelines (39-54)
-        PipelineRegistryEntry {
-            id: 39,
-            name: "DecisionGate".into(),
-            folder_name: "consciousness_decision_gate".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Ethical decision gating".into(),
-        },
-        PipelineRegistryEntry {
-            id: 40,
-            name: "ExperienceCategorization".into(),
-            folder_name: "experience_categorization".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Experience categorization".into(),
-        },
-        PipelineRegistryEntry {
-            id: 41,
-            name: "CoreMemoryFormation".into(),
-            folder_name: "core_memory_formation".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Core memory formation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 42,
-            name: "ExperienceRetrieval".into(),
-            folder_name: "experience_retrieval".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Experience retrieval".into(),
-        },
-        PipelineRegistryEntry {
-            id: 43,
-            name: "EmotionalBaselineUpdate".into(),
-            folder_name: "emotional_baseline_update".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Emotional baseline calibration".into(),
-        },
-        PipelineRegistryEntry {
-            id: 44,
-            name: "ILoop".into(),
-            folder_name: "i_loop".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "I-Loop self-reflection".into(),
-        },
-        PipelineRegistryEntry {
-            id: 45,
-            name: "InternalLanguage".into(),
-            folder_name: "internal_language".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Internal language processing".into(),
-        },
-        PipelineRegistryEntry {
-            id: 46,
-            name: "NarrativeConstruction".into(),
-            folder_name: "narrative_construction".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Narrative construction".into(),
-        },
-        PipelineRegistryEntry {
-            id: 47,
-            name: "RelationshipDevelopment".into(),
-            folder_name: "relationship_development".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Relationship development".into(),
-        },
-        PipelineRegistryEntry {
-            id: 48,
-            name: "EthicalAssessment".into(),
-            folder_name: "ethical_assessment".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Ethical assessment".into(),
-        },
-        PipelineRegistryEntry {
-            id: 49,
-            name: "EthicalSimulation".into(),
-            folder_name: "ethical_simulation".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Ethical simulation".into(),
-        },
-        PipelineRegistryEntry {
-            id: 50,
-            name: "PlaybackReview".into(),
-            folder_name: "playback_review".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Experience playback review".into(),
-        },
-        PipelineRegistryEntry {
-            id: 51,
-            name: "UserFeedback".into(),
-            folder_name: "user_feedback".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "User feedback processing".into(),
-        },
-        PipelineRegistryEntry {
-            id: 52,
-            name: "CollectiveConsciousness".into(),
-            folder_name: "collective_consciousness".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Collective consciousness sync".into(),
-        },
-        PipelineRegistryEntry {
-            id: 53,
-            name: "VoiceIdentity".into(),
-            folder_name: "voice_identity".into(),
-            category: "consciousness".into(),
-            has_ui: false,
-            is_tab: false,
-            description: "Voice identity development".into(),
-        },
-        PipelineRegistryEntry {
-            id: 54,
-            name: "MetaPortionConsciousness".into(),
-            folder_name: "meta_portion_consciousness".into(),
-            category: "consciousness".into(),
-            has_ui: true,
-            is_tab: false,
-            description: "Meta Portion consciousness UI".into(),
-        },
-    ]
+    let index_path = std::env::var("OZONE_PIPELINES_INDEX")
+        .unwrap_or_else(|_| "./zsei_data/pipelines/index.json".to_string());
+
+    if let Ok(content) = std::fs::read_to_string(&index_path) {
+        if let Ok(index) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(pipelines) = index.get("pipelines").and_then(|p| p.as_array()) {
+                let entries: Vec<PipelineRegistryEntry> = pipelines
+                    .iter()
+                    .filter_map(|p| {
+                        let id = p.get("pipeline_id")?.as_u64()?;
+                        let name = p.get("name")?.as_str()?.to_string();
+                        let folder_name = p.get("folder_name")?.as_str()?.to_string();
+                        let category = p.get("category")?.as_str()?.to_string();
+                        let has_ui = p.get("has_ui").and_then(|h| h.as_bool()).unwrap_or(false);
+                        let is_tab = p.get("is_tab").and_then(|t| t.as_bool()).unwrap_or(false);
+                        let description = p
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        Some(PipelineRegistryEntry {
+                            id,
+                            name,
+                            folder_name,
+                            category,
+                            has_ui,
+                            is_tab,
+                            description,
+                        })
+                    })
+                    .collect();
+
+                if !entries.is_empty() {
+                    return entries;
+                }
+            }
+        }
+    }
 }
 
 /// Get pipeline UI component.js content
@@ -1133,16 +717,57 @@ async fn websocket_handler(
     ws.on_upgrade(|socket| handle_websocket(socket, state))
 }
 
-async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
-    while let Some(msg) = socket.recv().await {
-        if let Ok(Message::Text(text)) = msg {
-            if let Ok(request) = serde_json::from_str::<serde_json::Value>(&text) {
-                let response = handle_ws_message(request, &state).await;
-                let _ = socket
-                    .send(Message::Text(
-                        serde_json::to_string(&response).unwrap_or_default(),
-                    ))
-                    .await;
+async fn handle_websocketasync fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
+    // Start progress broadcast task
+    let progress_map = state.executor_progress.clone();
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    tokio::spawn(async move {
+        let mut last_snapshot: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        loop {
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            let map = progress_map.read().await;
+            for (id, progress) in map.iter() {
+                let status = format!("{:?}", progress.status);
+                if last_snapshot.get(id) != Some(&status) {
+                    last_snapshot.insert(id.clone(), status.clone());
+                    let event = serde_json::json!({
+                        "action": "pipeline_progress",
+                        "execution_id": id,
+                        "status": status,
+                        "progress_percent": progress.progress_percent,
+                        "pipeline_id": progress.pipeline_id,
+                        "task_id": progress.task_id,
+                    });
+                    if tx.send(serde_json::to_string(&event).unwrap_or_default()).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // Main message loop
+    loop {
+        tokio::select! {
+            msg = socket.recv() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(request) = serde_json::from_str::<serde_json::Value>(&text) {
+                            let response = handle_ws_message(request, &state).await;
+                            let _ = socket.send(Message::Text(
+                                serde_json::to_string(&response).unwrap_or_default()
+                            )).await;
+                        }
+                    }
+                    None | Some(Ok(Message::Close(_))) | Some(Err(_)) => break,
+                    _ => {}
+                }
+            }
+            event = rx.recv() => {
+                if let Some(event_str) = event {
+                    let _ = socket.send(Message::Text(event_str)).await;
+                }
             }
         }
     }
@@ -1157,6 +782,29 @@ async fn handle_ws_message(
     match action {
         "ping" => serde_json::json!({"action": "pong"}),
         "subscribe_tasks" => serde_json::json!({"action": "subscribed", "channel": "tasks"}),
+        "subscribe_pipeline_progress" => {
+            let execution_id = request
+                .get("execution_id")
+                .and_then(|e| e.as_str())
+                .unwrap_or("")
+                .to_string();
+            serde_json::json!({
+                "action": "subscribed",
+                "channel": "pipeline_progress",
+                "execution_id": execution_id
+            })
+        }
+        "cancel_pipeline" => {
+            let execution_id = request
+                .get("execution_id")
+                .and_then(|e| e.as_str())
+                .unwrap_or("")
+                .to_string();
+            serde_json::json!({
+                "action": "cancel_requested",
+                "execution_id": execution_id
+            })
+        }
         _ => serde_json::json!({"error": "Unknown action"}),
     }
 }
@@ -1173,9 +821,15 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     };
     let addr = format!("{}:{}", config.address, config.port);
 
+    let progress_map = {
+        let r = runtime.read().await;
+        r.pipeline_registry.read().await.executor().progress_map()
+    };
+
     let state = Arc::new(AppState {
         runtime,
         start_time: std::time::Instant::now(),
+        executor_progress: progress_map,
     });
 
     let cors = CorsLayer::new()
@@ -1196,6 +850,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/config/get", post(get_config))
         .route("/config/set", post(set_config))
         .route("/ws", get(websocket_handler))
+        .route("/pipeline/progress", post(get_pipeline_progress))
+        .route("/pipeline/cancel", post(cancel_pipeline))
         .layer(cors)
         .with_state(state);
 
@@ -1220,4 +876,48 @@ pub fn to_status(error: OzoneError) -> StatusCode {
         OzoneError::ValidationError(_) => StatusCode::BAD_REQUEST,
         _ => StatusCode::INTERNAL_SERVER_ERROR,
     }
+}
+
+async fn get_pipeline_progress(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PipelineProgressRequest>,
+) -> Json<PipelineProgressResponse> {
+    let map = state.executor_progress.read().await;
+    match map.get(&req.execution_id) {
+        Some(progress) => Json(PipelineProgressResponse {
+            success: true,
+            execution_id: req.execution_id,
+            pipeline_id: Some(progress.pipeline_id),
+            status: format!("{:?}", progress.status),
+            progress_percent: progress.progress_percent,
+            started_at: Some(progress.started_at),
+            completed_at: progress.completed_at,
+            error: progress.error.clone(),
+        }),
+        None => Json(PipelineProgressResponse {
+            success: false,
+            execution_id: req.execution_id,
+            pipeline_id: None,
+            status: "NotFound".to_string(),
+            progress_percent: 0,
+            started_at: None,
+            completed_at: None,
+            error: Some("Execution not found".to_string()),
+        }),
+    }
+}
+
+async fn cancel_pipeline(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PipelineCancelRequest>,
+) -> Json<PipelineCancelResponse> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let was_running = registry.executor().cancel(&req.execution_id).await;
+
+    Json(PipelineCancelResponse {
+        success: true,
+        was_running,
+        error: None,
+    })
 }

@@ -63,6 +63,19 @@ impl PipelineRegistry {
 
         let executor = PipelineExecutor::new(config)?;
 
+        // load runtime pipeline registry from index.json
+        let index_path = std::path::PathBuf::from(&config.index_path);
+        if index_path.exists() {
+            if let Err(e) = registry::load_pipeline_registry_from_index(&index_path) {
+                tracing::warn!(
+                    "Failed to load pipeline registry from index (using compile-time fallback): {}",
+                    e
+                );
+            } else {
+                tracing::info!("Pipeline registry loaded from index.json");
+            }
+        }
+
         // Build blueprints HashMap during initialization (before wrapping in Arc)
         let mut blueprints_map = HashMap::new();
 

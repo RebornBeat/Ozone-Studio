@@ -7,6 +7,7 @@
 use crate::types::{OzoneResult, PipelineBlueprint, PipelineID};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::OnceLock;
 
 /// Pipeline metadata for quick lookups (no need for full blueprint)
 #[derive(Debug, Clone)]
@@ -88,6 +89,96 @@ lazy_static::lazy_static! {
     };
 }
 
+// Runtime registry (loaded from index.json)
+static RUNTIME_PIPELINE_INFO: OnceLock<HashMap<PipelineID, PipelineInfo>> = OnceLock::new();
+
+/// Load the runtime pipeline registry from index.json
+/// Called once at startup by PipelineRegistry::new()
+pub fn load_pipeline_registry_from_index(index_path: &std::path::Path) -> OzoneResult<()> {
+    if RUNTIME_PIPELINE_INFO.get().is_some() {
+        return Ok(()); // already loaded
+    }
+
+    let content = std::fs::read_to_string(index_path).map_err(|e| {
+        crate::OzoneError::PipelineError(format!("Failed to read pipeline index: {}", e))
+    })?;
+
+    let index: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+        crate::OzoneError::PipelineError(format!("Failed to parse pipeline index: {}", e))
+    })?;
+
+    let mut map = HashMap::new();
+
+    if let Some(pipelines) = index.get("pipelines").and_then(|p| p.as_array()) {
+        for pipeline in pipelines {
+            let id = pipeline
+                .get("pipeline_id")
+                .and_then(|i| i.as_u64())
+                .unwrap_or(0) as PipelineID;
+            if id == 0 {
+                continue;
+            }
+
+            let info = PipelineInfo {
+                id,
+                name: pipeline
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                folder_name: pipeline
+                    .get("folder_name")
+                    .and_then(|f| f.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                category: if pipeline
+                    .get("category")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("")
+                    == "consciousness"
+                {
+                    "consciousness"
+                } else {
+                    "core"
+                },
+                has_ui: pipeline
+                    .get("has_ui")
+                    .and_then(|h| h.as_bool())
+                    .unwrap_or(false),
+                is_tab: pipeline
+                    .get("is_tab")
+                    .and_then(|t| t.as_bool())
+                    .unwrap_or(false),
+                description: pipeline
+                    .get("description")
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            };
+
+            map.insert(id, info);
+        }
+    }
+
+    RUNTIME_PIPELINE_INFO.set(map).map_err(|_| {
+        crate::OzoneError::PipelineError("Failed to set runtime pipeline info".into())
+    })?;
+
+    Ok(())
+}
+
+/// Get pipeline info — prefers runtime index, falls back to compile-time
+pub fn get_pipeline_info(id: PipelineID) -> Option<&'static PipelineInfo> {
+    // Try runtime first
+    if let Some(runtime) = RUNTIME_PIPELINE_INFO.get() {
+        if let Some(info) = runtime.get(&id) {
+            return Some(info); // Note: this is fine since OnceLock has static lifetime
+        }
+    }
+    // Fall back to compile-time
+    PIPELINE_INFO.get(&id)
+}
+
 fn info(
     id: PipelineID,
     name: &str,
@@ -106,11 +197,6 @@ fn info(
         is_tab,
         description: desc.to_string(),
     }
-}
-
-/// Get pipeline info by ID
-pub fn get_pipeline_info(id: PipelineID) -> Option<&'static PipelineInfo> {
-    PIPELINE_INFO.get(&id)
 }
 
 /// Get pipeline name by ID
