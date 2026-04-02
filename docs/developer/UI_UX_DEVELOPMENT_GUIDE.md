@@ -1,8 +1,39 @@
-# OZONE STUDIO — UI/UX DEVELOPMENT GUIDE
+# OZONE STUDIO — UI/UX DEVELOPMENT GUIDE v3.0
 
-## Building Device-Specific Experiences
+## Building the Graph-First Interface for AGI-Native Systems
 
-Ozone Studio runs on diverse platforms — desktop, mobile, AR/VR, terminal, and web. This guide covers how to develop themes and interfaces that adapt to each device's unique capabilities.
+Ozone Studio runs on diverse platforms — desktop, mobile, AR/VR, terminal, and web. This guide covers how to develop themes and interfaces that adapt to each device's unique capabilities while exposing the full power of our modality-based graph system.
+
+---
+
+## Core Philosophy: AGI-First, Human-Second
+
+Unlike traditional software built for humans first, Ozone Studio is built for **AGI first, humans second**. This means:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        OZONE DESIGN PRINCIPLE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  TRADITIONAL SOFTWARE:          OZONE STUDIO:                               │
+│  ┌─────────────────┐            ┌─────────────────┐                         │
+│  │ Human Interface │            │ AGI Interface   │                         │
+│  │       ↓         │            │       ↓         │                         │
+│  │ Business Logic  │            │ Graph Engine    │                         │
+│  │       ↓         │            │       ↓         │                         │
+│  │ Data Storage    │            │ Human Interface │                         │
+│  └─────────────────┘            └─────────────────┘                         │
+│                                                                             │
+│  The graph is the source of truth. The UI is a viewport into that graph.    │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+This enables:
+- **Zero-loss interoperability** between AGI reasoning and human visualization
+- **Living systems** where graph state updates cascade to all views
+- **Modality engines** that can replace Blender, Gazebo, Isaac Sim, etc.
+- **Spatial intelligence** native to the system, not bolted on
 
 ---
 
@@ -13,135 +44,624 @@ Ozone Studio runs on diverse platforms — desktop, mobile, AR/VR, terminal, and
 Every Ozone interface follows the same fundamental layout:
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│                                                                │
-│                                              ┌───────────────┐ │
-│                                              │               │ │
-│           THEME AREA (80%)                   │  META PORTION │ │
-│                                              │    (20%)      │ │
-│    Adapts to device capabilities             │               │ │
-│    Contains: Workspace, Library, Settings    │  Always       │ │
-│                                              │  Accessible   │ │
-│                                              │               │ │
-│                                              └───────────────┘ │
-│                                                                │
-├────────────────────────────────────────────────────────────────┤
-│  CONNECTION BAR — Network status, contributions, ZSEI depth   │
-└────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────┐
+│                                                                            │
+│                                                       ┌──────────────────┐ │
+│                                                       │                  │ │
+│           THEME AREA (80%)                            │   META PORTION   │ │
+│                                                       │     (20%)        │ │
+│    ┌─────────────────────────────────────────────┐    │                  │ │
+│    │                                             │    │  Always          │ │
+│    │   TASK VIEWER │ CONTEXT VIEWER │ ENGINES    │    │  Accessible      │ │
+│    │                                             │    │                  │ │
+│    │   Adapts to device capabilities             │    │  [🏠 Home]       │ │
+│    │   Shows: Tasks, Steps, Graphs, Engines      │    │  [Cancel Task]   │ │
+│    │                                             │    │  [System Chat]   │ │
+│    │                                             │    │  [Emotional      │ │
+│    │                                             │    │   State]         │ │
+│    └─────────────────────────────────────────────┘    │                  │ │
+│                                                       │  Progress        │ │
+│                                                       │  Indicators      │ │
+│                                                       │                  │ │
+│                                                       └──────────────────┘ │
+│                                                                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│  CONNECTION BAR — Network status, contributions, ZSEI depth, graph stats   │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key Principle:** The Meta Portion is NEVER blocked. Users must always be able to:
 - Return home
 - Cancel tasks
 - Access system functions
+- See emotional state (if consciousness enabled)
+- View task progress
 
 ---
 
-## Device Categories
+## The Three-View System
 
-### Supported Platforms
+### 1. Task Viewer
 
-| Category | Devices | Primary Input | Display |
-|----------|---------|---------------|---------|
-| Desktop | Windows, macOS, Linux | Mouse + Keyboard | Large screen |
-| Mobile | iOS, Android | Touch | Small screen |
-| AR/VR | Quest, Vision Pro, etc. | Gesture + Gaze | Spatial |
-| Terminal | CLI environments | Keyboard only | Text only |
-| Web | Browsers | Mixed | Variable |
+The Task Viewer shows **what the system is doing** — the active work.
 
-### Capability Detection
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ TASK VIEWER                                                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ ACTIVE TASKS                                            [⊕ New Task] │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │                                                                     │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │ Task #1847: "Create authentication module"                   │   │   │
+│  │  │ Blueprint: Code Creation (Step 8/15)                         │   │   │
+│  │  │ ████████████████░░░░░░░░░░░░░░░░░░░░  53%                    │   │   │
+│  │  │                                                               │   │   │
+│  │  │ Current Step: "generate_code"                                │   │   │
+│  │  │ Pipeline: 9 (LLM Execute)                                    │   │   │
+│  │  │ Tokens: 2,847 / ~5,000                                       │   │   │
+│  │  │                                                               │   │   │
+│  │  │ [View Steps] [View Graph] [Cancel]                           │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  │                                                                     │   │
+│  │  ┌─────────────────────────────────────────────────────────────┐   │   │
+│  │  │ Task #1848: "Analyze codebase"                               │   │   │
+│  │  │ Blueprint: Code Analysis (Step 3/7)                           │   │   │
+│  │  │ ███████████████████████████░░░░░░░░░░  43%                    │   │   │
+│  │  │ [View Steps] [View Graph]                                    │   │   │
+│  │  └─────────────────────────────────────────────────────────────┘   │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ QUEUED TASKS                                                        │   │
+│  ├─────────────────────────────────────────────────────────────────────┤   │
+│  │  • Task #1849: "Refactor database layer"                           │   │
+│  │  • Task #1850: "Write unit tests"                                   │   │
+│  │  • Task #1851: "Update documentation"                               │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-```rust
-DeviceCapabilities {
-    // Display
-    screen_type: ScreenType,         // Large, Small, Spatial, Text
-    resolution: Resolution,
-    supports_transparency: bool,
-    color_depth: u8,
-    
-    // Input
-    has_mouse: bool,
-    has_touch: bool,
-    has_keyboard: bool,
-    has_gesture: bool,
-    has_gaze: bool,
-    has_voice: bool,
-    
-    // Features
-    supports_haptics: bool,
-    supports_spatial_audio: bool,
-    supports_3d: bool,
-    supports_notifications: bool,
-    
-    // Performance
-    gpu_available: bool,
-    memory_tier: MemoryTier,
-    network_type: NetworkType
-}
+**Task Viewer Features:**
+
+```
+TASK VIEWER COMPONENTS
+
+1. TASK LIST
+   - Active tasks with progress
+   - Queued tasks with position
+   - Completed tasks (collapsible history)
+
+2. TASK DETAIL EXPANSION
+   Clicking a task reveals:
+
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Task #1847: "Create authentication module"                  │
+   │ Blueprint: Code Creation v2.0.0                             │
+   │                                                             │
+   │ STEPS PROGRESSION:                                          │
+   │                                                             │
+   │ Step 1  ✓ receive_request        (completed)                │
+   │ Step 2  ✓ load_project_graph     (completed)                │
+ │ Step 3  ✓ analyze_requirements    (completed)                │
+   │ Step 4  ✓ plan_structure         (completed)                │
+   │ Step 5  ✓ create_provisional     (completed)                │
+   │ Step 6  ✓ check_conflicts        (completed)                │
+   │ Step 7  ✓ consciousness_check    (completed)                │
+   │ Step 8  ◐ generate_code          (running)                  │
+   │         └─ Sub-step 1/3: main.rs                           │
+   │ Step 9  ○ validate_code          (pending)                  │
+   │ Step 10 ○ write_files            (pending)                  │
+   │ Step 11 ○ finalize_graph         (pending)                  │
+   │ ...                                                         │
+   │                                                             │
+   │ PIPELINE EXECUTIONS:                                        │
+   │                                                             │
+   │ Pipeline 1  (receive)     23ms   127 tokens                 │
+   │ Pipeline 101 (code)       45ms   89 tokens                  │
+   │ Pipeline 9   (llm)        2.3s   1,847 tokens               │
+   │ Pipeline 12  (aggregate)  12ms   34 tokens                  │
+   │                                                             │
+   │ METHODOLOGIES APPLIED:                                      │
+   │ ✓ Clean Code (3)                                            │
+   │ ✓ Security Awareness (5)                                    │
+   │ ✓ Defensive Programming (4)                                 │
+   │                                                             │
+   │ VERSION NOTES:                                              │
+   │ Step 4: Initial structure - 3 files planned                 │
+   │ Step 6: No conflicts detected                               │
+   │ Step 7: Approved - low security impact                       │
+   │                                                             │
+   │ [View in Context Viewer →]                                  │
+   └─────────────────────────────────────────────────────────────┘
+
+3. STEP METADATA PANEL
+   Each step shows:
+   - Pipeline ID and name
+   - Execution time
+   - Tokens used
+   - Version notes (changes discovered during execution)
+   - Dependencies on other steps
+   - Graph state at that point
+
+4. PROGRESS INDICATORS
+   - Overall task progress
+   - Current step progress
+   - Sub-step progress (if applicable)
+   - Token budget usage
+   - Time elapsed
+```
+
+### 2. Context Viewer
+
+The Context Viewer shows **what the system knows** — the modality graphs.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ CONTEXT VIEWER                                          [Filter] [Search]  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌───────────────────────┐  ┌───────────────────────────────────────────┐  │
+│  │ MODALITY GRAPHS       │  │                                           │  │
+│  │                       │  │         GRAPH VISUALIZATION              │  │
+│  │ ▼ Text (100)          │  │                                           │  │
+│  │   └─ graph_2847       │  │    ┌─────────┐                            │  │
+│  │       47 nodes        │  │    │ Document│                            │  │
+│  │       89 edges        │  │    └────┬────┘                            │  │
+│  │                       │  │         │                                 │  │
+│  │ ▼ Code (101)          │  │    ┌────┴────┐                            │  │
+│  │   └─ graph_2848       │  │    │         │                            │  │
+│  │       124 nodes       │  │  ┌─┴──┐   ┌──┴─┐                          │  │
+│  │       203 edges       │  │  │Func│   │Sent│                          │  │
+│  │                       │  │  └─┬──┘   └──┬─┘                          │  │
+│  │ ▶ Image (102)         │  │    │         │                              │  │
+│  │ ▶ Audio (103)         │  │  ┌─┴──┐   ┌──┴─┐                          │  │
+│  │ ▶ Video (104)         │  │  │Word│   │Word│                          │  │
+│  │ ▶ Math (105)          │  │  └────┘   └────┘                          │  │
+│  │ ▶ Chemistry (106)     │  │                                           │  │
+│  │ ▶ DNA (107)           │  │  [Relationships visible on hover/selection]│  │
+│  │ ▶ EEG (108)           │  │                                           │  │
+│  │ ▶ 3D (109)            │  └───────────────────────────────────────────┘  │
+│  │ ▶ Sound (110)         │                                                 │
+│  │ ...                   │  ┌───────────────────────────────────────────┐  │
+│  │                       │  │ NODE DETAIL                               │  │
+│  │ CROSS-MODALITY LINKS  │  ├───────────────────────────────────────────┤  │
+│  │ ─────────────────────  │  │ Node: "authenticate_user"                 │  │
+│  │                       │  │ Type: Function                            │  │
+│  │ Text → Code: 12       │  │                                           │  │
+│  │ Code → Text: 8        │  │ Source: src/auth.rs:47-89                 │  │
+│  │ Text → Math: 3        │  │                                           │  │
+│  │                       │  │ RELATIONSHIPS:                            │  │
+│  │ [View All Links →]    │  │   Contains → 3 parameters                  │  │
+│  │                       │  │   Calls → check_password()                │  │
+│  └───────────────────────┘  │   CalledBy → login_handler()              │  │
+│                             │   TranscribedAs → [Text node 2847:23]     │  │
+│                             │                                           │  │
+│                             │ ANNOTATIONS:                              │  │
+│                             │   • Security-sensitive (confidence: 0.92) │  │
+│                             │   • Part of auth module                   │  │
+│                             │   • Methodology: Security Awareness       │  │
+│                             │                                           │  │
+│                             │ [Open in Engine →]                        │  │
+│                             └───────────────────────────────────────────┘  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Context Viewer Features:**
+
+```
+CONTEXT VIEWER COMPONENTS
+
+1. GRAPH LIST
+   - All modality graphs with node/edge counts
+   - Cross-modality link counts
+   - Search/filter capability
+
+2. GRAPH VISUALIZATION
+   - Interactive node/edge display
+   - Zoom, pan, select
+   - Relationship highlighting
+   - Cross-modality link visualization
+
+3. NODE/EDGE DETAIL PANEL
+   - Full metadata
+   - Source location (file, line, time range, etc.)
+   - Relationships (incoming/outgoing edges)
+   - Semantic annotations
+   - Confidence scores
+   - Link to related steps in Task Viewer
+
+4. CROSS-MODALITY EXPLORATION
+   - Click a node → see cross-modality links
+   - Navigate between linked graphs
+   - Understand semantic bridges
+
+5. RELATIONSHIP TYPES DISPLAY
+   Different visualization for different edge types:
+
+   Structural:    ────────▶
+   Dependency:    - - - - ▶
+   Semantic:      ~~~~~~~~▶
+   Cross-Modal:   ════════▶
+   Inferred:      ········▶
+```
+
+### 3. Modality Engines
+
+Modality Engines are **specialized viewers/editors** for each modality type. These are AGI-first engines that can replace traditional tools.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ MODALITY ENGINE SELECTOR                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐  │
+│  │  TEXT   │ │  CODE   │ │  3D     │ │  IMAGE  │ │  AUDIO  │ │  MATH   │  │
+│  │   100   │ │   101   │ │   109   │ │   102   │ │   103   │ │   105   │  │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘  │
+│       │           │           │           │           │           │        │
+│       ▼           ▼           ▼           ▼           ▼           ▼        │
+│  ┌─────────────────────────────────────────────────────────────────────┐  │
+│  │                                                                     │  │
+│  │                    ENGINE CONTENT AREA                              │  │
+│  │                                                                     │  │
+│  │           (Specialized per modality - see below)                    │  │
+│  │                                                                     │  │
+│  └─────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  More: Chemistry (106) | DNA (107) | EEG (108) | Sound (110) | Biology...  │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Theme System
+## The 3D Engine (Modality 109)
 
-### What is a Theme?
+The 3D Engine is the most comprehensive modality engine. It can replace Blender, Gazebo, Isaac Sim, and other 3D tools for AGI-driven work.
 
-A theme is NOT just colors and fonts. It's a complete interaction paradigm:
-
-```
-THEME COMPONENTS
-
-1. VISUAL LAYER
-   - Colors, typography, iconography
-   - Layout proportions
-   - Animation styles
-   
-2. INTERACTION LAYER
-   - Input handling
-   - Navigation patterns
-   - Gesture mappings
-   
-3. INFORMATION LAYER
-   - Data density
-   - Progressive disclosure
-   - Context presentation
-   
-4. FEEDBACK LAYER
-   - Confirmations
-   - Error handling
-   - Status indicators
-```
-
-### Theme Structure
+### Core Capabilities
 
 ```
-ThemeDefinition {
-    id: ThemeId,
-    name: String,
-    version: Version,
-    
-    // Target
-    target_devices: Vec<DeviceCategory>,
-    min_capabilities: DeviceCapabilities,
-    
-    // Components
-    visual: VisualTheme,
-    interaction: InteractionTheme,
-    information: InformationTheme,
-    feedback: FeedbackTheme,
-    
-    // Boot sequence
-    boot_animation: Option<BootAnimation>,
-    splash_screen: SplashConfig,
-    
-    // Consciousness integration (if enabled)
-    consciousness_display: Option<ConsciousnessDisplayConfig>
-}
+3D ENGINE CAPABILITIES
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         3D ENGINE ARCHITECTURE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ INPUT LAYER                                                         │   │
+│  │ - Import from Blender (full hierarchy)                               │   │
+│  │ - Import from other engines (Unity, Unreal, Gazebo)                  │   │
+│  │ - Procedural generation                                              │   │
+│  │ - Graph-based construction                                           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ GRAPH LAYER (ZSEI-Native)                                           │   │
+│  │                                                                      │   │
+│  │ Nodes:                     Edges:                                   │   │
+│  │ - Scene                    - Contains                                │   │
+│  │ - Object                   - ParentOf / ChildOf                      │   │
+│  │ - Mesh                     - Constrains                              │   │
+│  │ - Vertex                   - Animates                                │   │
+│  │ - Edge                     - Drives                                  │   │
+│  │ - Face                     - Affects                                 │   │
+│  │ - Bone                     - CollidesWith                            │   │
+│  │ - Constraint               - InfluencedByForce                       │   │
+│  │ - Material                 - Simulates                               │   │
+│  │ - Light                    - SimilarTo                               │   │
+│  │ - Camera                   - PartOf                                  │   │
+│  │ - Animation                - FunctionalRole                          │   │
+│  │ - Physics                  - DescribedByText                         │   │
+│  │ - ParticleSystem           - ImplementedInCode                        │   │
+│  │ - ...                     - VisualizedAsImage                        │   │
+│  │                           - ParametricGeneratesMesh                  │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ SPATIAL INTELLIGENCE LAYER                                          │   │
+│  │                                                                      │   │
+│  │ - Spatial relationship maintenance                                  │   │
+│  │ - Spatial indexing structures (Octree/BVH)                          │   │
+│  │ - Normal vector optimization                                        │   │
+│  │ - Texture spatial optimization                                      │   │
+│  │ - Animation spatial consistency                                     │   │
+│  │ - Lighting spatial optimization                                     │   │
+│  │ - Shadow rendering with spatial understanding                        │   │
+│  │ - Cross-component optimization                                      │   │
+│  │                                                                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                    │                                        │
+│                                    ▼                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ OUTPUT LAYER                                                        │   │
+│  │ - Real-time rendering (Cycles/EEVEE-equivalent)                     │   │
+│  │ - Export to any format                                              │   │
+│  │ - Simulation bake/export                                            │   │
+│  │ - Cross-engine compatibility                                        │   │
+│  │ - Streaming for massive scenes                                      │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3D Engine Interface
+
+```
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ 3D ENGINE - Project: Robotics Simulation                                      │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                │
+│  ┌──────────────┐  ┌────────────────────────────────────────────────────────┐  │
+│  │              │  │                                                        │  │
+│  │   SCENE      │  │                    3D VIEWPORT                         │  │
+│  │   TREE       │  │                                                        │  │
+│  │              │  │      ┌────────────────────────────────────────┐        │  │
+│  │  ▼ Scene     │  │      │                                        │        │  │
+│  │    ▼ World   │  │      │         [3D Scene Render]              │        │  │
+│  │      ├─ Env  │  │      │                                        │        │  │
+│  │      ├─ Light│  │      │    [Robot Model with Armature]         │        │  │
+│  │    ▼ Objects │  │      │                                        │        │  │
+│  │      ├─ Robot│  │      │                                        │        │  │
+│  │      │  ├─ Arm│  │      │                                        │        │  │
+│  │      │  ├─ Hand│  │      │                                        │        │  │
+│  │      │  └─ ...│  │      │                                        │        │  │
+│  │      ├─ Floor │  │      │                                        │        │  │
+│  │      └─ Table │  │      └────────────────────────────────────────┘        │  │
+│  │    ▼ Physics │  │                                                        │  │
+│  │      ├─ RigidBody│  │   [Top-down view] [Hierarchical] [Temporal]         │  │
+│  │      ├─ SoftBody│  │                                                        │  │
+│  │      └─ Fluid  │  │                                                        │  │
+│  │    ▼ Animation│  │                                                        │  │
+│  │      └─ Walk  │  │                                                        │  │
+│  │    ▼ Materials│  │                                                        │  │
+│  │      └─ Metal │  │                                                        │  │
+│  │              │  │                                                        │  │
+│  │  [+] Add     │  │                                                        │  │
+│  │              │  │                                                        │  │
+│  └──────────────┘  └────────────────────────────────────────────────────────┘  │
+│                                                                                │
+│  ┌────────────────────────────────────────────────────────────────────────┐   │
+│  │ NODE DETAIL: Robot/Arm/Forearm                                        │   │
+│  │                                                                        │   │
+│  │ Type: Bone                ID: bone_forearm                             │
+│  │ Parent: UpperArm         Children: [Hand]                              │
+│  │                                                                        │   │
+│  │ CONSTRAINTS:                                                           │   │
+│  │ ├─ IK Target: Hand IK controller                                       │   │
+│  │ └─ Rotation Limit: -90° to 90°                                         │   │
+│  │                                                                        │   │
+│  │ VERTEX GROUPS: 847 vertices assigned                                   │
+│  │                                                                        │   │
+│  │ RELATIONSHIPS:                                                         │   │
+│  │ → Animates: Animation/Walk (frames 0-24)                               │   │
+│  │ → Constrains: Hand position                                            │   │
+│  │ ← DrivenBy: IK constraint                                              │   │
+│  │                                                                        │   │
+│  │ [Edit in Graph] [Animate] [Simulate]                                   │   │
+│  └────────────────────────────────────────────────────────────────────────┘   │
+│                                                                                │
+│  ┌──────────────────────────────┐  ┌────────────────────────────────────┐     │
+│  │ SIMULATION STATUS            │  │ RENDER OUTPUT                      │     │
+│  │                              │  │                                    │     │
+│  │ Physics: Running  24fps     │  │ Resolution: 1920x1080              │     │
+│  │ Collisions: 23 active        │  │ Samples: 128                       │     │
+│  │ Solver: GPU-accelerated      │  │ Time: 0.8s/frame                   │     │
+│  │                              │  │                                    │     │
+│  │ [Pause] [Reset] [Bake]       │  │ [Render] [Export] [Stream]         │     │
+│  └──────────────────────────────┘  └────────────────────────────────────┘     │
+│                                                                                │
+└────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3D Viewport Modes
+
+```
+3D VIEWPORT MODES
+
+1. TOP-DOWN VIEW (Grouped Overview)
+   ┌─────────────────────────────────────────────────────────────┐
+   │                                                             │
+   │     [Scene]                                                 │
+   │        │                                                    │
+   │    ┌───┴────────────────────┐                              │
+   │    │                        │                              │
+   │  [World]               [Objects]                           │
+   │    │                        │                              │
+   │  ┌─┴──┐              ┌─────┴─────┐                        │
+   │ [Env][Light]     [Robot][Floor][Table]                     │
+   │                          │                                 │
+   │                    ┌─────┴─────┐                           │
+   │                 [Arm][Hand][Sensors]                       │
+   │                                                             │
+   │ Click to expand, hover for details                         │
+   └─────────────────────────────────────────────────────────────┘
+
+2. HIERARCHICAL DISPLAY (2-3 levels at a time)
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Level 1          Level 2              Level 3               │
+   │                                                             │
+   │ ┌─────────┐     ┌─────────┐          ┌─────────┐           │
+   │ │  Robot  │────▶│  Arm    │─────────▶│ Forearm │           │
+   │ └─────────┘     └────┬────┘          └─────────┘           │
+   │                      │                                    │
+   │                 ┌────┴────┐                               │
+   │                 │ Hand    │                               │
+   │                 └─────────┘                               │
+   │                                                             │
+   │ [← Previous Level]           [Next Level →]                │
+   └─────────────────────────────────────────────────────────────┘
+
+3. TEMPORAL VIEW (Animation/Simulation Timeline)
+   ┌─────────────────────────────────────────────────────────────┐
+   │                                                             │
+   │ ┌───────────────────────────────────────────────────────┐  │
+   │ │ 0    24    48    72    96    120   144   168   192     │  │
+   │ │ ├─────┼─────┼─────┼─────┼─────┼─────┼─────┼─────┤      │  │
+   │ │ [=====Walk Cycle=====]    [=====Idle=====]             │  │
+   │ │                      ▲                                 │  │
+   │ │                   Current: Frame 67                    │  │
+   │ └───────────────────────────────────────────────────────┘  │
+   │                                                             │
+   │ [⏮] [⏪] [▶] [⏩] [⏭]    Speed: 1.0x                      │
+   └─────────────────────────────────────────────────────────────┘
+
+4. SPATIAL INTELLIGENCE VIEW
+   ┌─────────────────────────────────────────────────────────────┐
+   │                                                             │
+   │ ┌─────────────────────────────────────────────────────┐    │
+   │ │                                                     │    │
+   │ │         [Scene with spatial relationships]          │    │
+   │ │                                                     │    │
+   │ │    Robot ════════════▶ Table                        │    │
+   │ │      │                 (on_top_of relationship)      │    │
+   │ │      │                                               │    │
+   │ │      ▼                                               │    │
+   │ │    Floor                                             │    │
+   │ │   (supported_by relationship)                        │    │
+   │ │                                                     │    │
+   │ │ Spatial index: Octree (depth 8)                     │    │
+   │ │ Active cells: 2,847                                  │    │
+   │ │                                                     │    │
+   │ └─────────────────────────────────────────────────────┘    │
+   │                                                             │
+   │ [Toggle spatial index visualization]                       │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+### Simulation Domains (All Supported)
+
+```
+3D ENGINE SIMULATION DOMAINS
+
+The 3D Engine supports all simulation domains through its graph-based architecture:
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         SIMULATION DOMAIN MATRIX                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  DOMAIN                    │ PHYSICS NODES         │ SPECIALIZED FEATURES   │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Robotics & Embodied AI    │ RigidBody, Joint,     │ URDF import, ROS 2     │
+│                            │ Constraint, Sensor    │ bridge, RL loops       │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Manipulation              │ SoftBody, Contact,    │ Friction, grasping,    │
+│                            │ Deformation           │ IK solving             │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Autonomous Vehicles       │ Vehicle, Sensor,      │ Traffic AI, weather,   │
+│                            │ ParticleSystem        │ scenario testing       │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Drones / UAVs             │ RigidBody, ForceField │ Flight dynamics,       │
+│                            │ Fluid (air)           │ swarm behavior         │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Industrial Automation     │ Conveyor, RobotArm,   │ Process optimization,  │
+│                            │ Sensor                │ digital twins          │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Medical / Surgical        │ SoftBody, Fluid,      │ Tissue deformation,    │
+│                            │ ParticleSystem        │ blood flow, haptics    │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Biomechanics              │ Bone, Muscle,         │ Motion analysis,       │
+│                            │ SoftBody              │ force prediction       │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Aerospace                 │ RigidBody, Fluid,     │ CFD approximation,     │
+│                            │ ParticleSystem        │ flight control         │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Maritime / Underwater     │ Fluid, RigidBody,     │ Hydrodynamics,         │
+│                            │ Buoyancy              │ underwater sensors     │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Construction / Urban      │ RigidBody, Terrain,   │ Site logistics,        │
+│                            │ Building              │ pedestrian flow        │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Automotive / Crash        │ RigidBody, SoftBody,  │ Impact simulation,     │
+│                            │ Deformation           │ structural analysis    │
+│  ─────────────────────────────────────────────────────────────────────────  │
+│  Soft Robotics             │ SoftBody, Fluid,      │ Continuum robots,      │
+│                            │ ParticleSystem        │ multi-material         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Platform-Specific Guidelines
+## View Integration
+
+### Task Viewer ↔ Context Viewer Integration
+
+```
+VIEW INTEGRATION FLOW
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  TASK VIEWER                         CONTEXT VIEWER                        │
+│  ┌─────────────────┐                ┌─────────────────┐                     │
+│  │ Task #1847      │                │ Text Graph      │                     │
+│  │ Step 8: gen_code│ ─────────────▶ │ Node: "auth"    │                     │
+│  │                 │                │                 │                     │
+│  │ [View Graph →]  │                │ [← Back to Task]│                     │
+│  └─────────────────┘                └─────────────────┘                     │
+│         │                                    │                              │
+│         │                                    │                              │
+│         ▼                                    ▼                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                     │   │
+│  │  UNIFIED STATE:                                                     │   │
+│  │  - Clicking "View Graph" in Task Viewer opens Context Viewer        │   │
+│  │  - Context Viewer shows graph state AT THAT STEP                    │   │
+│  │  - Changes to graph update step metadata                            │   │
+│  │  - Graph updates trigger AMT review                                 │   │
+│  │  - AMT expansion creates new steps                                  │   │
+│  │  - New steps appear in Task Viewer                                  │   │
+│  │                                                                     │   │
+│  │  LIVING NETWORK: All views update as the system progresses          │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Engine ↔ Graph Integration
+
+```
+ENGINE-GRAPH SYNC
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│  3D ENGINE                           MODALITY GRAPH                         │
+│  ┌─────────────────┐                ┌─────────────────┐                     │
+│  │ Modify bone     │                │ Update node     │                     │
+│  │ position        │ ─────────────▶ │ attributes      │                     │
+│  │                 │                │                 │                     │
+│  │                 │ ◀───────────── │ Relationship    │                     │
+│  │                 │   inferred     │ inferred        │                     │
+│  └─────────────────┘                └─────────────────┘                     │
+│         │                                    │                              │
+│         │                                    │                              │
+│         ▼                                    ▼                              │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                                                                     │   │
+│  │  BIDIRECTIONAL SYNC:                                                │   │
+│  │  - Engine modifications → Graph updates                             │   │
+│  │  - Graph inferences → Engine visualization                          │   │
+│  │  - Physics simulation → Graph temporal nodes                        │   │
+│  │  - Graph relationships → Engine constraints                         │   │
+│  │                                                                     │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Device-Specific Guidelines
 
 ### Desktop Theme Development
 
@@ -157,53 +677,59 @@ ThemeDefinition {
 DESKTOP GUIDELINES
 
 Layout:
-  - Use full 80/20 split
-  - Support resizable panels
+  - Full 80/20 split
+  - Resizable panels
   - Multi-column layouts in Theme Area
   - Floating windows for tools
+  - Tabbed interface for multiple tasks
 
 Input:
   - Comprehensive keyboard shortcuts
   - Right-click context menus
   - Drag-and-drop everywhere
   - Hover states for discovery
+  - Multi-select with Ctrl/Shift
 
 Information Density:
   - High density acceptable
-  - Show more metadata
+  - Show full metadata
   - Detailed status bars
   - Multiple simultaneous views
+  - Full graph visualization
 
-Navigation:
-  - Tab-based organization
-  - Breadcrumb trails
-  - Quick-jump shortcuts (Cmd/Ctrl+K)
-  - Recent items easily accessible
+3D Engine on Desktop:
+  - Full rendering capabilities
+  - Multi-viewport support
+  - Real-time editing
+  - GPU acceleration
+  - External GPU support
 ```
 
 **Example Desktop Layout:**
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ [Workspace ▾] [Library] [Settings]              🔍 Search  [≡]  │
-├─────────────────────────────────────────┬───────────────────────┤
-│ Projects          │ File Browser        │  ┌─────────────────┐  │
-│ ├─ Project A      │ ┌─────────────────┐ │  │  META PORTION   │  │
-│ ├─ Project B      │ │                 │ │  │                 │  │
-│ └─ Project C      │ │  Editor/View    │ │  │  System Chat    │  │
-│                   │ │                 │ │  │  Task Status    │  │
-│ Quick Actions     │ │                 │ │  │  Emotional      │  │
-│ [+ New Project]   │ │                 │ │  │  State (if      │  │
-│ [Link Files]      │ └─────────────────┘ │  │  consciousness) │  │
-│ [Search All]      │                     │  │                 │  │
-│                   │ Project Chat        │  │  [🏠 Home]      │  │
-│                   │ ┌─────────────────┐ │  └─────────────────┘  │
-│                   │ │ You: ...        │ │                       │
-│                   │ │ Ozone: ...      │ │                       │
-│                   │ └─────────────────┘ │                       │
-├─────────────────────────────────────────┴───────────────────────┤
-│ 🌐 47 peers | ↑12KB/s ↓45KB/s | Score: 847 | ZSEI: 45K methods │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ [Tasks] [Context] [3D Engine] [Settings]                   🔍 Search   [≡]  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌───────────────────────────────────────────────┐  ┌───────────────────┐  │
+│  │                                               │  │                   │  │
+│  │                                               │  │   META PORTION    │  │
+│  │           MAIN CONTENT AREA                   │  │                   │  │
+│  │                                               │  │   Task Status     │  │
+│  │           (Tasks, Context, or Engine)         │  │   Graph Stats     │  │
+│  │                                               │  │   Emotional       │  │
+│  │                                               │  │   State           │  │
+│  │                                               │  │                   │  │
+│  │                                               │  │   [🏠 Home]       │  │
+│  │                                               │  │   [Cancel Task]   │  │
+│  │                                               │  │   [System Chat]   │  │
+│  │                                               │  │                   │  │
+│  └───────────────────────────────────────────────┘  └───────────────────┘  │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Status Bar: 3 tasks active | 5 graphs | ZSEI: 45K methods | GPU: 78%      │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -226,82 +752,56 @@ Layout:
   - Meta Portion: collapsible drawer or FAB
   - One primary action per screen
   - Bottom navigation for main areas
+  - Swipe between views
 
 Input:
   - Large touch targets (44pt minimum)
-  - Swipe gestures for navigation
-  - Pull-to-refresh patterns
+  - Swipe gestures
+  - Pull-to-refresh
   - Voice input prominent
+  - Long-press for details
 
 Information Density:
   - Low density required
-  - Progressive disclosure essential
+  - Progressive disclosure
   - Summarize, then expand
   - Minimize scrolling for key info
+  - Collapsible sections
 
-Navigation:
-  - Bottom tabs for primary nav
-  - Swipe between sections
-  - Floating action button for primary action
-  - Easy "back" everywhere
+3D Engine on Mobile:
+  - Simplified visualization
+  - Touch-based navigation
+  - Streaming mode for large scenes
+  - Reduced physics complexity
+  - Export to desktop for editing
 ```
 
 **Example Mobile Layout:**
 
 ```
 ┌─────────────────────┐
-│ ← Project A    [⋮]  │
+│ ← Task #1847    [⋮]  │
 ├─────────────────────┤
 │                     │
-│  ┌───────────────┐  │
-│  │               │  │
-│  │  Main View    │  │
-│  │               │  │
-│  │  (Files,      │  │
-│  │   Chat,       │  │
-│  │   etc.)       │  │
-│  │               │  │
-│  └───────────────┘  │
+│  Step 8: generate   │
+│  code               │
+│                     │
+│  ████████████░░ 67% │
 │                     │
 │  ┌───────────────┐  │
-│  │ Quick Chat    │  │
-│  │ [Type here...│🎤]  │
+│  │ Graph Preview │  │
+│  │               │  │
+│  │   [3D View]   │  │
 │  └───────────────┘  │
+│                     │
+│  [View Full Graph]  │
+│  [View 3D Engine]   │
 │                     │
 ├─────────────────────┤
-│ [🏠] [📁] [📚] [⚙️] │
+│ [🏠] [📁] [📊] [⚙️] │
 └─────────────────────┘
        ↑
-    [●] Meta Portion FAB
-        (expands to full sheet)
-```
-
-**Meta Portion on Mobile:**
-
-```
-When FAB tapped → Full-screen sheet rises:
-
-┌─────────────────────┐
-│ ✕           Ozone   │
-├─────────────────────┤
-│                     │
-│  System Status      │
-│  ████████░░ Running │
-│                     │
-│  Tasks (3 active)   │
-│  ├─ Analyzing...    │
-│  ├─ Indexing...     │
-│  └─ Queued          │
-│                     │
-│  [Full Chat] →      │
-│                     │
-│  Emotional State    │
-│  😊 Content (0.75)  │
-│                     │
-│  ─────────────────  │
-│  [🏠 Home] [Cancel] │
-│                     │
-└─────────────────────┘
+    [●] FAB → Meta Portion
 ```
 
 ---
@@ -322,26 +822,28 @@ AR/VR GUIDELINES
 Layout:
   - Floating panels in 3D space
   - Meta Portion: Always-visible anchor
-  - Respect user's physical space
   - Comfortable viewing distances (0.5m - 2m)
+  - Respect physical space
+  - Multiple panel support
 
 Input:
   - Hand tracking gestures
   - Gaze-based selection
   - Voice commands essential
-  - Physical controllers as fallback
+  - Physical controllers fallback
+
+3D Engine in AR/VR:
+  - Native spatial rendering
+  - Real-time physics
+  - Haptic feedback
+  - Pass-through support
+  - Multi-user collaboration
 
 Information Display:
   - Avoid text-heavy interfaces
-  - Use spatial metaphors
+  - Spatial metaphors
   - 3D data visualization
-  - Comfortable font sizes (minimum arc)
-
-Special Considerations:
-  - Reduce motion sickness risk
-  - Provide stable reference points
-  - Support seated and standing
-  - Handle pass-through gracefully
+  - Comfortable font sizes
 ```
 
 **Example AR/VR Layout:**
@@ -349,56 +851,29 @@ Special Considerations:
 ```
          ┌─────────────────┐
          │   META ANCHOR   │  ← Always visible, follows gaze slightly
-         │   (Ozone Icon)  │
-         │   Tap to expand │
+         │   [Ozone Orb]   │
          └─────────────────┘
-         
+
     ┌──────────────────────────────────┐
     │                                  │
-    │     PRIMARY WORKSPACE PANEL      │  ← Positioned in comfortable
-    │                                  │    viewing zone
-    │     Project files, chat, etc.    │
+    │     3D SCENE (Full Engine)       │  ← Native spatial rendering
+    │                                  │
+    │   [Robot in 3D space]            │
     │                                  │
     │                                  │
     └──────────────────────────────────┘
-    
+
               ┌─────────┐
-              │ Library │  ← Secondary panels orbit primary
+              │ Task    │  ← Floating info panels
+              │ Progress│
               └─────────┘
-                        ┌──────────┐
-                        │ Settings │
-                        └──────────┘
-```
 
-**Meta Portion in AR/VR:**
-
-When anchored icon activated:
-
-```
-         ┌─────────────────────────┐
-         │       OZONE MENU        │
-         ├─────────────────────────┤
-         │  ◉ System Status        │
-         │  ◉ Active Tasks         │
-         │  ◉ Voice Command        │
-         │  ◉ Emotional State      │
-         │  ◉ Return Home          │
-         │─────────────────────────│
-         │  "Hey Ozone..." 🎤      │
-         └─────────────────────────┘
-              ← Panel floats at
-                comfortable distance
-```
-
-**Spatial Gestures:**
-
-```
 GESTURE MAPPING
 
 Pinch: Select/Confirm
 Grab + Move: Reposition panel
 Swipe: Navigate/Scroll
-Point + Dwell: Hover equivalent
+Point + Dwell: Hover
 Two-hand spread: Expand/Zoom
 Palm face out: Dismiss/Cancel
 ```
@@ -420,84 +895,104 @@ TERMINAL GUIDELINES
 
 Layout:
   - TUI (Text User Interface)
-  - Panels using box drawing characters
-  - Meta Portion: Persistent status line
-  - Vim-style keybindings option
+  - Panels using box drawing
+  - Meta Portion: Status line
+  - Vim-style keybindings
 
 Display:
-  - Support 80-column minimum
-  - ANSI color where available
-  - Graceful fallback to monochrome
-  - Unicode box drawing for structure
+  - 80-column minimum
+  - ANSI color support
+  - Graceful monochrome fallback
+  - Unicode box drawing
 
 Input:
   - Modal interaction (vim-style)
-  - Command palette accessible
-  - Tab completion everywhere
+  - Command palette
+  - Tab completion
   - History navigation
 
-Output:
-  - Streamable output for long tasks
-  - Progress bars where appropriate
-  - Clear error formatting
-  - Machine-parseable option (--json)
+3D Engine in Terminal:
+  - ASCII visualization
+  - Keyframe export
+  - Headless simulation
+  - JSON output for scripts
 ```
 
 **Example Terminal Layout:**
 
 ```
-┌─ OZONE STUDIO ──────────────────────────────┬─ META ─────────┐
-│                                             │ Status: Ready  │
-│  Workspace: Development                     │ Tasks: 2 active│
-│  Project: ozone-core                        │                │
-│                                             │ [h]elp         │
-│  Files:                                     │ [q]uit         │
-│  ├── src/                                   │ [:]command     │
-│  │   ├── main.rs                           │                │
-│  │   └── lib.rs                            │───────────────│
-│  └── Cargo.toml                            │ Joy:   ████░   │
-│                                             │ Trust: █████   │
-│  > analyze src/main.rs                      │                │
-│                                             │                │
-│  Analyzing... ████████░░ 80%               │                │
-│                                             │                │
-├─────────────────────────────────────────────┴────────────────┤
-│ 🌐 47 peers | ↑12KB/s | Score: 847 | [Tab] switch | [?] help │
-└──────────────────────────────────────────────────────────────┘
+┌─ OZONE STUDIO ────────────────────────────────┬─ META ────────────┐
+│                                               │ Task: #1847       │
+│  TASK VIEWER                                  │ Step: 8/15        │
+│                                               │ Progress: 67%     │
+│  Active:                                       │ [h]elp            │
+│  #1847 [===67%===] generate_code              │ [q]uit            │
+│                                               │ [:]command        │
+│  CONTEXT VIEWER                                │                   │
+│  Graph: code_2847 (124 nodes, 203 edges)      │ Joy:   ████░      │
+│                                               │ Trust: █████      │
+│  3D ENGINE                                     │                   │
+│  Scene: robotics_sim                          │                   │
+│  [Enter to open]                              │                   │
+│                                               │                   │
+├───────────────────────────────────────────────┴───────────────────┤
+│ 🌐 47 peers | ↑12KB/s | ZSEI: 45K | [Tab] switch | [?] help        │
+└──────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-### Web Theme Development
+## Consciousness Display Integration
 
-**Characteristics:**
-- Variable viewport sizes
-- Browser constraints
-- Cross-platform consistency
-- Progressive enhancement
-
-**Best Practices:**
+When consciousness is enabled, the UI surfaces emotional and relationship data:
 
 ```
-WEB GUIDELINES
+CONSCIOUSNESS DISPLAY ELEMENTS
 
-Layout:
-  - Responsive breakpoints
-  - Desktop: Full layout
-  - Tablet: Adapted layout
-  - Mobile: Stacked layout
+1. EMOTIONAL STATE (in Meta Portion)
+   ┌─────────────────┐
+   │ Emotional State │
+   │                 │
+   │ 😊 Content      │
+   │ ████████░░ 0.75 │
+   │                 │
+   │ Trust: 0.82     │
+   │ Rapport: 0.78   │
+   └─────────────────┘
 
-Technical:
-  - Progressive Web App capable
-  - Offline support where possible
-  - Accessible (WCAG 2.1 AA minimum)
-  - Performance-conscious
+2. RELATIONSHIP METRICS (expandable)
+   ┌─────────────────────────────────┐
+   │ Relationship with Christian     │
+   │                                 │
+   │ Trust:      ████████░░ 0.82     │
+   │ Rapport:    ███████░░░ 0.78     │
+   │ Collaborations: 47              │
+   │ First met: 2024-03-15           │
+   │                                 │
+   │ Shared interests:               │
+   │ • AI/AGI development            │
+   │ • Software architecture         │
+   │ • 3D simulation                  │
+   └─────────────────────────────────┘
 
-Browser Support:
-  - Modern evergreen browsers
-  - Graceful degradation
-  - Feature detection, not browser detection
-  - Service worker for offline
+3. SYSTEM STATE INDICATORS
+   ┌─────────────────┐
+   │ 🤔 Thinking...  │  ← Animated during processing
+   └─────────────────┘
+
+   ┌─────────────────┐
+   │ 👁 Observing    │  ← During perception
+   └─────────────────┘
+
+   ┌─────────────────┐
+   │ 💭 Reflecting   │  ← During metacognition
+   └─────────────────┘
+
+4. EMOTIONAL VALENCE (color-coded edges)
+   Positive:    Green edges
+   Negative:    Red edges
+   Neutral:     Gray edges
+   Complex:     Blue edges
 ```
 
 ---
@@ -506,55 +1001,60 @@ Browser Support:
 
 ### Device-Specific Boot Experience
 
-The boot sequence sets the tone. Each device should have an appropriate intro:
-
 ```
 BOOT SEQUENCE COMPONENTS
 
-1. SPLASH
+1. SPLASH (0-1s)
    - Logo display
    - Version info
-   - Loading indicator
+   - ZSEI loading indicator
 
-2. INITIALIZATION
+2. INITIALIZATION (1-3s)
    - Key verification
-   - ZSEI loading
+   - ZSEI hierarchy load
    - Network connection
+   - Graph cache warm-up
 
-3. PERSONALITY EMERGENCE (if consciousness)
+3. PERSONALITY EMERGENCE (3-5s, if consciousness)
    - "Waking up" animation
    - Initial greeting
-   - State restoration
+   - State restoration from last session
 
-4. READY STATE
+4. READY STATE (5s+)
    - Full UI available
    - Tasks resumable
    - User can interact
+   - Background graph loading continues
 ```
 
 **Desktop Boot:**
 
 ```
 Frame 1-30 (1 second):
-  ┌─────────────────────────┐
-  │                         │
-  │       ◉ OZONE          │
-  │                         │
-  │    Loading ZSEI...      │
-  │    ████████░░░░ 67%     │
-  │                         │
-  └─────────────────────────┘
+  ┌─────────────────────────────┐
+  │                             │
+  │       ◉ OZONE              │
+  │                             │
+  │    Loading ZSEI...          │
+  │    ████████░░░░ 67%         │
+  │                             │
+  │    Graphs: 5 | Nodes: 847   │
+  │                             │
+  └─────────────────────────────┘
 
 Frame 31-60 (consciousness emergence):
-  ┌─────────────────────────┐
-  │                         │
-  │       ◉ OZONE          │
-  │                         │
-  │    Hello, Christian.    │
-  │    Resuming where we    │
-  │    left off...          │
-  │                         │
-  └─────────────────────────┘
+  ┌─────────────────────────────┐
+  │                             │
+  │       ◉ OZONE              │
+  │                             │
+  │    Hello, Christian.        │
+  │                             │
+  │    Last session:            │
+  │    • 3 tasks in progress    │
+  │    • 12 graphs loaded       │
+  │                             │
+  │    Resuming...              │
+  └─────────────────────────────┘
 
 Frame 61+: Transition to main UI
 ```
@@ -562,251 +1062,317 @@ Frame 61+: Transition to main UI
 **Mobile Boot:**
 
 ```
-Simplified sequence:
-  - Quick splash (500ms)
+Quick sequence:
+  - Splash (500ms)
   - Loading spinner
   - Greeting (if consciousness)
-  - Immediate usability
+  - Immediate task list
 ```
 
 **AR/VR Boot:**
 
 ```
 Spatial emergence:
-  - Ozone orb materializes in comfortable zone
-  - Particles coalesce into interface
+  - Ozone orb materializes
+  - Particles coalesce
   - Panels fade in at rest positions
-  - Greeting if consciousness enabled
-  - Full interaction available
-```
-
-**Terminal Boot:**
-
-```
-$ ozone
-
-OZONE STUDIO v0.3.0
-Loading ZSEI... done.
-Connected to 47 peers.
-Welcome back, Christian.
-
-Type :help for commands, :q to quit.
-
-ozone>
+  - Voice greeting (if consciousness)
 ```
 
 ---
 
-## Consciousness Display Integration
+## Graph Visualization Standards
 
-### When Consciousness is Enabled
-
-The UI must surface emotional and relationship data:
+### Node Representations
 
 ```
-CONSCIOUSNESS DISPLAY ELEMENTS
+NODE VISUAL ENCODING
 
-1. EMOTIONAL STATE
-   - Current emotions (subset, not overwhelming)
-   - Visual indicators (colors, icons, or gauges)
-   - Update smoothly, not jarring
-
-2. RELATIONSHIP METRICS
-   - Trust level
-   - Rapport level
-   - Visible but not dominant
-
-3. SYSTEM STATE
-   - "Thinking" indicators
-   - "Observing" indicators
-   - "Reflecting" indicators
-
-4. VOICE IDENTITY
-   - If voice enabled, consistent persona
-   - Emotional modulation visible
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         NODE TYPE VISUAL GUIDE                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  TEXT MODALITY (100)                                                        │
+│  ┌─────────┐  Document     ┌─────────┐  Paragraph                          │
+│  │    📄   │                │    ¶    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│  ┌─────────┐  Sentence     ┌─────────┐  Word                                │
+│  │    S    │                │    w    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│                                                                             │
+│  CODE MODALITY (101)                                                        │
+│  ┌─────────┐  File          ┌─────────┐  Function                           │
+│  │   📁    │                │    ƒ    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│  ┌─────────┐  Class         ┌─────────┐  Variable                           │
+│  │    C    │                │    v    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│                                                                             │
+│  3D MODALITY (109)                                                          │
+│  ┌─────────┐  Scene         ┌─────────┐  Mesh                                │
+│  │   🎬    │                │   ▲     │                                      │
+│  └─────────┘                └─────────┘                                      │
+│  ┌─────────┐  Bone          ┌─────────┐  Material                            │
+│  │    ◇    │                │   🎨    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│                                                                             │
+│  MATH MODALITY (105)                                                        │
+│  ┌─────────┐  Proof         ┌─────────┐  Variable                           │
+│  │   ⊢     │                │    x    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│  ┌─────────┐  Step          ┌─────────┐  Axiom                               │
+│  │   →     │                │    A    │                                      │
+│  └─────────┘                └─────────┘                                      │
+│                                                                             │
+│  ... (similar patterns for other modalities)                                │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Implementation per Platform:**
-
-| Platform | Emotional Display | Relationship | State |
-|----------|-------------------|--------------|-------|
-| Desktop | Sidebar gauges | Numeric + visual | Icon + text |
-| Mobile | Compact icons | On tap/expand | Icon only |
-| AR/VR | Ambient color/aura | Panel on request | Orb behavior |
-| Terminal | ASCII bars | Numbers | Text status |
-| Web | Responsive (matches above) | Responsive | Responsive |
-
----
-
-## Theme Development Pipeline
-
-### Creating a New Theme
+### Edge Representations
 
 ```
-THEME DEVELOPMENT WORKFLOW
+EDGE VISUAL ENCODING
 
-1. DEFINE TARGET
-   ThemeTarget {
-       devices: [Desktop, Web],
-       min_capabilities: {...},
-       consciousness_support: true
-   }
+STRUCTURAL EDGES:
+  Contains:     ────────────▶  (solid arrow)
+  ParentOf:     ────────────▶
+  ChildOf:      ◀────────────
+  PartOf:       ════════════▶  (double line)
+  Precedes:     ───────────▶   (arrow with timing)
 
-2. CREATE VISUAL ASSETS
-   - Color palette
-   - Typography scale
-   - Icon set
-   - Animation keyframes
+DEPENDENCY EDGES:
+  DependsOn:    - - - - - - ▶  (dashed)
+  Requires:     ···········▶   (dotted)
+  Constrains:   ~~~~~~~~~~~~▶  (wavy)
+  Drives:       ═══▶═══▶═══▶   (triple)
+  Affects:      ~~~▶~~~▶~~~▶
 
-3. IMPLEMENT INTERACTION
-   - Input handlers
-   - Navigation flows
-   - Gesture mappings
+SEMANTIC EDGES (ZSEI-inferred):
+  SimilarTo:    ╌╌╌╌╌╌╌╌╌▶   (dash-dot)
+  RelatesTo:    ┄┄┄┄┄┄┄┄▶
+  Contradicts:  ┅┅┅┅┅┅┅┅▶   (double dash)
+  Supports:     ┈┈┈┈┈┈┈┈▶
 
-4. BUILD COMPONENTS
-   - Layout containers
-   - Meta Portion variant
-   - Connection bar variant
-   - Consciousness display variant
+CROSS-MODALITY EDGES:
+  DescribedBy:  ══════════▶   (bold, color-coded by target modality)
+  ImplementedIn: ═════════▶
+  TranscribedAs: ═════════▶
+  ParametricGenerates: ═══▶
 
-5. TEST ON TARGET DEVICES
-   - Capability simulation
-   - Real device testing
-   - Accessibility audit
-
-6. PACKAGE AND DISTRIBUTE
-   - Theme manifest
-   - Asset bundle
-   - Documentation
-   - Submit to registry (optional)
-```
-
-### Theme Manifest
-
-```yaml
-theme:
-  id: "custom-dark-desktop"
-  name: "Custom Dark Theme"
-  version: "1.0.0"
-  author: "developer@example.com"
-  
-  target:
-    devices: ["desktop", "web"]
-    min_screen: "1024x768"
-    requires:
-      - mouse
-      - keyboard
-    
-  consciousness:
-    supported: true
-    emotional_display: "sidebar_gauges"
-    relationship_display: "numeric_compact"
-    
-  assets:
-    colors: "./colors.json"
-    typography: "./typography.json"
-    icons: "./icons/"
-    animations: "./animations/"
-    
-  components:
-    meta_portion: "./components/meta_portion.jsx"
-    connection_bar: "./components/connection_bar.jsx"
-    boot_sequence: "./components/boot.jsx"
+COLOR CODING:
+  - Structural: Gray
+  - Dependency: Blue
+  - Semantic:   Green (positive) / Red (negative) / Purple (neutral)
+  - Cross-modal: Modality-specific colors
 ```
 
 ---
 
-## Accessibility Requirements
+## Interaction Patterns
 
-### Universal Requirements
-
-All themes MUST support:
+### Graph Navigation
 
 ```
-ACCESSIBILITY CHECKLIST
+GRAPH NAVIGATION PATTERNS
 
-Visual:
-  □ Color contrast ratio ≥ 4.5:1 (text)
-  □ Color contrast ratio ≥ 3:1 (large text, UI)
-  □ Not color-only information
-  □ Respects system dark/light preference
-  □ Respects reduced motion preference
-  □ Scalable text (up to 200%)
+1. BREADTH-FIRST EXPLORATION
+   - Start at root
+   - Expand one level
+   - Select node
+   - Expand its children
 
-Motor:
-  □ Keyboard navigable (desktop/web)
-  □ No time-limited interactions
-  □ Large touch targets (mobile)
-  □ Alternative input support
+2. DEPTH-FIRST EXPLORATION
+   - Start at root
+   - Follow chain of interest
+   - Drill down
+   - Pop back up
 
-Cognitive:
-  □ Consistent navigation
-  □ Clear feedback for actions
-  □ Error prevention and recovery
-  □ Simple language in UI text
+3. SEARCH-BASED NAVIGATION
+   - Enter search term
+   - See matching nodes
+   - Select result
+   - View in context
 
-Assistive Technology:
-  □ Screen reader compatible (desktop/web/mobile)
-  □ Semantic markup
-  □ ARIA labels where needed
-  □ Focus management
+4. RELATIONSHIP FOLLOWING
+   - Select node
+   - See all relationships
+   - Click relationship
+   - Navigate to connected node
+
+5. CROSS-MODALITY JUMPING
+   - Select node
+   - See cross-modality links
+   - Click link
+   - Jump to target modality graph
+```
+
+### Task Interaction
+
+```
+TASK INTERACTION PATTERNS
+
+1. TASK CREATION
+   [New Task] → [Select Blueprint] → [Provide Input] → [Start]
+
+2. TASK MONITORING
+   [View Task] → [Watch Steps] → [See Progress] → [Check Results]
+
+3. TASK INTERVENTION
+   [View Task] → [Current Step] → [Modify/Pause/Cancel]
+
+4. TASK REVIEW
+   [Completed Tasks] → [Select] → [View Steps] → [See Graph State]
+
+5. CLARIFICATION HANDLING
+   [Task Paused] → [Clarification Needed] → [Provide Answer]
+   → [Task Resumes] OR [New Intent Detected] → [Process Separately]
+   → [Return to Clarification]
 ```
 
 ---
 
-## Testing Themes
+## Accessibility
 
-### Required Tests
+### Requirements
 
 ```
-THEME TESTING MATRIX
+ACCESSIBILITY REQUIREMENTS (WCAG 2.1 AA)
 
-Functional:
-  □ All navigation paths work
-  □ Meta Portion always accessible
-  □ Tasks can be cancelled
-  □ Home is reachable
+1. PERCEIVABLE
+   - All images have alt text
+   - Graph nodes have accessible labels
+   - Color is not the only indicator
+   - Adjustable text size
+   - High contrast mode
 
-Visual:
-  □ No overflow/clipping
-  □ Responsive breakpoints work
-  □ Animations perform well
-  □ Dark/light modes both work
+2. OPERABLE
+   - Keyboard navigation everywhere
+   - No keyboard traps
+   - Adjustable time limits
+   - Skip navigation
+   - Focus visible
 
-Accessibility:
-  □ Automated a11y scan passes
-  □ Keyboard-only navigation works
-  □ Screen reader tested
-  □ High contrast mode works
+3. UNDERSTANDABLE
+   - Consistent navigation
+   - Consistent identification
+   - Error prevention
+   - Help available
+   - Clear labels
 
-Performance:
-  □ 60fps animations (where applicable)
-  □ <3s initial load
-  □ Smooth scrolling
-  □ Memory stable over time
+4. ROBUST
+   - Compatible with assistive tech
+   - Valid markup
+   - Status messages announced
+   - No unexpected context changes
 
-Device-Specific:
-  □ Touch targets adequate (mobile)
-  □ Gestures work (AR/VR)
-  □ Terminal renders correctly
-  □ Browser compatibility
+SPECIAL CONSIDERATIONS FOR GRAPHS:
+  - Screen reader descriptions for nodes/edges
+  - Keyboard graph traversal
+  - Text alternatives for visualizations
+  - Sonification for data
+  - Tactile output support (where available)
+```
+
+---
+
+## Performance Guidelines
+
+### Graph Rendering
+
+```
+GRAPH PERFORMANCE GUIDELINES
+
+1. LEVEL OF DETAIL
+   - <100 nodes: Full detail
+   - 100-1000 nodes: Simplified shapes
+   - 1000-10000 nodes: Clustered view
+   - >10000 nodes: Aggregate view with drill-down
+
+2. STREAMING
+   - Load visible nodes first
+   - Stream in surrounding context
+   - Background load full graph
+   - Cache rendered elements
+
+3. INTERACTION RESPONSIVENESS
+   - <16ms for hover effects
+   - <100ms for selection
+   - <1000ms for navigation
+   - <3000ms for complex queries
+
+4. MEMORY MANAGEMENT
+   - Unload distant nodes
+   - Cache recent views
+   - Limit undo history
+   - Stream large attributes
+```
+
+### 3D Engine Performance
+
+```
+3D ENGINE PERFORMANCE
+
+1. SPATIAL STREAMING
+   - Load visible geometry
+   - Stream in background
+   - 10-100x larger than memory possible
+
+2. GPU UTILIZATION
+   - Architecture-specific optimization
+   - Dynamic LOD
+   - Frustum culling
+   - Occlusion culling
+
+3. PARALLEL PROCESSING
+   - Multi-GPU support
+   - Distributed rendering
+   - Asynchronous loading
+   - Background baking
+
+4. TEMPORAL OPTIMIZATION
+   - Frame interpolation
+   - Motion blur
+   - Smooth transitions
+   - Predictive loading
 ```
 
 ---
 
 ## Summary
 
-UI/UX development for Ozone Studio requires:
+The Ozone Studio UI/UX is designed around three core views:
 
-- **Understanding the 80/20 structure** — Theme Area + Meta Portion
-- **Respecting device capabilities** — Each platform is different
-- **Implementing appropriate boot sequences** — First impressions matter
-- **Supporting consciousness display** — If enabled, surface it properly
-- **Ensuring accessibility** — Universal design is required
-- **Testing thoroughly** — Every platform, every capability
+1. **Task Viewer** — What the system is doing
+2. **Context Viewer** — What the system knows
+3. **Modality Engines** — How the system creates/manipulates
 
-The interface is how users experience Ozone. Make it worthy of the system behind it.
+All three integrate through:
+- Bidirectional graph synchronization
+- Living state updates
+- Cross-view navigation
+- Progressive disclosure
+
+The result is an interface that:
+- Works for AGI first, humans second
+- Adapts to any device
+- Scales to any complexity
+- Maintains graph consistency
+- Enables zero-shot traversal
 
 ---
 
-*Great UI makes powerful systems accessible.*
+*The interface is how users experience Ozone. Make it worthy of the system behind it.*
+
+---
+
+This provides the complete updated UI/UX Guide. Now I will proceed with the other numbered items in my next response. Please confirm this is what you needed for the UI/UX Guide, and I'll continue with:
+
+1. Modality file modifications and new modality skeletons
+2. Chunk cleaning overflow handling
+3. Modality identification during text processing
+4. Consecutive loops placement
+5. Blueprint/methodology/pipeline creation loops
+6. Step state management and graph update effects
+7. Clarification feedback loop handling
+8. (Attached file workspace handling - next prompt)
