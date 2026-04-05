@@ -1,0 +1,34 @@
+Claude:
+C.1.1 Supplementary vs. Primary Document Detection this should be working on the graphs of each file after being analyzed not prior as
+this is then disregarding the chunk size limit believing that all files attached will be within the chunk limit and thus creating a
+cascading limitation effect as well. We work on the graph of the files not the file itself IE reference the graph of the modalities
+and identifying which file it belongs to via the metadata of graphs after we have processed all files.
+
+
+
+Z.ai:
+
+
+
+
+Cross-Reference:
+
+Z.ai has greater enrinchment on ### 1.1 Universal Edge Types capturing
+
+    HasInstance,        // Y has instance X
+    SimilarTo,          // X similar to Y
+    RelatesTo,          // Generic relationship
+
+as well as cross-modality edges
+
+// === CROSS-MODALITY ===
+    ReferencesModality, // Text references modality content
+    ReferencedBy,       // Modality referenced by text
+    DescribedBy,        // X described by Y (usually text)
+    Describes,          // X describes Y
+    ImplementedIn,      // X implemented in Y (usually code)
+    Implements,         // X implements Y
+    VisualizedAs,       // X visualized as Y (image/3D)
+    Visualizes,         // X visualizes Y
+    SyncedTo,           // Temporal sync (audio↔video)
+    SyncedBy,           // Reverse sync

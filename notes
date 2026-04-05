@@ -1346,3 +1346,77 @@ In `PipelineRegistry` or wherever you need blueprint access, inject the `Bluepri
 now in our amt layer by layer build or in our text modality when processing chunks we know obtain all modalities in a chunk extract all modalities in a chunk it may be text because the text modality being processed in the text in prompt which is just that text and inside that text it can include modalities again reconfirming text modalities and others we want to identify all modalities per chunk this is used to build relationships as we have stated then after the AMT is built or during
 
 IN our text modality when processing chunks we can identify the start of the first chunk or the start of what is n the chunk for identifying the end cmpletion of the prior chunk if not the first chunk in relations to our windowed processing to ensure we aren't cutting anythign off a sentence mid sentence or etc while cleaning chunks/
+
+
+
+
+We are to review the modification guide to review each part and clarify before moving forward
+
+We should not utilize confidence as this is already through the validation passes where it believes it to be true or not there is no confidence percentage to be tracked to be set by a artificial system it would just cause escalating problems in the end not anywhere in Part 1 nor Part 2
+
+Prompt normalization takes a prompt and splits them into chunks and per chunk it derives information from it such as modalities obtained per chunk etc keywords/topics but now also chunks turn into graphs as well so its Prompt - Chunk -> Graph this graph differs from our modality graph itself.
+
+when it comes to
+
+Part 1:
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum EdgeProvenance {
+    #[default] Structural,  // from parsing/AST
+    GrammarInferred,        // from SRL/dependency parsing
+    LLMZeroShot,            // from LLM extraction
+    HookInferred,           // from ZSEI OnInferRelationships hook
+    CrossModalDerived,      // from cross-modality analysis
+    HumanAnnotated,         // from human clarification
+}
+
+this is completely wrong as EdgeProvenance is
+
+    // PROVENANCE — NEW
+    DerivedFrom,       // X was derived from Y
+    VersionOf,         // X is version of Y
+    RefinesTo,         // X refines/improves Y
+
+now derivedFrom will almost always be hierarchy based no always but mostly always I would believe it is not HumanAnnotated and never is a human directly anotatting a graph these are all derived from work progresses of the AGI System itself so LLMInfered or etc none of these are what we are looking to grab, we are looking like what what graph it was dereived from or data structure. This can be say derived from the prompt object, derived from a chunk object derived from a graph, derived from a attached file etc
+
+
+Part 2
+
+during modality detection we are also identifying text modalities within the prompt itself because a text modality can include as we hve idenitified other modalities as well as text itself so we do wan to identify true text as well within a modality upon identifying all modalities we theoretically have a root graph of all modalities the top hierarchy before we start diving into fully now creating the full graphs per modality
+
+"content_snippet": "first 50 chars...", this is not necessary as this takes up space, we can do this dynamically whenever we need or want to views snippet of the content as we know have the starting and end slice location of a text we can always dynamically obtain a snippet
+
+modality detection the available modalities to select from needs to be dynamically loaded from the modalities we have available for processing at this point as this can change based on new modalities we have not seen if we are to find a new modality or something not covered under a modality
+
+fn find_best_boundary for Chunk Overlap Window — Clean Slice Logic is on track but again just for others as we are zero-shooting we are doing so here as well and not using such unintelligents methods we incorporate this into a prompt
+
+Part 11
+
+There is no modality detection in the AMT building because we already run the Modality detection within the prompt normalization phase stored with the processed chunks, also now once we get to the AMT we now will have our chunks processed and will instead of working with just sliced chunks we are now working with intelligent chunks moving away from clunky sliced chunks to intelligent chunks now that we will be traversing the true text based  modalities to find intent via graphs.
+
+We are not utilizing build_amt_until_stable that would be an incorrect addition to nest everything in here and do a 5x validation from here just once is incorrect because again we are still doing a 5x validation and keeping the AMT as we had per layer validating per layer which this disregards it disregards progression as well per functionality so we are never doing this as is because now At end of each AMT iteration, check methodology gaps this is going and cross-referencing 1x1 as well and validating each time 5x for each its not just generalized and that would have disregarded all this,
+
+        // Check for new modalities not yet accounted for
+        self.verify_modality_coverage(state).await?;
+
+this isn't during the AMT process again this is during prompt normilization while we identify modalities in the prompt this would have to go in there to verify any new modalities we don't have covered
+
+now for
+
+Initial Graph Creation Phase (after AMT stable, before blueprint)
+
+this is to actually be before the AMT creation which is before the blueprint creation so we have this right prompt normalization we clean chunks first, after cleaning the chunk we now process each chunk and obtain modalities per chunk etc right, from here after having identified all modalities IE creating our root graph of modalities we then now start creating the initial graph and that we either start with text or text last or both text modality first and text last for cross modality references?  the reason I say this is because if we start with text modality first we are only creating the structural graph of text modalities but what about relationships which are derived from other modalities we still would then need all other modalities to be created to either re-run it again to now fully build out all relationships and cross relationships and this is creating our initial state which we can have before the AMT process as it allows us to have a clearer picture before intent capturing in prompt processing for work completion because it allows us to view current progress and identify updates to currently work during the AMT creation process for steps to take into account as well
+
+Living System State Loop
+
+this seems pretty stable to show it works in a sense but again this should be integrated into the loop we already have for step processing it isn't a different loop its a hook based implementation type integrated into our current loop that we have for the step processing now that we are taking into account states per steps and etc like at the end of each step or substep completion we start our reviews to detect graph updates although again we can have this be directly hook based to trigger a review upon step completion during the execution of a step as it can always update the step status in a new state afterwards if needed after the review to come back to it, we need to look at reordering as well if any but we do have it pretty well designed to run concurrently so we don't want to break this meaning if we do complete review and we may need to come back to a step its naturally does so while taking into account depdencies to not break our concurrency flow
+
+now also here we do not want a max iteration we already have validated this prior with our AMT and Blueprint there is no infitite loop here as it completes steps as long as we are reviewing and having it maintain course this sure may be fine while testing but in the end its meant to work without a max iteration as it should take all iterations possible needed to complete all steps as that is the goal we aren't to cut that early
+
+Part 12-16
+
+These are in the correct direction to a point for part 12 we need to review types based on the review of all part priors but 13-16 look in the right direction with bootstrap addition
+
+Additions
+
+now apart from these part we now also want to look at ensuring also that prior to creation our graph roots from prompts we also do want to now ensure we are grabbing all file extensions correctly to have them prepped for reviewing before our full initial graph creation so that it the graph root also takes into account file attachments
