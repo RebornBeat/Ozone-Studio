@@ -3,11 +3,11 @@
 //! Uses compile-time PIPELINE_INFO as the source of truth since it has all
 //! required fields (has_ui, is_tab, folder_name) that the index.json type lacks.
 
-use crate::bootstrap::{pipeline_container_id, CONSCIOUSNESS_ROOT_ID, PIPELINE_ROOT_ID};
 use crate::pipeline::registry::PIPELINE_INFO;
 use crate::types::container::{
-    Container, ContainerType, Context, GlobalState, IntegrityData, LocalState, Metadata, Modality,
-    StoragePointers, TraversalHints,
+    pipeline_container_id, Container, ContainerType, Context, GlobalState, IntegrityData,
+    LocalState, Metadata, Modality, StoragePointers, TraversalHints, CONSCIOUSNESS_ROOT_ID,
+    PIPELINE_ROOT_ID,
 };
 use crate::types::{OzoneError, OzoneResult};
 use crate::zsei::ZSEI;

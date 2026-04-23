@@ -58,6 +58,9 @@ pub struct OrchestrationRequest {
     pub token_budget: Option<u32>,
     /// Model configuration override
     pub model_config: Option<ModelConfigOverride>,
+    /// Files attached to this prompt (paths or inline content)
+    #[serde(default)]
+    pub attached_files: Vec<AttachedFileSpec>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +112,229 @@ pub struct GateResult {
     pub decision: String,
     pub confidence: f32,
     pub reasoning: String,
+}
+
+/// A file attached to the prompt for processing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AttachedFileSpec {
+    pub file_path: String,
+    pub mime_type: Option<String>,
+    pub is_inline: bool, // true if content provided inline, false if path only
+    pub content_preview: Option<String>, // first 512 bytes if text-readable
+}
+
+/// Role of a file graph relative to the prompt intent.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum FileGraphRole {
+    Primary,       // the thing being worked on
+    Supplementary, // provides context/reference
+    #[default]
+    RawData, // data to be processed
+    Unknown,
+}
+
+/// Classification result for a file's graph.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassifiedFileGraph {
+    pub file_path: String,
+    pub graph_id: u64,
+    pub modality: String,
+    pub role: FileGraphRole,
+    pub reasoning: String,
+}
+
+/// Evidence that a modality was detected in a specific chunk span.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModalityEvidence {
+    pub chunk_index: u32,
+    pub span_start: usize,
+    pub span_end: usize,
+    pub intent_reference: String,
+}
+
+/// A modality with a verified pipeline handler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedModality {
+    pub modality: String,
+    pub pipeline_id: u64,
+    pub evidence: Vec<ModalityEvidence>,
+}
+
+/// A modality detected in chunks but with no registered handler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnhandledModality {
+    pub modality: String,
+    pub evidence: Vec<ModalityEvidence>,
+}
+
+/// Aggregated root modality list produced after all chunks are processed.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct RootModalityList {
+    pub verified_modalities: Vec<VerifiedModality>,
+    pub unhandled_modalities: Vec<UnhandledModality>,
+    pub total_chunk_count: u32,
+}
+
+/// State of a modality graph through the pipeline.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum ModalityGraphState {
+    #[default]
+    Created,
+    SemanticEnriched,
+    CrossLinked,
+    Stable,
+    Updated,
+    Failed,
+}
+
+/// Tracks a modality graph's state within this orchestration session.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SessionGraphState {
+    pub graph_id: u64,
+    pub modality: String,
+    pub pipeline_id: u64,
+    pub state: ModalityGraphState,
+    pub cross_modal_edge_count: usize,
+    pub consecutive_stable_passes: u32,
+}
+
+/// Structured evidence assembled from all available graphs for one AMT layer pass.
+/// Produced by `gather_layer_input()`, consumed by `build_amt_layer_by_layer()`.
+#[derive(Debug, Clone, Default)]
+pub struct LayerInput {
+    /// Union of all keywords across chunk graphs
+    pub keywords: Vec<String>,
+    /// Union of all topics across chunk graphs
+    pub topics: Vec<String>,
+    /// Grammar relationships from all chunks — structured edge evidence
+    pub grammar_evidence: Vec<GrammarEvidence>,
+    /// Modality span evidence grouped by modality name
+    pub modality_span_evidence: HashMap<String, Vec<ModalitySpanEvidence>>,
+    /// File context from classified file graphs
+    pub file_contexts: Vec<FileLayerContext>,
+    /// Modality graph state contexts
+    pub graph_contexts: Vec<GraphLayerContext>,
+    /// Verified modality names from root_modality_list
+    pub verified_modalities: Vec<String>,
+    /// Original cleaned prompt text
+    pub cleaned_prompt: String,
+    /// Number of processed chunks
+    pub chunk_count: u32,
+    /// Ordered chunk graph IDs for reconstruction
+    pub chunk_graph_ids: Vec<u64>,
+}
+
+/// Single grammar relationship extracted from a chunk.
+#[derive(Debug, Clone)]
+pub struct GrammarEvidence {
+    pub from_text: String,
+    pub to_text: String,
+    pub edge_type: String,
+    pub chunk_index: u32,
+    pub tense: Option<String>,
+    pub negated: bool,
+}
+
+/// A detected modality span within a chunk.
+#[derive(Debug, Clone)]
+pub struct ModalitySpanEvidence {
+    pub chunk_index: u32,
+    pub span_start: usize,
+    pub span_end: usize,
+    pub intent_reference: String,
+}
+
+/// File context contribution to a layer pass.
+#[derive(Debug, Clone)]
+pub struct FileLayerContext {
+    pub file_path: String,
+    pub modality: String,
+    pub role: String, // "Primary" | "Supplementary" | "RawData"
+    pub graph_id: u64,
+}
+
+/// Modality graph state at the time of a layer pass.
+#[derive(Debug, Clone)]
+pub struct GraphLayerContext {
+    pub modality: String,
+    pub graph_id: u64,
+    pub state: String,
+    pub cross_modal_edge_count: usize,
+    pub pipeline_id: u64,
+}
+
+/// Result of ZSEI knowledge enrichment for a layer pass.
+#[derive(Debug, Clone, Default)]
+pub struct LayerKnowledge {
+    /// Methodology IDs newly discovered for this layer
+    pub new_methodology_ids: Vec<u64>,
+    /// Related blueprint IDs found via keyword search
+    pub related_blueprint_ids: Vec<u64>,
+    /// Enrichment summaries from methodologies (for prompt injection)
+    pub methodology_summaries: Vec<String>,
+}
+
+/// Multi-modal synthesis result — cross-modality patterns found in evidence.
+#[derive(Debug, Clone, Default)]
+pub struct ModalSynthesis {
+    /// Modality pairs that share evidence (text references code, text references image, etc.)
+    pub cross_modal_pairs: Vec<(String, String, String)>, // (modality_a, modality_b, relationship)
+    /// A short narrative summary of what's across modalities — injected into AMT prompts
+    pub cross_modal_summary: String,
+    /// Modalities that have strong evidence (node_count > 0 or span_evidence.len() > 3)
+    pub active_modalities: Vec<String>,
+}
+
+/// Quality score for a discovered AMT branch.
+#[derive(Debug, Clone)]
+pub struct BranchQuality {
+    pub branch: String,
+    pub evidence_score: f32,    // 0.0–1.0 based on chunk evidence
+    pub methodology_score: f32, // 0.0–1.0 based on methodology support
+    pub modal_coverage: f32,    // 0.0–1.0 fraction of active modalities it touches
+    pub total_score: f32,       // weighted sum
+    pub should_prune: bool,     // true if total_score < 0.2
+}
+
+/// Orchestrator-level step lifecycle. Distinct from types::task::StepStatus.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum OrchestratorStepStatus {
+    #[default]
+    Planned,
+    WaitingOnDependency,
+    Active,
+    StageComplete(u32), // completed stage N, more stages remain
+    WaitingPostReview,  // stage done, waiting for hook review to finish
+    Complete,
+    Failed,
+    Rollback,
+    Cancelled,
+}
+
+/// Per-step tracking state maintained by the orchestrator.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OrchestratorStepState {
+    pub step_index: u32,
+    pub pipeline_id: u64,
+    pub pipeline_name: String,
+    pub status: OrchestratorStepStatus,
+    pub stages_completed: Vec<String>,
+    pub stages_pending: Vec<String>,
+    pub current_stage: Option<String>,
+    pub graph_ids_read: Vec<String>,    // modality names read
+    pub graph_ids_updated: Vec<String>, // modality names updated
+    pub waiting_on_step_indices: Vec<u32>,
+    pub version: u32,
+    pub tokens_used: u32,
+}
+
+/// Result of a methodology cross-reference check for an AMT layer.
+#[derive(Debug, Clone)]
+pub enum MethodologyFinding {
+    /// An existing methodology was added to the active set for this layer.
+    Loaded(u64),
+    /// A new methodology was synthesized and stored because none existed.
+    Created(u64),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -428,6 +654,15 @@ struct OrchestrationState {
 
     // Stage 2 outputs
     raw_chunks: Vec<RawChunk>,
+    // PHASE 1: FILE GRAPHS (produced before modality graphs, before classification)
+    pub file_graphs: HashMap<String, u64>, // file_path → graph_id
+    pub classified_file_graphs: Vec<ClassifiedFileGraph>, // primary/supplementary/raw roles
+    pub chunk_graph_ids: Vec<u64>,         // ordered list of chunk graph IDs
+    pub modality_graphs: HashMap<String, u64>, // modality_name → graph_id
+    pub graph_states: HashMap<u64, SessionGraphState>, // graph_id → state
+    pub root_modality_list: RootModalityList, // aggregated from chunks
+    pub initial_graphs_created: bool,
+    pub cross_modal_index_id: Option<u64>,
     processed_chunks: Vec<ProcessedChunk>,
     cleaned_prompt: String,
     prompt_tokens: u32,
@@ -456,6 +691,7 @@ struct OrchestrationState {
     // Blueprint
     blueprint_id: Option<u64>,
     blueprint_steps: Vec<BlueprintStep>,
+    pub orch_step_states: HashMap<u32, OrchestratorStepState>, // step_index → state
     blueprints_created: u32,
 
     // Execution
@@ -586,6 +822,18 @@ impl PromptOrchestrator {
         }
     }
 
+    fn extract_json_from_response<'a>(s: &'a str, open: char, close: char) -> &'a str {
+        let trimmed = s.trim();
+        if let Some(start) = trimmed.find(open) {
+            if let Some(end) = trimmed.rfind(close) {
+                if end >= start {
+                    return &trimmed[start..=end];
+                }
+            }
+        }
+        trimmed
+    }
+
     /// Load pipeline index from ZSEI
     pub async fn load_pipeline_index(&self) -> Result<(), String> {
         // Try to load from ZSEI storage
@@ -697,6 +945,14 @@ impl PromptOrchestrator {
             model_context_limit,
             tokens_used_so_far: prompt_tokens,
             raw_chunks: Vec::new(),
+            file_graphs: HashMap::new(),
+            classified_file_graphs: Vec::new(),
+            chunk_graph_ids: Vec::new(),
+            modality_graphs: HashMap::new(),
+            graph_states: HashMap::new(),
+            root_modality_list: RootModalityList::default(),
+            initial_graphs_created: false,
+            cross_modal_index_id: None,
             processed_chunks: Vec::new(),
             cleaned_prompt: String::new(),
             prompt_tokens,
@@ -719,6 +975,7 @@ impl PromptOrchestrator {
             coverage_aspects: Vec::new(),
             blueprint_id: None,
             blueprint_steps: Vec::new(),
+            orch_step_states: HashMap::new(),
             blueprints_created: 0,
             task_id: None,
             step_results: Vec::new(),
@@ -751,6 +1008,33 @@ impl PromptOrchestrator {
 
         // STAGE 2: Text/Prompt Normalization + AMT Building
         self.stage_2_text_normalization_and_amt(state).await?;
+
+        // PHASE 2: Initial graph creation — BEFORE AMT
+        self.aggregate_root_modalities(state).await;
+        self.create_initial_modality_graphs(state)
+            .await
+            .map_err(|e| format!("Initial graph creation failed: {}", e))?;
+        self.record_stage(
+            state,
+            2,
+            "Initial Graph Creation",
+            true,
+            &format!(
+                "{} modality graphs created ({}), cross-modal: {}",
+                state.modality_graphs.len(),
+                state
+                    .modality_graphs
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                state
+                    .graph_states
+                    .values()
+                    .map(|g| g.cross_modal_edge_count)
+                    .sum::<usize>()
+            ),
+        );
 
         // If clarification needed, stop here and return to user
         if state.needs_clarification {
@@ -826,6 +1110,12 @@ impl PromptOrchestrator {
                 }]
             });
 
+        // STEP 0: Process attached files → produce file graphs
+        // (runs before chunking so file modality data can inform AMT)
+        if !state.request.attached_files.is_empty() {
+            self.process_attached_files(state).await?;
+        }
+
         // STEP 2: Process each chunk (clean + extract keywords/entities/topics)
         let mut all_keywords: HashSet<String> = HashSet::new();
         let mut all_entities: Vec<ExtractedEntity> = Vec::new();
@@ -835,7 +1125,25 @@ impl PromptOrchestrator {
             let process_input = serde_json::json!({
                 "action": {
                     "type": "ProcessChunk",
-                    "chunk": chunk
+                    "chunk": chunk,
+                    "available_modalities": state.root_modality_list
+                        .verified_modalities
+                        .iter()
+                        .map(|vm| vm.modality.clone())
+                        .chain(
+                            // On first pass, root_modality_list may be empty — use name_to_pipeline_id keys
+                            if state.root_modality_list.verified_modalities.is_empty() {
+                                vec!["code","image","audio","video","math","chemistry","dna","eeg",
+                                     "3d","sound","biology","proteomics","haptic","thermal","depth",
+                                     "imu","geospatial","electromagnetic","bci","parametric_cad",
+                                     "kinematics","control_systems","network_topology","radar",
+                                     "sonar","hyperspectral"]
+                                    .iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                            } else {
+                                vec![]
+                            }
+                        )
+                        .collect::<Vec<_>>()
                 }
             });
 
@@ -862,6 +1170,30 @@ impl PromptOrchestrator {
                         state.processed_chunks.push(processed);
                     }
                 }
+            }
+
+            // Collect chunk graph ID for cross-model reconstruction capability
+            if let Some(cg) = process_result
+                .get("chunk_graph")
+                .and_then(|cg| cg.get("graph_id"))
+                .and_then(|id| id.as_u64())
+            {
+                state.chunk_graph_ids.push(cg);
+            }
+
+            // Collect grammar relationships for AMT evidence
+            // (stored in chunk graphs, also aggregated for cross-chunk analysis)
+            if let Some(rels) = process_result
+                .get("grammar_relationships")
+                .and_then(|r| r.as_array())
+            {
+                // These feed into branch discovery in build_amt_layer_by_layer
+                // Store count for logging; individual rels are in chunk graphs
+                tracing::debug!(
+                    "Chunk {} produced {} grammar relationships",
+                    chunk.index,
+                    rels.len()
+                );
             }
         }
 
@@ -994,6 +1326,12 @@ impl PromptOrchestrator {
             }
         }
 
+        // File graph classification — runs AFTER text processing gives us keywords/topics/intent
+        // NEVER before, because we need AMT intent for accurate role determination
+        if !state.file_graphs.is_empty() {
+            self.classify_file_graphs_post_creation(state).await?;
+        }
+
         // STEP 6: Build AMT layer-by-layer from chunks (processes each chunk individually)
         state.amt = Some(self.build_amt_layer_by_layer(state).await?);
 
@@ -1007,8 +1345,12 @@ impl PromptOrchestrator {
             "Text Normalization + AMT",
             true,
             &format!(
-                "Chunks: {}, Intents: {}, Branches: {}, Details: {}, Cross-refs: {}, Methodologies: {}, Categories: {} ({} created), Passes: {}, Validated: {}",
+                "Chunks: {}, ChunkGraphs: {}, Files: {} ({} classified), Intents: {}, Branches: {}, Details: {}, Cross-refs: {}, Methodologies: {}, Categories: {} ({} created), Passes: {}, Validated: {}",
                 state.processed_chunks.len(),
+                state.chunk_graph_ids.len(),          // NEW
+                state.file_graphs.len(),               // NEW
+                state.classified_file_graphs.len(),    // NEW
+                state.intent_captures.len(),
                 state.intent_captures.len(),
                 state.branch_captures.len(),
                 state.detail_captures.len(),
@@ -1035,6 +1377,16 @@ impl PromptOrchestrator {
         let mut consecutive_no_new = 0u32;
         let mut node_id_counter = 1u64;
 
+        // Initial modality graphs are available in state.modality_graphs.
+        // Branch discovery prompts can reference detected modalities from graph metadata.
+        // Use state.root_modality_list.verified_modalities for evidence of what's present.
+        let detected_modality_names: Vec<String> = state
+            .root_modality_list
+            .verified_modalities
+            .iter()
+            .map(|vm| vm.modality.clone())
+            .collect();
+
         // Outer convergence loop
         'outer: for outer_pass in 0..max_outer_passes {
             state.amt_pass_count += 1;
@@ -1059,6 +1411,8 @@ impl PromptOrchestrator {
         CHUNK {} of {}:
         {}
 
+        MODALITIES DETECTED IN CONTENT: {}
+
         Return ONLY valid JSON with no explanation:
         {{
             "new_intents": [
@@ -1073,7 +1427,8 @@ impl PromptOrchestrator {
                     serde_json::to_string(&known_intents_json).unwrap_or_default(),
                     chunk.index + 1,
                     state.processed_chunks.len(),
-                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
+                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)],
+                    detected_modality_names.join(", ")
                 );
 
                 let intent_input = serde_json::json!({
@@ -1613,13 +1968,23 @@ impl PromptOrchestrator {
                 }
             }
 
-            // Check convergence
-            if !new_insights_this_pass {
+            // Cross-reference methodologies for the current layer state
+            let method_findings = self
+                .cross_reference_methodologies_for_layer(state, outer_pass as u32)
+                .await;
+
+            let has_new_methodology = !method_findings.is_empty();
+
+            if !new_insights_this_pass && !has_new_methodology {
                 consecutive_no_new += 1;
                 if consecutive_no_new >= convergence_threshold {
                     break 'outer;
                 }
             } else {
+                if has_new_methodology {
+                    // New methodologies may surface new branches — reset convergence
+                    new_insights_this_pass = true;
+                }
                 consecutive_no_new = 0;
             }
         } // end 'outer
@@ -2681,6 +3046,21 @@ Return JSON:
 
         state.tokens_used_so_far += tokens_used;
 
+        // Fire OnStepComplete hook — living system integration
+        self.on_step_complete(
+            state,
+            step,
+            &StepResult {
+                step_index: step.step_index,
+                pipeline_id: step.pipeline_id,
+                output: final_output.clone(),
+                tokens_used,
+                iterations: total_iterations,
+                sub_step_results: sub_step_results.clone(),
+            },
+        )
+        .await;
+
         Ok(StepResult {
             step_index: step.step_index,
             pipeline_id: step.pipeline_id,
@@ -2689,6 +3069,117 @@ Return JSON:
             iterations: total_iterations,
             sub_step_results,
         })
+    }
+
+    /// Hook fires on step completion. Detects graph changes, reviews AMT,
+    /// synthesizes new steps if AMT expanded. This IS the living system.
+    async fn on_step_complete(
+        &self,
+        state: &mut OrchestrationState,
+        step: &BlueprintStep,
+        result: &StepResult,
+    ) {
+        // Detect graph modifications from step output
+        let graphs_updated: Vec<String> = result
+            .output
+            .get("graphs_updated")
+            .and_then(|g| g.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if graphs_updated.is_empty() {
+            return;
+        }
+
+        // Update graph states for modified graphs
+        for modality in &graphs_updated {
+            if let Some(&gid) = state.modality_graphs.get(modality) {
+                if let Some(gs) = state.graph_states.get_mut(&gid) {
+                    gs.state = ModalityGraphState::Updated;
+                    gs.consecutive_stable_passes = 0;
+                }
+            }
+        }
+
+        // Review AMT alignment — check if new intents emerged from graph updates
+        let review_prompt = format!(
+            r#"Step {} just completed and updated these modality graphs: {}.
+    Current AMT intent: {}
+    Current branches: {}
+
+    Did this step's completion reveal any new intents or requirements not already in the AMT?
+
+    Return ONLY valid JSON:
+    {{"new_intents": [], "new_branches": [], "amt_needs_expansion": false}}"#,
+            step.step_index,
+            graphs_updated.join(", "),
+            state.amt.as_ref().map(|a| a.content.as_str()).unwrap_or(""),
+            state
+                .branch_captures
+                .iter()
+                .map(|b| b.branch.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let input = serde_json::json!({
+            "prompt": review_prompt,
+            "max_tokens": 300,
+            "temperature": 0.2,
+            "system_context": "AMT alignment review. Return only valid JSON."
+        });
+
+        if let Ok(result) = self.executor.execute(9, input).await {
+            let raw = result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("{}");
+            let start = raw.find('{').unwrap_or(0);
+            let end = raw.rfind('}').map(|i| i + 1).unwrap_or(raw.len());
+
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw[start..end]) {
+                let amt_expanded = v
+                    .get("amt_needs_expansion")
+                    .and_then(|b| b.as_bool())
+                    .unwrap_or(false);
+
+                if amt_expanded {
+                    // New steps will be synthesized at the next iteration of execute_all_steps
+                    // because new intent/branch captures are added here
+                    if let Some(new_branches) = v.get("new_branches").and_then(|nb| nb.as_array()) {
+                        for branch_val in new_branches {
+                            if let Some(branch_str) = branch_val.as_str() {
+                                let already_exists = state.branch_captures.iter().any(|bc| {
+                                    bc.branch.to_lowercase() == branch_str.to_lowercase()
+                                });
+                                if !already_exists {
+                                    // Add to branch_captures so blueprint creation can pick it up
+                                    state.branch_captures.push(BranchCapture {
+                                        branch: branch_str.to_string(),
+                                        parent_intent: state
+                                            .intent_captures
+                                            .first()
+                                            .map(|ic| ic.intent.clone())
+                                            .unwrap_or_default(),
+                                        source_methodology_ids: vec![],
+                                        source_chunk_indices: vec![],
+                                        source_sentences: vec![format!(
+                                            "Discovered during step {} execution",
+                                            step.step_index
+                                        )],
+                                        node_id: Self::generate_id_static(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn build_sub_step_input(
@@ -2990,6 +3481,755 @@ Return JSON:
             tokio::time::sleep(tokio::time::Duration::from_millis(check_interval_ms)).await;
             waited += check_interval_ms;
         }
+    }
+
+    /// Process each attached file through its modality pipeline to produce a file graph.
+    /// File graphs are created FIRST, before any classification.
+    /// MUST be called before classify_file_graphs_post_creation.
+    async fn process_attached_files(&self, state: &mut OrchestrationState) -> Result<(), String> {
+        for file_spec in &state.request.attached_files.clone() {
+            // Detect modality from extension + path hints
+            let modality = self.detect_file_modality(&file_spec.file_path);
+            let pipeline_id = self.modality_name_to_pipeline_id(&modality);
+
+            if pipeline_id == 0 {
+                // Unknown modality — store as unknown, do not halt
+                tracing::warn!(
+                    "Unknown modality for file: {} — treating as text",
+                    file_spec.file_path
+                );
+                // Fall through to text pipeline
+            }
+
+            let effective_pipeline = if pipeline_id == 0 {
+                100u64
+            } else {
+                pipeline_id
+            };
+
+            // Execute: Analyze → CreateGraph for this file
+            let analyze_input = serde_json::json!({
+                "action": {
+                    "type": "Analyze",
+                    "text": file_spec.content_preview.as_deref().unwrap_or(""),
+                    "depth": "Standard",
+                    "extract_entities": true,
+                    "extract_topics": true,
+                    "extract_structure": false
+                }
+            });
+
+            let analysis_result = self
+                .executor
+                .execute(effective_pipeline, analyze_input)
+                .await
+                .unwrap_or_else(|_| serde_json::json!({"success": false}));
+
+            let graph_input = serde_json::json!({
+                "action": {
+                    "type": "CreateGraph",
+                    "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
+                    "project_id": state.request.project_id.unwrap_or(0),
+                    "link_to_existing": false
+                }
+            });
+
+            let graph_result = self
+                .executor
+                .execute(effective_pipeline, graph_input)
+                .await
+                .unwrap_or_default();
+
+            let graph_id = graph_result
+                .get("graph_id")
+                .and_then(|g| g.as_u64())
+                .unwrap_or(Self::generate_id_static());
+
+            state
+                .file_graphs
+                .insert(file_spec.file_path.clone(), graph_id);
+        }
+        Ok(())
+    }
+
+    /// Detect modality string from a file path using extension and path hints.
+    fn detect_file_modality(&self, file_path: &str) -> String {
+        let path_lower = file_path.to_lowercase();
+        // Path hints (highest priority for ambiguous extensions)
+        if path_lower.contains("radar") || path_lower.contains("sar") {
+            return "radar".to_string();
+        }
+        if path_lower.contains("sonar") || path_lower.contains("bathymet") {
+            return "sonar".to_string();
+        }
+        if path_lower.contains("thermal") || path_lower.contains("infrared") {
+            return "thermal".to_string();
+        }
+        if path_lower.contains("hyperspectral") || path_lower.contains("multispectral") {
+            return "hyperspectral".to_string();
+        }
+        if path_lower.contains("imu") || path_lower.contains("accelerom") {
+            return "imu".to_string();
+        }
+
+        // Extension-based detection
+        let ext = std::path::Path::new(file_path)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        match ext.as_str() {
+            "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "rb" | "swift" | "kt"
+            | "sql" | "yaml" | "yml" | "toml" | "json" | "xml" => "code".to_string(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "svg" => "image".to_string(),
+            "mp3" | "wav" | "flac" | "ogg" | "aac" | "m4a" => "audio".to_string(),
+            "mp4" | "mkv" | "avi" | "mov" | "webm" => "video".to_string(),
+            "blend" | "obj" | "glb" | "gltf" | "fbx" | "stl" | "usd" | "urdf" => "3d".to_string(),
+            "pdb" | "mol" | "sdf" | "cif" => "chemistry".to_string(),
+            "fasta" | "fa" | "fastq" | "vcf" | "gff" | "bam" | "sam" => "dna".to_string(),
+            "edf" | "bdf" | "gdf" | "fif" => "eeg".to_string(),
+            "geojson" | "kml" | "shp" | "gpx" => "geospatial".to_string(),
+            "step" | "stp" | "iges" | "brep" => "parametric_cad".to_string(),
+            "pcd" | "las" | "laz" => "depth".to_string(),
+            "xtf" | "jsf" | "s7k" | "gsf" => "sonar".to_string(),
+            "iq" | "cphd" | "sicd" | "nitf" => "radar".to_string(),
+            "hdr" | "bil" | "bip" | "bsq" | "h4" => "hyperspectral".to_string(),
+            "tex" | "latex" | "nb" => "math".to_string(),
+            "txt" | "md" | "rst" | "pdf" | "docx" | "doc" => "text".to_string(),
+            _ => "unknown".to_string(),
+        }
+    }
+
+    /// Map modality name string to pipeline ID.
+    fn modality_name_to_pipeline_id(&self, modality: &str) -> u64 {
+        match modality {
+            "text" => 100,
+            "code" => 101,
+            "image" => 102,
+            "audio" => 103,
+            "video" => 104,
+            "math" => 105,
+            "chemistry" => 106,
+            "dna" => 107,
+            "eeg" => 108,
+            "3d" => 109,
+            "sound" => 110,
+            "biology" => 111,
+            "proteomics" => 112,
+            "haptic" => 113,
+            "thermal" => 114,
+            "depth" => 115,
+            "imu" => 116,
+            "geospatial" => 117,
+            "electromagnetic" => 118,
+            "bci" => 119,
+            "parametric_cad" => 120,
+            "kinematics" => 121,
+            "control_systems" => 122,
+            "network_topology" => 123,
+            "radar" => 124,
+            "sonar" => 125,
+            "hyperspectral" => 126,
+            _ => 0,
+        }
+    }
+
+    /// Also add this static helper for use in non-&self contexts:
+    fn generate_id_static() -> u64 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos() as u64
+    }
+
+    /// Classify file graphs as primary / supplementary / raw_data.
+    ///
+    /// CRITICAL: This is called AFTER file graphs AND the text graph already exist.
+    /// It operates on GRAPH METADATA only — never on raw file content.
+    /// This eliminates the chunk-size assumption entirely.
+    async fn classify_file_graphs_post_creation(
+        &self,
+        state: &mut OrchestrationState,
+    ) -> Result<(), String> {
+        if state.file_graphs.is_empty() {
+            return Ok(());
+        }
+
+        // 1. Extract text graph intent summary from metadata (keywords + topics, never raw text)
+        let text_intent_summary = format!(
+            "Prompt keywords: [{}]. Topics: [{}]. AMT intent: {}",
+            state
+                .keywords
+                .iter()
+                .take(15)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            state
+                .topics
+                .iter()
+                .take(8)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", "),
+            state
+                .amt
+                .as_ref()
+                .map(|a| a.content.as_str())
+                .unwrap_or("not yet built"),
+        );
+
+        // 2. Collect file graph summaries — metadata only, NOT raw file content
+        let file_summaries: Vec<serde_json::Value> = state.file_graphs.iter().map(|(path, &graph_id)| {
+            let modality = self.detect_file_modality(path);
+            serde_json::json!({
+                "file_path": path,
+                "graph_id": graph_id,
+                "modality": modality,
+                "graph_summary": format!("File graph {} for {} file: {}", graph_id, modality, path)
+            })
+        }).collect();
+
+        // 3. LLM: compare file graph metadata against prompt intent
+        let prompt = format!(
+            r#"Given the prompt's intent summary and a set of file graph metadata,
+    classify each file graph's role relative to the prompt.
+
+    Prompt intent:
+    {}
+
+    File graphs (metadata only — no raw file content):
+    {}
+
+    For each file, classify as:
+    - "primary"       — this file IS the main thing being worked on
+    - "supplementary" — this file provides reference context or background
+    - "raw_data"      — this file is raw data to be processed as pipeline input
+
+    Return ONLY valid JSON array:
+    [{{
+      "file_path": "...",
+      "graph_id": 0,
+      "role": "primary|supplementary|raw_data",
+      "reasoning": "brief"
+    }}]"#,
+            text_intent_summary,
+            serde_json::to_string_pretty(&file_summaries).unwrap_or_default()
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 500,
+            "temperature": 0.1,
+            "system_context": "File role classification. Return only valid JSON array."
+        });
+
+        let result = self.executor.execute(9, input).await.unwrap_or_default();
+        let raw = result
+            .get("response")
+            .and_then(|r| r.as_str())
+            .unwrap_or("[]");
+        let json_str = Self::extract_json_from_response(raw, '[', ']');
+
+        let classifications: Vec<ClassifiedFileGraph> =
+            serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|v| {
+                    Some(ClassifiedFileGraph {
+                        file_path: v["file_path"].as_str()?.to_string(),
+                        graph_id: v["graph_id"].as_u64().or_else(|| {
+                            state
+                                .file_graphs
+                                .get(v["file_path"].as_str().unwrap_or(""))
+                                .copied()
+                        })?,
+                        modality: self.detect_file_modality(v["file_path"].as_str().unwrap_or("")),
+                        role: match v["role"].as_str().unwrap_or("raw_data") {
+                            "primary" => FileGraphRole::Primary,
+                            "supplementary" => FileGraphRole::Supplementary,
+                            _ => FileGraphRole::RawData,
+                        },
+                        reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
+                    })
+                })
+                .collect();
+
+        state.classified_file_graphs = classifications;
+        Ok(())
+    }
+
+    /// Aggregate modality detections from all processed chunk graphs into the root modality list.
+    /// Verifies each modality has a registered pipeline handler.
+    async fn aggregate_root_modalities(&self, state: &mut OrchestrationState) {
+        let mut modality_evidence: HashMap<String, Vec<ModalityEvidence>> = HashMap::new();
+
+        for chunk in &state.processed_chunks {
+            for detection in &chunk.detected_modalities {
+                if detection.modality == "true_text" || detection.modality == "unknown" {
+                    continue;
+                }
+                modality_evidence
+                    .entry(detection.modality.clone())
+                    .or_default()
+                    .push(ModalityEvidence {
+                        chunk_index: chunk.index,
+                        span_start: detection.span_start,
+                        span_end: detection.span_end,
+                        intent_reference: detection.intent_reference.clone(),
+                    });
+            }
+        }
+
+        // Also include modalities from file graphs
+        for classified in &state.classified_file_graphs {
+            modality_evidence
+                .entry(classified.modality.clone())
+                .or_default()
+                .push(ModalityEvidence {
+                    chunk_index: u32::MAX, // sentinel: from file, not chunk
+                    span_start: 0,
+                    span_end: 0,
+                    intent_reference: format!("file:{}", classified.file_path),
+                });
+        }
+
+        // Always include text
+        if !modality_evidence.contains_key("text") {
+            modality_evidence.insert("text".to_string(), vec![]);
+        }
+
+        let mut verified = Vec::new();
+        let mut unhandled = Vec::new();
+
+        for (modality, evidence) in modality_evidence {
+            let pipeline_id = self.modality_name_to_pipeline_id(&modality);
+            if pipeline_id > 0 {
+                verified.push(VerifiedModality {
+                    modality,
+                    pipeline_id,
+                    evidence,
+                });
+            } else {
+                unhandled.push(UnhandledModality { modality, evidence });
+            }
+        }
+
+        state.root_modality_list = RootModalityList {
+            verified_modalities: verified,
+            unhandled_modalities: unhandled,
+            total_chunk_count: state.processed_chunks.len() as u32,
+        };
+    }
+
+    /// Phase 2: Create all initial modality graphs before AMT building.
+    /// Three passes: structural (parallel) → semantic enrichment (text-first) →
+    /// cross-modal reference (iterative 5x stable).
+    async fn create_initial_modality_graphs(
+        &self,
+        state: &mut OrchestrationState,
+    ) -> Result<(), String> {
+        // ── PASS 1: Parallel structural creation ──────────────────────────────
+        let verified = state.root_modality_list.verified_modalities.clone();
+
+        for vm in &verified {
+            let modality = vm.modality.clone();
+            let pipeline_id = vm.pipeline_id;
+            let project_id = state.request.project_id.unwrap_or(0);
+
+            // Reconstruct modality content from detected spans in chunks
+            let modality_text: String = state
+                .processed_chunks
+                .iter()
+                .flat_map(|chunk| {
+                    chunk
+                        .detected_modalities
+                        .iter()
+                        .filter(|d| d.modality == modality)
+                        .map(|d| {
+                            let end = d.span_end.min(chunk.cleaned_text.len());
+                            chunk.cleaned_text[d.span_start.min(end)..end].to_string()
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Analyze
+            let analyze_input = serde_json::json!({
+                "action": {
+                    "type": "Analyze",
+                    "text": if modality == "text" {
+                        state.cleaned_prompt.clone()
+                    } else {
+                        modality_text
+                    },
+                    "depth": "Standard",
+                    "extract_entities": true,
+                    "extract_topics": true,
+                    "extract_structure": false
+                }
+            });
+
+            let analysis = self
+                .executor
+                .execute(pipeline_id, analyze_input)
+                .await
+                .unwrap_or_default();
+
+            // CreateGraph (structural only)
+            let graph_input = serde_json::json!({
+                "action": {
+                    "type": "CreateGraph",
+                    "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
+                    "project_id": project_id,
+                    "link_to_existing": false
+                }
+            });
+
+            let graph_result = self
+                .executor
+                .execute(pipeline_id, graph_input)
+                .await
+                .unwrap_or_default();
+
+            let graph_id = graph_result
+                .get("graph_id")
+                .and_then(|g| g.as_u64())
+                .unwrap_or(Self::generate_id_static());
+
+            state.modality_graphs.insert(modality.clone(), graph_id);
+            state.graph_states.insert(
+                graph_id,
+                SessionGraphState {
+                    graph_id,
+                    modality: modality.clone(),
+                    pipeline_id,
+                    state: ModalityGraphState::Created,
+                    cross_modal_edge_count: 0,
+                    consecutive_stable_passes: 0,
+                },
+            );
+        }
+
+        // ── PASS 2: Semantic enrichment (text first, then others) ──────────────
+        if let Some(&text_graph_id) = state.modality_graphs.get("text") {
+            let text_pipeline_id = self.modality_name_to_pipeline_id("text");
+            let hook_input = serde_json::json!({
+                "action": {
+                    "type": "TriggerSemanticHook",
+                    "graph_id": text_graph_id,
+                    "hook_type": "OnInferRelationships"
+                }
+            });
+            let _ = self.executor.execute(text_pipeline_id, hook_input).await;
+            if let Some(gs) = state.graph_states.get_mut(&text_graph_id) {
+                gs.state = ModalityGraphState::SemanticEnriched;
+            }
+        }
+
+        // All other modalities enriched after text
+        let other_graphs: Vec<(String, u64)> = state
+            .modality_graphs
+            .iter()
+            .filter(|(k, _)| *k != "text")
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
+        for (modality, graph_id) in &other_graphs {
+            let pipeline_id = self.modality_name_to_pipeline_id(modality);
+            let hook_input = serde_json::json!({
+                "action": {
+                    "type": "TriggerSemanticHook",
+                    "graph_id": graph_id,
+                    "hook_type": "OnInferRelationships"
+                }
+            });
+            let _ = self.executor.execute(pipeline_id, hook_input).await;
+            if let Some(gs) = state.graph_states.get_mut(graph_id) {
+                gs.state = ModalityGraphState::SemanticEnriched;
+            }
+        }
+
+        // ── PASS 3: Cross-modal references (5x consecutive stable) ────────────
+        self.build_cross_modal_references_until_stable(state)
+            .await?;
+
+        state.initial_graphs_created = true;
+        Ok(())
+    }
+
+    /// Iterative cross-modal reference building with 5x consecutive stable termination.
+    async fn build_cross_modal_references_until_stable(
+        &self,
+        state: &mut OrchestrationState,
+    ) -> Result<(), String> {
+        let mut stable_count = 0u32;
+        let mut pass = 0u32;
+
+        loop {
+            pass += 1;
+            let new_edges = self.run_cross_modal_reference_pass(state, pass).await;
+
+            if new_edges == 0 {
+                stable_count += 1;
+                if stable_count >= 5 {
+                    break;
+                }
+            } else {
+                stable_count = 0;
+            }
+
+            if pass > 30 {
+                break;
+            } // safety ceiling
+        }
+
+        // Mark all graphs CrossLinked → Stable
+        for gs in state.graph_states.values_mut() {
+            gs.state = ModalityGraphState::Stable;
+            gs.consecutive_stable_passes = 5;
+        }
+
+        Ok(())
+    }
+
+    /// Single cross-modal reference pass. Returns count of new edges discovered.
+    /// Pass 1-2: text ↔ others. Pass 3+: inter-modality.
+    async fn run_cross_modal_reference_pass(
+        &self,
+        state: &mut OrchestrationState,
+        pass_number: u32,
+    ) -> usize {
+        let mut new_edges = 0usize;
+
+        let text_graph_id = state.modality_graphs.get("text").copied();
+        let all_graphs: Vec<(String, u64)> = state
+            .modality_graphs
+            .iter()
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
+        // Phase A: Text → all other modalities
+        if let Some(text_gid) = text_graph_id {
+            for (target_modality, target_gid) in all_graphs.iter().filter(|(k, _)| k != "text") {
+                let text_pipeline = self.modality_name_to_pipeline_id("text");
+                let link_input = serde_json::json!({
+                    "action": {
+                        "type": "LinkToModality",
+                        "source_graph_id": text_gid,
+                        "target_graph_id": target_gid,
+                        "target_modality": target_modality,
+                        "relationship": "ReferencesModality"
+                    }
+                });
+                if let Ok(result) = self.executor.execute(text_pipeline, link_input).await {
+                    if result.get("link_result").is_some() {
+                        new_edges += 1;
+                        if let Some(gs) = state.graph_states.get_mut(target_gid) {
+                            gs.cross_modal_edge_count += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phase B: All → text back-references (pass 2+)
+        if pass_number >= 2 {
+            if let Some(text_gid) = text_graph_id {
+                for (source_modality, source_gid) in all_graphs.iter().filter(|(k, _)| k != "text")
+                {
+                    let source_pipeline = self.modality_name_to_pipeline_id(source_modality);
+                    let link_input = serde_json::json!({
+                        "action": {
+                            "type": "LinkToModality",
+                            "source_graph_id": source_gid,
+                            "target_graph_id": text_gid,
+                            "target_modality": "text",
+                            "relationship": "ReferencedBy"
+                        }
+                    });
+                    if let Ok(result) = self.executor.execute(source_pipeline, link_input).await {
+                        if result.get("link_result").is_some() {
+                            new_edges += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phase C: Inter-modality (pass 3+)
+        if pass_number >= 3 {
+            for i in 0..all_graphs.len() {
+                for j in (i + 1)..all_graphs.len() {
+                    let (a_mod, a_gid) = &all_graphs[i];
+                    let (b_mod, b_gid) = &all_graphs[j];
+                    if a_mod == "text" || b_mod == "text" {
+                        continue;
+                    }
+
+                    let a_pipeline = self.modality_name_to_pipeline_id(a_mod);
+                    let link_input = serde_json::json!({
+                        "action": {
+                            "type": "LinkToModality",
+                            "source_graph_id": a_gid,
+                            "target_graph_id": b_gid,
+                            "target_modality": b_mod,
+                            "relationship": "RelatesTo"
+                        }
+                    });
+                    if let Ok(result) = self.executor.execute(a_pipeline, link_input).await {
+                        if result.get("link_result").is_some() {
+                            new_edges += 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        new_edges
+    }
+
+    /// Cross-reference methodologies for a specific AMT layer.
+    /// For each branch in the layer, finds required methodologies.
+    /// Loads existing ones from ZSEI or synthesizes new ones when gaps exist.
+    /// Returns a list of findings (loaded or created methodology IDs).
+    async fn cross_reference_methodologies_for_layer(
+        &self,
+        state: &mut OrchestrationState,
+        layer: u32,
+    ) -> Vec<MethodologyFinding> {
+        let mut findings = Vec::new();
+
+        // Collect branches that belong to this AMT layer depth
+        let layer_branches: Vec<String> = state
+            .branch_captures
+            .iter()
+            .filter(|bc| {
+                // Branches at depth = layer (root intent = layer 0, branches = layer 1, etc.)
+                // Use intent index as a proxy for layer depth
+                let intent_idx = state
+                    .intent_captures
+                    .iter()
+                    .position(|ic| ic.intent == bc.parent_intent)
+                    .unwrap_or(0);
+                intent_idx + 1 == layer as usize || (layer == 1 && intent_idx == 0)
+            })
+            .map(|bc| bc.branch.clone())
+            .collect();
+
+        if layer_branches.is_empty() {
+            return findings;
+        }
+
+        // Ask LLM which methodology domains are required for these branches
+        let prompt = format!(
+            r#"Given these AMT branches at layer {}, identify which methodology domains are needed.
+    A methodology domain is a named area of systematic knowledge (e.g., "Software Testing",
+    "Data Privacy", "Scientific Rigor", "API Design").
+
+    Branches:
+    {}
+
+    Return ONLY valid JSON array:
+    ["domain1", "domain2"]"#,
+            layer,
+            layer_branches
+                .iter()
+                .map(|b| format!("- {}", b))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 200,
+            "temperature": 0.2,
+            "system_context": "Methodology domain identification. Return only valid JSON array."
+        });
+
+        let required_domains: Vec<String> = match self.executor.execute(9, input).await {
+            Ok(result) => {
+                let raw = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("[]");
+                let start = raw.find('[').unwrap_or(0);
+                let end = raw.rfind(']').map(|i| i + 1).unwrap_or(raw.len());
+                serde_json::from_str::<Vec<String>>(&raw[start..end]).unwrap_or_default()
+            }
+            Err(_) => return findings,
+        };
+
+        for domain in &required_domains {
+            // Search ZSEI for existing methodology matching this domain
+            let existing = self
+                .zsei
+                .search_by_keywords(&[domain.clone()], Some("Methodology"))
+                .await
+                .unwrap_or_default();
+
+            if let Some(&existing_id) = existing.first() {
+                if !state.methodologies.contains(&existing_id) {
+                    state.methodologies.push(existing_id);
+                    findings.push(MethodologyFinding::Loaded(existing_id));
+                }
+            } else {
+                // Synthesize a new methodology for this domain
+                let synth_prompt = format!(
+                    r#"Create a concise methodology for the domain: "{}"
+
+    Return ONLY valid JSON:
+    {{
+      "name": "{}",
+      "description": "what this methodology covers",
+      "category": "domain category",
+      "principles": ["principle 1", "principle 2"],
+      "keywords": ["keyword1", "keyword2"]
+    }}"#,
+                    domain, domain
+                );
+
+                let synth_input = serde_json::json!({
+                    "prompt": synth_prompt,
+                    "max_tokens": 400,
+                    "temperature": 0.2,
+                    "system_context": "Methodology synthesis. Return only valid JSON."
+                });
+
+                if let Ok(synth_result) = self.executor.execute(9, synth_input).await {
+                    let raw = synth_result
+                        .get("response")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("{}");
+                    let start = raw.find('{').unwrap_or(0);
+                    let end = raw.rfind('}').map(|i| i + 1).unwrap_or(raw.len());
+
+                    let methodology_container = serde_json::json!({
+                        "container_type": "Methodology",
+                        "metadata": {
+                            "name": domain,
+                            "description": format!("Auto-synthesized methodology for: {}", domain),
+                            "created_by": "orchestrator_layer_crossref"
+                        },
+                        "context": {
+                            "keywords": [domain.to_lowercase()],
+                            "topics": [domain.to_lowercase()]
+                        },
+                        "storage": serde_json::from_str::<serde_json::Value>(&raw[start..end])
+                            .unwrap_or_default()
+                    });
+
+                    if let Ok(new_id) = self.zsei.create_container(0, methodology_container).await {
+                        state.methodologies.push(new_id);
+                        findings.push(MethodologyFinding::Created(new_id));
+                    }
+                }
+            }
+        }
+
+        findings
     }
 
     fn record_stage(

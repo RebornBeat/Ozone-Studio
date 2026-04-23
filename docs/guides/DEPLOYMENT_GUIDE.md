@@ -657,6 +657,10 @@ log_level = "debug"
 
 **Development Mode:** Logs in terminal running `npm run electron`
 
+Where to view logs:macOS: ~/Library/Application Support/Ozone Studio/ozone-studio.log
+Windows: %APPDATA%\Ozone Studio\ozone-studio.log
+Linux: ~/.config/Ozone Studio/ozone-studio.log
+
 **Production Mode:**
 - Linux: `~/.config/ozone-studio/logs/`
 - macOS: `~/Library/Logs/ozone-studio/`

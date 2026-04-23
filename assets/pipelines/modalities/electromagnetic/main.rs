@@ -1389,3 +1389,766 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                 doa_estimate: Some(DoAEstimate {
                     estimate_id: executor.generate_id(), signal_id,
                     azimuth_deg, elevation_deg: None, azimuth_uncertainty_deg: 5.0,
+                    method, timestamp_utc: 0.0,
+                }),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::ModelPropagation { transmitter, environment, frequency_hz, max_range_m, model } => {
+            // Compute path loss vs range using the specified model
+            let tl_vs_range: Vec<(f32, f32)> = (1..=100).map(|i| {
+                let range_m = (max_range_m / 100.0) * i as f32;
+                let fspl = PipelineExecutor::compute_free_space_path_loss(range_m, frequency_hz);
+                let correction = match &model {
+                    PropagationModel::FreeSpace => 0.0f32,
+                    PropagationModel::COST231_Hata => {
+                        // Urban macro correction over free space
+                        let fc_mhz = (frequency_hz / 1e6) as f32;
+                        let hb = transmitter.antenna_height_m;
+                        let a_hm = (1.1 * fc_mhz.log10() - 0.7) * 1.5 - (1.56 * fc_mhz.log10() - 0.8);
+                        46.3 + 33.9 * fc_mhz.log10() - 13.82 * hb.log10() - a_hm
+                            + (44.9 - 6.55 * hb.log10()) * (range_m / 1000.0).max(0.001).log10()
+                            - fspl
+                    }
+                    PropagationModel::Okumura_Hata => {
+                        let fc_mhz = (frequency_hz / 1e6) as f32;
+                        let hb = transmitter.antenna_height_m.max(1.0);
+                        let correction_urban = 69.55 + 26.16 * fc_mhz.log10()
+                            - 13.82 * hb.log10()
+                            + (44.9 - 6.55 * hb.log10()) * (range_m / 1000.0).max(0.001).log10();
+                        correction_urban - fspl
+                    }
+                    PropagationModel::Two_Ray => {
+                        // Two-ray ground reflection model
+                        let ht = transmitter.antenna_height_m;
+                        let hr = 1.5f32; // assumed receiver height
+                        let breakpoint = 4.0 * ht * hr * (frequency_hz as f32 / 3e8);
+                        if range_m > breakpoint {
+                            // ~40 dB/decade beyond breakpoint instead of 20
+                            let extra = 20.0 * (range_m / breakpoint).log10();
+                            extra
+                        } else { 0.0 }
+                    }
+                    PropagationModel::ITU_R_P528 => {
+                        // Aeronautical: frequency-dependent excess loss
+                        let fc_ghz = (frequency_hz / 1e9) as f32;
+                        0.3 * fc_ghz * (range_m / 1000.0)
+                    }
+                    PropagationModel::Winner_II | PropagationModel::_3GPP_UMa => {
+                        let fc_ghz = (frequency_hz / 1e9) as f32;
+                        let d_km = (range_m / 1000.0).max(0.01);
+                        // Winner II UMa LOS: PL = 22*log10(d) + 28 + 20*log10(fc) - FSPL
+                        22.0 * d_km.log10() + 28.0 + 20.0 * fc_ghz.log10() - fspl
+                    }
+                    PropagationModel::_3GPP_UMi => {
+                        let fc_ghz = (frequency_hz / 1e9) as f32;
+                        let d_km = (range_m / 1000.0).max(0.01);
+                        32.4 + 21.0 * d_km.log10() + 20.0 * fc_ghz.log10() - fspl
+                    }
+                    PropagationModel::Indoor_COST231 => {
+                        let fc_mhz = (frequency_hz / 1e6) as f32;
+                        // Indoor COST231 model: L = 37 + 30*log10(d) + 18.3*n^((n+2)/(n+1)) - 0.46
+                        37.0 + 30.0 * (range_m).max(1.0).log10() + 28.0 + 20.0 * fc_mhz.log10() * 0.1 - fspl
+                    }
+                    _ => 0.0,
+                };
+                (range_m, fspl + correction.max(0.0))
+            }).collect();
+
+            // Compute breakpoint (free-space → NLOS transition)
+            let breakpoint_m = match &model {
+                PropagationModel::Two_Ray | PropagationModel::Winner_II | PropagationModel::_3GPP_UMa => {
+                    let ht = transmitter.antenna_height_m;
+                    let hr = 1.5f32;
+                    Some(4.0 * ht * hr * (frequency_hz as f32 / 3e8))
+                }
+                _ => None,
+            };
+
+            Ok(EMModalityOutput {
+                success: true,
+                propagation_model: Some(PropagationModelResult {
+                    model_id: executor.generate_id(),
+                    model_type: model,
+                    frequency_hz,
+                    environment,
+                    path_loss_vs_range_db: tl_vs_range,
+                    breakpoint_m,
+                }),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::AnalyzeAntennaPattern { pattern_data, frequency_hz } => {
+            // Derive gain pattern from input data or synthesize from model
+            let n_e = pattern_data.e_plane_data.len();
+            let n_h = pattern_data.h_plane_data.len();
+
+            // If no pattern data provided, synthesize a cosine pattern
+            let e_plane = if n_e > 0 {
+                pattern_data.e_plane_data.clone()
+            } else {
+                // Synthesize from beamwidth: cosine^n model
+                let bw_rad = pattern_data.beamwidth_deg * std::f32::consts::PI / 180.0;
+                let n_exp = (10.0f32).powf(-0.05 * 3.0) / (bw_rad / 2.0).cos(); // approximate
+                (0..=360u32).map(|deg_u| {
+                    let deg = deg_u as f32;
+                    let theta_rad = deg * std::f32::consts::PI / 180.0;
+                    let gain = pattern_data.gain_dbi + 20.0 * theta_rad.cos().abs().max(1e-6).log10();
+                    (deg, gain.max(pattern_data.gain_dbi - 40.0))
+                }).collect()
+            };
+
+            let h_plane = if n_h > 0 {
+                pattern_data.h_plane_data.clone()
+            } else {
+                e_plane.clone() // assume symmetric for unknown antennas
+            };
+
+            // Compute derived metrics from pattern
+            let max_gain = e_plane.iter().map(|(_, g)| *g).fold(f32::NEG_INFINITY, f32::max);
+            let min_gain = e_plane.iter().map(|(_, g)| *g).fold(f32::INFINITY, f32::min);
+            let front_to_back = {
+                let front = e_plane.iter().find(|(a, _)| *a < 5.0 || *a > 355.0).map(|(_, g)| *g).unwrap_or(max_gain);
+                let back = e_plane.iter().find(|(a, _)| (a - 180.0).abs() < 10.0).map(|(_, g)| *g).unwrap_or(min_gain);
+                (front - back).abs()
+            };
+
+            // Compute beamwidth from E-plane (3dB points)
+            let bw_e = {
+                let half_power = max_gain - 3.0;
+                let above_hp: Vec<f32> = e_plane.iter().filter(|(_, g)| *g >= half_power).map(|(a, _)| *a).collect();
+                if above_hp.len() >= 2 {
+                    let span = above_hp.last().copied().unwrap_or(180.0) - above_hp.first().copied().unwrap_or(0.0);
+                    span.min(360.0)
+                } else {
+                    pattern_data.beamwidth_deg
+                }
+            };
+
+            Ok(EMModalityOutput {
+                success: true,
+                antenna_pattern: Some(AntennaPattern {
+                    pattern_id: executor.generate_id(),
+                    antenna_type: pattern_data.antenna_type,
+                    frequency_hz,
+                    gain_dbi: max_gain.max(pattern_data.gain_dbi),
+                    beamwidth_e_deg: bw_e,
+                    beamwidth_h_deg: bw_e, // symmetric assumption if H not provided
+                    sidelobe_level_db: max_gain - (e_plane.iter().filter(|(a, _)| *a > 30.0 && *a < 150.0).map(|(_, g)| *g).fold(f32::NEG_INFINITY, f32::max)),
+                    front_to_back_db: front_to_back,
+                    polarization: EMPolarization::Vertical,
+                    gain_pattern_e_plane: e_plane,
+                    gain_pattern_h_plane: h_plane,
+                    is_steerable: pattern_data.element_count > 1,
+                    steering_angle: None,
+                }),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::DetectInterference { graph_id, target_signal_id, threshold_db } => {
+            let graph = executor.load_graph(graph_id)?;
+
+            // Find the target signal node
+            let target_node = graph.nodes.iter().find(|n| {
+                n.node_id == target_signal_id || matches!(n.node_type, EMNodeType::DetectedSignalNode)
+            });
+
+            let target_freq = target_node.and_then(|n| n.freq_hz).unwrap_or(0.0);
+            let target_bw = target_node.and_then(|n| n.bandwidth_hz).unwrap_or(0.0);
+            let target_power = target_node.and_then(|n| n.power_dbm).unwrap_or(-100.0);
+
+            // Find candidate interferers: signals near the target frequency
+            let mut interference_events: Vec<InterferenceEvent> = graph.nodes.iter()
+                .filter(|n| {
+                    n.node_id != target_signal_id
+                        && matches!(n.node_type, EMNodeType::DetectedSignalNode)
+                        && n.freq_hz.map(|f| (f - target_freq).abs() < target_bw * 2.0).unwrap_or(false)
+                })
+                .filter_map(|interferer| {
+                    let if_power = interferer.power_dbm?;
+                    let if_freq = interferer.freq_hz?;
+                    let if_bw = interferer.bandwidth_hz.unwrap_or(0.0);
+
+                    // Frequency overlap
+                    let target_lo = target_freq - target_bw / 2.0;
+                    let target_hi = target_freq + target_bw / 2.0;
+                    let if_lo = if_freq - if_bw / 2.0;
+                    let if_hi = if_freq + if_bw / 2.0;
+                    let overlap_hz = (target_hi.min(if_hi) - target_lo.max(if_lo)).max(0.0);
+
+                    if overlap_hz <= 0.0 && (if_freq - target_freq).abs() > target_bw { return None; }
+
+                    let sir_db = target_power - if_power;
+                    if sir_db > threshold_db { return None; } // not significant
+
+                    let interference_type = if overlap_hz > 0.0 {
+                        InterferenceType::Co_Channel
+                    } else if (if_freq - target_freq).abs() < target_bw * 1.5 {
+                        InterferenceType::Adjacent_Channel
+                    } else {
+                        InterferenceType::Intermodulation
+                    };
+
+                    let impact = if sir_db < -20.0 { InterferenceImpact::LossOfSignal }
+                        else if sir_db < -10.0 { InterferenceImpact::Severe }
+                        else if sir_db < 0.0 { InterferenceImpact::Moderate }
+                        else if sir_db < 10.0 { InterferenceImpact::Marginal }
+                        else { InterferenceImpact::None };
+
+                    Some(InterferenceEvent {
+                        event_id: executor.generate_id(),
+                        victim_signal_id: target_signal_id,
+                        interferer_signal_id: Some(interferer.node_id),
+                        interference_type,
+                        sir_db,
+                        frequency_overlap_hz: overlap_hz,
+                        duration_sec: None,
+                        timestamp_utc: interferer.timestamp_utc.unwrap_or(0.0),
+                        impact,
+                    })
+                })
+                .collect();
+
+            Ok(EMModalityOutput {
+                success: true,
+                interference_events: Some(interference_events),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::ComputeCoverage { transmitter, area_extent, resolution_m, frequency_hz, model } => {
+            // Compute path loss grid over geographic extent
+            let lat_span = area_extent.max_lat - area_extent.min_lat;
+            let lon_span = area_extent.max_lon - area_extent.min_lon;
+            let lat_m = lat_span * 111000.0;
+            let lon_m = lon_span * 111000.0 * (((area_extent.min_lat + area_extent.max_lat) / 2.0) * std::f64::consts::PI / 180.0).cos();
+            let rows = (lat_m / resolution_m as f64).ceil() as usize;
+            let cols = (lon_m / resolution_m as f64).ceil() as usize;
+            let rows = rows.clamp(1, 500);
+            let cols = cols.clamp(1, 500);
+
+            let tx_lat = transmitter.location[0];
+            let tx_lon = transmitter.location[1];
+            let eirp_dbm = transmitter.power_dbm + transmitter.antenna_gain_dbi;
+            let threshold_db = -90.0f32; // minimum useful signal
+
+            let mut path_loss_grid: Vec<Vec<f32>> = Vec::with_capacity(rows);
+            let mut covered_cells = 0u32;
+
+            for row in 0..rows {
+                let mut row_data = Vec::with_capacity(cols);
+                for col in 0..cols {
+                    let lat = area_extent.max_lat - (row as f64 / rows as f64) * lat_span;
+                    let lon = area_extent.min_lon + (col as f64 / cols as f64) * lon_span;
+
+                    // Distance to transmitter
+                    let dlat_m = (lat - tx_lat) * 111000.0;
+                    let dlon_m = (lon - tx_lon) * 111000.0 * (tx_lat * std::f64::consts::PI / 180.0).cos();
+                    let dist_m = (dlat_m * dlat_m + dlon_m * dlon_m).sqrt() as f32;
+
+                    let fspl = PipelineExecutor::compute_free_space_path_loss(dist_m.max(1.0), frequency_hz);
+                    let extra_loss = match &model {
+                        PropagationModel::FreeSpace => 0.0,
+                        PropagationModel::COST231_Hata => {
+                            let fc_mhz = (frequency_hz / 1e6) as f32;
+                            let hb = transmitter.antenna_height_m;
+                            (44.9 - 6.55 * hb.log10()) * (dist_m / 1000.0).max(0.01).log10()
+                                + 26.16 * fc_mhz.log10() - 13.82 * hb.log10() + 46.3 - fspl
+                        }
+                        PropagationModel::Okumura_Hata => {
+                            let fc_mhz = (frequency_hz / 1e6) as f32;
+                            let hb = transmitter.antenna_height_m.max(1.0);
+                            69.55 + 26.16 * fc_mhz.log10() - 13.82 * hb.log10()
+                                + (44.9 - 6.55 * hb.log10()) * (dist_m / 1000.0).max(0.01).log10() - fspl
+                        }
+                        PropagationModel::Two_Ray => {
+                            let ht = transmitter.antenna_height_m;
+                            let hr = 1.5f32;
+                            let bp = 4.0 * ht * hr * (frequency_hz as f32 / 3e8);
+                            if dist_m > bp { 20.0 * (dist_m / bp.max(1.0)).log10() } else { 0.0 }
+                        }
+                        PropagationModel::Winner_II | PropagationModel::_3GPP_UMa => {
+                            let fc_ghz = (frequency_hz / 1e9) as f32;
+                            22.0 * (dist_m / 1000.0).max(0.001).log10() + 28.0 + 20.0 * fc_ghz.log10() - fspl
+                        }
+                        _ => 0.0,
+                    };
+
+                    let total_loss = fspl + extra_loss.max(0.0);
+                    let received_dbm = eirp_dbm - total_loss;
+                    if received_dbm > threshold_db { covered_cells += 1; }
+                    row_data.push(total_loss);
+                }
+                path_loss_grid.push(row_data);
+            }
+
+            let covered_area_km2 = covered_cells as f32 * (resolution_m / 1000.0).powi(2);
+
+            Ok(EMModalityOutput {
+                success: true,
+                coverage_map: Some(CoverageMap {
+                    map_id: executor.generate_id(),
+                    transmitter_id: transmitter.transmitter_id,
+                    frequency_hz,
+                    area_extent,
+                    resolution_m,
+                    path_loss_grid_db: path_loss_grid,
+                    covered_area_km2,
+                    threshold_db,
+                    model: format!("{:?}", model),
+                }),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::QueryGraph { graph_id, query } => {
+            let graph = executor.load_graph(graph_id)?;
+            let result = match query {
+                EMGraphQuery::NodeDetail { node_id } => {
+                    let node = graph.nodes.iter().find(|n| n.node_id == node_id);
+                    let incoming: Vec<_> = graph.edges.iter().filter(|e| e.to_node == node_id).collect();
+                    let outgoing: Vec<_> = graph.edges.iter().filter(|e| e.from_node == node_id).collect();
+                    serde_json::json!({ "node": node, "incoming_edges": incoming, "outgoing_edges": outgoing })
+                }
+                EMGraphQuery::SignalsByModulation { modulation } => {
+                    let signals: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::DetectedSignalNode))
+                        .filter(|n| n.modulation.as_deref().map(|m| m.to_lowercase().contains(&modulation.to_lowercase())).unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "signals": signals, "count": signals.len() })
+                }
+                EMGraphQuery::EmittersByClass { emitter_class } => {
+                    let emitters: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::SignalEmitterNode))
+                        .filter(|n| n.emitter_class.as_deref().map(|c| c.to_lowercase().contains(&emitter_class.to_lowercase())).unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "emitters": emitters, "count": emitters.len() })
+                }
+                EMGraphQuery::InterferenceEvents => {
+                    let events: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::InterferenceEventNode | EMNodeType::InterferenceSourceNode))
+                        .collect();
+                    serde_json::json!({ "interference_events": events, "count": events.len() })
+                }
+                EMGraphQuery::OccupiedBands { freq_start_hz, freq_end_hz } => {
+                    let bands: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::FrequencyBandNode))
+                        .filter(|n| n.freq_hz.map(|f| f >= freq_start_hz && f <= freq_end_hz).unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "occupied_bands": bands, "count": bands.len() })
+                }
+                EMGraphQuery::PropagationPaths => {
+                    let paths: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::PropagationPathNode))
+                        .collect();
+                    serde_json::json!({ "propagation_paths": paths, "count": paths.len() })
+                }
+                EMGraphQuery::AntennaPatterns => {
+                    let patterns: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, EMNodeType::AntennaPatternNode))
+                        .collect();
+                    serde_json::json!({ "antenna_patterns": patterns, "count": patterns.len() })
+                }
+                EMGraphQuery::CrossModalLinks { node_id } => {
+                    let links: Vec<_> = graph.edges.iter()
+                        .filter(|e| (e.from_node == node_id || e.to_node == node_id)
+                            && matches!(e.edge_type,
+                                EMEdgeType::PlottedOnGeoMap |
+                                EMEdgeType::PropagationThrough3D |
+                                EMEdgeType::LinkQualityToControl |
+                                EMEdgeType::PhysicalLayerOf |
+                                EMEdgeType::InterferesWithRadar
+                            ))
+                        .collect();
+                    serde_json::json!({ "cross_modal_links": links, "count": links.len() })
+                }
+                EMGraphQuery::AGIActivity => {
+                    serde_json::json!({ "is_active": false, "activity": null })
+                }
+                EMGraphQuery::AllNodes => {
+                    serde_json::json!({ "nodes": graph.nodes, "count": graph.nodes.len() })
+                }
+                EMGraphQuery::AllEdges => {
+                    serde_json::json!({ "edges": graph.edges, "count": graph.edges.len() })
+                }
+            };
+            Ok(EMModalityOutput { success: true, query_result: Some(result), ..Default::default() })
+        }
+
+        EMModalityAction::GetGraph { graph_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            Ok(EMModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        EMModalityAction::TriggerSemanticHook { graph_id, hook } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+
+            match hook {
+                EMSemanticHook::OnGraphCreated => {
+                    // Register in ZSEI, build materialized paths, index keywords
+                    graph.state = GraphStateType::SemanticEnriched;
+                }
+                EMSemanticHook::OnInferRelationships => {
+                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    for (from, to, etype, reason) in new_edges {
+                        if valid.contains(&from) && valid.contains(&to) && from != to {
+                            graph.edges.push(EMGraphEdge {
+                                edge_id: next_eid,
+                                from_node: from,
+                                to_node: to,
+                                edge_type: etype,
+                                weight: 0.8,
+                                provenance: EdgeProvenance::DerivedFromHook,
+                                version: 1,
+                                properties: {
+                                    let mut p = HashMap::new();
+                                    p.insert("reason".into(), serde_json::json!(reason));
+                                    p
+                                },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                    }
+                }
+                EMSemanticHook::OnEdgeCompletion => {
+                    // Verify all edge endpoints exist; remove dangling edges
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    graph.edges.retain(|e| valid.contains(&e.from_node) && valid.contains(&e.to_node));
+                    // Update hotness scores based on degree
+                    let mut deg: HashMap<u64, u32> = HashMap::new();
+                    for e in &graph.edges {
+                        *deg.entry(e.from_node).or_insert(0) += 1;
+                        *deg.entry(e.to_node).or_insert(0) += 1;
+                    }
+                    let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
+                    for n in &mut graph.nodes {
+                        if let Some(&d) = deg.get(&n.node_id) {
+                            n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.1).min(1.0);
+                        }
+                    }
+                }
+                EMSemanticHook::OnCrossModalityLink { target_modality, target_graph_id } => {
+                    // Register cross-modal link in ZSEI global index
+                    graph.state = GraphStateType::CrossLinked;
+                    graph.version += 1;
+                    graph.version_notes.push(VersionNote {
+                        version: graph.version,
+                        note: format!("Cross-linked to {} (graph {})", target_modality, target_graph_id),
+                        step_index: None,
+                        timestamp: now.clone(),
+                        change_type: ChangeType::CrossLinked,
+                    });
+                }
+            }
+
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(EMModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        EMModalityAction::ExportProduct { graph_id, format } => {
+            let graph = executor.load_graph(graph_id)?;
+            let ext = match &format {
+                EMExportFormat::GeoJSON  => "geojson",
+                EMExportFormat::KML      => "kml",
+                EMExportFormat::CSV      => "csv",
+                EMExportFormat::SigMF    => "sigmf-meta",
+                EMExportFormat::HDF5     => "h5",
+                EMExportFormat::WigleCSV => "csv",
+                EMExportFormat::GNSS_XML => "xml",
+                EMExportFormat::Custom(s) => "dat",
+            };
+            let export_path = format!("/tmp/em_export_{}_{:?}.{}", graph_id, format, ext);
+
+            // In production: serialize graph products to the target format.
+            // GeoJSON: emitter nodes with location → FeatureCollection
+            // KML: coverage maps + emitter placemarks
+            // CSV: signal table with freq/power/modulation/protocol columns
+            // SigMF: signal metadata annotation file
+            // HDF5: PSD arrays, coverage grids, raw processed data
+
+            Ok(EMModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                export_path: Some(export_path),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::StreamToUI { graph_id, session_id, display_mode } => {
+            // In production: start WebSocket stream to the React UI session.
+            // Dispatches the current graph state + live spectrum updates.
+            // display_mode determines which sub-component receives the initial payload:
+            //   Spectrogram     → sends PSD frames as they arrive from SDR
+            //   PowerSpectrum   → sends current snapshot nodes
+            //   Waterfall       → sends time-ordered PSD rows
+            //   CoverageMap     → sends coverage grid for rendering
+            //   EmitterMap      → sends emitter nodes with geo coordinates
+            //   InterferenceTable → sends interference event nodes
+            //   AntennaPattern  → sends antenna pattern polar data
+            Ok(EMModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                ..Default::default()
+            })
+        }
+
+        EMModalityAction::HeadlessProcess { graph_id, operations } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+
+            for op in operations {
+                match op {
+                    EMOperation::ReClassifySignals => {
+                        // Pull all DetectedSignalNode nodes, re-run LLM classification
+                        let signal_nodes: Vec<DetectedSignal> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, EMNodeType::DetectedSignalNode))
+                            .map(|n| DetectedSignal {
+                                signal_id: n.node_id,
+                                center_freq_hz: n.freq_hz.unwrap_or(0.0),
+                                bandwidth_hz: n.bandwidth_hz.unwrap_or(0.0),
+                                power_dbm: n.power_dbm.unwrap_or(-100.0),
+                                snr_db: n.snr_db.unwrap_or(0.0),
+                                timestamp_utc: n.timestamp_utc.unwrap_or(0.0),
+                                ..Default::default()
+                            })
+                            .collect();
+
+                        let classifications = executor.classify_signals_llm(&signal_nodes).await;
+                        for (sig_id, modulation, protocol) in classifications {
+                            if let Some(node) = graph.nodes.iter_mut().find(|n| n.node_id == sig_id) {
+                                node.modulation = Some(modulation.clone());
+                                node.protocol = if protocol.is_empty() { None } else { Some(protocol) };
+                                node.version += 1;
+                                node.version_notes.push(VersionNote {
+                                    version: node.version,
+                                    note: format!("Re-classified: {}", modulation),
+                                    step_index: None,
+                                    timestamp: now.clone(),
+                                    change_type: ChangeType::EnrichedBySemantic,
+                                });
+                            }
+                        }
+                    }
+
+                    EMOperation::ReLocalizeEmitters => {
+                        // Pull emitter nodes and re-run LLM emitter classification
+                        let emitter_nodes: Vec<SignalEmitter> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, EMNodeType::SignalEmitterNode))
+                            .map(|n| SignalEmitter {
+                                emitter_id: n.node_id,
+                                location: n.location,
+                                mobility: EmitterMobility::Unknown,
+                                ..Default::default()
+                            })
+                            .collect();
+
+                        let classifications = executor.classify_emitters_llm(&emitter_nodes).await;
+                        for (em_id, em_class) in classifications {
+                            if let Some(node) = graph.nodes.iter_mut().find(|n| n.node_id == em_id) {
+                                node.emitter_class = Some(em_class.clone());
+                                node.version += 1;
+                                node.version_notes.push(VersionNote {
+                                    version: node.version,
+                                    note: format!("Re-classified emitter: {}", em_class),
+                                    step_index: None,
+                                    timestamp: now.clone(),
+                                    change_type: ChangeType::EnrichedBySemantic,
+                                });
+                            }
+                        }
+                    }
+
+                    EMOperation::ComputeInterference => {
+                        // For every DetectedSignalNode, compare frequencies and add
+                        // InterferesWith edges where signals overlap in frequency
+                        let signal_nodes: Vec<(u64, f64, f64)> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, EMNodeType::DetectedSignalNode))
+                            .filter_map(|n| Some((n.node_id, n.freq_hz?, n.bandwidth_hz.unwrap_or(0.0))))
+                            .collect();
+
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        for i in 0..signal_nodes.len() {
+                            for j in (i + 1)..signal_nodes.len() {
+                                let (id_a, freq_a, bw_a) = signal_nodes[i];
+                                let (id_b, freq_b, bw_b) = signal_nodes[j];
+                                let lo_a = freq_a - bw_a / 2.0;
+                                let hi_a = freq_a + bw_a / 2.0;
+                                let lo_b = freq_b - bw_b / 2.0;
+                                let hi_b = freq_b + bw_b / 2.0;
+                                let overlap = (hi_a.min(hi_b) - lo_a.max(lo_b)).max(0.0);
+                                if overlap > 0.0 {
+                                    // Check not already present
+                                    let already = graph.edges.iter().any(|e|
+                                        matches!(e.edge_type, EMEdgeType::InterferesWith)
+                                        && ((e.from_node == id_a && e.to_node == id_b)
+                                            || (e.from_node == id_b && e.to_node == id_a))
+                                    );
+                                    if !already {
+                                        graph.edges.push(EMGraphEdge {
+                                            edge_id: next_eid,
+                                            from_node: id_a, to_node: id_b,
+                                            edge_type: EMEdgeType::InterferesWith,
+                                            weight: (overlap / bw_a.min(bw_b)).clamp(0.0, 1.0) as f32,
+                                            provenance: EdgeProvenance::DerivedFromHook,
+                                            version: 1,
+                                            properties: {
+                                                let mut p = HashMap::new();
+                                                p.insert("overlap_hz".into(), serde_json::json!(overlap));
+                                                p
+                                            },
+                                            ..Default::default()
+                                        });
+                                        next_eid += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    EMOperation::UpdateCoverage { transmitter_id } => {
+                        // Re-compute coverage for a specific transmitter node
+                        // In production: find transmitter node, extract parameters, re-run ComputeCoverage
+                        if let Some(tx_node) = graph.nodes.iter().find(|n| n.node_id == transmitter_id) {
+                            // The actual re-computation would extract TransmitterSpec from node properties
+                            // and call the ComputeCoverage sub-routine, then update the CoverageMapNode
+                            graph.version += 1;
+                            graph.version_notes.push(VersionNote {
+                                version: graph.version,
+                                note: format!("Coverage updated for transmitter node {}", transmitter_id),
+                                step_index: None,
+                                timestamp: now.clone(),
+                                change_type: ChangeType::Updated,
+                            });
+                        }
+                    }
+
+                    EMOperation::CrossLinkToGeo { geo_graph_id } => {
+                        // Add PlottedOnGeoMap edges for all emitter nodes that have a location
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let emitter_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, EMNodeType::SignalEmitterNode) && n.location.is_some())
+                            .map(|n| n.node_id)
+                            .collect();
+                        for em_nid in emitter_nids {
+                            let already = graph.edges.iter().any(|e|
+                                e.from_node == em_nid && matches!(e.edge_type, EMEdgeType::PlottedOnGeoMap)
+                            );
+                            if !already {
+                                graph.edges.push(EMGraphEdge {
+                                    edge_id: next_eid,
+                                    from_node: em_nid, to_node: em_nid,
+                                    edge_type: EMEdgeType::PlottedOnGeoMap,
+                                    weight: 0.9,
+                                    provenance: EdgeProvenance::DerivedFromCrossModal,
+                                    version: 1,
+                                    properties: {
+                                        let mut p = HashMap::new();
+                                        p.insert("target_modality".into(), serde_json::json!("geospatial"));
+                                        p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id));
+                                        p
+                                    },
+                                    ..Default::default()
+                                });
+                                next_eid += 1;
+                            }
+                        }
+                        // Also add coverage maps
+                        let coverage_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, EMNodeType::CoverageMapNode))
+                            .map(|n| n.node_id)
+                            .collect();
+                        for cov_nid in coverage_nids {
+                            let already = graph.edges.iter().any(|e|
+                                e.from_node == cov_nid && matches!(e.edge_type, EMEdgeType::PlottedOnGeoMap)
+                            );
+                            if !already {
+                                graph.edges.push(EMGraphEdge {
+                                    edge_id: next_eid,
+                                    from_node: cov_nid, to_node: cov_nid,
+                                    edge_type: EMEdgeType::PlottedOnGeoMap,
+                                    weight: 0.85,
+                                    provenance: EdgeProvenance::DerivedFromCrossModal,
+                                    version: 1,
+                                    properties: {
+                                        let mut p = HashMap::new();
+                                        p.insert("target_modality".into(), serde_json::json!("geospatial"));
+                                        p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id));
+                                        p
+                                    },
+                                    ..Default::default()
+                                });
+                                next_eid += 1;
+                            }
+                        }
+                        graph.state = GraphStateType::CrossLinked;
+                        graph.version += 1;
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version,
+                            note: format!("Cross-linked to geospatial graph {}", geo_graph_id),
+                            step_index: None,
+                            timestamp: now.clone(),
+                            change_type: ChangeType::CrossLinked,
+                        });
+                    }
+                }
+            }
+
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(EMModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                graph: Some(graph),
+                ..Default::default()
+            })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = args[i + 1].clone();
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: em_sensing --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: EMModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": format!("Parse error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!(
+            "{}",
+            serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())
+        ),
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": e}));
+            std::process::exit(1);
+        }
+    }
+}

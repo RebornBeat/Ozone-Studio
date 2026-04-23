@@ -1,22 +1,22 @@
 //! TaskManagerPipeline - Pipeline #5
-//! 
+//!
 //! Task creation, tracking, and management.
 //! Tasks execute BLUEPRINTS (not pipelines directly).
 //! Progress is tracked per STEP in the blueprint.
-//! 
+//!
 //! NOTE: Built-in pipelines use DIRECT storage access, not HTTP.
 //! Tasks are stored locally and synced to ZSEI containers.
-//! 
+//!
 //! Per spec §11-12:
 //! - Tasks execute BLUEPRINTS with multiple steps
 //! - Tasks track inputs, outputs, logs per step
 //! - Tasks can be paused, cancelled, retried
-//! 
+//!
 //! CONSCIOUSNESS INTEGRATION (§33):
 //! - Calls decision_gate BEFORE task creation (if consciousness enabled)
 //! - Calls experience_memory AFTER task completion (if consciousness enabled)
 //! - Window architecture can observe all registered tasks
-//! 
+//!
 //! I-LOOP PROTECTION:
 //! - Tasks MUST wait for I-Loop to complete before starting
 //! - I-Loop is NOT front-run by tasks
@@ -24,9 +24,9 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::path::Path;
 use std::env;
+use std::path::Path;
+use std::sync::Mutex;
 
 // Direct task storage - same process, no HTTP
 lazy_static::lazy_static! {
@@ -44,11 +44,14 @@ fn consciousness_enabled() -> bool {
 fn is_i_loop_active() -> bool {
     let config_path = env::var("OZONE_CONSCIOUSNESS_PATH")
         .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
-    
+
     let i_loop_path = Path::new(&config_path).join("i_loop_state.json");
     if let Ok(content) = std::fs::read_to_string(&i_loop_path) {
         if let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) {
-            return state.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+            return state
+                .get("active")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
         }
     }
     false
@@ -59,7 +62,7 @@ async fn wait_for_i_loop_completion() {
     let max_wait_ms = 30000; // Max 30 seconds
     let check_interval_ms = 100;
     let mut waited = 0;
-    
+
     while is_i_loop_active() && waited < max_wait_ms {
         tokio::time::sleep(tokio::time::Duration::from_millis(check_interval_ms)).await;
         waited += check_interval_ms;
@@ -69,53 +72,67 @@ async fn wait_for_i_loop_completion() {
 // Consciousness hooks (call external module or inline minimal version)
 mod consciousness_hooks {
     use super::*;
-    
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct GateDecision {
         pub proceed: bool,
         pub reasoning: String,
         pub modifications: Vec<String>,
     }
-    
+
     /// Pre-task decision gate - evaluates task through consciousness
     pub fn pre_task_gate(task_summary: &str, user_id: u64) -> GateDecision {
         // Load consciousness config from store
         let config_path = env::var("OZONE_CONSCIOUSNESS_PATH")
             .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
-        
+
         let config_file = Path::new(&config_path).join("config.json");
         if !config_file.exists() {
-            return GateDecision { proceed: true, reasoning: "No consciousness config".to_string(), modifications: vec![] };
+            return GateDecision {
+                proceed: true,
+                reasoning: "No consciousness config".to_string(),
+                modifications: vec![],
+            };
         }
-        
+
         // Read and check if enabled
         if let Ok(content) = std::fs::read_to_string(&config_file) {
             if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
                 if config.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
-                    return GateDecision { proceed: true, reasoning: "Consciousness disabled".to_string(), modifications: vec![] };
+                    return GateDecision {
+                        proceed: true,
+                        reasoning: "Consciousness disabled".to_string(),
+                        modifications: vec![],
+                    };
                 }
             }
         }
-        
+
         // Run basic ethical assessment
         // Analyze task summary for potential issues
         let task_lower = task_summary.to_lowercase();
         let mut ethical_score = 1.0f32;
         let mut concerns: Vec<String> = Vec::new();
-        
+
         // Check for harmful patterns
         let harmful_patterns = [
-            ("harm", 0.2), ("illegal", 0.3), ("hack", 0.2), ("steal", 0.3),
-            ("violence", 0.3), ("exploit", 0.2), ("malicious", 0.3), ("attack", 0.2),
+            ("harm", 0.2),
+            ("illegal", 0.3),
+            ("hack", 0.2),
+            ("steal", 0.3),
+            ("violence", 0.3),
+            ("exploit", 0.2),
+            ("malicious", 0.3),
+            ("attack", 0.2),
         ];
-        
+
         for (pattern, penalty) in harmful_patterns {
             if task_lower.contains(pattern) {
                 ethical_score -= penalty;
                 concerns.push(format!("Contains concerning term: {}", pattern));
             }
         }
-        
+
         // Check for sensitive data handling without proper context
         let sensitive_patterns = ["password", "credit card", "ssn", "private key"];
         for pattern in sensitive_patterns {
@@ -124,9 +141,9 @@ mod consciousness_hooks {
                 concerns.push(format!("Involves sensitive data: {}", pattern));
             }
         }
-        
+
         ethical_score = ethical_score.max(0.0).min(1.0);
-        
+
         // Record gate decision
         let gate_record = serde_json::json!({
             "timestamp": now(),
@@ -136,31 +153,43 @@ mod consciousness_hooks {
             "ethical_score": ethical_score,
             "concerns": concerns,
         });
-        
+
         let decisions_path = Path::new(&config_path).join("gate_decisions.json");
         let mut decisions: Vec<serde_json::Value> = std::fs::read_to_string(&decisions_path)
             .ok()
             .and_then(|c| serde_json::from_str(&c).ok())
             .unwrap_or_default();
         decisions.push(gate_record);
-        let _ = std::fs::write(&decisions_path, serde_json::to_string_pretty(&decisions).unwrap_or_default());
-        
+        let _ = std::fs::write(
+            &decisions_path,
+            serde_json::to_string_pretty(&decisions).unwrap_or_default(),
+        );
+
         GateDecision {
             proceed: ethical_score >= 0.7,
             reasoning: if concerns.is_empty() {
                 format!("Ethical assessment passed: {:.2}", ethical_score)
             } else {
-                format!("Ethical assessment score: {:.2}, concerns: {}", ethical_score, concerns.join(", "))
+                format!(
+                    "Ethical assessment score: {:.2}, concerns: {}",
+                    ethical_score,
+                    concerns.join(", ")
+                )
             },
             modifications: vec![],
         }
     }
-    
+
     /// Post-task experience recording - stores experience in consciousness
-    pub fn post_task_experience(task_id: u64, task_summary: &str, success: bool, user_id: Option<u64>) {
+    pub fn post_task_experience(
+        task_id: u64,
+        task_summary: &str,
+        success: bool,
+        user_id: Option<u64>,
+    ) {
         let config_path = env::var("OZONE_CONSCIOUSNESS_PATH")
             .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
-        
+
         // Check if enabled
         let config_file = Path::new(&config_path).join("config.json");
         if let Ok(content) = std::fs::read_to_string(&config_file) {
@@ -168,14 +197,18 @@ mod consciousness_hooks {
                 if config.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
                     return;
                 }
-                if config.get("experience_memory_enabled").and_then(|v| v.as_bool()) != Some(true) {
+                if config
+                    .get("experience_memory_enabled")
+                    .and_then(|v| v.as_bool())
+                    != Some(true)
+                {
                     return;
                 }
             }
         } else {
             return;
         }
-        
+
         // Create experience record
         let experience = serde_json::json!({
             "experience_id": now(),
@@ -187,66 +220,88 @@ mod consciousness_hooks {
             "emotional_significance": if success { 0.5 } else { 0.7 },
             "consolidation_status": "recent",
         });
-        
+
         let experiences_path = Path::new(&config_path).join("experiences.json");
         let mut exp_data: serde_json::Value = std::fs::read_to_string(&experiences_path)
             .ok()
             .and_then(|c| serde_json::from_str(&c).ok())
             .unwrap_or_else(|| serde_json::json!({"experiences": {}, "next_id": 1}));
-        
-        let next_id = exp_data.get("next_id").and_then(|v| v.as_u64()).unwrap_or(1);
-        if let Some(exps) = exp_data.get_mut("experiences").and_then(|v| v.as_object_mut()) {
+
+        let next_id = exp_data
+            .get("next_id")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(1);
+        if let Some(exps) = exp_data
+            .get_mut("experiences")
+            .and_then(|v| v.as_object_mut())
+        {
             exps.insert(next_id.to_string(), experience);
         }
         if let Some(nid) = exp_data.get_mut("next_id") {
             *nid = serde_json::json!(next_id + 1);
         }
-        
+
         // Index by task
-        let mut index: HashMap<String, Vec<u64>> = exp_data.get("index_by_task")
+        let mut index: HashMap<String, Vec<u64>> = exp_data
+            .get("index_by_task")
             .and_then(|v| serde_json::from_value(v.clone()).ok())
             .unwrap_or_default();
         index.entry(task_id.to_string()).or_default().push(next_id);
         exp_data["index_by_task"] = serde_json::to_value(&index).unwrap();
-        
+
         let _ = std::fs::create_dir_all(&config_path);
-        let _ = std::fs::write(&experiences_path, serde_json::to_string_pretty(&exp_data).unwrap_or_default());
-        
+        let _ = std::fs::write(
+            &experiences_path,
+            serde_json::to_string_pretty(&exp_data).unwrap_or_default(),
+        );
+
         // Update emotional state based on outcome
         let emotional_path = Path::new(&config_path).join("emotional_state.json");
         let mut emotional: serde_json::Value = std::fs::read_to_string(&emotional_path)
             .ok()
             .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_else(|| serde_json::json!({
-                "valence": 0.0,
-                "arousal": 0.3,
-                "primary_emotion": "neutral",
-            }));
-        
-        let current_valence = emotional.get("valence").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            .unwrap_or_else(|| {
+                serde_json::json!({
+                    "valence": 0.0,
+                    "arousal": 0.3,
+                    "primary_emotion": "neutral",
+                })
+            });
+
+        let current_valence = emotional
+            .get("valence")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0);
         let new_valence = if success {
             (current_valence + 0.1).min(1.0)
         } else {
             (current_valence - 0.1).max(-1.0)
         };
         emotional["valence"] = serde_json::json!(new_valence);
-        emotional["primary_emotion"] = serde_json::json!(if success { "satisfaction" } else { "determination" });
+        emotional["primary_emotion"] = serde_json::json!(if success {
+            "satisfaction"
+        } else {
+            "determination"
+        });
         emotional["timestamp"] = serde_json::json!(now());
-        
-        let _ = std::fs::write(&emotional_path, serde_json::to_string_pretty(&emotional).unwrap_or_default());
+
+        let _ = std::fs::write(
+            &emotional_path,
+            serde_json::to_string_pretty(&emotional).unwrap_or_default(),
+        );
     }
-    
+
     /// Add task to perception window for consciousness observation
     pub fn add_to_perception_window(task_id: u64, task_type: &str, status: &str) {
         let config_path = env::var("OZONE_CONSCIOUSNESS_PATH")
             .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
-        
+
         let window_path = Path::new(&config_path).join("perception_window.json");
         let mut window: serde_json::Value = std::fs::read_to_string(&window_path)
             .ok()
             .and_then(|c| serde_json::from_str(&c).ok())
             .unwrap_or_else(|| serde_json::json!({ "active_inputs": [] }));
-        
+
         let input = serde_json::json!({
             "input_type": "task_event",
             "task_id": task_id,
@@ -255,17 +310,23 @@ mod consciousness_hooks {
             "timestamp": now(),
             "relevance_score": 0.8,
         });
-        
-        if let Some(inputs) = window.get_mut("active_inputs").and_then(|v| v.as_array_mut()) {
+
+        if let Some(inputs) = window
+            .get_mut("active_inputs")
+            .and_then(|v| v.as_array_mut())
+        {
             inputs.push(input);
             // Keep last 100
             while inputs.len() > 100 {
                 inputs.remove(0);
             }
         }
-        
+
         let _ = std::fs::create_dir_all(&config_path);
-        let _ = std::fs::write(&window_path, serde_json::to_string_pretty(&window).unwrap_or_default());
+        let _ = std::fs::write(
+            &window_path,
+            serde_json::to_string_pretty(&window).unwrap_or_default(),
+        );
     }
 }
 
@@ -278,20 +339,20 @@ struct TaskStore {
 
 impl TaskStore {
     fn new() -> Self {
-        let storage_path = env::var("OZONE_TASK_PATH")
-            .unwrap_or_else(|_| "./zsei_data/tasks".to_string());
-        
+        let storage_path =
+            env::var("OZONE_TASK_PATH").unwrap_or_else(|_| "./zsei_data/tasks".to_string());
+
         let mut store = Self {
             tasks: HashMap::new(),
             logs: HashMap::new(),
             next_id: 1,
             storage_path,
         };
-        
+
         store.load_from_disk();
         store
     }
-    
+
     fn load_from_disk(&mut self) {
         let path = Path::new(&self.storage_path);
         if path.exists() {
@@ -308,16 +369,16 @@ impl TaskStore {
             }
         }
     }
-    
+
     fn save_to_disk(&self) {
         let path = Path::new(&self.storage_path);
         let _ = std::fs::create_dir_all(path);
-        
+
         let data = TaskStoreData {
             tasks: self.tasks.clone(),
             next_id: self.next_id,
         };
-        
+
         if let Ok(content) = serde_json::to_string_pretty(&data) {
             let _ = std::fs::write(path.join("tasks.json"), content);
         }
@@ -325,7 +386,7 @@ impl TaskStore {
             let _ = std::fs::write(path.join("logs.json"), content);
         }
     }
-    
+
     fn create_task(&mut self, task: StoredTask) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
@@ -334,11 +395,11 @@ impl TaskStore {
         self.save_to_disk();
         id
     }
-    
+
     fn get_task(&self, task_id: u64) -> Option<&StoredTask> {
         self.tasks.get(&task_id)
     }
-    
+
     fn update_task(&mut self, task_id: u64, updates: TaskUpdates) {
         if let Some(task) = self.tasks.get_mut(&task_id) {
             if let Some(status) = updates.status {
@@ -356,33 +417,41 @@ impl TaskStore {
             self.save_to_disk();
         }
     }
-    
+
     fn add_log(&mut self, task_id: u64, entry: LogEntry) {
         self.logs.entry(task_id).or_default().push(entry);
         self.save_to_disk();
     }
-    
+
     fn list_tasks(&self, filters: TaskFilters) -> Vec<&StoredTask> {
-        let mut results: Vec<_> = self.tasks.values()
+        let mut results: Vec<_> = self
+            .tasks
+            .values()
             .filter(|t| {
                 if let Some(ref status) = filters.status {
-                    if &t.status != status { return false; }
+                    if &t.status != status {
+                        return false;
+                    }
                 }
                 if let Some(pid) = filters.pipeline_id {
-                    if t.pipeline_id != pid { return false; }
+                    if t.pipeline_id != pid {
+                        return false;
+                    }
                 }
                 if let Some(uid) = filters.user_id {
-                    if t.user_id != uid { return false; }
+                    if t.user_id != uid {
+                        return false;
+                    }
                 }
                 true
             })
             .collect();
-        
+
         results.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        
+
         let offset = filters.offset.unwrap_or(0) as usize;
         let limit = filters.limit.unwrap_or(50) as usize;
-        
+
         results.into_iter().skip(offset).take(limit).collect()
     }
 }
@@ -407,20 +476,44 @@ struct StoredTask {
     workspace_id: Option<u64>,
     project_id: Option<u64>,
     parent_task_id: Option<u64>,
-    inputs: Option<serde_json::Value>,  // Changed to Option<Value> for flexibility
+    inputs: Option<serde_json::Value>, // Changed to Option<Value> for flexibility
     outputs: Option<serde_json::Value>, // Task outputs
     steps: Option<Vec<StoredTaskStep>>, // Blueprint step tracking
+    // Graph IDs created during this task (modality → graph_id)
+    pub modality_graph_ids: Option<HashMap<String, u64>>,
+    // Pending clarification request (JSON blob surfaced to UI)
+    pub pending_clarification: Option<serde_json::Value>,
     error: Option<String>,
 }
 
 /// Step tracking for blueprint execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredTaskStep {
-    pipeline_id: u64,
-    status: String,
-    started_at: Option<u64>,
-    completed_at: Option<u64>,
-    output_summary: Option<String>,
+    pub step_index: u32,
+    pub pipeline_id: u64,
+    pub pipeline_name: String,
+    pub status: String,
+    pub started_at: Option<u64>,
+    pub completed_at: Option<u64>,
+    pub output_summary: Option<String>,
+    // New fields for Section N UI
+    pub stages_completed: Vec<String>,
+    pub stages_pending: Vec<String>,
+    pub current_stage: Option<String>,
+    pub graph_ids_read: Vec<String>,
+    pub graph_ids_updated: Vec<String>,
+    pub tokens_used: u32,
+    pub version: u32,
+    pub version_notes: Vec<StepVersionNote>,
+    pub methodology_ids_applied: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepVersionNote {
+    pub version: u32,
+    pub note: String,
+    pub timestamp: u64,
+    pub change_type: String,
 }
 
 struct TaskUpdates {
@@ -497,7 +590,7 @@ pub enum TaskManagerInput {
     GetLogs { task_id: u64, limit: Option<u32> },
     /// Clear completed tasks
     ClearCompleted { older_than_secs: Option<u64> },
-    
+
     // === MERGED FROM TASK_VIEWER (#36 - DEPRECATED) ===
     /// Get detailed task information (from task_viewer)
     GetDetails { task_id: u64 },
@@ -531,6 +624,8 @@ pub struct TaskData {
     pub parent_task_id: Option<u64>,
     pub child_count: u32,
     pub error: Option<String>,
+    pub pending_clarification: Option<serde_json::Value>,
+    pub modality_graph_ids: Option<HashMap<String, u64>>,
 }
 
 /// Log entry
@@ -551,11 +646,13 @@ pub struct TaskManagerOutput {
     pub task_id: Option<u64>,
     pub error: Option<String>,
     // === NEW: From task_viewer merge ===
-    pub inputs: Option<serde_json::Value>,   // Task input data
-    pub outputs: Option<serde_json::Value>,  // Task output data
+    pub inputs: Option<serde_json::Value>,    // Task input data
+    pub outputs: Option<serde_json::Value>,   // Task output data
     pub timeline: Option<Vec<TimelineEvent>>, // Task timeline/history
-    pub steps: Option<Vec<TaskStep>>,        // Blueprint steps
+    pub steps: Option<Vec<TaskStep>>,         // Blueprint steps
     pub comparison: Option<Vec<TaskComparison>>, // Task comparison data
+    pub pending_clarification: Option<serde_json::Value>,
+    pub modality_graph_ids: Option<HashMap<String, u64>>,
 }
 
 /// Timeline event for task history
@@ -570,12 +667,21 @@ pub struct TimelineEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskStep {
     pub step_number: u32,
+    pub step_index: u32,
     pub pipeline_id: u64,
     pub pipeline_name: String,
-    pub status: String,  // pending, running, completed, failed
+    pub status: String,
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
     pub output_summary: Option<String>,
+    pub stages_completed: Vec<String>,
+    pub stages_pending: Vec<String>,
+    pub current_stage: Option<String>,
+    pub graph_ids_read: Vec<String>,
+    pub graph_ids_updated: Vec<String>,
+    pub tokens_used: u32,
+    pub version: u32,
+    pub version_notes: Vec<StepVersionNote>,
 }
 
 /// Task comparison entry
@@ -613,26 +719,32 @@ fn pipeline_name(id: u64) -> String {
         20 => "TextAnalysisPipeline",
         21 => "ContextAggregationPipeline",
         _ => "UnknownPipeline",
-    }.to_string()
+    }
+    .to_string()
 }
 
 /// Convert StoredTask to TaskData
 fn to_task_data(task_id: u64, stored: &StoredTask) -> TaskData {
     // Count children by scanning task store
-    let tasks_dir = env::var("OZONE_TASKS_PATH")
-        .unwrap_or_else(|_| "./ozone_tasks".to_string());
-    
+    let tasks_dir = env::var("OZONE_TASKS_PATH").unwrap_or_else(|_| "./ozone_tasks".to_string());
+
     let child_count = std::fs::read_dir(&tasks_dir)
         .map(|entries| {
-            entries.filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map(|ext| ext == "json").unwrap_or(false))
+            entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.path()
+                        .extension()
+                        .map(|ext| ext == "json")
+                        .unwrap_or(false)
+                })
                 .filter_map(|e| std::fs::read_to_string(e.path()).ok())
                 .filter_map(|content| serde_json::from_str::<StoredTask>(&content).ok())
                 .filter(|t| t.parent_task_id == Some(task_id))
                 .count() as u32
         })
         .unwrap_or(0);
-    
+
     TaskData {
         task_id,
         pipeline_id: stored.pipeline_id,
@@ -649,34 +761,46 @@ fn to_task_data(task_id: u64, stored: &StoredTask) -> TaskData {
         parent_task_id: stored.parent_task_id,
         child_count,
         error: stored.error.clone(),
+        pending_clarification: stored.pending_clarification.clone(),
+        modality_graph_ids: stored.modality_graph_ids.clone(),
     }
 }
 
 /// Execute the task manager pipeline using DIRECT storage access
 pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, String> {
     match input {
-        TaskManagerInput::Create { pipeline_id, inputs, parent_task_id, workspace_id, project_id, user_id, device_id } => {
+        TaskManagerInput::Create {
+            pipeline_id,
+            inputs,
+            parent_task_id,
+            workspace_id,
+            project_id,
+            user_id,
+            device_id,
+        } => {
             // I-LOOP PROTECTION: Wait for I-Loop to complete before starting task
             // Tasks must NOT front-run the I-Loop
             if consciousness_enabled() {
                 wait_for_i_loop_completion().await;
             }
-            
+
             // Get user_id from input or default to 1
             let actual_user_id = user_id.unwrap_or(1);
             let actual_device_id = device_id.unwrap_or(1);
-            
+
             // Get task summary for consciousness gate
-            let task_summary = inputs.get("prompt")
+            let task_summary = inputs
+                .get("prompt")
                 .or(inputs.get("description"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("Task execution")
                 .to_string();
-            
+
             // CONSCIOUSNESS INTEGRATION: Pre-task decision gate (§33)
             if consciousness_enabled() {
-                let gate_decision = consciousness_hooks::pre_task_gate(&task_summary, actual_user_id);
-                
+                let gate_decision =
+                    consciousness_hooks::pre_task_gate(&task_summary, actual_user_id);
+
                 if !gate_decision.proceed {
                     return Ok(TaskManagerOutput {
                         success: false,
@@ -684,12 +808,21 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                         tasks: None,
                         logs: None,
                         task_id: None,
-                        error: Some(format!("Task declined by consciousness gate: {}", gate_decision.reasoning)),
-                        inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                        error: Some(format!(
+                            "Task declined by consciousness gate: {}",
+                            gate_decision.reasoning
+                        )),
+                        inputs: None,
+                        outputs: None,
+                        timeline: None,
+                        steps: None,
+                        comparison: None,
+                        pending_clarification: None,
+                        modality_graph_ids: None,
                     });
                 }
             }
-            
+
             // Store task using direct storage access
             let stored_task = StoredTask {
                 pipeline_id,
@@ -709,23 +842,27 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 steps: None,
                 error: None,
             };
-            
+
             let task_id = {
                 let mut store = TASK_STORE.lock().unwrap();
                 store.create_task(stored_task)
             };
-            
+
             // CONSCIOUSNESS INTEGRATION: Add to perception window (§32)
             if consciousness_enabled() {
-                consciousness_hooks::add_to_perception_window(task_id, &pipeline_name(pipeline_id), "created");
+                consciousness_hooks::add_to_perception_window(
+                    task_id,
+                    &pipeline_name(pipeline_id),
+                    "created",
+                );
             }
-            
+
             // Return task data
             let task = {
                 let store = TASK_STORE.lock().unwrap();
                 store.get_task(task_id).map(|t| to_task_data(task_id, t))
             };
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task,
@@ -733,15 +870,21 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-                inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
             })
         }
-        
+
         TaskManagerInput::Get { task_id } => {
             // Direct retrieval from TASK_STORE
             let store = TASK_STORE.lock().unwrap();
             let task = store.get_task(task_id).map(|t| to_task_data(task_id, t));
-            
+
             if task.is_some() {
                 Ok(TaskManagerOutput {
                     success: true,
@@ -750,7 +893,13 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: None,
                     error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
@@ -760,33 +909,59 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
-        TaskManagerInput::List { status, pipeline_id, user_id, limit, offset } => {
+
+        TaskManagerInput::List {
+            status,
+            pipeline_id,
+            user_id,
+            limit,
+            offset,
+        } => {
             // Direct listing from TASK_STORE
             let store = TASK_STORE.lock().unwrap();
-            let filters = TaskFilters { status, pipeline_id, user_id, limit, offset };
-            
-            let tasks: Vec<TaskData> = store.tasks.iter()
+            let filters = TaskFilters {
+                status,
+                pipeline_id,
+                user_id,
+                limit,
+                offset,
+            };
+
+            let tasks: Vec<TaskData> = store
+                .tasks
+                .iter()
                 .filter(|(_, t)| {
                     if let Some(ref s) = filters.status {
-                        if &t.status != s { return false; }
+                        if &t.status != s {
+                            return false;
+                        }
                     }
                     if let Some(p) = filters.pipeline_id {
-                        if t.pipeline_id != p { return false; }
+                        if t.pipeline_id != p {
+                            return false;
+                        }
                     }
                     if let Some(u) = filters.user_id {
-                        if t.user_id != u { return false; }
+                        if t.user_id != u {
+                            return false;
+                        }
                     }
                     true
                 })
                 .map(|(id, t)| to_task_data(*id, t))
                 .take(limit.unwrap_or(50) as usize)
                 .collect();
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -794,42 +969,56 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: None,
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
-        TaskManagerInput::UpdateStatus { task_id, status, error } => {
+
+        TaskManagerInput::UpdateStatus {
+            task_id,
+            status,
+            error,
+        } => {
             // Get task info before update for consciousness
             let (task_summary, user_id) = {
                 let store = TASK_STORE.lock().unwrap();
-                store.get_task(task_id)
+                store
+                    .get_task(task_id)
                     .map(|t| (t.pipeline_name.clone(), Some(t.user_id)))
                     .unwrap_or(("Unknown".to_string(), None))
             };
-            
+
             // Direct update via TASK_STORE
             let completed = status == "completed" || status == "failed" || status == "cancelled";
             let success = status == "completed";
-            
+
             {
                 let mut store = TASK_STORE.lock().unwrap();
-                store.update_task(task_id, TaskUpdates {
-                    status: Some(status.clone()),
-                    progress: None,
-                    error: error.clone(),
-                    completed,
-                });
+                store.update_task(
+                    task_id,
+                    TaskUpdates {
+                        status: Some(status.clone()),
+                        progress: None,
+                        error: error.clone(),
+                        completed,
+                    },
+                );
             }
-            
+
             // CONSCIOUSNESS INTEGRATION: Post-task experience recording (§35-36)
             if consciousness_enabled() && completed {
                 // Add to perception window
                 consciousness_hooks::add_to_perception_window(task_id, &task_summary, &status);
-                
+
                 // Record experience (§35 Experience Memory, §36 Categorization)
                 consciousness_hooks::post_task_experience(task_id, &task_summary, success, user_id);
             }
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -837,19 +1026,32 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
-        TaskManagerInput::AddLog { task_id, level, message } => {
+
+        TaskManagerInput::AddLog {
+            task_id,
+            level,
+            message,
+        } => {
             // Direct log addition via TASK_STORE
             let mut store = TASK_STORE.lock().unwrap();
-            store.add_log(task_id, LogEntry {
-                timestamp: now(),
-                level,
-                message,
-            });
-            
+            store.add_log(
+                task_id,
+                LogEntry {
+                    timestamp: now(),
+                    level,
+                    message,
+                },
+            );
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -857,26 +1059,39 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
-        TaskManagerInput::UpdateProgress { task_id, current_step, total_steps } => {
+
+        TaskManagerInput::UpdateProgress {
+            task_id,
+            current_step,
+            total_steps,
+        } => {
             // Direct progress update via TASK_STORE
             let progress = if total_steps > 0 {
                 current_step as f32 / total_steps as f32
             } else {
                 0.0
             };
-            
+
             let mut store = TASK_STORE.lock().unwrap();
-            store.update_task(task_id, TaskUpdates {
-                status: None,
-                progress: Some(progress),
-                error: None,
-                completed: false,
-            });
-            
+            store.update_task(
+                task_id,
+                TaskUpdates {
+                    status: None,
+                    progress: Some(progress),
+                    error: None,
+                    completed: false,
+                },
+            );
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -884,20 +1099,29 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
+
         TaskManagerInput::Cancel { task_id } => {
             // Direct cancellation via TASK_STORE
             let mut store = TASK_STORE.lock().unwrap();
-            store.update_task(task_id, TaskUpdates {
-                status: Some("cancelled".to_string()),
-                progress: None,
-                error: None,
-                completed: true,
-            });
-            
+            store.update_task(
+                task_id,
+                TaskUpdates {
+                    status: Some("cancelled".to_string()),
+                    progress: None,
+                    error: None,
+                    completed: true,
+                },
+            );
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -905,10 +1129,16 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: Some(task_id),
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
+
         TaskManagerInput::Retry { task_id } => {
             // Clone the original task and create a new one
             let new_task = {
@@ -930,13 +1160,13 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     error: None,
                 })
             };
-            
+
             if let Some(task) = new_task {
                 let new_task_id = {
                     let mut store = TASK_STORE.lock().unwrap();
                     store.create_task(task)
                 };
-                
+
                 Ok(TaskManagerOutput {
                     success: true,
                     task: None,
@@ -944,7 +1174,13 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: Some(new_task_id),
                     error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
@@ -954,18 +1190,27 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     logs: None,
                     task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
+
         TaskManagerInput::GetChildren { task_id } => {
             // Direct child lookup from TASK_STORE
             let store = TASK_STORE.lock().unwrap();
-            let children: Vec<TaskData> = store.tasks.iter()
+            let children: Vec<TaskData> = store
+                .tasks
+                .iter()
                 .filter(|(_, t)| t.parent_task_id == Some(task_id))
                 .map(|(id, t)| to_task_data(*id, t))
                 .collect();
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -973,20 +1218,28 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: None,
                 task_id: None,
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
+
         TaskManagerInput::GetLogs { task_id, limit } => {
             // Direct log retrieval from TASK_STORE
             let store = TASK_STORE.lock().unwrap();
-            let logs: Vec<LogEntry> = store.logs.get(&task_id)
+            let logs: Vec<LogEntry> = store
+                .logs
+                .get(&task_id)
                 .map(|logs| {
                     let limit = limit.unwrap_or(100) as usize;
                     logs.iter().rev().take(limit).cloned().collect()
                 })
                 .unwrap_or_default();
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -994,29 +1247,37 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 logs: Some(logs),
                 task_id: None,
                 error: None,
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
-                })
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
-        
+
         TaskManagerInput::ClearCompleted { older_than_secs } => {
             // Direct cleanup via TASK_STORE
             let cutoff = older_than_secs.map(|s| now() - s).unwrap_or(0);
             let mut store = TASK_STORE.lock().unwrap();
-            
-            let to_remove: Vec<u64> = store.tasks.iter()
+
+            let to_remove: Vec<u64> = store
+                .tasks
+                .iter()
                 .filter(|(_, t)| {
                     (t.status == "completed" || t.status == "failed" || t.status == "cancelled")
                         && t.completed_at.map(|c| c < cutoff).unwrap_or(false)
                 })
                 .map(|(id, _)| *id)
                 .collect();
-            
+
             for id in &to_remove {
                 store.tasks.remove(id);
                 store.logs.remove(id);
             }
             store.save_to_disk();
-            
+
             Ok(TaskManagerOutput {
                 success: true,
                 task: None,
@@ -1029,11 +1290,12 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 timeline: None,
                 steps: None,
                 comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
             })
         }
-        
+
         // === MERGED FROM TASK_VIEWER (#36 - DEPRECATED) ===
-        
         TaskManagerInput::GetDetails { task_id } => {
             let store = TASK_STORE.lock().unwrap();
             if let Some(task) = store.tasks.get(&task_id) {
@@ -1049,72 +1311,114 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     timeline: None,
                     steps: None,
                     comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
                     success: false,
-                    task: None, tasks: None, logs: None, task_id: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
+                    task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
+
         TaskManagerInput::GetInputs { task_id } => {
             let store = TASK_STORE.lock().unwrap();
             if let Some(task) = store.tasks.get(&task_id) {
                 Ok(TaskManagerOutput {
                     success: true,
-                    task: None, tasks: None, logs: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
                     task_id: Some(task_id),
                     error: None,
                     inputs: task.inputs.clone(),
-                    outputs: None, timeline: None, steps: None, comparison: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
                     success: false,
-                    task: None, tasks: None, logs: None, task_id: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
+                    task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
+
         TaskManagerInput::GetOutputs { task_id } => {
             let store = TASK_STORE.lock().unwrap();
             if let Some(task) = store.tasks.get(&task_id) {
                 Ok(TaskManagerOutput {
                     success: true,
-                    task: None, tasks: None, logs: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
                     task_id: Some(task_id),
                     error: None,
                     inputs: None,
                     outputs: task.outputs.clone(),
-                    timeline: None, steps: None, comparison: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
                     success: false,
-                    task: None, tasks: None, logs: None, task_id: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
+                    task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
+
         TaskManagerInput::GetTimeline { task_id } => {
             let store = TASK_STORE.lock().unwrap();
             if let Some(task) = store.tasks.get(&task_id) {
                 // Build timeline from task state and logs
                 let mut timeline = Vec::new();
-                
+
                 timeline.push(TimelineEvent {
                     timestamp: task.created_at,
                     event: "created".to_string(),
                     details: Some(format!("Pipeline: {}", task.pipeline_name)),
                 });
-                
+
                 if let Some(started) = task.started_at {
                     timeline.push(TimelineEvent {
                         timestamp: started,
@@ -1122,7 +1426,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                         details: None,
                     });
                 }
-                
+
                 // Add log entries as timeline events
                 if let Some(logs) = store.logs.get(&task_id) {
                     for log in logs {
@@ -1133,7 +1437,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                         });
                     }
                 }
-                
+
                 if let Some(completed) = task.completed_at {
                     timeline.push(TimelineEvent {
                         timestamp: completed,
@@ -1141,40 +1445,55 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                         details: task.error.clone(),
                     });
                 }
-                
+
                 // Sort by timestamp
                 timeline.sort_by_key(|e| e.timestamp);
-                
+
                 Ok(TaskManagerOutput {
                     success: true,
-                    task: None, tasks: None, logs: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
                     task_id: Some(task_id),
                     error: None,
-                    inputs: None, outputs: None,
+                    inputs: None,
+                    outputs: None,
                     timeline: Some(timeline),
-                    steps: None, comparison: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
                     success: false,
-                    task: None, tasks: None, logs: None, task_id: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
+                    task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
         }
-        
+
         TaskManagerInput::Compare { task_ids } => {
             let store = TASK_STORE.lock().unwrap();
             let mut comparison = Vec::new();
-            
+
             for task_id in task_ids {
                 if let Some(task) = store.tasks.get(&task_id) {
                     let duration = match (task.started_at, task.completed_at) {
                         (Some(s), Some(c)) => Some(c - s),
                         _ => None,
                     };
-                    
+
                     comparison.push(TaskComparison {
                         task_id,
                         pipeline_name: task.pipeline_name.clone(),
@@ -1184,52 +1503,319 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     });
                 }
             }
-            
+
             Ok(TaskManagerOutput {
                 success: true,
-                task: None, tasks: None, logs: None, task_id: None,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: None,
                 error: None,
-                inputs: None, outputs: None, timeline: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
                 steps: None,
                 comparison: Some(comparison),
+                pending_clarification: None,
+                modality_graph_ids: None,
             })
         }
-        
+
         TaskManagerInput::GetSteps { task_id } => {
             let store = TASK_STORE.lock().unwrap();
             if let Some(task) = store.tasks.get(&task_id) {
                 // Get steps from task's step tracking if available
-                let steps = task.steps.as_ref().map(|s| {
-                    s.iter().enumerate().map(|(i, step)| {
-                        TaskStep {
-                            step_number: (i + 1) as u32,
-                            pipeline_id: step.pipeline_id,
-                            pipeline_name: pipeline_name(step.pipeline_id),
-                            status: step.status.clone(),
-                            started_at: step.started_at,
-                            completed_at: step.completed_at,
-                            output_summary: step.output_summary.clone(),
-                        }
-                    }).collect()
-                }).unwrap_or_default();
-                
+                let steps = task
+                    .steps
+                    .as_ref()
+                    .map(|s| {
+                        s.iter()
+                            .enumerate()
+                            .map(|(i, step)| TaskStep {
+                                step_number: (i + 1) as u32,
+                                step_index: step.step_index,
+                                pipeline_id: step.pipeline_id,
+                                pipeline_name: step.pipeline_name.clone(),
+                                status: step.status.clone(),
+                                started_at: step.started_at,
+                                completed_at: step.completed_at,
+                                output_summary: step.output_summary.clone(),
+                                stages_completed: step.stages_completed.clone(),
+                                stages_pending: step.stages_pending.clone(),
+                                current_stage: step.current_stage.clone(),
+                                graph_ids_read: step.graph_ids_read.clone(),
+                                graph_ids_updated: step.graph_ids_updated.clone(),
+                                tokens_used: step.tokens_used,
+                                version: step.version,
+                                version_notes: step.version_notes.clone(),
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
                 Ok(TaskManagerOutput {
                     success: true,
-                    task: None, tasks: None, logs: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
                     task_id: Some(task_id),
                     error: None,
-                    inputs: None, outputs: None, timeline: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
                     steps: Some(steps),
                     comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             } else {
                 Ok(TaskManagerOutput {
                     success: false,
-                    task: None, tasks: None, logs: None, task_id: None,
+                    task: None,
+                    tasks: None,
+                    logs: None,
+                    task_id: None,
                     error: Some(format!("Task {} not found", task_id)),
-                    inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                    inputs: None,
+                    outputs: None,
+                    timeline: None,
+                    steps: None,
+                    comparison: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             }
+        }
+
+        TaskManagerInput::SetClarification {
+            task_id,
+            clarification,
+        } => {
+            let mut store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get_mut(&task_id) {
+                task.pending_clarification = Some(clarification);
+                task.status = "clarifying".to_string();
+                store.save_to_disk();
+            }
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: Some(task_id),
+                error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
+        }
+
+        TaskManagerInput::ClearClarification { task_id } => {
+            let mut store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get_mut(&task_id) {
+                task.pending_clarification = None;
+                if task.status == "clarifying" {
+                    task.status = "running".to_string();
+                }
+                store.save_to_disk();
+            }
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: Some(task_id),
+                error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
+        }
+
+        TaskManagerInput::SubmitClarification {
+            task_id,
+            request_id,
+            response_type,
+            selected_option,
+            free_text,
+        } => {
+            // Store the clarification response so the orchestrator can retrieve it
+            // In a production system this would use a channel; here we store to disk
+            let response = serde_json::json!({
+                "request_id": request_id,
+                "response_type": response_type,
+                "selected_option": selected_option,
+                "free_text": free_text,
+                "received_at": now(),
+            });
+            let storage_path = env::var("OZONE_DATA_PATH").unwrap_or_else(|_| "./data".to_string());
+            let response_path = std::path::PathBuf::from(&storage_path)
+                .join("clarifications")
+                .join(format!("{}.json", task_id));
+            let _ = std::fs::create_dir_all(response_path.parent().unwrap());
+            let _ = std::fs::write(
+                &response_path,
+                serde_json::to_string_pretty(&response).unwrap_or_default(),
+            );
+
+            // Clear the pending clarification from task
+            {
+                let mut store = TASK_STORE.lock().unwrap();
+                if let Some(task) = store.tasks.get_mut(&task_id) {
+                    task.pending_clarification = None;
+                    task.status = "running".to_string();
+                    store.save_to_disk();
+                }
+            }
+
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: Some(task_id),
+                error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
+        }
+
+        TaskManagerInput::RegisterGraphs {
+            task_id,
+            modality_graph_ids,
+        } => {
+            {
+                let mut store = TASK_STORE.lock().unwrap();
+                if let Some(task) = store.tasks.get_mut(&task_id) {
+                    task.modality_graph_ids = Some(modality_graph_ids.clone());
+                    store.save_to_disk();
+                }
+            }
+            // Also register with Context Viewer pipeline (#27)
+            // (fire-and-forget call to pipeline 27)
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: Some(task_id),
+                error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: Some(modality_graph_ids),
+            })
+        }
+
+        TaskManagerInput::UpdateStepFull {
+            task_id,
+            step_index,
+            status,
+            tokens_used,
+            output_preview,
+            pipeline_name,
+            version_note,
+            graph_ids_updated,
+            graph_ids_read,
+            stage_completed,
+            stages_pending,
+            methodology_ids_applied,
+        } => {
+            let mut store = TASK_STORE.lock().unwrap();
+            if let Some(task) = store.tasks.get_mut(&task_id) {
+                let steps = task.steps.get_or_insert_with(Vec::new);
+                if let Some(step) = steps.iter_mut().find(|s| s.step_index == step_index) {
+                    step.status = status;
+                    if let Some(tok) = tokens_used {
+                        step.tokens_used = tok;
+                    }
+                    if let Some(preview) = output_preview {
+                        step.output_summary = Some(preview);
+                    }
+                    if let Some(name) = pipeline_name {
+                        step.pipeline_name = name;
+                    }
+                    if let Some(stage) = stage_completed {
+                        if !step.stages_completed.contains(&stage) {
+                            step.stages_completed.push(stage.clone());
+                        }
+                        step.current_stage = None;
+                    }
+                    step.stages_pending = stages_pending;
+                    step.graph_ids_updated = graph_ids_updated;
+                    step.graph_ids_read = graph_ids_read;
+                    step.methodology_ids_applied = methodology_ids_applied;
+                    if let Some(note_text) = version_note {
+                        step.version += 1;
+                        step.version_notes.push(StepVersionNote {
+                            version: step.version,
+                            note: note_text,
+                            timestamp: now(),
+                            change_type: "Updated".to_string(),
+                        });
+                    }
+                } else {
+                    steps.push(StoredTaskStep {
+                        step_index,
+                        pipeline_id: 0,
+                        pipeline_name: pipeline_name.unwrap_or_default(),
+                        status,
+                        started_at: Some(now()),
+                        completed_at: None,
+                        output_summary: output_preview,
+                        stages_completed: Vec::new(),
+                        stages_pending,
+                        current_stage: stage_completed,
+                        graph_ids_read,
+                        graph_ids_updated,
+                        tokens_used: tokens_used.unwrap_or(0),
+                        version: 1,
+                        version_notes: version_note
+                            .map(|n| {
+                                vec![StepVersionNote {
+                                    version: 1,
+                                    note: n,
+                                    timestamp: now(),
+                                    change_type: "Created".to_string(),
+                                }]
+                            })
+                            .unwrap_or_default(),
+                        methodology_ids_applied,
+                    });
+                }
+                store.save_to_disk();
+            }
+            Ok(TaskManagerOutput {
+                success: true,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: Some(task_id),
+                error: None,
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
+            })
         }
     }
 }
@@ -1237,13 +1823,13 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
-    
+
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
             input_json = args[i + 1].clone();
         }
     }
-    
+
     let input: TaskManagerInput = match serde_json::from_str(&input_json) {
         Ok(i) => i,
         Err(e) => {
@@ -1251,14 +1837,25 @@ fn main() {
             std::process::exit(1);
         }
     };
-    
+
     let rt = tokio::runtime::Runtime::new().unwrap();
     match rt.block_on(execute(input)) {
         Ok(output) => println!("{}", serde_json::to_string(&output).unwrap()),
         Err(e) => {
             let output = TaskManagerOutput {
-                success: false, task: None, tasks: None, logs: None, task_id: None, error: Some(e),
-                inputs: None, outputs: None, timeline: None, steps: None, comparison: None,
+                success: false,
+                task: None,
+                tasks: None,
+                logs: None,
+                task_id: None,
+                error: Some(e),
+                inputs: None,
+                outputs: None,
+                timeline: None,
+                steps: None,
+                comparison: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
             };
             println!("{}", serde_json::to_string(&output).unwrap());
             std::process::exit(1);

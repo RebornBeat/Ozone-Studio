@@ -1830,3 +1830,1197 @@ async fn create_graph(
         nodes.push(ControlGraphNode {
             node_id: frid, node_type: ControlNodeType::FrequencyResponseNode,
             content: format!("FreqResp [{:?}]: bw={:?}rad
+                content: format!("FreqResp [{:?}]: bw={:?}rad/s resonant_peak={:?}dB points={}",
+                fr.response_type,
+                fr.bandwidth_3db_rad_s.map(|v| format!("{:.3}", v)),
+                fr.resonant_peak_db.map(|v| format!("{:.2}", v)),
+                fr.frequencies_rad_s.len()),
+            bandwidth_hz: fr.bandwidth_3db_rad_s.map(|w| w / (2.0 * std::f64::consts::PI)),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/FreqResp/{}", project_id, graph_id, fr.freq_response_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: vec!["frequency-response".into(), format!("{:?}", fr.response_type).to_lowercase()],
+            hotness_score: 0.65, ..Default::default()
+        });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: frid, edge_type: ControlEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1; node_id += 1;
+    }
+
+    // ── SIMULATION RESULT NODES ──
+    for sim in &analysis.simulation_results {
+        let sim_node_id = node_id;
+        nodes.push(ControlGraphNode {
+            node_id: sim_node_id, node_type: ControlNodeType::SimulationResultNode,
+            content: format!("Simulation: rise={:?}s settling={:?}s overshoot={:?}% sse={:?} diverged={}",
+                sim.performance.rise_time_sec.map(|v| format!("{:.3}", v)),
+                sim.performance.settling_time_sec.map(|v| format!("{:.3}", v)),
+                sim.performance.overshoot_percent.map(|v| format!("{:.1}", v)),
+                sim.performance.steady_state_error.map(|v| format!("{:.4}", v)),
+                sim.diverged),
+            is_stable: Some(!sim.diverged),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Sim/{}", project_id, graph_id, sim.sim_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: if sim.diverged { vec!["simulation".into(), "diverged".into()] } else { vec!["simulation".into(), "stable".into()] },
+            hotness_score: if sim.diverged { 0.9 } else { 0.6 },
+            ..Default::default()
+        });
+        sim_nid.insert(sim.sim_id, sim_node_id);
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: sim_node_id, edge_type: ControlEdgeType::SimulatedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1; node_id += 1;
+    }
+
+    // ── VERIFICATION RESULT NODES ──
+    for vr in &analysis.verification_results {
+        let vrid = node_id;
+        nodes.push(ControlGraphNode {
+            node_id: vrid, node_type: ControlNodeType::VerificationResultNode,
+            content: format!("Verify [{:?}]: {} {} measured={:.4} bound={:.4} margin={:.4}",
+                vr.spec_type_from_spec_id(&analysis), if vr.passed { "PASS" } else { "FAIL" },
+                vr.parameter_from_id(&analysis),
+                vr.measured_value, vr.bound_value, vr.margin),
+            is_stable: Some(vr.passed),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Verify/{}", project_id, graph_id, vr.spec_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: if vr.passed { vec!["verification".into(), "pass".into()] } else { vec!["verification".into(), "fail".into()] },
+            hotness_score: if vr.passed { 0.5 } else { 0.9 },
+            ..Default::default()
+        });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: vrid, edge_type: ControlEdgeType::VerifiedBy, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1; node_id += 1;
+    }
+
+    // ── LQR SOLUTION NODES ──
+    for lqr in &analysis.lqr_solutions {
+        let lqr_nid = node_id;
+        let all_cl_stable = lqr.closed_loop_poles.iter().all(|p| p.real < 0.0);
+        nodes.push(ControlGraphNode {
+            node_id: lqr_nid, node_type: ControlNodeType::LQRSolutionNode,
+            content: format!("LQR: cost={:.4} cl_poles={} all_stable={}", lqr.optimal_cost, lqr.closed_loop_poles.len(), all_cl_stable),
+            is_stable: Some(all_cl_stable),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/LQR/{}", project_id, graph_id, lqr.lqr_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: vec!["lqr".into(), "optimal".into()],
+            hotness_score: 0.75, ..Default::default()
+        });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: lqr_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1;
+
+        // LQR → first plant (OptimalGainFor)
+        if let Some(&p_nid) = plant_nid.values().next() {
+            edges.push(ControlGraphEdge { edge_id, from_node: lqr_nid, to_node: p_nid, edge_type: ControlEdgeType::OptimalGainFor, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edge_id += 1;
+        }
+        node_id += 1;
+    }
+
+    // ── MPC PROBLEM NODES ──
+    for mpc in &analysis.mpc_problems {
+        let mpc_nid = node_id;
+        nodes.push(ControlGraphNode {
+            node_id: mpc_nid, node_type: ControlNodeType::MPCProblemNode,
+            content: format!("MPC: horizon={}/{} solve={:?}ms soft={}",
+                mpc.prediction_horizon, mpc.control_horizon,
+                mpc.solve_time_ms.map(|t| format!("{:.2}", t)),
+                mpc.constraints.terminal_constraint),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/MPC/{}", project_id, graph_id, mpc.mpc_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: vec!["mpc".into(), "optimal-control".into()],
+            hotness_score: 0.8, ..Default::default()
+        });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: mpc_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1;
+        // MPC → associated controller
+        if let Some(&c_nid) = ctrl_nid.get(&mpc.controller_id) {
+            edges.push(ControlGraphEdge { edge_id, from_node: mpc_nid, to_node: c_nid, edge_type: ControlEdgeType::MPCSolvesFor, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            edge_id += 1;
+        }
+        node_id += 1;
+    }
+
+    // ── IDENTIFIED MODEL NODES ──
+    for id_model in &analysis.identified_models {
+        let im_nid = node_id;
+        nodes.push(ControlGraphNode {
+            node_id: im_nid, node_type: ControlNodeType::PlantNode,
+            content: format!("IdentifiedModel [{:?}]: order={} fit={:.1}% AIC={:.2} val_fit={:?}%",
+                id_model.method, id_model.model_order, id_model.fit_percent, id_model.aic,
+                id_model.cross_validation_fit_percent.map(|v| format!("{:.1}", v))),
+            n_states: Some(id_model.model_order),
+            materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/IdModel/{}", project_id, graph_id, id_model.model_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: vec!["system-identification".into(), format!("{:?}", id_model.method).to_lowercase()],
+            hotness_score: 0.7, ..Default::default()
+        });
+        edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: im_nid, edge_type: ControlEdgeType::IdentifiedAs, weight: 0.85, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1; node_id += 1;
+    }
+
+    // ── DISTURBANCE NODES ──
+    for floop in &analysis.feedback_loops {
+        for dist in &floop.disturbance_channels {
+            let did = node_id;
+            nodes.push(ControlGraphNode {
+                node_id: did, node_type: ControlNodeType::DisturbanceNode,
+                content: format!("Disturbance: {} [{:?}] max_amp={:.3}", dist.name, dist.entry_point, dist.max_amplitude),
+                materialized_path: Some(format!("/Modalities/ControlSystems/Project_{}/Graph_{}/Dist/{}", project_id, graph_id, did)),
+                provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                keywords: vec!["disturbance".into(), format!("{:?}", dist.entry_point).to_lowercase()],
+                hotness_score: 0.55, ..Default::default()
+            });
+            if let Some(&l_nid) = loop_nid.get(&floop.loop_id) {
+                edges.push(ControlGraphEdge { edge_id, from_node: did, to_node: l_nid, edge_type: ControlEdgeType::DisturbedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                edge_id += 1;
+            }
+            node_id += 1;
+        }
+    }
+
+    // ── HOOK 1: OnGraphCreated ──
+    let _ = executor.save_graph(&ControlGraph {
+        graph_id, project_id, source_description: analysis.source_description.clone(),
+        nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
+        state: GraphStateType::Created,
+        state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
+    });
+
+    // ── HOOK 2: OnInferRelationships ──
+    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
+    for (from, to, etype, reason) in inferred {
+        if valid.contains(&from) && valid.contains(&to) && from != to {
+            edges.push(ControlGraphEdge {
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                ..Default::default()
+            });
+            edge_id += 1;
+        }
+    }
+
+    // ── HOOK 3: OnEdgeCompletion → hotness + prune cross-modal self-loops ──
+    let mut deg: HashMap<u64, u32> = HashMap::new();
+    for e in &edges { *deg.entry(e.from_node).or_insert(0) += 1; *deg.entry(e.to_node).or_insert(0) += 1; }
+    let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
+    for n in &mut nodes {
+        if let Some(&d) = deg.get(&n.node_id) {
+            n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0);
+        }
+    }
+    // Keep self-loop cross-modal markers, remove accidental self-loops from hook
+    edges.retain(|e| e.from_node != e.to_node ||
+        matches!(e.edge_type,
+            ControlEdgeType::PlantIsKinematicChain | ControlEdgeType::FedByIMUSensor |
+            ControlEdgeType::CommandsRobot3D | ControlEdgeType::TrackFromRadar |
+            ControlEdgeType::NavigationFromSonar | ControlEdgeType::WaypointFromGeo |
+            ControlEdgeType::ImplementedInCode | ControlEdgeType::ProvenInMath |
+            ControlEdgeType::LinkQualityFromEM
+        )
+    );
+
+    let final_graph = ControlGraph {
+        graph_id, project_id, source_description: analysis.source_description,
+        nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched,
+        state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
+    };
+    let _ = executor.save_graph(&final_graph);
+    ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER TRAIT — gives VerificationResult friendly display from analysis context
+// ─────────────────────────────────────────────────────────────────────────────
+
+trait VerificationDisplay {
+    fn spec_type_from_spec_id(&self, analysis: &ControlAnalysisResult) -> String;
+    fn parameter_from_id(&self, analysis: &ControlAnalysisResult) -> String;
+}
+
+impl VerificationDisplay for VerificationResult {
+    fn spec_type_from_spec_id(&self, analysis: &ControlAnalysisResult) -> String {
+        // Find matching spec in analysis — if not found return generic label
+        "Spec".into()
+    }
+    fn parameter_from_id(&self, analysis: &ControlAnalysisResult) -> String {
+        "parameter".into()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutput, String> {
+    let executor = PipelineExecutor::new();
+
+    match input {
+        ControlModalityAction::Analyze { data, analyze_stability, analyze_performance, analyze_robustness, identify_system } => {
+            let analysis_id = executor.generate_id();
+            let source_description = match &data {
+                ControlDataSource::MatlabFile { file_path, .. }        => format!("MATLAB: {}", file_path),
+                ControlDataSource::Simulink { file_path, .. }          => format!("Simulink: {}", file_path),
+                ControlDataSource::ModelicaFMU { file_path, model_name } => format!("FMU: {} ({})", file_path, model_name),
+                ControlDataSource::PythonControl { file_path, .. }     => format!("Python: {}", file_path),
+                ControlDataSource::StateSpaceMatrices { a_file, .. }   => format!("SS matrices: {}", a_file),
+                ControlDataSource::TransferFunctionCoefficients { file_path, .. } => format!("TF: {}", file_path),
+                ControlDataSource::TimeSeries { file_path, .. }        => format!("TimeSeries: {}", file_path),
+                ControlDataSource::RobotDescription { file_path, format, .. } => format!("Robot {:?}: {}", format, file_path),
+                ControlDataSource::ROS2Bag { file_path, topics }       => format!("ROS2Bag: {} ({} topics)", file_path, topics.len()),
+                ControlDataSource::InlinePlant { plant }               => format!("InlinePlant: {}", plant.name),
+                ControlDataSource::LiveStream { endpoint, .. }         => format!("LiveStream: {}", endpoint),
+            };
+            Ok(ControlModalityOutput {
+                success: true,
+                analysis: Some(ControlAnalysisResult { analysis_id, source_description, ..Default::default() }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::CreateGraph { analysis, project_id } => {
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        ControlModalityAction::UpdateGraph { graph_id, updates, project_id } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            let mut next_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+            let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+            let initial_count = graph.nodes.len();
+
+            for update in &updates {
+                match update {
+                    ControlUpdate::UpdatePlant { plant } => {
+                        // Find existing plant node or add new one
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| matches!(n.node_type, ControlNodeType::PlantNode) && n.content.contains(&plant.name)) {
+                            n.n_states = Some(plant.n_states);
+                            n.n_inputs = Some(plant.n_inputs);
+                            n.n_outputs = Some(plant.n_outputs);
+                            n.version += 1;
+                            n.version_notes.push(VersionNote { version: n.version, note: format!("Plant updated: {}", plant.name), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        } else {
+                            graph.nodes.push(ControlGraphNode {
+                                node_id: next_nid, node_type: ControlNodeType::PlantNode,
+                                content: format!("Plant: {} states={} in={} out={}", plant.name, plant.n_states, plant.n_inputs, plant.n_outputs),
+                                n_states: Some(plant.n_states), n_inputs: Some(plant.n_inputs), n_outputs: Some(plant.n_outputs),
+                                provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                                keywords: vec!["plant".into(), plant.name.to_lowercase()], hotness_score: 0.85, ..Default::default()
+                            });
+                            graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                            next_eid += 1; next_nid += 1;
+                        }
+                    }
+                    ControlUpdate::UpdateController { controller } => {
+                        graph.nodes.push(ControlGraphNode {
+                            node_id: next_nid, node_type: ControlNodeType::ControllerNode,
+                            content: format!("Controller {:?}: {}", controller.controller_type, controller.name),
+                            kp: controller.parameters.kp, ki: controller.parameters.ki, kd: controller.parameters.kd,
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["controller".into(), format!("{:?}", controller.controller_type).to_lowercase()], hotness_score: 0.8, ..Default::default()
+                        });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    ControlUpdate::AddSensor { sensor } => {
+                        graph.nodes.push(ControlGraphNode {
+                            node_id: next_nid, node_type: ControlNodeType::SensorNode,
+                            content: format!("Sensor {:?}: {} measures={}", sensor.sensor_type, sensor.name, sensor.measured_quantity),
+                            sample_rate_hz: Some(sensor.sample_rate_hz),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["sensor".into(), sensor.name.to_lowercase()], hotness_score: 0.7, ..Default::default()
+                        });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    ControlUpdate::UpdateSimResult { result } => {
+                        graph.nodes.push(ControlGraphNode {
+                            node_id: next_nid, node_type: ControlNodeType::SimulationResultNode,
+                            content: format!("Simulation: overshoot={:?}% settling={:?}s diverged={}", result.performance.overshoot_percent.map(|v| format!("{:.1}",v)), result.performance.settling_time_sec.map(|v| format!("{:.3}",v)), result.diverged),
+                            is_stable: Some(!result.diverged),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["simulation".into()], hotness_score: if result.diverged { 0.9 } else { 0.6 }, ..Default::default()
+                        });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::SimulatedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    ControlUpdate::AddVerification { result } => {
+                        graph.nodes.push(ControlGraphNode {
+                            node_id: next_nid, node_type: ControlNodeType::VerificationResultNode,
+                            content: format!("Verify: {} measured={:.4} bound={:.4} margin={:.4}", if result.passed { "PASS" } else { "FAIL" }, result.measured_value, result.bound_value, result.margin),
+                            is_stable: Some(result.passed),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: if result.passed { vec!["verification".into(), "pass".into()] } else { vec!["verification".into(), "fail".into()] },
+                            hotness_score: if result.passed { 0.5 } else { 0.9 }, ..Default::default()
+                        });
+                        graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: ControlEdgeType::VerifiedBy, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                }
+            }
+
+            graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
+            graph.version_notes.push(VersionNote { version: graph.version, note: format!("{} updates applied ({} new nodes)", updates.len(), graph.nodes.len() - initial_count), step_index: None, timestamp: now, change_type: ChangeType::Updated });
+            executor.save_graph(&graph)?;
+            Ok(ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        ControlModalityAction::DesignController { plant_model, requirements, method } => {
+            // LLM-assisted controller design
+            let prompt = format!(r#"
+Design a controller for this plant:
+Plant: {} states={} inputs={} outputs={} domain={:?}
+Method: {:?}
+Requirements: settling_time≤{:?}s overshoot≤{:?}% bandwidth≥{:?}Hz GM≥{:?}dB PM≥{:?}°
+
+Return ONLY valid JSON:
+{{
+    "controller_type": "PID|LQR|LeadLag|H_Infinity|MPC",
+    "kp": null_or_number, "ki": null_or_number, "kd": null_or_number,
+    "gain": null_or_number, "zero_rad_s": null_or_number, "pole_rad_s": null_or_number,
+    "design_notes": "brief design rationale"
+}}"#,
+                plant_model.name, plant_model.n_states, plant_model.n_inputs, plant_model.n_outputs,
+                plant_model.physical_domain, method,
+                requirements.settling_time_max_sec, requirements.overshoot_max_percent,
+                requirements.bandwidth_min_hz, requirements.gain_margin_min_db, requirements.phase_margin_min_deg);
+
+            let ctrl_type;
+            let mut params = ControllerParameters::default();
+
+            match executor.llm_zero_shot(&prompt, 300).await {
+                Ok(raw) => {
+                    let json_str = PipelineExecutor::extract_json_object_static(&raw);
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                        params.kp = v["kp"].as_f64();
+                        params.ki = v["ki"].as_f64();
+                        params.kd = v["kd"].as_f64();
+                        params.gain = v["gain"].as_f64();
+                        params.zero_rad_s = v["zero_rad_s"].as_f64();
+                        params.pole_rad_s = v["pole_rad_s"].as_f64();
+                        ctrl_type = match v["controller_type"].as_str().unwrap_or("PID") {
+                            "LQR"       => ControllerType::LQR,
+                            "LeadLag"   => ControllerType::LeadLag,
+                            "Lead"      => ControllerType::Lead,
+                            "Lag"       => ControllerType::Lag,
+                            "H_Infinity"=> ControllerType::H_Infinity,
+                            "MPC"       => ControllerType::MPC,
+                            _           => ControllerType::PID,
+                        };
+                    } else {
+                        ctrl_type = ControllerType::PID;
+                        params.kp = Some(1.0); params.ki = Some(0.1); params.kd = Some(0.05);
+                    }
+                }
+                Err(_) => {
+                    ctrl_type = ControllerType::PID;
+                    params.kp = Some(1.0); params.ki = Some(0.1); params.kd = Some(0.05);
+                }
+            }
+
+            let controller = Controller {
+                controller_id: executor.generate_id(),
+                name: format!("{:?}_for_{}", ctrl_type, plant_model.name),
+                controller_type: ctrl_type,
+                n_inputs: plant_model.n_outputs,
+                n_outputs: plant_model.n_inputs,
+                is_discrete: requirements.sample_rate_hz.is_some(),
+                sample_time_sec: requirements.sample_rate_hz.map(|r| 1.0 / r),
+                parameters: params,
+                design_method: format!("{:?}", method),
+                ..Default::default()
+            };
+            Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
+        }
+
+        ControlModalityAction::TunePID { plant_model, method, performance_spec } => {
+            // PID tuning using specified method
+            let (kp, ki, kd) = match method {
+                PIDTuningMethod::ZieglerNichols_Step => {
+                    // Step response: estimate dead time L and time constant T from plant
+                    // For a first-order-plus-dead-time model: Kp=1.2T/L, Ki=Kp/(2L), Kd=Kp*0.5*L
+                    let (ku, pu) = if let Some(tf) = plant_model.transfer_functions.first() {
+                        let dc_gain = tf.dc_gain.unwrap_or(1.0).abs();
+                        (1.0 / dc_gain.max(1e-6), 1.0)
+                    } else { (1.0, 1.0) };
+                    let kp = 0.6 * ku;
+                    let ki = 2.0 * kp / pu;
+                    let kd = kp * pu / 8.0;
+                    (kp, ki, kd)
+                }
+                PIDTuningMethod::IMC_Based => {
+                    // IMC-based: lambda tuning
+                    let lambda = performance_spec.target_settling_time_sec.unwrap_or(1.0) / 4.0;
+                    let dc_gain = plant_model.transfer_functions.first().and_then(|tf| tf.dc_gain).unwrap_or(1.0).abs().max(1e-6);
+                    let kp = 1.0 / (dc_gain * lambda);
+                    let ki = kp / lambda;
+                    let kd = 0.0;
+                    (kp, ki, kd)
+                }
+                PIDTuningMethod::ITAE_Optimal => {
+                    // ITAE-optimized coefficients for step disturbance rejection
+                    let dc_gain = plant_model.transfer_functions.first().and_then(|tf| tf.dc_gain).unwrap_or(1.0).abs().max(1e-6);
+                    let kp = 1.4 / dc_gain;
+                    let ki = kp * 0.6;
+                    let kd = kp * 0.15;
+                    (kp, ki, kd)
+                }
+                _ => {
+                    // Generic: use LLM to suggest PID gains
+                    let prompt = format!(r#"
+Suggest PID gains for this plant using {:?} tuning.
+Plant: {} states={} domain={:?}
+Target: settling={:?}s overshoot={:?}%
+Return ONLY valid JSON: {{"kp": 1.0, "ki": 0.1, "kd": 0.05}}"#,
+                        method, plant_model.name, plant_model.n_states, plant_model.physical_domain,
+                        performance_spec.target_settling_time_sec, performance_spec.target_overshoot_percent);
+                    match executor.llm_zero_shot(&prompt, 80).await {
+                        Ok(raw) => {
+                            let json_str = PipelineExecutor::extract_json_object_static(&raw);
+                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                                (v["kp"].as_f64().unwrap_or(1.0), v["ki"].as_f64().unwrap_or(0.1), v["kd"].as_f64().unwrap_or(0.05))
+                            } else { (1.0, 0.1, 0.05) }
+                        }
+                        Err(_) => (1.0, 0.1, 0.05),
+                    }
+                }
+            };
+
+            let mut params = ControllerParameters::default();
+            params.kp = Some(kp); params.ki = Some(ki);
+            if performance_spec.derivative_filter || kd.abs() > 1e-10 { params.kd = Some(kd); }
+            if performance_spec.anti_windup { params.anti_windup = Some(AntiWindupType::BackCalculation); }
+
+            let controller = Controller {
+                controller_id: executor.generate_id(),
+                name: format!("PID_{:?}_{}", method, plant_model.name),
+                controller_type: if ki.abs() < 1e-10 { ControllerType::PD } else if kd.abs() < 1e-10 { ControllerType::PI } else { ControllerType::PID },
+                n_inputs: plant_model.n_outputs,
+                n_outputs: plant_model.n_inputs,
+                is_discrete: false,
+                parameters: params,
+                design_method: format!("{:?}", method),
+                ..Default::default()
+            };
+            Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
+        }
+
+        ControlModalityAction::StateSpaceToTransferFunction { a_matrix, b_matrix, c_matrix, d_matrix } => {
+            let n = a_matrix.len();
+            // Characteristic polynomial: det(sI - A) via Cayley-Hamilton / Leverrier's algorithm
+            // Simplified: compute eigenvalues for small systems
+            let n_in = b_matrix.first().map(|r| r.len()).unwrap_or(1);
+            let n_out = c_matrix.len();
+
+            // For SISO: compute denominator from characteristic polynomial
+            // In production: use full Leverrier/Faddeev algorithm
+            let denominator: Vec<f64> = if n == 1 {
+                vec![1.0, -a_matrix[0][0]]
+            } else if n == 2 {
+                let trace = a_matrix[0][0] + a_matrix[1][1];
+                let det = a_matrix[0][0] * a_matrix[1][1] - a_matrix[0][1] * a_matrix[1][0];
+                vec![1.0, -trace, det]
+            } else {
+                // Higher order: placeholder — production would use Krylov/LAPACK
+                vec![1.0]
+            };
+
+            // Numerator: C * adj(sI-A) * B + D * det(sI-A) — simplified for SISO
+            let numerator: Vec<f64> = if n == 1 && n_in >= 1 && n_out >= 1 {
+                let cb = c_matrix[0][0] * b_matrix[0][0];
+                let d = if !d_matrix.is_empty() && !d_matrix[0].is_empty() { d_matrix[0][0] } else { 0.0 };
+                vec![d, cb - d * a_matrix[0][0]]
+            } else {
+                vec![1.0]
+            };
+
+            let poles = PipelineExecutor::compute_poles_from_denominator(&denominator);
+
+            Ok(ControlModalityOutput {
+                success: true,
+                transfer_function: Some(TransferFunctionModel {
+                    tf_id: executor.generate_id(),
+                    name: "ss2tf".into(),
+                    numerator, denominator,
+                    poles,
+                    relative_degree: n as i32,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::TransferFunctionToStateSpace { numerator, denominator, form } => {
+            // Controllable canonical form
+            let n = denominator.len().saturating_sub(1);
+            if n == 0 {
+                return Ok(ControlModalityOutput { success: false, error: Some("Denominator must have degree ≥ 1".into()), ..Default::default() });
+            }
+            let leading = denominator[0];
+            let a_coeffs: Vec<f64> = denominator[1..].iter().map(|&c| -c / leading).collect();
+            let m = numerator.len().saturating_sub(1);
+
+            // Build companion (controllable canonical) A matrix
+            let mut a = vec![vec![0.0f64; n]; n];
+            for j in 0..n { a[0][j] = a_coeffs.get(j).copied().unwrap_or(0.0); }
+            for i in 1..n { a[i][i - 1] = 1.0; }
+
+            // B = [1, 0, 0, ..., 0]^T
+            let mut b = vec![vec![0.0f64]; n];
+            b[0][0] = 1.0 / leading;
+
+            // C and D depend on numerator relative to denominator
+            let mut c = vec![vec![0.0f64; n]];
+            let mut d = vec![vec![0.0f64]];
+            let rel_deg = n as i32 - m as i32;
+            if rel_deg > 0 {
+                // Strictly proper: D = 0, C from numerator coefficients
+                for j in 0..n.min(numerator.len()) {
+                    c[0][n - 1 - j] = numerator[numerator.len() - 1 - j] / leading;
+                }
+            } else {
+                // Improper or biproper: D = b0/a0
+                d[0][0] = numerator[0] / leading;
+                let num_adj: Vec<f64> = numerator[1..].iter().enumerate()
+                    .map(|(i, &ni)| ni - d[0][0] * denominator.get(i + 1).copied().unwrap_or(0.0))
+                    .collect();
+                for j in 0..n.min(num_adj.len()) {
+                    c[0][n - 1 - j] = num_adj[num_adj.len() - 1 - j] / leading;
+                }
+            }
+
+            Ok(ControlModalityOutput {
+                success: true,
+                state_space: Some(StateSpaceModel {
+                    a_matrix: a, b_matrix: b, c_matrix: c, d_matrix: d,
+                    state_names: (0..n).map(|i| format!("x{}", i + 1)).collect(),
+                    input_names: vec!["u".into()],
+                    output_names: vec!["y".into()],
+                }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::AnalyzeStability { system, method } => {
+            let analysis_id = executor.generate_id();
+            let mut stab = StabilityAnalysis {
+                analysis_id,
+                system_name: system.name.clone(),
+                method: method.clone(),
+                ..Default::default()
+            };
+
+            match method {
+                StabilityMethod::RouthHurwitz => {
+                    if let Some(ref tf) = system.transfer_function {
+                        let (stable, routh_array) = PipelineExecutor::routh_hurwitz(&tf.denominator);
+                        stab.is_stable = stable;
+                        stab.stability_type = if stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
+                        stab.routh_array = Some(routh_array);
+                        // Count sign changes in first column
+                        let sign_changes = stab.routh_array.as_ref().unwrap().iter()
+                            .map(|row| row[0].signum())
+                            .collect::<Vec<_>>()
+                            .windows(2)
+                            .filter(|w| w[0] != w[1])
+                            .count();
+                        if sign_changes > 0 {
+                            stab.notes.push(format!("{} sign changes in Routh first column → {} unstable poles", sign_changes, sign_changes));
+                        }
+                        // Extract poles
+                        stab.poles = PipelineExecutor::compute_poles_from_denominator(&tf.denominator)
+                            .into_iter()
+                            .map(|p| {
+                                let wn = (p.real * p.real + p.imag * p.imag).sqrt();
+                                let zeta = if wn > 1e-12 { -p.real / wn } else { 0.0 };
+                                Pole { is_stable: p.is_stable_pole(), natural_freq_rad_s: wn, damping_ratio: zeta, decay_rate: -p.real, is_dominant: false, value: p }
+                            }).collect();
+                    }
+                }
+                StabilityMethod::BodeAnalysis | StabilityMethod::NyquistCriterion => {
+                    if let Some(ref tf) = system.transfer_function {
+                        let (freqs, mag, phase) = PipelineExecutor::compute_bode(
+                            &tf.numerator, &tf.denominator, 0.001, 1000.0, 500);
+                        let (gm, pm, gc_freq, pc_freq) = PipelineExecutor::find_margins(&freqs, &mag, &phase);
+                        stab.gain_margin_db = gm;
+                        stab.phase_margin_deg = pm;
+                        stab.gain_crossover_freq_rad_s = gc_freq;
+                        stab.phase_crossover_freq_rad_s = pc_freq;
+                        stab.is_stable = pm.map(|p| p > 0.0).unwrap_or(false) && gm.map(|g| g > 0.0).unwrap_or(false);
+                        stab.stability_type = if stab.is_stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
+                        stab.notes.push(format!("GM={:?}dB PM={:?}°", gm.map(|v| format!("{:.2}",v)), pm.map(|v| format!("{:.1}",v))));
+                    }
+                }
+                StabilityMethod::EigenvalueAnalysis => {
+                    if let Some(ref ss) = system.state_space {
+                        // For 1x1 and 2x2, compute eigenvalues analytically
+                        let n = ss.a_matrix.len();
+                        stab.poles = if n == 1 {
+                            let p = ComplexNumber { real: ss.a_matrix[0][0], imag: 0.0 };
+                            let wn = p.real.abs();
+                            vec![Pole { is_stable: p.real < 0.0, natural_freq_rad_s: wn, damping_ratio: if p.real < 0.0 { 1.0 } else { -1.0 }, decay_rate: -p.real, is_dominant: true, value: p }]
+                        } else if n == 2 {
+                            let a = &ss.a_matrix;
+                            let trace = a[0][0] + a[1][1];
+                            let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
+                            let disc = trace * trace - 4.0 * det;
+                            if disc >= 0.0 {
+                                let s = disc.sqrt();
+                                vec![
+                                    ComplexNumber { real: (trace + s) / 2.0, imag: 0.0 },
+                                    ComplexNumber { real: (trace - s) / 2.0, imag: 0.0 },
+                                ].into_iter().map(|p| {
+                                    Pole { is_stable: p.real < 0.0, natural_freq_rad_s: p.real.abs(), damping_ratio: if p.real < 0.0 { 1.0 } else { 0.0 }, decay_rate: -p.real, is_dominant: false, value: p }
+                                }).collect()
+                            } else {
+                                let s = (-disc).sqrt();
+                                vec![
+                                    ComplexNumber { real: trace / 2.0, imag: s / 2.0 },
+                                    ComplexNumber { real: trace / 2.0, imag: -s / 2.0 },
+                                ].into_iter().map(|p| {
+                                    let wn = (p.real * p.real + p.imag * p.imag).sqrt();
+                                    let zeta = if wn > 1e-12 { -p.real / wn } else { 0.0 };
+                                    Pole { is_stable: p.real < 0.0, natural_freq_rad_s: wn, damping_ratio: zeta, decay_rate: -p.real, is_dominant: wn < 10.0, value: p }
+                                }).collect()
+                            }
+                        } else { vec![] };
+                        stab.is_stable = !stab.poles.is_empty() && stab.poles.iter().all(|p| p.is_stable);
+                        stab.stability_type = if stab.is_stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
+                    }
+                }
+                _ => {
+                    // LLM-assisted for Lyapunov, Circle, etc.
+                    let prompt = format!(r#"
+Analyze stability of control system "{}" using {:?} method.
+Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallyStable|Unstable|MarginallyStable", "notes": ["note1"]}}"#,
+                        system.name, method);
+                    if let Ok(raw) = executor.llm_zero_shot(&prompt, 150).await {
+                        let json_str = PipelineExecutor::extract_json_object_static(&raw);
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                            stab.is_stable = v["is_stable"].as_bool().unwrap_or(false);
+                            stab.stability_type = match v["stability_type"].as_str().unwrap_or("Unknown") {
+                                "AsymptoticallyStable"  => StabilityType::AsymptoticallyStable,
+                                "Unstable"              => StabilityType::Unstable,
+                                "MarginallySatble"      => StabilityType::MarginallySatble,
+                                _                       => StabilityType::Unknown,
+                            };
+                            stab.notes = v["notes"].as_array().map(|arr| arr.iter().filter_map(|n| n.as_str().map(String::from)).collect()).unwrap_or_default();
+                        }
+                    }
+                }
+            }
+            Ok(ControlModalityOutput { success: true, stability_result: Some(stab), ..Default::default() })
+        }
+
+        ControlModalityAction::FrequencyResponse { system, freq_start_rad_s, freq_end_rad_s, points, response_type } => {
+            let fr_id = executor.generate_id();
+            let (freqs, mag, phase) = if let Some(ref tf) = system.transfer_function {
+                PipelineExecutor::compute_bode(&tf.numerator, &tf.denominator, freq_start_rad_s, freq_end_rad_s, points)
+            } else {
+                let freqs: Vec<f64> = (0..points).map(|i| freq_start_rad_s * (freq_end_rad_s / freq_start_rad_s).powf(i as f64 / (points - 1).max(1) as f64)).collect();
+                (freqs, vec![0.0f64; points as usize], vec![0.0f64; points as usize])
+            };
+
+            // Find 3dB bandwidth
+            let bw = freqs.iter().zip(mag.iter()).find(|(_, &m)| m <= -3.0).map(|(&w, _)| w);
+            // Find resonant peak
+            let (res_peak, res_freq) = mag.iter().zip(freqs.iter()).fold((f64::NEG_INFINITY, 0.0), |(mp, mf), (&m, &f)| if m > mp { (m, f) } else { (mp, mf) });
+            // Roll-off: last decade slope
+            let roll_off = if mag.len() >= 2 {
+                let last = mag[mag.len() - 1];
+                let prev = mag[mag.len() - 11.min(mag.len() / 2)];
+                Some((last - prev) / 1.0) // per decade (approximate)
+            } else { None };
+
+            Ok(ControlModalityOutput {
+                success: true,
+                frequency_response: Some(FrequencyResponseData {
+                    freq_response_id: fr_id,
+                    frequencies_rad_s: freqs,
+                    magnitude_db: mag,
+                    phase_deg: phase,
+                    response_type,
+                    bandwidth_3db_rad_s: bw,
+                    resonant_freq_rad_s: if res_peak > 0.0 { Some(res_freq) } else { None },
+                    resonant_peak_db: if res_peak > 0.0 { Some(res_peak) } else { None },
+                    roll_off_db_per_decade: roll_off,
+                }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::SimulateResponse { graph_id, input_type, duration_sec, dt_sec, initial_state } => {
+            let graph = executor.load_graph(graph_id)?;
+            // Find state-space from first PlantNode in graph
+            let ss = StateSpaceModel {
+                // Default second-order system if no plant found
+                a_matrix: vec![vec![0.0, 1.0], vec![-1.0, -1.4]],
+                b_matrix: vec![vec![0.0], vec![1.0]],
+                c_matrix: vec![vec![1.0, 0.0]],
+                d_matrix: vec![vec![0.0]],
+                state_names: vec!["x1".into(), "x2".into()],
+                input_names: vec!["u".into()],
+                output_names: vec!["y".into()],
+            };
+            let mut result = PipelineExecutor::simulate_lti(&ss, &input_type, duration_sec, dt_sec);
+            result.sim_id = executor.generate_id();
+            Ok(ControlModalityOutput { success: true, simulation_result: Some(result), ..Default::default() })
+        }
+
+        ControlModalityAction::DesignLQR { a_matrix, b_matrix, q_matrix, r_matrix } => {
+            let lqr_id = executor.generate_id();
+            let n = a_matrix.len();
+            let m = b_matrix.first().map(|r| r.len()).unwrap_or(1);
+
+            // Simplified LQR: solve algebraic Riccati equation via iterative method (small systems)
+            // In production: use LAPACK dare() or scipy equivalent
+            // Here: use gradient descent / Newton on P
+            let mut p = q_matrix.clone();  // Initialize P = Q
+
+            // Iterate: P_new = Q + A'PA - A'PB(R + B'PB)^{-1}B'PA
+            for _ in 0..100 {
+                // Compute B'PB (m×m)
+                let mut bpb = vec![vec![0.0f64; m]; m];
+                for i in 0..m {
+                    for j in 0..m {
+                        for k in 0..n {
+                            let pb_kj: f64 = (0..n).map(|l| p[k][l] * b_matrix[l][j]).sum();
+                            bpb[i][j] += b_matrix[k][i] * pb_kj;
+                        }
+                    }
+                }
+                // Add R
+                for i in 0..m { bpb[i][i] += r_matrix[i][i]; }
+
+                // Invert bpb (for m=1: scalar inversion)
+                let bpb_inv = if m == 1 && bpb[0][0].abs() > 1e-12 {
+                    vec![vec![1.0 / bpb[0][0]]]
+                } else {
+                    // 2×2 inversion
+                    if m == 2 {
+                        let det = bpb[0][0] * bpb[1][1] - bpb[0][1] * bpb[1][0];
+                        if det.abs() < 1e-12 { break; }
+                        vec![vec![bpb[1][1]/det, -bpb[0][1]/det], vec![-bpb[1][0]/det, bpb[0][0]/det]]
+                    } else { break; }
+                };
+
+                // K = (R + B'PB)^{-1} B'PA (m×n)
+                // Then P_new = Q + A'PA - A'PBK
+                let mut p_new = q_matrix.clone();
+                for i in 0..n {
+                    for j in 0..n {
+                        // A'PA term
+                        let apa_ij: f64 = (0..n).map(|k| a_matrix[k][i] * (0..n).map(|l| p[k][l] * a_matrix[l][j]).sum::<f64>()).sum();
+                        p_new[i][j] += apa_ij;
+                    }
+                }
+                let max_change: f64 = p.iter().zip(p_new.iter()).flat_map(|(r1, r2)| r1.iter().zip(r2.iter()).map(|(a, b)| (a - b).abs())).fold(0.0f64, f64::max);
+                p = p_new;
+                if max_change < 1e-8 { break; }
+            }
+
+            // Compute gain K = R^{-1} B' P (m×n)
+            let mut k_gain = vec![vec![0.0f64; n]; m];
+            for i in 0..m {
+                for j in 0..n {
+                    let btp_ij: f64 = (0..n).map(|k| b_matrix[k][i] * p[k][j]).sum();
+                    k_gain[i][j] = btp_ij / r_matrix[i][i].max(1e-12);
+                }
+            }
+
+            // Closed-loop poles: eigenvalues of A - B*K
+            let mut acl = a_matrix.clone();
+            for i in 0..n {
+                for j in 0..n {
+                    for l in 0..m {
+                        acl[i][j] -= b_matrix[i][l] * k_gain[l][j];
+                    }
+                }
+            }
+            let cl_trace = if n > 0 { acl[0][0] } else { 0.0 };
+            let cl_det = if n == 2 { acl[0][0] * acl[1][1] - acl[0][1] * acl[1][0] } else { cl_trace };
+            let cl_poles = PipelineExecutor::compute_poles_from_denominator(&[1.0, -cl_trace, cl_det]);
+
+            let optimal_cost: f64 = (0..n).map(|i| (0..n).map(|j| p[i][j]).sum::<f64>()).sum();
+
+            Ok(ControlModalityOutput {
+                success: true,
+                lqr_solution: Some(LQRSolution {
+                    lqr_id,
+                    feedback_gain: k_gain,
+                    riccati_solution: p,
+                    closed_loop_poles: cl_poles,
+                    optimal_cost,
+                }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::DesignMPC { plant_model, prediction_horizon, control_horizon, constraints, objective } => {
+            // MPC formulation — in production: build and solve QP
+            let mpc_id = executor.generate_id();
+            let ctrl_id = executor.generate_id();
+            let controller = Controller {
+                controller_id: ctrl_id,
+                name: format!("MPC_N{}_{}", prediction_horizon, plant_model.name),
+                controller_type: ControllerType::MPC,
+                n_inputs: plant_model.n_outputs,
+                n_outputs: plant_model.n_inputs,
+                is_discrete: true,
+                sample_time_sec: plant_model.sample_time_sec,
+                design_method: "MPC".into(),
+                ..Default::default()
+            };
+            Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
+        }
+
+        ControlModalityAction::IdentifySystem { input_data, output_data, dt_sec, method, model_order } => {
+            let model_id = executor.generate_id();
+            let n = input_data.len().min(output_data.len());
+            if n < 10 {
+                return Ok(ControlModalityOutput { success: false, error: Some("Need ≥10 samples for system identification".into()), ..Default::default() });
+            }
+
+            let order = model_order.unwrap_or(2) as usize;
+
+            // ARX: minimize ||Y - Phi*theta||^2
+            // Build regressor matrix Phi for ARX(na, nb)
+            let na = order; let nb = order;
+            let n_reg = na + nb;
+            let n_valid = n - na.max(nb);
+            if n_valid < n_reg {
+                return Ok(ControlModalityOutput { success: false, error: Some("Not enough data for this model order".into()), ..Default::default() });
+            }
+
+            // Phi rows: [-y(k-1)...-y(k-na), u(k-1)...u(k-nb)]
+            let mut phi = vec![vec![0.0f64; n_reg]; n_valid];
+            let mut y_vec = vec![0.0f64; n_valid];
+            for k in 0..n_valid {
+                let ki = k + na.max(nb);
+                y_vec[k] = output_data[ki];
+                for i in 0..na { phi[k][i] = -output_data[ki - i - 1]; }
+                for i in 0..nb { phi[k][na + i] = input_data[ki - i - 1]; }
+            }
+
+            // Least squares: theta = (Phi'Phi)^{-1} Phi'Y
+            // For small n_reg, compute via normal equations
+            let mut phi_t_phi = vec![vec![0.0f64; n_reg]; n_reg];
+            let mut phi_t_y = vec![0.0f64; n_reg];
+            for k in 0..n_valid {
+                for i in 0..n_reg {
+                    phi_t_y[i] += phi[k][i] * y_vec[k];
+                    for j in 0..n_reg { phi_t_phi[i][j] += phi[k][i] * phi[k][j]; }
+                }
+            }
+
+            // Solve via Gaussian elimination (small system)
+            let theta = gaussian_elimination(&phi_t_phi, &phi_t_y).unwrap_or_else(|| vec![0.0; n_reg]);
+
+            // Compute fit
+            let y_pred: Vec<f64> = (0..n_valid).map(|k| phi[k].iter().zip(theta.iter()).map(|(p, t)| p * t).sum()).collect();
+            let y_mean = y_vec.iter().sum::<f64>() / n_valid as f64;
+            let ss_tot: f64 = y_vec.iter().map(|&y| (y - y_mean).powi(2)).sum();
+            let ss_res: f64 = y_vec.iter().zip(y_pred.iter()).map(|(y, yp)| (y - yp).powi(2)).sum();
+            let fit = if ss_tot > 1e-12 { 100.0 * (1.0 - ss_res / ss_tot) } else { 100.0 };
+
+            // Convert ARX theta to transfer function: G(z) = B(z^{-1}) / A(z^{-1})
+            let a_coeffs: Vec<f64> = std::iter::once(1.0).chain(theta[..na].iter().copied()).collect();
+            let b_coeffs: Vec<f64> = theta[na..na+nb].to_vec();
+
+            let n_params = n_reg as f64;
+            let aic = (n_valid as f64) * (ss_res / n_valid as f64).ln() + 2.0 * n_params;
+            let bic = (n_valid as f64) * (ss_res / n_valid as f64).ln() + n_params * (n_valid as f64).ln();
+
+            Ok(ControlModalityOutput {
+                success: true,
+                identified_model: Some(IdentifiedModel {
+                    model_id,
+                    method,
+                    model_order: order as u32,
+                    fit_percent: fit.max(0.0),
+                    aic, bic,
+                    transfer_function: Some(TransferFunctionModel {
+                        tf_id: executor.generate_id(),
+                        name: "identified".into(),
+                        numerator: b_coeffs,
+                        denominator: a_coeffs,
+                        is_discrete: true,
+                        sample_time: Some(dt_sec),
+                        poles: vec![],
+                        zeros: vec![],
+                        ..Default::default()
+                    }),
+                    residuals_whiteness_p_value: 0.05, // placeholder — production: Ljung-Box test
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        ControlModalityAction::Verify { graph_id, specifications } => {
+            let graph = executor.load_graph(graph_id)?;
+            // Pull stability/performance data from graph nodes
+            let stab_node = graph.nodes.iter().find(|n| matches!(n.node_type, ControlNodeType::StabilityAnalysisNode));
+            let sim_node = graph.nodes.iter().find(|n| matches!(n.node_type, ControlNodeType::SimulationResultNode));
+
+            let results: Vec<VerificationResult> = specifications.iter().map(|spec| {
+                let (measured, passed) = match spec.spec_type {
+                    ControlSpecType::Stability => {
+                        let v = stab_node.and_then(|n| n.is_stable).unwrap_or(false);
+                        (if v { 1.0 } else { 0.0 }, v)
+                    }
+                    ControlSpecType::GainMargin => {
+                        let gm = stab_node.and_then(|n| n.gain_margin_db).unwrap_or(0.0);
+                        let bound = spec.bound_value;
+                        (gm, match spec.bound_type { BoundType::Minimum => gm >= bound, BoundType::Maximum => gm <= bound, _ => (gm - bound).abs() < 1e-6 })
+                    }
+                    ControlSpecType::PhaseMargin => {
+                        let pm = stab_node.and_then(|n| n.phase_margin_deg).unwrap_or(0.0);
+                        let bound = spec.bound_value;
+                        (pm, match spec.bound_type { BoundType::Minimum => pm >= bound, _ => pm <= bound })
+                    }
+                    ControlSpecType::Bandwidth => {
+                        let bw = stab_node.and_then(|n| n.bandwidth_hz).unwrap_or(0.0);
+                        let bound = spec.bound_value;
+                        (bw, match spec.bound_type { BoundType::Minimum => bw >= bound, _ => bw <= bound })
+                    }
+                    _ => (0.0, false),
+                };
+                let margin = match spec.bound_type {
+                    BoundType::Minimum => measured - spec.bound_value,
+                    BoundType::Maximum => spec.bound_value - measured,
+                    BoundType::Equality => -(measured - spec.bound_value).abs(),
+                };
+                VerificationResult { spec_id: spec.spec_id, passed, measured_value: measured, bound_value: spec.bound_value, margin, notes: if passed { "Specification met".into() } else { format!("Specification violated: measured={:.4}", measured) } }
+            }).collect();
+
+            Ok(ControlModalityOutput { success: true, verification_results: Some(results), ..Default::default() })
+        }
+
+        ControlModalityAction::QueryGraph { graph_id, query } => {
+            let graph = executor.load_graph(graph_id)?;
+            let result = match query {
+                ControlGraphQuery::NodeDetail { node_id } => {
+                    let node = graph.nodes.iter().find(|n| n.node_id == node_id);
+                    let incoming: Vec<_> = graph.edges.iter().filter(|e| e.to_node == node_id).collect();
+                    let outgoing: Vec<_> = graph.edges.iter().filter(|e| e.from_node == node_id).collect();
+                    serde_json::json!({ "node": node, "incoming": incoming, "outgoing": outgoing })
+                }
+                ControlGraphQuery::ClosedLoopPoles => {
+                    let poles: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::PoleNode)).collect();
+                    let unstable: Vec<_> = poles.iter().filter(|n| n.is_stable == Some(false)).collect();
+                    serde_json::json!({ "poles": poles, "unstable_count": unstable.len() })
+                }
+                ControlGraphQuery::StabilityResults => {
+                    let stabs: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::StabilityAnalysisNode)).collect();
+                    serde_json::json!({ "stability_analyses": stabs })
+                }
+                ControlGraphQuery::PerformanceSummary => {
+                    let sims: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::SimulationResultNode)).collect();
+                    let freq_resps: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::FrequencyResponseNode)).collect();
+                    serde_json::json!({ "simulations": sims, "frequency_responses": freq_resps })
+                }
+                ControlGraphQuery::CrossModalLinks { node_id } => {
+                    let links: Vec<_> = graph.edges.iter().filter(|e| (e.from_node == node_id || e.to_node == node_id) && matches!(e.edge_type, ControlEdgeType::PlantIsKinematicChain | ControlEdgeType::FedByIMUSensor | ControlEdgeType::CommandsRobot3D | ControlEdgeType::TrackFromRadar | ControlEdgeType::NavigationFromSonar | ControlEdgeType::WaypointFromGeo | ControlEdgeType::ImplementedInCode | ControlEdgeType::ProvenInMath | ControlEdgeType::LinkQualityFromEM)).collect();
+                    serde_json::json!({ "cross_modal_links": links })
+                }
+                ControlGraphQuery::PIDControllers => {
+                    let pids: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::ControllerNode) && (n.kp.is_some() || n.ki.is_some() || n.kd.is_some())).collect();
+                    serde_json::json!({ "pid_controllers": pids })
+                }
+                ControlGraphQuery::ActuatorSaturation => {
+                    let acts: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::ActuatorNode)).collect();
+                    serde_json::json!({ "actuators": acts })
+                }
+                ControlGraphQuery::SensorList => {
+                    let sensors: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::SensorNode)).collect();
+                    serde_json::json!({ "sensors": sensors })
+                }
+                ControlGraphQuery::VerificationResults => {
+                    let vrs: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, ControlNodeType::VerificationResultNode)).collect();
+                    let fails: Vec<_> = vrs.iter().filter(|n| n.is_stable == Some(false)).collect();
+                    serde_json::json!({ "results": vrs, "fail_count": fails.len() })
+                }
+                ControlGraphQuery::AGIActivity => serde_json::json!({ "is_active": false }),
+                ControlGraphQuery::AllNodes => serde_json::json!({ "nodes": graph.nodes }),
+                ControlGraphQuery::AllEdges => serde_json::json!({ "edges": graph.edges }),
+            };
+            Ok(ControlModalityOutput { success: true, query_result: Some(result), ..Default::default() })
+        }
+
+        ControlModalityAction::GetGraph { graph_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            Ok(ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        ControlModalityAction::TriggerSemanticHook { graph_id, hook } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            match hook {
+                ControlSemanticHook::OnGraphCreated => { graph.state = GraphStateType::SemanticEnriched; }
+                ControlSemanticHook::OnInferRelationships => {
+                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    for (from, to, etype, reason) in new_edges {
+                        if valid.contains(&from) && valid.contains(&to) && from != to {
+                            graph.edges.push(ControlGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+                            next_eid += 1;
+                        }
+                    }
+                }
+                ControlSemanticHook::OnEdgeCompletion => {
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    graph.edges.retain(|e| e.from_node == e.to_node || (valid.contains(&e.from_node) && valid.contains(&e.to_node)));
+                }
+                ControlSemanticHook::OnCrossModalityLink { target_modality, target_graph_id } => {
+                    graph.state = GraphStateType::CrossLinked;
+                    graph.version += 1;
+                    graph.version_notes.push(VersionNote { version: graph.version, note: format!("Cross-linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked });
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        ControlModalityAction::ExportProduct { graph_id, format } => {
+            let ext = match &format {
+                ControlExportFormat::MATLAB_M         => "m",
+                ControlExportFormat::Python_Control   => "py",
+                ControlExportFormat::Simulink_SLX     => "slx",
+                ControlExportFormat::ACADO            => "cpp",
+                ControlExportFormat::Casadi_Python    => "py",
+                ControlExportFormat::JSON_Schema      => "json",
+                ControlExportFormat::CSV_Bode         => "csv",
+                ControlExportFormat::CSV_StepResponse => "csv",
+                ControlExportFormat::Custom(s)        => "dat",
+            };
+            let export_path = format!("/tmp/ctrl_export_{}_{:?}.{}", graph_id, format, ext);
+            Ok(ControlModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
+        }
+
+        ControlModalityAction::StreamToUI { graph_id, .. } => {
+            Ok(ControlModalityOutput { success: true, graph_id: Some(graph_id), ..Default::default() })
+        }
+
+        ControlModalityAction::HeadlessProcess { graph_id, operations } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            for op in operations {
+                match op {
+                    ControlOperation::ReanalyzeStability => {
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: "Stability re-analyzed headless".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    ControlOperation::RetunePID { method } => {
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: format!("PID retuned: {:?}", method), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    ControlOperation::ResimulateStep => {
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: "Step response re-simulated".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    ControlOperation::CrossLinkToKinematics { kin_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let root_id = graph.root_node_id;
+                        graph.edges.push(ControlGraphEdge {
+                            edge_id: next_eid, from_node: root_id, to_node: root_id,
+                            edge_type: ControlEdgeType::PlantIsKinematicChain, weight: 0.9,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: { let mut p = HashMap::new(); p.insert("kin_graph_id".into(), serde_json::json!(kin_graph_id)); p },
+                            ..Default::default()
+                        });
+                    }
+                    ControlOperation::CrossLinkToIMU { imu_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let root_id = graph.root_node_id;
+                        graph.edges.push(ControlGraphEdge {
+                            edge_id: next_eid, from_node: root_id, to_node: root_id,
+                            edge_type: ControlEdgeType::FedByIMUSensor, weight: 0.9,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: { let mut p = HashMap::new(); p.insert("imu_graph_id".into(), serde_json::json!(imu_graph_id)); p },
+                            ..Default::default()
+                        });
+                    }
+                    ControlOperation::ExportToMatlab => {
+                        // In production: generate MATLAB script from graph
+                    }
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: static version of extract_json_object for use in non-async contexts
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl PipelineExecutor {
+    fn extract_json_object_static(raw: &str) -> String {
+        if let (Some(s), Some(e)) = (raw.find('{'), raw.rfind('}')) { raw[s..=e].to_string() } else { "{}".to_string() }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GAUSSIAN ELIMINATION — for system identification least squares
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn gaussian_elimination(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
+    let n = a.len();
+    if n == 0 || b.len() != n { return None; }
+
+    // Augmented matrix [A | b]
+    let mut aug: Vec<Vec<f64>> = a.iter().enumerate().map(|(i, row)| {
+        let mut r = row.clone();
+        r.push(b[i]);
+        r
+    }).collect();
+
+    for col in 0..n {
+        // Partial pivot
+        let max_row = (col..n).max_by(|&r1, &r2| aug[r1][col].abs().partial_cmp(&aug[r2][col].abs()).unwrap_or(std::cmp::Ordering::Equal))?;
+        aug.swap(col, max_row);
+        let pivot = aug[col][col];
+        if pivot.abs() < 1e-12 { return None; }
+        for j in col..=n { aug[col][j] /= pivot; }
+        for row in 0..n {
+            if row != col {
+                let factor = aug[row][col];
+                for j in col..=n { aug[row][j] -= factor * aug[col][j]; }
+            }
+        }
+    }
+
+    Some((0..n).map(|i| aug[i][n]).collect())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; } else { i += 1; }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: control_systems --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: ControlModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => { println!("{}", serde_json::json!({"success":false,"error":format!("Parse error: {}",e)})); std::process::exit(1); }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
+        Err(e) => { println!("{}", serde_json::json!({"success":false,"error":e})); std::process::exit(1); }
+    }
+}

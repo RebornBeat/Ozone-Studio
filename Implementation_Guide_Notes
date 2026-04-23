@@ -1,34 +1,3605 @@
-Claude:
-C.1.1 Supplementary vs. Primary Document Detection this should be working on the graphs of each file after being analyzed not prior as
-this is then disregarding the chunk size limit believing that all files attached will be within the chunk limit and thus creating a
-cascading limitation effect as well. We work on the graph of the files not the file itself IE reference the graph of the modalities
-and identifying which file it belongs to via the metadata of graphs after we have processed all files.
+# OZONE STUDIO — Complete Modifications Guide v2.0 (MERGED FINAL)
 
+## Preface: Review Summary and Merge Decisions
 
+This document is the authoritative merged result of two independent guide drafts (Claude v2 and Z.ai v2).
+Every difference has been reviewed, adjudicated, and either merged or resolved. Nothing has been dropped.
 
-Z.ai:
+### Differences Found and How They Were Resolved
 
+**Z.ai additions incorporated (missing from Claude):**
+- `HasInstance`, `SimilarTo`, `RelatesTo` edge types added to universal set
+- Full cross-modal edge set: `ReferencedBy`, `DescribedBy`, `Describes`, `ImplementedIn`, `Implements`, `VisualizedAs`, `Visualizes`, `SyncedTo`, `SyncedBy`
+- `NodeCore` composite struct — adopted as base embedded in all node types
+- `SpatialPosition` and `TimeRange` fields on nodes — critical for 3D/audio/video
+- `BoundingBox` struct
+- `CrossModalRef` inline struct on nodes
+- `CrossModalIndex` dedicated struct — provides indexed lookups
+- `is_cross_modal: bool` and `cross_modal_index_id: Option<u64>` on edges
+- `Failed` state in `GraphStateType`
+- `StateTransition` with `nodes_added` / `edges_added` metrics
+- `Error` trigger in `StateTransitionTrigger`
+- `MethodologyGap` struct in orchestration state
+- `file_graphs: HashMap<String, u64>` in orchestration state
+- `workspace_id` added throughout where project_id appears
+- `ModalityEngine` trait for polymorphic engine dispatch
+- `VerbType` enum in grammar analysis
+- `SentimentInfo` in sentence analysis
+- `ResolutionMethod` enum on OverlapResolution (keeping LLMZeroShot as canonical, RuleBased as emergency fallback)
+- Unknown modality META clarification path
 
+**Claude additions kept (missing from Z.ai or superior):**
+- EdgeProvenance granular indexed form: `DerivedFromChunk(u32)`, `DerivedFromChunkGraph(u64)`, `DerivedFromModalityGraph(u64)`, `DerivedFromFile(String)`, `DerivedFromBlueprint(u32)`, `DerivedFromMethodology(u64)`, `DerivedFromHook` — Z.ai's version was not granular enough for traceability
+- `ArchivalDecision` StateTransitionTrigger kept (Z.ai lacked this)
+- ChangeType: merged both sets — `Updated`/`EnrichedBySemantic`/`EnrichedByHook`/`Finalized` + Z.ai's `Modified`/`RelationshipAdded`/`CrossModalLinkAdded`/`ProvisionalFinalized`
+- Complete clarification system (Section I) — Z.ai had placeholder UI only
+- Smart chunking token-budget reconstruction details
+- Complete Context Viewer UI with force-directed layout, Fabric View, Hierarchy View
+- Engine Tab UIs (3D, Neural Signal, Genome Browser) — full implementations
+- Blueprint/Methodology/Pipeline guidelines (Section Q) — Z.ai had minimal coverage
+- Workspace Tab integration (Section R)
+- `InferredConcept`, `TrueTextSpan`, `GrammarSubject`, `GrammarObject` text node types
 
+**Conflicts resolved:**
+- `confidence: f32` — REMOVED everywhere. Z.ai's `SpectralSignature` had `confidence: f32`; this is removed to match architectural decision. The 5x consecutive validation loop is the correctness mechanism.
+- ContainerType numbering: Z.ai used modality ID = container type value (100=TextRoot, etc.), Claude used a separate 208+ range. **Decision: Z.ai's approach adopted** — modality ID equals container type value, cleaner and self-documenting.
+- OverlapResolution: Both kept. `ResolutionMethod::LLMZeroShot` is canonical. `RuleBased` retained as emergency fallback only, not default path.
+- `NodeCore` vs flat fields: **Z.ai's NodeCore composite adopted** — it enforces consistency across all modality nodes. Each modality node embeds `NodeCore` plus its modality-specific fields.
 
-Cross-Reference:
+**Section C.1.1 — CORRECTED (per architectural review):**
+Supplementary vs. Primary file classification must operate on modality GRAPHS after processing, not on raw files. The prior approach assumed files fit in chunk limits. The corrected architecture processes each file → produces a modality graph → then the classification LLM compares graph metadata against the text graph's detected intent nodes. This eliminates the chunk-size assumption and cascading limitation.
 
-Z.ai has greater enrinchment on ### 1.1 Universal Edge Types capturing
+---
 
-    HasInstance,        // Y has instance X
-    SimilarTo,          // X similar to Y
-    RelatesTo,          // Generic relationship
+# SECTION A: CORRECTED ARCHITECTURAL OVERVIEW
 
-as well as cross-modality edges
+## A.1 Complete Processing Flow (Canonical Order)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                     OZONE STUDIO — PROCESSING FLOW                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  PHASE 0: INPUT RECEPTION                                                    │
+│  1. Receive prompt text                                                      │
+│  2. Detect attached files by extension → route to modality handlers         │
+│  3. Determine context scope (workspace_id / project_id / global)            │
+│  4. Load workspace/project context from ZSEI (prior graph states, history)  │
+│                                                                             │
+│  PHASE 1: PROMPT NORMALIZATION                                               │
+│  1. Clean raw prompt text                                                    │
+│  2. Split into chunks (LLM overlap resolution — no hard slicing)            │
+│  3. Per chunk (all via LLM zero-shot, 5x stable loops each):                │
+│     a. Overlap resolution → clean boundaries                                │
+│     b. Modality detection (consecutive 5x stable)                           │
+│     c. Keyword extraction (consecutive 5x stable)                           │
+│     d. Topic extraction (consecutive 5x stable)                             │
+│     e. Grammar relationship extraction                                       │
+│     f. Create CHUNK GRAPH (persistent, historical evidence)                 │
+│  4. Process attached files → each file → modality pipeline → file graph     │
+│  5. Aggregate root modality list across chunks AND file graphs              │
+│  6. Verify all detected modalities have registered handlers                 │
+│                                                                             │
+│  OUTPUT: processed_chunks[], chunk_graphs[], file_graphs[], modalities[]   │
+│                                                                             │
+│  PHASE 2: INITIAL GRAPH CREATION  [BEFORE AMT]                              │
+│  1. Create ALL modality graphs in parallel (structural pass)                │
+│     - Text modality: built from chunks                                      │
+│     - Other modalities: built from detected spans + file graphs             │
+│  2. Supplementary vs. Primary classification (on GRAPHS, not raw files)    │
+│     - Compare file graph metadata against text graph intent nodes           │
+│     - LLM classifies: primary input / supplementary context / raw data      │
+│  3. Semantic enrichment:                                                    │
+│     a. TEXT first (sequential) — references other modality graphs           │
+│     b. All others in parallel                                               │
+│  4. Cross-modal reference pass (iterative until 5x stable):                 │
+│     a. Text → all other modalities                                          │
+│     b. All → text (back-references)                                         │
+│     c. Inter-modality (code ↔ math, etc.) from pass 3 onward              │
+│  5. Register all cross-modal edges in CrossModalIndex                       │
+│                                                                             │
+│  OUTPUT: initial modality graphs[] (all, CrossLinked → Stable state)       │
+│                                                                             │
+│  PHASE 3: AMT BUILDING  [Uses initial graphs as evidence]                   │
+│  1. Aggregate keywords/topics from chunk graphs + file graphs               │
+│  2. Build AMT layer by layer:                                               │
+│     a. Per layer: 5x consecutive stable validation                          │
+│     b. Per layer: methodology cross-reference (5x per check)               │
+│     c. Expand layer on new findings → reset stable count                    │
+│     d. Next layer only when current is 5x stable                           │
+│  3. Methodology gaps → synthesize new methodologies                         │
+│                                                                             │
+│  OUTPUT: stable AMT tree, linked methodology set                            │
+│                                                                             │
+│  PHASE 4: BLUEPRINT CREATION                                                 │
+│  1. Order AMT into steps (always create fresh — no search-first)           │
+│  2. For each step: search pipelines → create if not found                  │
+│  3. Cross-reference: methodologies × modalities × graph states × steps     │
+│  4. Clarification check: if AMT has unanswered branches → pause           │
+│                                                                             │
+│  OUTPUT: ordered blueprint, pipeline assignments, initial step states       │
+│                                                                             │
+│  PHASE 5: STEP EXECUTION — LIVING SYSTEM (Hook-Based)                       │
+│  HOOK fires on: step completion OR substep completion                       │
+│    → detect_graph_updates() — event-driven, not polling                    │
+│    → if updates detected:                                                   │
+│       a. Apply graph updates                                                │
+│       b. Review AMT alignment                                               │
+│       c. If AMT expanded → synthesize new steps                            │
+│       d. Re-verify methodologies + pipelines                                │
+│       e. Update dependent step states                                       │
+│    → NO maximum iterations — runs until all steps complete                  │
+│                                                                             │
+│  OUTPUT: completed work product + fully enriched modality graphs            │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## A.2 Graph Taxonomy
+
+```
+TYPE 1: CHUNK GRAPHS
+  - One per chunk during prompt normalization
+  - Persistent/archived — historical evidence for AMT
+  - Contains: keywords, topics, entities, grammar rels, modality detections
+  - Enables smart reconstruction at any token limit via span positions
+
+TYPE 2: FILE GRAPHS
+  - One per attached file — output of the file's modality pipeline
+  - Created during Phase 1 (normalization), before modality graph creation
+  - Used as input for: supplementary classification, modality graph construction
+  - Classified as primary/supplementary AFTER creation (not before)
+
+TYPE 3: MODALITY GRAPHS
+  - One per modality — primary knowledge representation
+  - Created Phase 2 (before AMT)
+  - Lifecycle: Created → SemanticEnriched → CrossLinked → Stable → Updated
+
+TYPE 4: AMT TREE
+  - Built Phase 3 from chunk + modality graph evidence
+  - Drives blueprint creation
+```
+
+## A.3 Smart Chunking System
+
+```
+SMART CHUNKING — Enables cross-model token-limit reconstruction
+
+Original Prompt (full text)
+  └── Chunk Graph (per chunk)
+        ├── prompt_start_char / prompt_end_char  ← absolute positions
+        ├── sentence_boundaries: [SentenceBoundary]
+        ├── paragraph_breaks: [usize]
+        ├── keyword_nodes, grammar_rels, modality_detections
+        └── cleaned_text (after overlap resolution)
+
+RECONSTRUCTION AT ANY TOKEN LIMIT:
+  Given: target_token_limit, model_id
+  1. Query chunk graphs for relevant span ranges
+  2. Use sentence_starts/ends to find clean boundaries at target limit
+  3. Reconstruct clean text from original prompt positions
+  4. Works for any model: GPT-4 (128k), Claude (200k), local 7B (4k)
+```
+
+---
+
+# SECTION B: CROSS-CUTTING CHANGES (ALL Modalities 100–126)
+
+## B.1 Universal Semantic Edge Types
+
+Add to EVERY modality's edge enum:
+
+```rust
+// === SEMANTIC INFERENCE (grammar/action-verb derived) ===
+Performs,           // subject performs action on object
+Affects,            // X affects Y (causal influence)
+Implies,            // X implies Y (logical entailment)
+Contradicts,        // X contradicts Y
+Elaborates,         // X elaborates on Y
+Summarizes,         // X summarizes Y
+Supports,           // X supports claim Y
+TemporalPrecedes,   // X happens before Y in time
+TemporalFollows,    // X happens after Y in time
+CausedBy,           // X was caused by Y
+Enables,            // X enables Y to occur
+Prevents,           // X prevents Y from occurring
+PartOf,             // X is a part of Y (structural membership)
+HasPart,            // Y has part X (inverse of PartOf)
+FunctionalRole,     // X serves a functional role in Y
+InstanceOf,         // X is an instance of type Y
+HasInstance,        // Y has instance X (inverse of InstanceOf)
+SimilarTo,          // X is similar to Y (structural/semantic similarity)
+RelatesTo,          // Generic relationship (fallback for unclassified)
+
+// === VERSIONING / DERIVATION ===
+DerivedFrom,        // X was derived from Y (hierarchical origin)
+VersionOf,          // X is a version of Y
+RefinesTo,          // X refines / improves Y
+ForkedFrom,         // X was forked from Y
 
 // === CROSS-MODALITY ===
-    ReferencesModality, // Text references modality content
-    ReferencedBy,       // Modality referenced by text
-    DescribedBy,        // X described by Y (usually text)
-    Describes,          // X describes Y
-    ImplementedIn,      // X implemented in Y (usually code)
-    Implements,         // X implements Y
-    VisualizedAs,       // X visualized as Y (image/3D)
-    Visualizes,         // X visualizes Y
-    SyncedTo,           // Temporal sync (audio↔video)
-    SyncedBy,           // Reverse sync
+ReferencesModality, // text node references modality content
+ReferencedBy,       // modality node referenced by text (inverse)
+DescribedBy,        // X described by Y (usually text)
+Describes,          // X describes Y (inverse)
+ImplementedIn,      // X implemented in Y (concept → code)
+Implements,         // X implements Y (inverse)
+VisualizedAs,       // X visualized as Y (image/3D)
+Visualizes,         // X visualizes Y (inverse)
+SyncedTo,           // Temporal sync (audio ↔ video)
+SyncedBy,           // Reverse sync
+```
+
+**Note on edge types vs EdgeProvenance:** These are RELATIONSHIP TYPES between nodes. EdgeProvenance (Section B.4) answers a different question: what source object produced this edge itself.
+
+## B.2 Universal NodeCore (Embedded in All Modality Nodes)
+
+All modality graph node structs embed `NodeCore` as their first field, then add modality-specific fields.
+
+```rust
+/// Universal base — embedded in every modality graph node.
+/// Enforces consistency across all modalities.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NodeCore {
+    pub node_id: u64,
+    pub node_type: String,          // modality-specific type as string for cross-modal querying
+    pub label: String,              // short human-readable label
+    pub content: String,            // primary content (preview or full, modality-dependent)
+
+    // === POSITIONING (optional — used by audio/video/3D/spatial modalities) ===
+    pub time_range: Option<TimeRange>,
+    pub spatial_position: Option<SpatialPosition>,
+
+    // === PROVISIONAL SYSTEM ===
+    pub provisional: bool,
+    pub provisional_status: ProvisionalStatus,
+
+    // === PROVENANCE ===
+    pub provenance: EdgeProvenance,
+    pub source_chunk_id: Option<u64>,       // which chunk graph this came from
+    pub source_file_id: Option<u64>,        // which file graph this came from
+    pub created_by_step: Option<u32>,
+    pub updated_by_step: Option<u32>,
+
+    // === VERSIONING ===
+    pub version: u32,
+    pub version_notes: Vec<VersionNote>,
+
+    // === ZSEI INDEXING ===
+    pub materialized_path: Option<String>,  // e.g. "/TextGraph/Doc/Section/Entity"
+    pub keywords: Vec<String>,
+    pub embedding_hint: Option<String>,
+
+    // === ACTIVITY ===
+    pub hotness_score: f32,                 // recency/importance 0.0–1.0
+
+    // === SOURCE LOCATION (smart reconstruction) ===
+    pub source_chunk_index: Option<u32>,
+    pub source_start_char: Option<usize>,
+    pub source_end_char: Option<usize>,
+
+    // === CROSS-MODAL REFS (inline, fast lookup) ===
+    pub cross_modal_refs: Vec<CrossModalRef>,
+}
+
+/// Inline cross-modal reference stored on each node for fast lookup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossModalRef {
+    pub target_graph_id: u64,
+    pub target_node_id: u64,
+    pub target_modality: String,
+    pub relationship: String,           // edge type name
+    pub bidirectional: bool,            // if true, reverse stored in target graph too
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeRange {
+    pub start_seconds: f32,
+    pub end_seconds: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SpatialPosition {
+    pub x: f32,
+    pub y: f32,
+    pub z: Option<f32>,
+    pub bounding_box: Option<BoundingBox>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundingBox {
+    pub min: (f32, f32, f32),
+    pub max: (f32, f32, f32),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ProvisionalStatus {
+    #[default] Planned,
+    Generating,
+    Generated,
+    Validated,
+    Finalized,
+    Failed,
+    RolledBack,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct VersionNote {
+    pub version: u32,
+    pub note: String,
+    pub step_index: Option<u32>,
+    pub timestamp: String,          // ISO 8601
+    pub change_type: ChangeType,
+}
+
+/// Merged from both drafts — complete set.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ChangeType {
+    #[default] Created,
+    Updated,                    // general update
+    Modified,                   // field-level modification
+    RelationshipAdded,          // new edge added
+    CrossModalLinkAdded,        // cross-modal edge added
+    EnrichedBySemantic,         // semantic enrichment pass
+    EnrichedByHook,             // ZSEI hook enrichment
+    ProvisionalFinalized,       // was provisional, now finalized
+    RolledBack,                 // rolled back
+    Finalized,                  // step completed, node locked
+}
+```
+
+**REMOVED:** `confidence: f32` from all nodes everywhere. Validation via the consecutive 5x stable loop is the correctness mechanism. Confidence scores from LLMs create false precision and compound errors. If a node or edge exists in the graph, it has been validated.
+
+## B.3 Universal GraphEdge Fields
+
+```rust
+pub struct [Modality]GraphEdge {
+    pub edge_id: u64,
+    pub from_node: u64,
+    pub to_node: u64,
+    pub edge_type: [Modality]EdgeType,
+    pub weight: f32,
+
+    // === PROVENANCE ===
+    pub provenance: EdgeProvenance,
+    pub created_by_step: Option<u32>,
+
+    // === VERSIONING ===
+    pub version: u32,
+    pub version_notes: Vec<VersionNote>,
+
+    // === CROSS-MODAL FLAGS (fast lookup, no query needed) ===
+    pub is_cross_modal: bool,
+    pub cross_modal_index_id: Option<u64>,  // entry ID in CrossModalIndex
+
+    // === PROPERTIES (modality-specific metadata) ===
+    pub properties: HashMap<String, serde_json::Value>,
+}
+```
+
+**REMOVED:** `confidence: f32` from all edges.
+
+## B.4 EdgeProvenance — Source-Object Based (Granular Form)
+
+EdgeProvenance answers: **"What object was this edge derived from?"** — not the method. The granular indexed form enables full traceability.
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum EdgeProvenance {
+    #[default] Unknown,
+
+    // SOURCE OBJECT TYPES
+    DerivedFromPrompt,                  // from original prompt text
+    DerivedFromChunk(u32),              // from chunk at index N
+    DerivedFromChunkGraph(u64),         // from chunk graph ID N
+    DerivedFromModalityGraph(u64),      // from another modality graph ID
+    DerivedFromFile(String),            // from attached file (path/name)
+    DerivedFromFileGraph(u64),          // from a file graph ID
+    DerivedFromAMT,                     // from AMT tree analysis
+    DerivedFromAMTBranch,               // from a specific AMT branch
+    DerivedFromBlueprint(u32),          // from blueprint step N
+    DerivedFromBlueprintStep(u32),      // alias for clarity
+    DerivedFromMethodology(u64),        // from methodology application
+    DerivedFromCrossModal,              // from cross-modality analysis pass
+    DerivedFromHook,                    // from ZSEI semantic hook
+
+    // VERSIONING ORIGINS
+    VersionOf(u32),                     // this is version N of original edge
+    ForkedFrom(u64),                    // forked from edge ID N
+}
+```
+
+## B.5 Graph State Machine
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum GraphStateType {
+    #[default] Created,         // structural nodes only
+    SemanticEnriched,           // semantic edges added
+    CrossLinked,                // cross-modal edges established
+    Stable,                     // 5x consecutive stable passes confirmed
+    Updated,                    // modified by step execution
+    ReValidating,               // under post-update validation
+    Failed,                     // error state — graph inconsistent
+    Archived,                   // historical — chunk graphs reach this
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GraphState {
+    pub graph_id: u64,
+    pub modality: String,
+    pub project_id: u64,
+    pub workspace_id: u64,
+
+    // === STATE MACHINE ===
+    pub current_state: GraphStateType,
+    pub state_history: Vec<GraphStateTransition>,
+
+    // === CONTENT METRICS ===
+    pub structural_node_count: usize,
+    pub semantic_node_count: usize,
+    pub cross_modal_node_count: usize,
+    pub structural_edge_count: usize,
+    pub semantic_edge_count: usize,
+    pub cross_modal_edge_count: usize,
+    pub provisional_node_count: usize,
+    pub total_node_count: usize,
+    pub total_edge_count: usize,
+
+    // === STABILITY TRACKING ===
+    pub consecutive_stable_passes: u32,
+    pub last_semantic_pass: u32,
+    pub last_cross_ref_pass: u32,
+    pub last_updated_by_step: Option<u32>,
+
+    // === VERSIONING ===
+    pub version: u32,
+    pub version_notes: Vec<VersionNote>,
+    pub created_at: String,
+    pub last_modified_at: String,
+
+    // === PROVENANCE ===
+    pub derived_from_prompt_id: Option<u64>,
+    pub source_chunk_graph_ids: Vec<u64>,
+    pub source_file_graph_ids: Vec<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphStateTransition {
+    pub from: GraphStateType,
+    pub to: GraphStateType,
+    pub timestamp: String,
+    pub triggered_by: StateTransitionTrigger,
+    pub triggered_by_step: Option<u32>,
+    // Metrics at time of transition (from Z.ai)
+    pub nodes_added: usize,
+    pub edges_added: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StateTransitionTrigger {
+    InitialCreation,
+    SemanticEnrichmentPass,
+    CrossModalPass,
+    StabilityConfirmed,
+    StepExecutionComplete(u32),
+    HookDetectedChanges,
+    ArchivalDecision,
+    Error,              // from Z.ai — graph entered Failed state
+}
+```
+
+## B.6 Universal ZSEI Hook Implementation
+
+Every modality must fully implement all four hooks. No stubs.
+
+```rust
+// HOOK 1: OnGraphCreated
+// Responsibilities:
+//   1. Create ZSEI container for this graph
+//   2. Register in bootstrap root container for this modality
+//   3. Build materialized_path for each node: "/[ModalityName]/[NodeType]/[NodeId]"
+//   4. Index all node keywords in ZSEI keyword index
+//   5. Record graph creation in GraphState with provenance
+//   6. Register in CrossModalIndex if cross-modal refs already present
+
+// HOOK 2: OnInferRelationships
+// Responsibilities:
+//   1. LLM zero-shot: discover semantic rels not captured structurally
+//   2. Parse → add new edges with provenance=DerivedFromHook
+//   3. Add new inferred concept nodes where relationships require them
+//   4. DO NOT add confidence — validate through consecutive loop
+
+// HOOK 3: OnEdgeCompletion
+// Responsibilities:
+//   1. Verify both endpoints exist (error if not)
+//   2. Set is_cross_modal flag for cross-modal edges
+//   3. Update hotness_score on connected nodes
+//   4. Check for duplicate edges, merge if identical type+provenance source
+//   5. Update cross_modal_refs on affected nodes
+
+// HOOK 4: OnCrossModalityLink
+// Responsibilities:
+//   1. Register in CrossModalIndex (Section B.7)
+//   2. Set cross_modal_index_id on the edge
+//   3. Update materialized_path on both endpoints
+//   4. Notify target modality graph's hook processor
+//   5. Store reverse edge in target graph with DerivedFromCrossModal provenance
+//   6. Update GraphState.cross_modal_edge_count on both graphs
+//   7. Add CrossModalRef to both nodes' cross_modal_refs vec
+```
+
+## B.7 Cross-Modal Index (NEW — from Z.ai, extended)
+
+A dedicated indexed structure for efficient cross-modal lookup. Stored in ZSEI as a project-level container.
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CrossModalIndex {
+    pub index_id: u64,
+    pub project_id: u64,
+    pub workspace_id: u64,
+
+    // === ENTRIES ===
+    pub entries: Vec<CrossModalEntry>,
+
+    // === LOOKUP INDICES (rebuilt from entries, not persisted) ===
+    #[serde(skip)]
+    pub by_source_graph: HashMap<u64, Vec<u64>>,    // graph_id → entry_ids
+    #[serde(skip)]
+    pub by_target_graph: HashMap<u64, Vec<u64>>,
+    #[serde(skip)]
+    pub by_relationship: HashMap<String, Vec<u64>>, // edge_type → entry_ids
+    #[serde(skip)]
+    pub by_modality_pair: HashMap<(String, String), Vec<u64>>, // (src_mod, tgt_mod) → entry_ids
+
+    // === VERSIONING ===
+    pub version: u32,
+    pub last_updated: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrossModalEntry {
+    pub entry_id: u64,
+    pub source_graph_id: u64,
+    pub source_node_id: u64,
+    pub source_modality: String,
+    pub target_graph_id: u64,
+    pub target_node_id: u64,
+    pub target_modality: String,
+    pub relationship: String,       // edge type name
+    pub weight: f32,
+    pub bidirectional: bool,
+    pub provenance: EdgeProvenance,
+    pub created_by_step: Option<u32>,
+    pub created_at: String,
+}
+
+impl CrossModalIndex {
+    pub fn rebuild_indices(&mut self) {
+        self.by_source_graph.clear();
+        self.by_target_graph.clear();
+        self.by_relationship.clear();
+        self.by_modality_pair.clear();
+
+        for entry in &self.entries {
+            self.by_source_graph.entry(entry.source_graph_id).or_default().push(entry.entry_id);
+            self.by_target_graph.entry(entry.target_graph_id).or_default().push(entry.entry_id);
+            self.by_relationship.entry(entry.relationship.clone()).or_default().push(entry.entry_id);
+            self.by_modality_pair
+                .entry((entry.source_modality.clone(), entry.target_modality.clone()))
+                .or_default()
+                .push(entry.entry_id);
+        }
+    }
+
+    pub fn links_for_node(&self, graph_id: u64, node_id: u64) -> Vec<&CrossModalEntry> {
+        let source_ids = self.by_source_graph.get(&graph_id).map(|v| v.as_slice()).unwrap_or(&[]);
+        let target_ids = self.by_target_graph.get(&graph_id).map(|v| v.as_slice()).unwrap_or(&[]);
+        self.entries.iter()
+            .filter(|e| {
+                (source_ids.contains(&e.entry_id) && e.source_node_id == node_id) ||
+                (target_ids.contains(&e.entry_id) && e.target_node_id == node_id)
+            })
+            .collect()
+    }
+}
+```
+
+## B.8 ModalityEngine Trait (from Z.ai)
+
+All engine pipelines must implement this trait for polymorphic dispatch.
+
+```rust
+pub trait ModalityEngine: Send + Sync {
+    fn modality_id(&self) -> u64;
+    fn modality_name(&self) -> &str;
+
+    // === CORE (required) ===
+    fn create_graph(&self, analysis: serde_json::Value, project_id: u64) -> Result<u64, String>;
+    fn query_graph(&self, graph_id: u64, query: serde_json::Value) -> Result<serde_json::Value, String>;
+    fn get_graph(&self, graph_id: u64) -> Result<serde_json::Value, String>;
+    fn update_graph(&self, graph_id: u64, updates: serde_json::Value) -> Result<(), String>;
+
+    // === SPATIAL (optional) ===
+    fn supports_spatial(&self) -> bool { false }
+    fn spatial_query(&self, _graph_id: u64, _query: serde_json::Value) -> Result<serde_json::Value, String> {
+        Err("Spatial queries not supported by this engine".into())
+    }
+
+    // === STREAMING (optional) ===
+    fn supports_streaming(&self) -> bool { false }
+    fn stream_to_ui(&self, _graph_id: u64, _session_id: &str) -> Result<(), String> {
+        Err("Streaming not supported by this engine".into())
+    }
+
+    // === SIMULATION (optional) ===
+    fn supports_simulation(&self) -> bool { false }
+    fn run_simulation(&self, _graph_id: u64, _config: serde_json::Value) -> Result<serde_json::Value, String> {
+        Err("Simulation not supported by this engine".into())
+    }
+
+    // === UI ===
+    fn has_ui(&self) -> bool { false }
+    fn ui_component_name(&self) -> Option<&str> { None }
+
+    // === HEADLESS PROCESSING (AGI-first) ===
+    fn process_headless(&self, graph_id: u64, operations: serde_json::Value) -> Result<serde_json::Value, String>;
+}
+```
+
+---
+
+# SECTION C: PROMPT NORMALIZATION SYSTEM
+
+## C.1 File Attachment Detection and Routing
+
+Before prompt normalization begins, attached files are detected by extension and routed to the appropriate modality handler.
+
+```rust
+pub fn detect_file_modality(file_path: &str) -> FileModalityInfo {
+    let ext = std::path::Path::new(file_path)
+        .extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+
+    match ext.as_str() {
+        // TEXT
+        "txt" | "md" | "rst" | "tex" | "org" | "adoc" | "rtf" =>
+            FileModalityInfo::new("text", 100, ProcessingMode::FullTextPipeline),
+
+        // CODE
+        "rs" => FileModalityInfo::new_code("text/x-rust"),
+        "py" => FileModalityInfo::new_code("text/x-python"),
+        "js" | "mjs" | "cjs" => FileModalityInfo::new_code("text/javascript"),
+        "ts" | "tsx" => FileModalityInfo::new_code("text/typescript"),
+        "cpp" | "cc" | "cxx" | "c" | "h" | "hpp" => FileModalityInfo::new_code("text/x-c"),
+        "java" => FileModalityInfo::new_code("text/x-java"),
+        "go" => FileModalityInfo::new_code("text/x-go"),
+        "swift" => FileModalityInfo::new_code("text/x-swift"),
+        "kt" | "kts" => FileModalityInfo::new_code("text/x-kotlin"),
+        "rb" => FileModalityInfo::new_code("text/x-ruby"),
+        "php" => FileModalityInfo::new_code("text/x-php"),
+        "cs" => FileModalityInfo::new_code("text/x-csharp"),
+        "scala" => FileModalityInfo::new_code("text/x-scala"),
+        "r" => FileModalityInfo::new_code("text/x-r"),
+        "lua" => FileModalityInfo::new_code("text/x-lua"),
+        "jl" => FileModalityInfo::new_code("text/x-julia"),
+        "zig" => FileModalityInfo::new_code("text/x-zig"),
+        "ex" | "exs" => FileModalityInfo::new_code("text/x-elixir"),
+        "erl" | "hrl" => FileModalityInfo::new_code("text/x-erlang"),
+        "hs" => FileModalityInfo::new_code("text/x-haskell"),
+        "ml" | "mli" => FileModalityInfo::new_code("text/x-ocaml"),
+        "clj" | "cljs" => FileModalityInfo::new_code("text/x-clojure"),
+        "sh" | "bash" | "zsh" | "fish" => FileModalityInfo::new_code("text/x-shellscript"),
+        "sql" => FileModalityInfo::new_code("text/x-sql"),
+        "dockerfile" => FileModalityInfo::new_code("text/x-dockerfile"),
+        "toml" | "yaml" | "yml" | "json" | "jsonl" | "xml" | "ini" | "cfg" | "conf" =>
+            FileModalityInfo::new("code", 101, ProcessingMode::StructuredDataFile),
+
+        // IMAGE
+        "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "tif" | "svg" | "avif" =>
+            FileModalityInfo::new("image", 102, ProcessingMode::DirectModalityPipeline),
+
+        // AUDIO
+        "mp3" | "wav" | "flac" | "ogg" | "opus" | "aac" | "m4a" | "aiff" | "wma" =>
+            FileModalityInfo::new("audio", 103, ProcessingMode::DirectModalityPipeline),
+
+        // VIDEO
+        "mp4" | "mkv" | "avi" | "mov" | "webm" | "m4v" | "flv" | "wmv" | "3gp" =>
+            FileModalityInfo::new("video", 104, ProcessingMode::DirectModalityPipeline),
+
+        // 3D
+        "obj" | "glb" | "gltf" | "fbx" | "dae" | "stl" | "ply" | "usd" | "usda" | "usdc" |
+        "usdz" | "blend" | "3ds" | "c4d" | "ma" | "mb" | "urdf" | "mjcf" | "sdf" | "world" =>
+            FileModalityInfo::new("3d", 109, ProcessingMode::DirectModalityPipeline),
+
+        // GENOMICS
+        "fasta" | "fa" | "fastq" | "fq" | "vcf" | "gff" | "gff3" | "gtf" | "bed" | "sam" | "bam" =>
+            FileModalityInfo::new("dna", 107, ProcessingMode::DirectModalityPipeline),
+
+        // CHEMISTRY
+        "sdf" | "mol" | "mol2" | "pdb" | "cif" | "xyz" | "smiles" | "inchi" =>
+            FileModalityInfo::new("chemistry", 106, ProcessingMode::DirectModalityPipeline),
+
+        // EEG
+        "edf" | "bdf" | "gdf" | "set" | "fif" | "cnt" =>
+            FileModalityInfo::new("eeg", 108, ProcessingMode::DirectModalityPipeline),
+
+        // GEOSPATIAL
+        "geojson" | "kml" | "kmz" | "shp" | "gpx" | "osm" | "dem" =>
+            FileModalityInfo::new("geospatial", 117, ProcessingMode::DirectModalityPipeline),
+
+        // PARAMETRIC CAD
+        "step" | "iges" | "brep" | "f3d" | "fcstd" | "stp" =>
+            FileModalityInfo::new("parametric_cad", 120, ProcessingMode::DirectModalityPipeline),
+
+        // POINT CLOUD / DEPTH
+        "pcd" | "las" | "laz" | "pts" =>
+            FileModalityInfo::new("depth", 115, ProcessingMode::DirectModalityPipeline),
+
+        // RADAR
+        "iq" | "cphd" | "sicd" | "nitf" =>
+            FileModalityInfo::new("radar", 124, ProcessingMode::DirectModalityPipeline),
+
+        // SONAR
+        "xtf" | "jsf" | "s7k" | "gsf" | "all" | "wcd" =>
+            FileModalityInfo::new("sonar", 125, ProcessingMode::DirectModalityPipeline),
+
+        // HYPERSPECTRAL
+        "hdr" | "bil" | "bip" | "bsq" | "h4" | "hdf4" =>
+            FileModalityInfo::new("hyperspectral", 126, ProcessingMode::DirectModalityPipeline),
+
+        // DOCUMENTS
+        "pdf" => FileModalityInfo::new("text", 100, ProcessingMode::DocumentExtractThenText),
+        "docx" | "doc" | "odt" | "pages" =>
+            FileModalityInfo::new("text", 100, ProcessingMode::DocumentExtractThenText),
+        "xlsx" | "xls" | "ods" | "csv" =>
+            FileModalityInfo::new("code", 101, ProcessingMode::StructuredDataFile),
+
+        // UNKNOWN
+        _ => FileModalityInfo::new("unknown", 0, ProcessingMode::RequiresClarification),
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FileModalityInfo {
+    pub path: String,
+    pub modality: String,
+    pub pipeline_id: u64,
+    pub processing_mode: ProcessingMode,
+    pub mime_hint: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum ProcessingMode {
+    FullTextPipeline,
+    DirectModalityPipeline,
+    StructuredDataFile,
+    DocumentExtractThenText,
+    RequiresClarification,
+}
+```
+
+## C.1.1 Supplementary vs. Primary Classification — CORRECTED ARCHITECTURE
+
+**Critical correction:** Classification operates on modality GRAPHS after file processing, NOT on raw files before processing. The prior approach assumed files fit within chunk limits, creating a cascading limitation. The corrected flow:
+
+```
+CORRECT FLOW:
+1. Detect file extensions → route to modality pipelines
+2. Each file → its modality pipeline → produces a FILE GRAPH
+3. File graphs are stored separately in /FileGraphs/ container
+4. AFTER all file graphs exist AND text graph is created:
+   → Compare file graph metadata against text graph intent nodes
+   → LLM classifies role of each file graph relative to prompt intent
+5. Classification stored on the root node of each file graph
+
+WHY THIS IS CORRECT:
+- Files may be too large for any chunk limit (LIDAR files, genomics datasets, SAR images)
+- The graph is size-invariant: it's always a graph, regardless of source file size
+- Graph metadata (node types, keyword index, modality) is always small
+- Classification uses graph metadata, never raw file content
+```
+
+```rust
+/// Classify file graphs as primary/supplementary/raw-data
+/// by comparing their graph metadata to the text graph's intent nodes.
+/// CALLED AFTER: all file graphs AND text graph are created.
+/// NEVER CALLED on raw files.
+async fn classify_file_graphs_post_creation(
+    &self,
+    text_graph_id: u64,
+    file_graph_ids: &[(String, u64)],  // (modality, graph_id)
+    state: &OrchestrationState,
+) -> Vec<ClassifiedFileGraph> {
+    // 1. Extract text graph intent summary (small — from node metadata only)
+    let text_graph_summary = self.extract_graph_intent_summary(text_graph_id).await;
+
+    // 2. Extract file graph summaries (metadata only — never raw content)
+    let mut file_summaries = Vec::new();
+    for (modality, graph_id) in file_graph_ids {
+        let summary = self.extract_graph_intent_summary(*graph_id).await;
+        file_summaries.push((*graph_id, modality.clone(), summary));
+    }
+
+    // 3. LLM: compare file graph metadata to text graph intent
+    let prompt = format!(r#"
+Given this prompt's text graph intent summary and a set of file graphs,
+classify each file graph's relationship to the prompt.
+
+Text graph intent summary:
+{}
+
+File graphs:
+{}
+
+For each file graph, determine:
+- "primary": this file IS the thing being worked on
+- "supplementary": this file provides reference context
+- "raw_data": this file is raw data to be processed as input
+
+Return ONLY valid JSON array:
+[{{"graph_id": N, "modality": "...", "role": "primary|supplementary|raw_data",
+  "reasoning": "brief"}}]"#,
+        text_graph_summary,
+        serde_json::to_string_pretty(&file_summaries).unwrap_or_default()
+    );
+
+    // LLM call via pipeline 9
+    let result = self.llm_zero_shot(&prompt, 400).await.unwrap_or_default();
+    let json_str = extract_json_array(&result);
+    serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| {
+            Some(ClassifiedFileGraph {
+                graph_id: v["graph_id"].as_u64()?,
+                modality: v["modality"].as_str()?.to_string(),
+                role: match v["role"].as_str()? {
+                    "primary" => FileGraphRole::Primary,
+                    "supplementary" => FileGraphRole::Supplementary,
+                    _ => FileGraphRole::RawData,
+                },
+                reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
+            })
+        })
+        .collect()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClassifiedFileGraph {
+    pub graph_id: u64,
+    pub modality: String,
+    pub role: FileGraphRole,
+    pub reasoning: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum FileGraphRole { Primary, Supplementary, RawData }
+
+/// Extract graph intent summary from metadata only (no content traversal).
+/// Used for classification — always small regardless of graph size.
+async fn extract_graph_intent_summary(&self, graph_id: u64) -> String {
+    // Query graph root node + keyword index + top-level node types
+    // Returns a compact string summarizing what the graph represents
+    // Example: "3D scene graph: 847 nodes (Mesh, Armature, Physics), keywords: [robot, manipulator, joint]"
+    format!("Graph {} metadata summary", graph_id) // real impl queries ZSEI
+}
+```
+
+## C.2 Chunk Overlap Resolution (LLM Zero-Shot)
+
+The rule-based `find_best_boundary` is replaced. LLM is canonical; rule-based is emergency fallback only.
+
+```rust
+async fn resolve_overlap_boundary(
+    &self,
+    current_chunk_text: &str,
+    next_chunk_text: &str,
+    overlap_chars: usize,
+) -> OverlapResolution {
+    let current_tail = &current_chunk_text[current_chunk_text.len().saturating_sub(overlap_chars)..];
+    let next_head = &next_chunk_text[..overlap_chars.min(next_chunk_text.len())];
+
+    let prompt = format!(r#"
+Analyze the overlapping region between two adjacent text chunks.
+
+END OF CURRENT CHUNK:
+---
+{}
+---
+
+START OF NEXT CHUNK:
+---
+{}
+---
+
+Return ONLY valid JSON:
+{{
+  "has_overlap": true | false,
+  "overlap_type": "sentence_cutoff | paragraph_cutoff | word_cutoff | none",
+  "current_should_end_at_offset": <chars from start of current_tail to keep>,
+  "next_should_start_at_offset": <chars into next_head to skip>,
+  "duplicate_belongs_in": "current | next | neither",
+  "reasoning": "one sentence"
+}}"#, current_tail, next_head);
+
+    match self.llm_zero_shot(&prompt, 200).await {
+        Ok(raw) => {
+            let json_str = extract_json_object(&raw);
+            serde_json::from_str::<serde_json::Value>(&json_str).ok()
+                .map(|v| OverlapResolution {
+                    has_overlap: v["has_overlap"].as_bool().unwrap_or(false),
+                    overlap_type: match v["overlap_type"].as_str().unwrap_or("none") {
+                        "sentence_cutoff" => OverlapType::SentenceCutoff,
+                        "paragraph_cutoff" => OverlapType::ParagraphCutoff,
+                        "word_cutoff" => OverlapType::WordCutoff,
+                        _ => OverlapType::None,
+                    },
+                    current_keep_end: current_chunk_text.len().saturating_sub(overlap_chars)
+                        + v["current_should_end_at_offset"].as_usize().unwrap_or(current_tail.len()),
+                    next_start_offset: v["next_should_start_at_offset"].as_usize().unwrap_or(0),
+                    duplicate_belongs_in: match v["duplicate_belongs_in"].as_str().unwrap_or("current") {
+                        "next" => DuplicateOwner::NextChunk,
+                        "neither" => DuplicateOwner::Neither,
+                        _ => DuplicateOwner::CurrentChunk,
+                    },
+                    resolution_method: ResolutionMethod::LLMZeroShot,
+                })
+                .unwrap_or_else(|| OverlapResolution::rule_based_fallback(current_chunk_text, overlap_chars))
+        }
+        Err(_) => OverlapResolution::rule_based_fallback(current_chunk_text, overlap_chars),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OverlapResolution {
+    pub has_overlap: bool,
+    pub overlap_type: OverlapType,
+    pub current_keep_end: usize,
+    pub next_start_offset: usize,
+    pub duplicate_belongs_in: DuplicateOwner,
+    pub resolution_method: ResolutionMethod,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum OverlapType { #[default] None, SentenceCutoff, ParagraphCutoff, WordCutoff }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum DuplicateOwner { #[default] CurrentChunk, NextChunk, Neither }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ResolutionMethod {
+    #[default] LLMZeroShot,
+    RuleBased,  // Emergency fallback only — not default path
+    None,
+}
+
+impl OverlapResolution {
+    fn rule_based_fallback(text: &str, overlap_chars: usize) -> Self {
+        // Find last sentence boundary in overlap window
+        let tail = &text[text.len().saturating_sub(overlap_chars)..];
+        let sentence_end = tail.rfind(|c| c == '.' || c == '!' || c == '?')
+            .map(|i| i + 1)
+            .unwrap_or(tail.len());
+        OverlapResolution {
+            has_overlap: false,
+            overlap_type: OverlapType::SentenceCutoff,
+            current_keep_end: text.len().saturating_sub(overlap_chars) + sentence_end,
+            next_start_offset: 0,
+            duplicate_belongs_in: DuplicateOwner::CurrentChunk,
+            resolution_method: ResolutionMethod::RuleBased,
+        }
+    }
+}
+```
+
+## C.3 Modality Detection (Per-Chunk, Consecutive Loop, Dynamic)
+
+```rust
+async fn detect_modalities_in_chunk(
+    &self,
+    chunk_text: &str,
+    chunk_index: u32,
+) -> Vec<ChunkModalityDetection> {
+    // Load registered modalities at runtime — never hardcoded
+    let available_modalities = self.pipeline_registry.get_modality_names().await;
+    let modality_list = available_modalities.join(", ");
+
+    let prompt = format!(r#"
+Identify all modality content present in or referenced by this text.
+
+Available modalities: {}
+
+Also detect:
+- "true_text" — content that is genuinely prose/text
+- "unknown" — content that does not fit any listed modality
+
+For each detected modality span, span_start and span_end are character offsets
+within the provided text. NO content_snippet — use span positions dynamically.
+
+Text chunk (index {}):
+{}
+
+Return ONLY valid JSON array:
+[{{
+  "modality": "...",
+  "span_start": 0,
+  "span_end": 100,
+  "intent_reference": "describes/contains/references/mentions"
+}}]"#, modality_list, chunk_index, &chunk_text[..chunk_text.len().min(4000)]);
+
+    // ... LLM call → parse → return ChunkModalityDetection vec
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkModalityDetection {
+    pub modality: String,
+    pub span_start: usize,
+    pub span_end: usize,
+    // NO content_snippet — retrieve dynamically: &text[span_start..span_end.min(span_start+50)]
+    pub intent_reference: String,
+    pub chunk_index: u32,
+}
+```
+
+## C.4 Grammar Relationship Extraction (Per-Chunk)
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkGrammarRelationship {
+    pub from_text: String,
+    pub to_text: String,
+    pub edge_type: String,              // maps to modality EdgeType variants
+    pub tense: Option<String>,
+    pub negated: bool,
+    pub verb: String,
+    pub verb_type: VerbType,            // from Z.ai
+    pub subject: String,
+    pub object: Option<String>,
+    pub source_sentence_start: Option<usize>,
+    pub source_sentence_end: Option<usize>,
+    pub provenance: EdgeProvenance,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum VerbType {
+    #[default] Action,   // run, create, modify
+    Linking,             // is, seems, becomes
+    Helping,             // has, will, can
+}
+```
+
+## C.5 Consecutive Loop Infrastructure
+
+```rust
+async fn extract_until_stable<T, F, Fut, K>(
+    &self,
+    input_text: &str,
+    extractor: F,
+    dedup_key: fn(&T) -> K,
+    safety_max_rounds: usize,
+) -> Vec<T>
+where
+    T: Clone + std::fmt::Debug + Send,
+    F: Fn(String, Vec<T>) -> Fut + Send,
+    Fut: std::future::Future<Output = Vec<T>> + Send,
+    K: Eq + std::hash::Hash,
+{
+    let mut accumulated: Vec<T> = Vec::new();
+    let mut no_new_consecutive = 0;
+    let stable_threshold = 5;
+
+    for _round in 0..safety_max_rounds {
+        let candidates = extractor(input_text.to_string(), accumulated.clone()).await;
+        let existing_keys: std::collections::HashSet<K> =
+            accumulated.iter().map(|i| dedup_key(i)).collect();
+        let truly_new: Vec<T> = candidates.into_iter()
+            .filter(|item| !existing_keys.contains(&dedup_key(item))).collect();
+
+        if truly_new.is_empty() {
+            no_new_consecutive += 1;
+            if no_new_consecutive >= stable_threshold { break; }
+        } else {
+            no_new_consecutive = 0;
+            accumulated.extend(truly_new);
+        }
+    }
+    accumulated
+}
+```
+
+## C.6 Chunk Graph Structure
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkGraph {
+    pub graph_id: u64,
+    pub chunk_index: u32,
+    pub prompt_start_char: usize,
+    pub prompt_end_char: usize,
+
+    // Smart chunking reconstruction data
+    pub sentence_boundaries: Vec<SentenceBoundary>,
+    pub paragraph_breaks: Vec<usize>,
+    pub cleaned_text: String,
+    pub overlap_resolution: Option<OverlapResolution>,
+
+    // Extracted knowledge
+    pub keywords: Vec<String>,
+    pub topics: Vec<String>,
+    pub entity_nodes: Vec<ChunkEntityNode>,
+    pub grammar_relationships: Vec<ChunkGrammarRelationship>,
+    pub modality_detections: Vec<ChunkModalityDetection>,
+    pub root_modality_list_contribution: Vec<String>,
+
+    // Provenance & state
+    pub provenance: EdgeProvenance,
+    pub state: GraphStateType,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentenceBoundary {
+    pub start: usize,
+    pub end: usize,
+    pub sentence_type: SentenceType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SentenceType {
+    Declarative, Interrogative, Imperative, Exclamatory,
+    Fragment, CodeBlock, MathExpression,
+}
+
+/// Reconstruct context at any token limit from chunk graphs.
+pub fn reconstruct_context_at_token_limit(
+    chunk_graphs: &[ChunkGraph],
+    target_tokens: usize,
+    chars_per_token_estimate: usize,
+) -> ReconstructedContext {
+    let target_chars = target_tokens * chars_per_token_estimate;
+    let mut included_chunks = Vec::new();
+    let mut reconstruction_parts = Vec::new();
+    let mut total_chars = 0;
+
+    for chunk in chunk_graphs {
+        let chunk_chars = chunk.cleaned_text.len();
+        if total_chars + chunk_chars <= target_chars {
+            reconstruction_parts.push(chunk.cleaned_text.clone());
+            included_chunks.push(chunk.chunk_index);
+            total_chars += chunk_chars;
+        } else {
+            let remaining = target_chars - total_chars;
+            let partial = trim_to_sentence_boundary(&chunk.cleaned_text, remaining, &chunk.sentence_boundaries);
+            reconstruction_parts.push(partial);
+            included_chunks.push(chunk.chunk_index);
+            break;
+        }
+    }
+
+    ReconstructedContext {
+        text: reconstruction_parts.join("\n\n"),
+        included_chunk_indices: included_chunks,
+        total_chars,
+        estimated_tokens: total_chars / chars_per_token_estimate,
+    }
+}
+```
+
+## C.7 Unknown Modality Handling (from Z.ai)
+
+When a detected modality has no registered handler:
+
+```rust
+async fn handle_unknown_modality(&self, modality: &str, state: &mut OrchestrationState) {
+    // 1. Create a generic unknown container in ZSEI
+    let container_id = self.zsei.create_container(
+        ContainerType::UnknownModality,
+        &format!("/Modalities/Unknown/{}", modality),
+    ).await;
+
+    // 2. Trigger META clarification via ZSEI self-review:
+    //    ZSEI inspects its own modality registry for similar handlers
+    let similar = self.zsei.find_similar_handlers(modality).await;
+
+    if let Some(best_match) = similar.first() {
+        // Suggest re-routing to closest modality
+        state.pending_clarifications.push(ClarificationRequest {
+            template: ClarificationTemplate::MultipleChoice,
+            clarification_question: format!(
+                "Detected content type '{}' has no registered handler. \
+                 Closest match: '{}'. Route to that, or treat as generic?",
+                modality, best_match.name
+            ),
+            multiple_choice_options: vec![
+                ClarificationOption { label: "A".into(), text: format!("Route to {}", best_match.name), ..Default::default() },
+                ClarificationOption { label: "B".into(), text: "Treat as generic text/data".into(), ..Default::default() },
+                ClarificationOption { label: "C".into(), text: "Skip this content".into(), ..Default::default() },
+            ],
+            allows_free_text: false,
+            ..Default::default()
+        });
+    } else {
+        // No similar handler — always treat unknown as generic text
+        // Store in unknown container, continue without halting
+        state.attached_files.push(AttachedFileInfo {
+            modality: "text".to_string(),
+            is_supplementary: true,
+            ..Default::default()
+        });
+    }
+}
+```
+
+---
+
+# SECTION D: INITIAL GRAPH CREATION (Before AMT)
+
+## D.1 Overview
+
+Initial graph creation happens BEFORE AMT. Gives AMT access to already-constructed graph evidence.
+
+```
+PASS 1 — PARALLEL STRUCTURAL CREATION
+  Create ALL modality graphs simultaneously (structural only)
+  Each graph root node carries detection metadata from RootModalityList
+  File graphs are inputs here (classified as primary/supplementary in C.1.1)
+
+PASS 2 — SEMANTIC ENRICHMENT
+  TEXT FIRST (sequential) — it references other modality graphs
+  ALL OTHERS (parallel after text)
+  State after: SemanticEnriched
+
+PASS 3 — CROSS-MODAL REFERENCE (5x stable)
+  Text → all other modalities
+  All → text (back-references)
+  Inter-modality (pass 3+)
+  All edges registered in CrossModalIndex (Section B.7)
+  State after: CrossLinked → Stable
+```
+
+## D.2 Modality Graph Root Node
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModalityGraphRoot {
+    pub core: NodeCore,         // NodeCore is always first field
+
+    // === MODALITY ROOT FIELDS ===
+    pub graph_id: u64,
+    pub modality: String,
+    pub workspace_id: u64,
+    pub project_id: u64,
+
+    // Detection metadata
+    pub detected_in_chunks: Vec<u32>,
+    pub span_evidence: Vec<ModalityEvidence>,
+    pub total_span_chars: usize,
+    pub source_file_paths: Vec<String>,     // files contributing to this modality graph
+    pub classified_file_roles: HashMap<String, FileGraphRole>, // file_path → role
+
+    // Graph metadata
+    pub cross_modal_index_id: Option<u64>,
+}
+```
+
+---
+
+# SECTION E: AMT BUILDING (Layer-by-Layer)
+
+## E.1 Architecture
+
+AMT is built after initial graphs exist. Layer-by-layer — each layer validated independently with 5x consecutive stable loop. No single `build_amt_until_stable` wrapper.
+
+```rust
+async fn build_amt_layer_by_layer(&self, state: &mut OrchestrationState) -> OzoneResult<()> {
+    let mut current_layer = 0;
+    loop {
+        current_layer += 1;
+        let layer_input = self.gather_layer_input(state, current_layer).await?;
+        self.build_amt_layer(state, current_layer, &layer_input).await?;
+
+        // Per-layer: 5x consecutive stable validation
+        let mut layer_stable_count = 0;
+        let mut layer_round = 0;
+        loop {
+            layer_round += 1;
+            let new_findings = self.validate_amt_layer(state, current_layer).await?;
+            let method_gaps = self.cross_reference_methodologies_for_layer(state, current_layer).await?;
+            let has_new = !new_findings.is_empty() || !method_gaps.is_empty();
+
+            if has_new {
+                layer_stable_count = 0;
+                self.expand_amt_layer(state, current_layer, new_findings, method_gaps).await?;
+            } else {
+                layer_stable_count += 1;
+                if layer_stable_count >= 5 { break; }
+            }
+            if layer_round > 50 { break; }
+        }
+
+        if !self.amt_has_pending_sub_intents(state, current_layer).await? { break; }
+    }
+    state.amt_stable = true;
+    Ok(())
+}
+```
+
+## E.2 Methodology Gap Tracking (from Z.ai)
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MethodologyGap {
+    pub branch_id: String,
+    pub required_domain: String,
+    pub missing_methodology: String,
+    pub suggested_principles: Vec<String>,
+    pub involved_modalities: Vec<String>,
+}
+```
+
+---
+
+# SECTION F: MODALITY-SPECIFIC MODIFICATIONS (100–108)
+
+## F.1 Text Modality (100)
+
+### F.1.1 Text Node Types
+
+```rust
+pub enum TextNodeType {
+    Root, Document, Section, Paragraph, Sentence, Phrase, Word,
+    Entity, Keyword, Topic,
+    ModalityReference,      // span of text containing/referencing another modality
+    TrueTextSpan,           // genuinely text (not embedded code/math/etc.)
+    FileReference,          // reference to an attached file
+    ChunkReference,         // reference back to source chunk graph
+    SupplementarySection,   // from a supplementary document
+    GrammarSubject,         // grammatical subject in a relationship
+    GrammarObject,          // grammatical object in a relationship
+    InferredConcept,        // concept inferred by LLM, not explicitly stated
+}
+```
+
+### F.1.2 Text Edge Types
+
+```rust
+pub enum TextEdgeType {
+    // Structural
+    Contains, Precedes, Follows, PartOf, HasPart,
+    // Grammar-derived
+    Performs, Affects, Implies, Contradicts, Elaborates, Summarizes, Supports,
+    TemporalPrecedes, TemporalFollows, CausedBy, Enables, Prevents,
+    FunctionalRole, InstanceOf, HasInstance, SimilarTo, RelatesTo,
+    // Versioning
+    DerivedFrom, VersionOf, RefinesTo, ForkedFrom,
+    // Cross-modality
+    ReferencesModality, ReferencedBy, DescribedBy, Describes,
+    ImplementedIn, Implements, VisualizedAs, Visualizes, SyncedTo, SyncedBy,
+    AnnotatedBy,
+    // File/Supplementary
+    SupplementsPrompt, ContextProvides,
+}
+```
+
+### F.1.3 TextAnalysisResult — Updated Fields
+
+```rust
+pub struct TextAnalysisResult {
+    pub document_text: String,
+    pub language: String,
+    pub chunks: Vec<ProcessedChunk>,
+    pub sentences: Vec<SentenceAnalysis>,
+    pub entities: Vec<ExtractedEntity>,
+    pub keywords: Vec<Keyword>,
+    pub topics: Vec<Topic>,
+    pub grammar_relationships: Vec<ChunkGrammarRelationship>,
+    pub detected_modalities: Vec<ChunkModalityDetection>,
+    pub true_text_spans: Vec<TextSpan>,
+    pub attached_files: Vec<AttachedFileInfo>,
+    pub is_supplementary: bool,
+    pub supplementary_intent: Option<String>,
+    pub source_type: TextSourceType,
+    pub chunk_graph_ids: Vec<u64>,
+    pub root_modality_contribution: Vec<String>,
+}
+
+pub struct SentenceAnalysis {
+    pub text: String,
+    pub start_char: usize,
+    pub end_char: usize,
+    pub subject: String,
+    pub verb: String,
+    pub verb_type: VerbType,
+    pub object: Option<String>,
+    pub tense: String,
+    pub relationships: Vec<ChunkGrammarRelationship>,
+    pub sentiment: Option<SentimentInfo>,  // from Z.ai
+}
+
+pub struct SentimentInfo {
+    pub label: String,      // positive/negative/neutral
+    pub score: f32,
+}
+
+pub enum TextSourceType { Prompt, AttachedFile, Supplementary }
+```
+
+## F.2 Code Modality (101)
+
+```rust
+pub enum CodeEdgeType {
+    // Standard
+    Contains, Calls, CalledBy, Imports, ImportedBy, Defines, DefinedBy,
+    DependsOn, RequiredBy,
+    // Intent/Pattern
+    ImplementsPattern, UsesPattern, IntentSolves, DataFlows, ControlFlows,
+    ExtendsAbstraction,
+    // Universal semantic
+    Performs, Affects, Enables, DerivedFrom, VersionOf, SimilarTo,
+    // Cross-modal
+    DescribedBy, VisualizedAs, Implements, ImplementedIn,
+}
+
+pub struct IntentRelationship {
+    pub from: String,
+    pub to: String,
+    pub relationship: IntentEdgeType,
+    pub detail: String,
+    pub provenance: EdgeProvenance,
+}
+```
+
+## F.3 Image Modality (102)
+
+```rust
+pub enum ImageEdgeType {
+    Contains, PartOf, HasPart,
+    SpatialAbove, SpatialBelow, SpatialLeft, SpatialRight,
+    Occludes, PhysicallySupports, ContainedIn,
+    DirectlyAbove, DirectlyBelow,
+    FocalSubject, LeadsEyeTo, PartOfObject,
+    SimilarTo, ReferencesModality, DescribedBy, VisualizedAs,
+}
+
+pub struct SpatialRelationship {
+    pub object_a: String,
+    pub object_b: String,
+    pub relationship: SpatialEdgeType,
+    pub spatial_vector: Option<(f32, f32)>,
+}
+
+pub struct Affordance {
+    pub object: String,
+    pub affordance: String,         // "CanSupport", "CanContain", etc.
+    pub target: Option<String>,
+}
+```
+
+## F.4 Audio Modality (103)
+
+```rust
+pub enum AudioEdgeType {
+    Contains, Precedes, Follows,
+    Causes, OverlapsWith, InterruptedBy, ResponseTo, ToneIndicates, PitchCorrelates,
+    TemporalPrecedes, TemporalFollows,
+    SyncedTo, SyncedBy,
+    DescribedBy, ReferencedBy,
+}
+
+pub struct TemporalChain {
+    pub event_a: String,
+    pub event_b: String,
+    pub chain_type: AudioChainType,
+    pub time_gap_ms: f32,
+}
+
+pub enum AudioChainType { Causes, Precedes, Enables, Triggers, InterruptedBy }
+
+pub struct ProsodyAnalysis {
+    pub avg_pitch_hz: f32,
+    pub pitch_variation: f32,
+    pub speaking_rate_wpm: f32,
+    pub energy_profile: Vec<(f32, f32)>,
+    pub emotional_markers: Vec<EmotionalMarker>,
+}
+```
+
+## F.5 Video Modality (104)
+
+```rust
+pub enum VideoEdgeType {
+    Contains, Precedes, Follows,
+    InteractsWith, CollidesWith, FollowsSpatial, CausesEvent,
+    NarrativeLeadsTo, AudioSyncsTo,
+    SyncedTo, SyncedBy, DescribedBy, VisualizedAs,
+}
+
+pub struct ObjectInteraction {
+    pub track_a: String,
+    pub track_b: String,
+    pub interaction_type: InteractionType,
+    pub start_time_secs: f32,
+    pub end_time_secs: f32,
+}
+
+pub enum InteractionType { Touches, Collides, Follows, Approaches, Leaves, PassesBy }
+```
+
+## F.6 Math Modality (105)
+
+```rust
+pub enum MathEdgeType {
+    Contains, Precedes, Follows, DependsOn,
+    LogicallyImplies, LogicallyEquivalent, Contradicts,
+    Generalizes, SpecialCaseOf, UsedToProve, DischargesAssumption, AssumesIn,
+    DescribedBy, ImplementedIn,
+}
+
+pub struct LogicalRelation {
+    pub from_step_id: String,
+    pub to_step_id: String,
+    pub relation_type: LogicalRelationType,
+    pub justification: String,
+}
+```
+
+## F.7 Chemistry Modality (106)
+
+```rust
+pub enum ChemistryEdgeType {
+    Contains, BondsWith, ReactsWith, Produces, Catalyzes,
+    MechanismStep, TransitionState, IntermediateOf, ReactivityTo,
+    SimilarReactivity, SimilarTo,
+    DescribedBy, ImplementedIn,
+}
+```
+
+## F.8 DNA Modality (107)
+
+```rust
+pub enum DNAEdgeType {
+    Contains, Precedes, Follows,
+    Regulates, Inhibits, Activates, BindsTo,
+    EvolvesInto, Homologous, CoEvolvesWithSeq,
+    DescribedBy,
+}
+
+pub struct RegulatoryRelation {
+    pub regulator_id: String,
+    pub target_id: String,
+    pub regulation_type: RegulationType,
+    pub evidence_source: String,
+    pub provenance: EdgeProvenance,
+}
+```
+
+## F.9 EEG Modality (108)
+
+```rust
+pub enum EEGEdgeType {
+    Contains, Precedes, Follows,
+    TransitionTo, CognitiveTriggers, AttentionShift, CorrelatesWithTask,
+    Influences, DescribedBy,
+}
+
+pub struct BrainStateTransition {
+    pub from_state: String,
+    pub to_state: String,
+    pub transition_time_sec: f32,
+    pub trigger_event: Option<String>,
+    pub provenance: EdgeProvenance,
+}
+```
+
+---
+
+# SECTION G: ORCHESTRATOR MODIFICATIONS
+
+## G.1 OrchestrationState — Complete Updated Structure
+
+```rust
+pub struct OrchestrationState {
+    // === IDENTITY ===
+    pub task_id: TaskID,
+    pub project_id: u64,
+    pub workspace_id: u64,              // from Z.ai — always tracked
+    pub user_id: u64,
+    pub original_prompt: String,
+
+    // === CONTEXT SCOPE ===
+    pub context_scope: ContextScope,
+
+    // === PHASE TRACKING ===
+    pub current_phase: ProcessingPhase,
+    pub phase_history: Vec<PhaseTransition>,
+
+    // === PHASE 1: NORMALIZATION ===
+    pub chunk_graphs: Vec<ChunkGraph>,
+    pub processed_chunks: Vec<ProcessedChunk>,
+    pub root_modality_list: RootModalityList,
+    pub attached_file_infos: Vec<FileModalityInfo>,     // raw routing info
+    pub file_graphs: HashMap<String, u64>,              // file_path → file graph_id (from Z.ai)
+    pub classified_file_graphs: Vec<ClassifiedFileGraph>, // primary/supplementary/raw
+
+    // === PHASE 2: GRAPHS ===
+    pub graphs: HashMap<String, u64>,           // modality_name → graph_id
+    pub graph_states: HashMap<u64, GraphState>,
+    pub cross_modal_index_id: Option<u64>,
+    pub initial_graphs_created: bool,
+
+    // === PHASE 3: AMT ===
+    pub amt: AMTTree,
+    pub amt_stable: bool,
+    pub amt_layer: u32,
+    pub methodology_gaps: Vec<MethodologyGap>,  // from Z.ai
+
+    // === METHODOLOGIES ===
+    pub active_methodology_ids: Vec<u64>,
+    pub active_methodologies: HashMap<u64, Methodology>,
+
+    // === PHASE 4: BLUEPRINT ===
+    pub blueprint_id: Option<u64>,
+    pub blueprint_steps: Vec<BlueprintStep>,
+    pub step_states: HashMap<u32, TaskStepState>,
+
+    // === PHASE 5: EXECUTION ===
+    pub step_version_notes: HashMap<u32, Vec<VersionNote>>,
+    pub tokens_used: u64,
+
+    // === CLARIFICATION ===
+    pub pending_clarifications: Vec<ClarificationRequest>,
+    pub clarification_responses: Vec<ClarificationResponse>,
+    pub awaiting_clarification: bool,
+
+    // === CONSCIOUSNESS ===
+    pub consciousness_enabled: bool,
+
+    // === PROGRESSION ===
+    pub progression: ProgressionState,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ContextScope { #[default] Global, Project(u64), Workspace(u64) }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ProcessingPhase {
+    #[default] InputReception,
+    PromptNormalization, FileProcessing, FileClassification,
+    InitialGraphCreation, AMTBuilding, BlueprintCreation,
+    StepExecution, Clarification, Completed, Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PhaseTransition {
+    pub from: ProcessingPhase,
+    pub to: ProcessingPhase,
+    pub timestamp: String,
+    pub reason: String,             // from Z.ai
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProgressionState {
+    pub current_phase: ProcessingPhase,
+    pub chunks_processed: usize,
+    pub total_chunks: usize,
+    pub files_processed: usize,
+    pub total_files: usize,
+    pub graphs_created: usize,
+    pub total_graphs_expected: usize,
+    pub amt_layers_built: usize,
+    pub steps_completed: usize,
+    pub steps_total: usize,
+    pub steps_blocked: usize,
+}
+```
+
+## G.2 Hook-Based Living System
+
+```rust
+async fn execute_step_with_hooks(
+    &self, state: &mut OrchestrationState, step: &BlueprintStep,
+) -> OzoneResult<StepResult> {
+    self.update_step_status(state, step.step_index, StepStatus::Active).await?;
+    let result = self.execute_step_inner(state, step).await?;
+    self.on_step_complete(state, step, &result).await?;
+    Ok(result)
+}
+
+async fn on_step_complete(
+    &self, state: &mut OrchestrationState, step: &BlueprintStep, result: &StepResult,
+) -> OzoneResult<()> {
+    // 1. Update step status
+    self.update_step_status(state, step.step_index,
+        StepStatus::StageComplete(result.stage_completed)).await?;
+
+    // 2. Detect graph updates (event-driven)
+    let graph_updates = self.detect_graph_updates(state, result).await?;
+
+    if !graph_updates.is_empty() {
+        // 3. Apply + register in CrossModalIndex
+        for update in &graph_updates {
+            self.apply_graph_update(state, update).await?;
+            self.update_graph_state(state, update.graph_id, GraphStateType::Updated).await?;
+            if update.has_cross_modal_edges {
+                self.update_cross_modal_index(state, update).await?;
+            }
+        }
+
+        // 4. Review AMT alignment
+        let amt_expanded = self.review_amt_alignment(state).await?;
+        if amt_expanded {
+            let new_steps = self.synthesize_steps_from_new_amt_branches(state).await?;
+            state.blueprint_steps.extend(new_steps);
+            state.progression.steps_total = state.blueprint_steps.len();
+            self.cross_reference_methodologies_global(state).await?;
+            self.verify_pipeline_coverage_for_new_steps(state).await?;
+        }
+
+        // 5. Update dependent step states
+        self.propagate_graph_updates_to_dependent_steps(state, &graph_updates).await?;
+    }
+
+    // 6. Version note
+    self.add_version_note_to_step(state, step.step_index, result).await?;
+
+    // 7. Final status
+    if result.all_stages_done {
+        self.update_step_status(state, step.step_index, StepStatus::Complete).await?;
+    }
+    Ok(())
+}
+
+/// NO maximum iteration limit. Runs until all steps complete.
+async fn execute_all_steps(&self, state: &mut OrchestrationState) -> OzoneResult<()> {
+    while !self.all_steps_complete(state) {
+        let ready = self.get_ready_steps(state);
+        if ready.is_empty() {
+            if self.has_pending_clarifications(state) {
+                self.surface_clarification(state).await?;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            continue;
+        }
+        let step_futures: Vec<_> = ready.iter()
+            .map(|step| self.execute_step_with_hooks(state, step)).collect();
+        futures::future::join_all(step_futures).await;
+    }
+    Ok(())
+}
+```
+
+---
+
+# SECTION H: TASK MANAGER MODIFICATIONS
+
+## H.1 StepStatus
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub enum StepStatus {
+    #[default] Planned,
+    WaitingOnDependency,
+    Active,
+    StageComplete(u32),
+    WaitingPostReview,
+    Complete,
+    Failed,
+    Rollback,
+    Cancelled,
+}
+```
+
+## H.2 TaskStepState
+
+```rust
+pub struct TaskStepState {
+    pub step_index: u32,
+    pub pipeline_id: u64,
+    pub pipeline_name: String,
+    pub stages_completed: Vec<String>,
+    pub stages_pending: Vec<String>,
+    pub current_stage: Option<String>,
+    pub total_expected_stages: u32,
+    pub version: u32,
+    pub version_notes: Vec<VersionNote>,
+    pub graph_ids_read: Vec<u64>,
+    pub graph_ids_updated: Vec<u64>,
+    pub waiting_on_step_indices: Vec<u32>,
+    pub unblocks_step_indices: Vec<u32>,
+    pub status: StepStatus,
+    pub tokens_used: u32,
+    pub execution_ids: Vec<String>,
+    pub methodologies_applied: Vec<u64>,
+}
+```
+
+## H.3 update_step Signature
+
+```rust
+pub async fn update_step(
+    &self,
+    task_id: TaskID,
+    step_index: u32,
+    new_status: StepStatus,
+    tokens_used: Option<u32>,
+    output_preview: Option<String>,
+    execution_id: Option<String>,
+    pipeline_name: String,
+    version_note: Option<VersionNote>,
+    graph_ids_updated: Vec<u64>,
+    stage_completed: Option<String>,
+    methodology_ids_applied: Vec<u64>,
+) -> OzoneResult<()>;
+```
+
+---
+
+# SECTION I: CLARIFICATION SYSTEM
+
+## I.1 Data Structures
+
+```rust
+pub struct ClarificationRequest {
+    pub request_id: u64,
+    pub created_at: String,
+    pub amt_branch_path: Vec<String>,
+    pub current_intent_text: String,
+    pub clarification_question: String,
+    pub template: ClarificationTemplate,
+    pub allows_free_text: bool,
+    pub allows_multiple_choice: bool,
+    pub multiple_choice_options: Vec<ClarificationOption>,
+    pub max_response_length: Option<usize>,
+}
+
+pub enum ClarificationTemplate {
+    MultipleChoice, MultipleChoiceWithFreeText, FreeText, YesNo, RankOptions,
+}
+
+pub struct ClarificationOption {
+    pub label: String,
+    pub text: String,
+    pub amt_expansion: Option<String>,
+}
+
+pub struct ClarificationResponse {
+    pub request_id: u64,
+    pub response_type: ResponseType,
+    pub selected_option: Option<String>,
+    pub free_text: Option<String>,
+    pub received_at: String,
+    pub processed: bool,
+    pub new_intents_discovered: Vec<String>,
+    pub amt_expansion: Option<String>,
+}
+```
+
+## I.2 Clarification Processing Logic
+
+```rust
+/// INVARIANT: new insights captured but we ALWAYS return to close the
+/// current clarification before proceeding. Human cannot derail AMT.
+async fn process_clarification_response(
+    &self, state: &mut OrchestrationState, response: ClarificationResponse,
+) -> OzoneResult<()> {
+    let request = state.pending_clarifications.iter()
+        .find(|r| r.request_id == response.request_id).cloned()
+        .ok_or(OzoneError::ClarificationNotFound)?;
+
+    // 1. Apply selected option's AMT expansion
+    if let Some(ref label) = response.selected_option {
+        if let Some(opt) = request.multiple_choice_options.iter().find(|o| o.label == *label) {
+            if let Some(ref expansion) = opt.amt_expansion {
+                self.expand_amt_branch(state, &request.amt_branch_path, expansion).await?;
+            }
+        }
+    }
+
+    // 2. Extract NEW INSIGHTS from free text — add to AMT but don't follow yet
+    if let Some(ref free_text) = response.free_text {
+        let new_intents = self.extract_new_intents_from_clarification_text(
+            free_text, &request.current_intent_text).await?;
+        for intent in &new_intents {
+            self.add_intent_to_amt(state, intent).await?;
+            // NOTE: Acknowledge but don't follow until current clarification closed
+        }
+    }
+
+    // 3. Close clarification
+    state.pending_clarifications.retain(|r| r.request_id != response.request_id);
+    if state.pending_clarifications.is_empty() {
+        state.awaiting_clarification = false;
+    }
+    Ok(())
+}
+```
+
+---
+
+# SECTION J: CONTEXT AGGREGATION (Integrated)
+
+## J.1 Architecture Decision
+
+Pipeline #21 remains for UI-level queries. Per-step context uses orchestrator's smart chunk reconstruction.
+
+```rust
+async fn prepare_step_context(
+    &self, state: &OrchestrationState, step: &BlueprintStep, token_budget: usize,
+) -> OzoneResult<PreparedStepContext> {
+    let mut budget_remaining = token_budget;
+
+    // 1. Graph context from relevant modality graphs
+    let graph_context = self.extract_graph_context_for_step(state, step, budget_remaining / 2).await?;
+    budget_remaining -= graph_context.estimated_tokens;
+
+    // 2. Smart chunk reconstruction at remaining budget
+    let chunk_context = reconstruct_context_at_token_limit(
+        &state.chunk_graphs, budget_remaining, 4);
+    budget_remaining -= chunk_context.estimated_tokens;
+
+    // 3. Methodology summaries
+    let method_context = self.build_methodology_context(state, step, budget_remaining / 3).await?;
+
+    // 4. Workspace/project history if scoped and budget allows
+    let history_context = if budget_remaining > 500 {
+        self.load_scoped_history_context(state, budget_remaining / 2).await.ok()
+    } else { None };
+
+    Ok(PreparedStepContext {
+        graph_context_text: graph_context.text,
+        chunk_context_text: chunk_context.text,
+        methodology_context_text: method_context,
+        history_context_text: history_context,
+        total_estimated_tokens: token_budget - budget_remaining,
+        included_chunk_indices: chunk_context.included_chunk_indices,
+        included_graph_ids: graph_context.included_graph_ids,
+    })
+}
+```
+
+## J.2 Context Scope
+
+```rust
+async fn determine_context_scope(
+    &self, project_id: Option<u64>, workspace_id: Option<u64>,
+) -> ContextScope {
+    match (project_id, workspace_id) {
+        (Some(pid), _) => ContextScope::Project(pid),
+        (None, Some(wid)) => ContextScope::Workspace(wid),
+        (None, None) => ContextScope::Global,
+    }
+}
+```
+
+---
+
+# SECTION K: METHODOLOGY AND PIPELINE MANAGEMENT
+
+## K.1 Methodology Structure
+
+```rust
+pub struct Methodology {
+    pub methodology_id: u64,
+    pub name: String,
+    pub description: String,
+    pub category: String,
+    pub version: u32,
+    pub principles: Vec<Principle>,
+    pub heuristics: Vec<Heuristic>,
+    pub decision_rules: Vec<DecisionRule>,
+    pub keywords: Vec<String>,
+    pub topics: Vec<String>,
+    pub applicable_modalities: Vec<String>,
+    pub created_by: MethodologyOrigin,
+    pub network_proposal_id: Option<u64>,
+    pub is_network_shared: bool,
+    pub created_at: String,
+    pub updated_at: String,
+    pub version_notes: Vec<VersionNote>,
+}
+
+pub enum MethodologyOrigin {
+    SynthesizedByAGI,
+    UserDefined,
+    NetworkConsensus(u64),
+    SystemBuiltin,
+}
+```
+
+## K.2 Pipeline Definition
+
+```rust
+pub struct PipelineDefinition {
+    pub pipeline_id: u64,
+    pub name: String,
+    pub description: String,
+    pub language: PipelineLanguage,
+    pub input_schema: Vec<SchemaField>,
+    pub output_schema: Vec<SchemaField>,
+    pub supported_actions: Vec<String>,
+    pub category: PipelineCategory,
+    pub applicable_modalities: Vec<String>,
+    pub can_run_headless: bool,     // ALL pipelines must be true
+    pub requires_ui: bool,          // false for most
+    pub source_code_path: Option<String>,
+    pub version: u32,
+    pub created_at: String,
+    pub version_notes: Vec<VersionNote>,
+}
+
+pub enum PipelineLanguage { Rust, Python, JavaScript, TypeScript }
+
+pub enum PipelineCategory {
+    Modality, Orchestration, Engine, Infrastructure, Analysis, Generation,
+}
+```
+
+---
+
+# SECTION L: MODALITY ENGINE PIPELINES
+
+## L.1 Engine Architecture
+
+All engines are AGI-first: headless operation is mandatory, UI is additive.
+
+```rust
+// Every engine pipeline exports this interface via ModalityEngine trait (Section B.8)
+// Additionally, each has this serde-tagged enum for direct invocation:
+#[serde(tag = "action")]
+pub enum EngineAction<T> {
+    ProcessHeadless { data: T },
+    Render { scene_id: u64, format: RenderFormat },
+    Export { scene_id: u64, format: ExportFormat },
+    QueryGraph { graph_id: u64, query: GraphQuery },
+    UpdateFromStep { step_index: u32, updates: Vec<GraphUpdate> },
+    StreamToUI { session_id: String },
+}
+```
+
+## L.2 3D Engine Pipeline (109) — Additional Actions
+
+Beyond existing `modality_109_3d.rs` content:
+
+```rust
+ThreeDAction::RunSimulation {
+    scene_id: u64, domain: SimulationDomain,
+    frames: u32, headless: bool,
+},
+
+pub enum SimulationDomain {
+    Robotics, Manipulation, Fluid, RigidBody, SoftBody, Cloth,
+    Particles, Vehicle, Drone, BioMechanics, Aerospace, Maritime,
+    Construction, Automotive, SoftRobotics, Industrial, Medical, Custom(String),
+}
+
+pub enum TargetEngine {
+    Blender, Gazebo, IsaacSim, IsaacLab, Unity, Unreal, Custom(String),
+}
+```
+
+## L.3 Engine Registry
+
+```rust
+// ENGINE_REGISTRY — complete list
+let ENGINE_REGISTRY = {
+    "3d":             (label: "3D Scene",      icon: "🎬", pipelineId: 109),
+    "eeg":            (label: "Neural Signal", icon: "🧠", pipelineId: 108),
+    "bci":            (label: "BCI",           icon: "⚡", pipelineId: 119),
+    "dna":            (label: "Genome",        icon: "🧬", pipelineId: 107),
+    "chemistry":      (label: "Molecular",     icon: "⚗", pipelineId: 106),
+    "math":           (label: "Proof",         icon: "∑",  pipelineId: 105),
+    "code":           (label: "Code Intel",    icon: "◻",  pipelineId: 101),
+    "parametric_cad": (label: "CAD",           icon: "📐", pipelineId: 120),
+    "kinematics":     (label: "Kinematics",    icon: "🤖", pipelineId: 121),
+    "geospatial":     (label: "Map",           icon: "🗺",  pipelineId: 117),
+    "radar":          (label: "Radar",         icon: "📡", pipelineId: 124),
+    "sonar":          (label: "Sonar",         icon: "🔊", pipelineId: 125),
+    "hyperspectral":  (label: "Hyperspectral", icon: "🌈", pipelineId: 126),
+};
+```
+
+---
+
+# SECTION M: INFRASTRUCTURE MODIFICATIONS
+
+## M.1 Bootstrap — New Modality Roots
+
+```rust
+// ContainerType enum — Z.ai's approach adopted:
+// modality_id = container_type_value, clean and self-documenting
+
+pub enum ContainerType {
+    // Core system
+    BootstrapRoot = 0,
+    ProjectsRoot = 1,
+    WorkspacesRoot = 2,
+    ChunkGraphRoot = 3,         // /ChunkGraphs (new)
+    FileGraphRoot = 4,          // /FileGraphs (new)
+    CrossModalIndexRoot = 5,    // /CrossModalIndices (new)
+
+    // Modality roots — ID = pipeline ID
+    TextRoot = 100,
+    CodeRoot = 101,
+    ImageRoot = 102,
+    AudioRoot = 103,
+    VideoRoot = 104,
+    MathRoot = 105,
+    ChemistryRoot = 106,
+    DNARoot = 107,
+    EEGRoot = 108,
+    ThreeDRoot = 109,
+    SoundReconstructionRoot = 110,
+    BiologyRoot = 111,
+    ProteomicsRoot = 112,
+    HapticRoot = 113,
+    ThermalRoot = 114,
+    DepthRoot = 115,
+    IMURoot = 116,
+    GeospatialRoot = 117,
+    ElectromagneticRoot = 118,
+    BCIRoot = 119,
+    ParametricCADRoot = 120,
+    KinematicsRoot = 121,
+    ControlSystemsRoot = 122,
+    NetworkTopologyRoot = 123,
+    RadarRoot = 124,
+    SonarRoot = 125,
+    HyperspectralRoot = 126,
+}
+
+// Bootstrap constants
+pub const CHUNK_GRAPH_ROOT: u64 = 3;
+pub const FILE_GRAPH_ROOT: u64 = 4;
+pub const CROSS_MODAL_INDEX_ROOT: u64 = 5;
+pub const RADAR_ROOT: u64 = 124;
+pub const SONAR_ROOT: u64 = 125;
+pub const HYPERSPECTRAL_ROOT: u64 = 126;
+```
+
+## M.2 Pipeline Registry — Complete Entries (100–126)
+
+```rust
+lazy_static! {
+    pub static ref PIPELINE_INFO: HashMap<u64, PipelineInfo> = {
+        let mut m = HashMap::new();
+        // Modalities
+        m.insert(100, PipelineInfo { id: 100, name: "TextAnalysis",         folder: "text",              category: "modality", headless: true });
+        m.insert(101, PipelineInfo { id: 101, name: "CodeAnalysis",          folder: "code",              category: "modality", headless: true });
+        m.insert(102, PipelineInfo { id: 102, name: "ImageAnalysis",         folder: "image",             category: "modality", headless: true });
+        m.insert(103, PipelineInfo { id: 103, name: "AudioAnalysis",         folder: "audio",             category: "modality", headless: true });
+        m.insert(104, PipelineInfo { id: 104, name: "VideoAnalysis",         folder: "video",             category: "modality", headless: true });
+        m.insert(105, PipelineInfo { id: 105, name: "MathAnalysis",          folder: "math",              category: "engine",   headless: true });
+        m.insert(106, PipelineInfo { id: 106, name: "ChemistryAnalysis",     folder: "chemistry",         category: "engine",   headless: true });
+        m.insert(107, PipelineInfo { id: 107, name: "DNAAnalysis",           folder: "dna",               category: "engine",   headless: true });
+        m.insert(108, PipelineInfo { id: 108, name: "EEGAnalysis",           folder: "eeg",               category: "engine",   headless: true });
+        m.insert(109, PipelineInfo { id: 109, name: "3DEngine",              folder: "3d_engine",         category: "engine",   headless: true });
+        m.insert(110, PipelineInfo { id: 110, name: "SoundReconstruction",   folder: "sound_reconstruction", category: "modality", headless: true });
+        m.insert(111, PipelineInfo { id: 111, name: "MultiScaleBiology",     folder: "biology",           category: "modality", headless: true });
+        m.insert(112, PipelineInfo { id: 112, name: "Proteomics",            folder: "proteomics",        category: "modality", headless: true });
+        m.insert(113, PipelineInfo { id: 113, name: "Haptic",                folder: "haptic",            category: "modality", headless: true });
+        m.insert(114, PipelineInfo { id: 114, name: "Thermal",               folder: "thermal",           category: "modality", headless: true });
+        m.insert(115, PipelineInfo { id: 115, name: "DepthSensing",          folder: "depth_sensing",     category: "modality", headless: true });
+        m.insert(116, PipelineInfo { id: 116, name: "IMU",                   folder: "imu",               category: "modality", headless: true });
+        m.insert(117, PipelineInfo { id: 117, name: "Geospatial",            folder: "geospatial",        category: "engine",   headless: true });
+        m.insert(118, PipelineInfo { id: 118, name: "Electromagnetic",       folder: "electromagnetic",   category: "modality", headless: true });
+        m.insert(119, PipelineInfo { id: 119, name: "BCI",                   folder: "bci",               category: "engine",   headless: true });
+        m.insert(120, PipelineInfo { id: 120, name: "ParametricCAD",         folder: "parametric_cad",    category: "engine",   headless: true });
+        m.insert(121, PipelineInfo { id: 121, name: "Kinematics",            folder: "kinematics",        category: "modality", headless: true });
+        m.insert(122, PipelineInfo { id: 122, name: "ControlSystems",        folder: "control_systems",   category: "modality", headless: true });
+        m.insert(123, PipelineInfo { id: 123, name: "NetworkTopology",       folder: "network_topology",  category: "modality", headless: true });
+        m.insert(124, PipelineInfo { id: 124, name: "ActiveRadar",           folder: "radar",             category: "engine",   headless: true });
+        m.insert(125, PipelineInfo { id: 125, name: "ActiveSonar",           folder: "sonar",             category: "engine",   headless: true });
+        m.insert(126, PipelineInfo { id: 126, name: "Hyperspectral",         folder: "hyperspectral",     category: "engine",   headless: true });
+        m
+    };
+}
+```
+
+## M.3 Pipeline Executor
+
+```rust
+// Shared utilities:
+pub fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs()
+}
+
+pub fn now_iso8601() -> String { format!("{}", now_secs()) }
+
+// Token tracking:
+pub async fn update_tokens_in_progress(&self, execution_id: &str, additional_tokens: u32) {
+    let mut map = self.progress_map.write().await;
+    if let Some(p) = map.get_mut(execution_id) {
+        p.tokens_used = Some(p.tokens_used.unwrap_or(0) + additional_tokens);
+    }
+}
+```
+
+---
+
+# SECTION N: UI COMPONENT UPDATES
+
+## N.1 Task Manager UI — Missing Elements
+
+Add to the TasksUI component:
+
+1. **Clarification banner** — when task.status === 'clarifying'
+2. **Step stage display** — breakdown of stages within each step
+3. **Graph impact display** — which graphs a step read/updated
+4. **Version notes** — version history per step
+5. **Living system state** — hook-triggered review indicator
+
+```javascript
+// 1. CLARIFICATION BANNER
+task.status === 'clarifying' && React.createElement('div', { className: 'clarification-banner' },
+    React.createElement('span', { className: 'clarification-icon' }, '◆'),
+    React.createElement('div', { className: 'clarification-content' },
+        React.createElement('h4', null, 'Clarification Needed'),
+        React.createElement('p', null, taskDetails.pending_clarification?.question),
+        taskDetails.pending_clarification?.template === 'MultipleChoice' && (
+            React.createElement('div', { className: 'clarification-options' },
+                taskDetails.pending_clarification.options.map(opt =>
+                    React.createElement('button', {
+                        key: opt.label, className: 'clarification-option',
+                        onClick: () => handleClarificationResponse(task.id, {
+                            request_id: taskDetails.pending_clarification.request_id,
+                            response_type: 'SelectedOption',
+                            selected_option: opt.label,
+                        })
+                    },
+                        React.createElement('span', { className: 'option-label' }, opt.label),
+                        React.createElement('span', { className: 'option-text' }, opt.text)
+                    )
+                )
+            )
+        ),
+        taskDetails.pending_clarification?.allows_free_text && (
+            React.createElement('div', { className: 'clarification-free-text' },
+                React.createElement('textarea', {
+                    placeholder: 'Or type your response...',
+                    value: clarificationInput,
+                    onChange: e => setClarificationInput(e.target.value),
+                }),
+                React.createElement('button', {
+                    onClick: () => handleClarificationResponse(task.id, {
+                        request_id: taskDetails.pending_clarification.request_id,
+                        response_type: 'FreeText', free_text: clarificationInput,
+                    }),
+                    disabled: !clarificationInput.trim(),
+                }, 'Submit')
+            )
+        )
+    )
+),
+
+// 2. STEP STAGE DISPLAY
+step.stages_completed.length > 0 && React.createElement('div', { className: 'step-stages' },
+    React.createElement('h5', null, 'Stages'),
+    [...step.stages_completed.map(s => ({ name: s, done: true })),
+     step.current_stage ? [{ name: step.current_stage, active: true }] : [],
+     ...step.stages_pending.map(s => ({ name: s, pending: true }))
+    ].flat().map((stage, i) =>
+        React.createElement('div', { key: i, className: `stage-item ${stage.done ? 'done' : stage.active ? 'active' : 'pending'}` },
+            React.createElement('span', { className: 'stage-status' },
+                stage.done ? '✓' : stage.active ? '●' : '○'),
+            React.createElement('span', { className: 'stage-name' }, stage.name)
+        )
+    )
+),
+
+// 3. GRAPH IMPACT
+(step.graph_ids_read.length > 0 || step.graph_ids_updated.length > 0) &&
+React.createElement('div', { className: 'step-graphs' },
+    React.createElement('h5', null, 'Graph Impact'),
+    step.graph_ids_updated.length > 0 && React.createElement('div', { className: 'graphs-updated' },
+        React.createElement('span', { className: 'impact-label' }, '↑ Modified:'),
+        step.graph_ids_updated.map(id =>
+            React.createElement('span', {
+                key: id, className: 'graph-id-badge',
+                onClick: () => openContextViewer(id),
+            }, `Graph #${id}`)
+        )
+    )
+),
+
+// 4. VERSION NOTES
+step.version_notes.length > 0 && React.createElement('div', { className: 'step-version-notes' },
+    React.createElement('h5', null, 'Version History'),
+    step.version_notes.map((note, i) =>
+        React.createElement('div', { key: i, className: 'version-note' },
+            React.createElement('span', { className: 'note-version' }, `v${note.version}`),
+            React.createElement('span', { className: 'note-text' }, note.note)
+        )
+    )
+),
+```
+
+---
+
+# SECTION O: CONTEXT VIEWER UI COMPONENT
+
+## O.1 Architecture
+
+Three view modes: Graph View (force-directed SVG), Fabric View (cross-modal constellation), Hierarchy View (AMT ↔ graph alignment). Modality color codes:
+
+```
+text=#2ecc71  code=#3498db  image=#e67e22  audio=#9b59b6  video=#e74c3c
+math=#f1c40f  chemistry=#1abc9c  dna=#27ae60  eeg=#8e44ad  3d=#ecf0f1
+geospatial=#16a085  parametric_cad=#d35400  kinematics=#2980b9
+radar=#c0392b  sonar=#1a5276  hyperspectral=#7d3c98  default=#95a5a6
+```
+
+## O.2 Complete Context Viewer Component
+
+```javascript
+module.exports = {
+  meta: { title: 'Context', icon: '◈', version: '1.0.0' },
+
+  render: function(container, props, React, ReactDOM) {
+    const { useState, useEffect, useCallback, useRef } = React;
+    const { executePipeline, getSharedState } = props;
+
+    const MODALITY_COLORS = {
+      text: '#2ecc71', code: '#3498db', image: '#e67e22', audio: '#9b59b6',
+      video: '#e74c3c', math: '#f1c40f', chemistry: '#1abc9c', dna: '#27ae60',
+      eeg: '#8e44ad', '3d': '#ecf0f1', geospatial: '#16a085',
+      parametric_cad: '#d35400', kinematics: '#2980b9', bci: '#6c3483',
+      radar: '#c0392b', sonar: '#1a5276', hyperspectral: '#7d3c98',
+      default: '#95a5a6',
+    };
+
+    function edgeStyle(edgeType) {
+      if (['Contains','ParentOf','ChildOf','PartOf','HasPart'].includes(edgeType))
+        return { stroke: '#666', strokeWidth: 2, strokeDasharray: 'none' };
+      if (['Performs','Affects','CausedBy','Enables','Prevents'].includes(edgeType))
+        return { stroke: '#e74c3c', strokeWidth: 1.5, strokeDasharray: '5,3' };
+      if (['Implies','LogicallyImplies','Supports','SimilarTo'].includes(edgeType))
+        return { stroke: '#3498db', strokeWidth: 1.5, strokeDasharray: '8,3' };
+      if (['ReferencesModality','ReferencedBy','DescribedBy','Describes',
+           'ImplementedIn','Implements','VisualizedAs','Visualizes',
+           'SyncedTo','SyncedBy'].includes(edgeType))
+        return { stroke: '#f1c40f', strokeWidth: 2.5, strokeDasharray: 'none' };
+      if (['DerivedFrom','VersionOf','RefinesTo','ForkedFrom'].includes(edgeType))
+        return { stroke: '#9b59b6', strokeWidth: 1, strokeDasharray: '3,3' };
+      return { stroke: '#555', strokeWidth: 1, strokeDasharray: 'none' };
+    }
+
+    function GraphCanvas({ nodes, edges, selectedNodeId, onNodeSelect, modality }) {
+      const svgRef = useRef(null);
+      const [zoom, setZoom] = useState(1.0);
+      const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 800, h: 600 });
+      const [dragging, setDragging] = useState(false);
+      const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+      const positions = useRef({});
+
+      useEffect(() => {
+        nodes.forEach((n, i) => {
+          if (!positions.current[n.node_id]) {
+            const angle = (i / nodes.length) * 2 * Math.PI;
+            const r = Math.min(280, nodes.length * 9);
+            positions.current[n.node_id] = {
+              x: 400 + r * Math.cos(angle), y: 300 + r * Math.sin(angle),
+            };
+          }
+        });
+      }, [nodes]);
+
+      const nodeR = (node) => {
+        const t = node.node_type || '';
+        if (['Root','Document','Scene','HyperspectralScene'].includes(t)) return 18;
+        if (['Section','Collection','RadarScene','SonarScene'].includes(t)) return 12;
+        return 8;
+      };
+
+      return React.createElement('svg', {
+        ref: svgRef, className: 'graph-canvas',
+        style: { width: '100%', height: '100%', background: 'transparent' },
+        onWheel: (e) => { e.preventDefault(); setZoom(z => Math.max(0.1, Math.min(10, z * (e.deltaY > 0 ? 1.1 : 0.9)))); },
+        onMouseDown: (e) => { setDragging(true); setDragStart({ x: e.clientX, y: e.clientY }); },
+        onMouseMove: (e) => {
+          if (!dragging) return;
+          const dx = (e.clientX - dragStart.x) / zoom;
+          const dy = (e.clientY - dragStart.y) / zoom;
+          setViewBox(vb => ({ ...vb, x: vb.x - dx, y: vb.y - dy }));
+          setDragStart({ x: e.clientX, y: e.clientY });
+        },
+        onMouseUp: () => setDragging(false),
+      },
+        React.createElement('defs', null,
+          React.createElement('marker', { id: 'arrow', markerWidth: 6, markerHeight: 6, refX: 6, refY: 3, orient: 'auto' },
+            React.createElement('path', { d: 'M0,0 L6,3 L0,6 Z', fill: '#666' })
+          )
+        ),
+        React.createElement('g', { className: 'edges' },
+          edges.map(edge => {
+            const from = positions.current[edge.from_node];
+            const to = positions.current[edge.to_node];
+            if (!from || !to) return null;
+            const dx = to.x - from.x; const dy = to.y - from.y;
+            const len = Math.sqrt(dx*dx + dy*dy) || 1;
+            const ux = dx/len; const uy = dy/len;
+            const fr = nodeR(nodes.find(n => n.node_id === edge.from_node) || {});
+            const style = edgeStyle(edge.edge_type);
+            return React.createElement('g', { key: edge.edge_id, onClick: () => {} },
+              React.createElement('line', {
+                x1: from.x + ux * fr, y1: from.y + uy * fr,
+                x2: to.x - ux * 10, y2: to.y - uy * 10,
+                stroke: style.stroke, strokeWidth: style.strokeWidth,
+                strokeDasharray: style.strokeDasharray,
+                markerEnd: 'url(#arrow)',
+              }),
+              React.createElement('title', null, edge.edge_type)
+            );
+          }).filter(Boolean)
+        ),
+        React.createElement('g', { className: 'nodes' },
+          nodes.map(node => {
+            const pos = positions.current[node.node_id];
+            if (!pos) return null;
+            const r = nodeR(node);
+            const isSelected = node.node_id === selectedNodeId;
+            const color = MODALITY_COLORS[modality] || MODALITY_COLORS.default;
+            return React.createElement('g', {
+              key: node.node_id,
+              transform: `translate(${pos.x}, ${pos.y})`,
+              onClick: () => onNodeSelect?.(node),
+              style: { cursor: 'pointer' },
+            },
+              React.createElement('circle', {
+                r, fill: isSelected ? '#fff' : color,
+                stroke: isSelected ? '#fff' : 'rgba(255,255,255,0.3)',
+                strokeWidth: isSelected ? 2 : 1,
+                opacity: node.provisional ? 0.5 : 1,
+              }),
+              zoom > 1.5 && React.createElement('text', {
+                y: r + 10, textAnchor: 'middle', fontSize: 9,
+                fill: 'rgba(255,255,255,0.7)',
+              }, (node.content || node.node_type || '').slice(0, 20)),
+              React.createElement('title', null,
+                `${node.node_type}: ${(node.content || '').slice(0, 80)}`)
+            );
+          }).filter(Boolean)
+        )
+      );
+    }
+
+    function FabricView({ graphs, onGraphSelect }) {
+      const positions = graphs.map((_, i) => {
+        const angle = (i / graphs.length) * 2 * Math.PI;
+        return { x: 250 + 180 * Math.cos(angle), y: 200 + 180 * Math.sin(angle) };
+      });
+      return React.createElement('svg', { viewBox: '0 0 500 400', style: { width: '100%', height: '100%' } },
+        graphs.map((g, i) =>
+          React.createElement('g', {
+            key: g.graph_id,
+            transform: `translate(${positions[i].x}, ${positions[i].y})`,
+            onClick: () => onGraphSelect(g),
+            style: { cursor: 'pointer' },
+          },
+            React.createElement('circle', {
+              r: Math.max(24, Math.min(48, Math.sqrt(g.node_count || 1) * 3)),
+              fill: MODALITY_COLORS[g.modality] || MODALITY_COLORS.default,
+              opacity: 0.85,
+            }),
+            React.createElement('text', { textAnchor: 'middle', dy: 4, fontSize: 11, fontWeight: 'bold', fill: '#000' },
+              g.modality.toUpperCase()),
+            React.createElement('text', { textAnchor: 'middle', dy: 18, fontSize: 9, fill: 'rgba(0,0,0,0.7)' },
+              `${g.node_count || 0}n ${g.edge_count || 0}e`)
+          )
+        )
+      );
+    }
+
+    function NodeDetailPanel({ node, graphId, onClose, onNavigateToLinked }) {
+      const [crossModalLinks, setCrossModalLinks] = useState([]);
+
+      useEffect(() => {
+        if (!node) return;
+        executePipeline(5, { action: 'GetCrossModalLinks', graph_id: graphId, node_id: node.node_id })
+          .then(r => setCrossModalLinks(r?.links || [])).catch(() => {});
+      }, [node?.node_id, graphId]);
+
+      if (!node) return React.createElement('div', { className: 'node-detail empty' },
+        React.createElement('p', null, 'Select a node to view details'));
+
+      return React.createElement('div', { className: 'node-detail' },
+        React.createElement('div', { className: 'detail-header' },
+          React.createElement('span', { className: 'node-type-badge' }, node.node_type),
+          React.createElement('button', { className: 'close-btn', onClick: onClose }, '×')
+        ),
+        node.content && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Content'),
+          React.createElement('p', null, node.content.slice(0, 300))
+        ),
+        node.materialized_path && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Path'),
+          React.createElement('code', null, node.materialized_path)
+        ),
+        (node.source_start_char != null) && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Source Position'),
+          React.createElement('span', null, `chars ${node.source_start_char}–${node.source_end_char}`)
+        ),
+        node.time_range && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Time Range'),
+          React.createElement('span', null, `${node.time_range.start_seconds}s – ${node.time_range.end_seconds}s`)
+        ),
+        node.keywords?.length > 0 && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Keywords'),
+          React.createElement('div', { className: 'keyword-chips' },
+            node.keywords.slice(0, 8).map(k => React.createElement('span', { key: k, className: 'chip' }, k))
+          )
+        ),
+        node.version_notes?.length > 0 && React.createElement('div', { className: 'detail-field' },
+          React.createElement('label', null, 'Version History'),
+          node.version_notes.map((vn, i) =>
+            React.createElement('div', { key: i, className: 'version-note-item' },
+              React.createElement('span', { className: 'vn-version' }, `v${vn.version}`),
+              React.createElement('span', { className: 'vn-note' }, vn.note)
+            )
+          )
+        ),
+        React.createElement('div', { className: 'detail-field cross-modal' },
+          React.createElement('label', null, 'Cross-Modal Links'),
+          crossModalLinks.length === 0
+            ? React.createElement('p', { className: 'empty-note' }, 'No cross-modal links')
+            : crossModalLinks.map((link, i) =>
+                React.createElement('div', {
+                  key: i, className: 'cross-modal-link',
+                  onClick: () => onNavigateToLinked(link.target_graph_id, link.target_node_id),
+                },
+                  React.createElement('span', { className: `modality-dot modality-${link.target_modality}` }),
+                  React.createElement('span', { className: 'link-edge-type' }, link.edge_type),
+                  React.createElement('span', { className: 'link-target' }, link.target_preview)
+                )
+              )
+        )
+      );
+    }
+
+    function ContextViewerUI() {
+      const [activeMode, setActiveMode] = useState('graph');
+      const [graphs, setGraphs] = useState([]);
+      const [selectedGraphId, setSelectedGraphId] = useState(null);
+      const [graphData, setGraphData] = useState(null);
+      const [selectedNode, setSelectedNode] = useState(null);
+      const [selectedNodeId, setSelectedNodeId] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [edgeFilter, setEdgeFilter] = useState('all');
+
+      const modalityToPipelineId = (m) => ({
+        text: 100, code: 101, image: 102, audio: 103, video: 104,
+        math: 105, chemistry: 106, dna: 107, eeg: 108, '3d': 109,
+        sound_reconstruction: 110, biology: 111, proteomics: 112,
+        haptic: 113, thermal: 114, depth: 115, imu: 116,
+        geospatial: 117, electromagnetic: 118, bci: 119,
+        parametric_cad: 120, kinematics: 121, control_systems: 122,
+        network_topology: 123, radar: 124, sonar: 125, hyperspectral: 126,
+      }[m] || 100);
+
+      useEffect(() => {
+        const state = getSharedState();
+        const taskId = state.activeTaskId;
+        if (taskId) {
+          executePipeline(5, { action: 'GetTaskGraphs', task_id: taskId })
+            .then(r => {
+              const g = r?.graphs || [];
+              setGraphs(g);
+              if (g.length > 0) selectGraph(g[0]);
+            }).finally(() => setLoading(false));
+        } else { setLoading(false); }
+      }, []);
+
+      const selectGraph = async (g) => {
+        setSelectedGraphId(g.graph_id);
+        setSelectedNode(null); setSelectedNodeId(null);
+        const r = await executePipeline(modalityToPipelineId(g.modality), {
+          action: 'GetGraph', graph_id: g.graph_id,
+        });
+        setGraphData(r);
+      };
+
+      const filteredEdges = (graphData?.edges || []).filter(e => {
+        if (edgeFilter === 'all') return true;
+        if (edgeFilter === 'structural') return ['Contains','ParentOf','ChildOf','PartOf','HasPart','Precedes','Follows'].includes(e.edge_type);
+        if (edgeFilter === 'semantic') return ['Performs','Affects','Implies','CausedBy','Enables','Prevents','SimilarTo','RelatesTo'].includes(e.edge_type);
+        if (edgeFilter === 'cross-modal') return ['ReferencesModality','ReferencedBy','DescribedBy','Describes','ImplementedIn','Implements','VisualizedAs','Visualizes','SyncedTo','SyncedBy'].includes(e.edge_type);
+        return true;
+      });
+
+      const selectedGraph = graphs.find(g => g.graph_id === selectedGraphId);
+
+      if (loading) return React.createElement('div', { className: 'context-viewer loading' },
+        React.createElement('p', null, 'Loading context graphs...'));
+
+      if (graphs.length === 0) return React.createElement('div', { className: 'context-viewer empty' },
+        React.createElement('span', { className: 'empty-icon' }, '◈'),
+        React.createElement('p', null, 'No graphs yet — start a task to build context'));
+
+      return React.createElement('div', { className: 'context-viewer-panel' },
+        React.createElement('div', { className: 'context-toolbar' },
+          React.createElement('div', { className: 'view-modes' },
+            ['graph', 'fabric', 'hierarchy'].map(mode =>
+              React.createElement('button', {
+                key: mode, className: `mode-btn ${activeMode === mode ? 'active' : ''}`,
+                onClick: () => setActiveMode(mode),
+              }, mode.charAt(0).toUpperCase() + mode.slice(1))
+            )
+          ),
+          activeMode === 'graph' && React.createElement('div', { className: 'edge-type-filter' },
+            ['all', 'structural', 'semantic', 'cross-modal'].map(type =>
+              React.createElement('button', {
+                key: type, className: `filter-btn ${edgeFilter === type ? 'active' : ''}`,
+                onClick: () => setEdgeFilter(type),
+              }, type)
+            )
+          )
+        ),
+        React.createElement('div', { className: 'context-main' },
+          React.createElement('aside', { className: 'graph-list-panel' },
+            React.createElement('h4', null, 'Modality Graphs'),
+            graphs.map(g =>
+              React.createElement('div', {
+                key: g.graph_id,
+                className: `graph-list-item ${selectedGraphId === g.graph_id ? 'selected' : ''} modality-${g.modality}`,
+                onClick: () => selectGraph(g),
+              },
+                React.createElement('span', { className: 'graph-modality-name' }, g.modality),
+                React.createElement('div', { className: 'graph-stats' },
+                  React.createElement('span', null, `${g.node_count}n`),
+                  React.createElement('span', null, `${g.edge_count}e`)
+                ),
+                React.createElement('span', { className: `graph-state-dot state-${(g.state || '').toLowerCase()}` })
+              )
+            )
+          ),
+          React.createElement('main', { className: 'context-canvas-area' },
+            activeMode === 'graph' && graphData && React.createElement(GraphCanvas, {
+              nodes: graphData.nodes || [],
+              edges: filteredEdges,
+              selectedNodeId,
+              onNodeSelect: (n) => { setSelectedNode(n); setSelectedNodeId(n.node_id); },
+              modality: selectedGraph?.modality || '',
+            }),
+            activeMode === 'fabric' && React.createElement(FabricView, {
+              graphs,
+              onGraphSelect: (g) => { selectGraph(g); setActiveMode('graph'); },
+            }),
+            activeMode === 'hierarchy' && React.createElement('div', { className: 'hierarchy-view' },
+              React.createElement('p', null, 'AMT ↔ Graph alignment view')
+            )
+          ),
+          React.createElement('aside', { className: 'context-detail-panel' },
+            React.createElement(NodeDetailPanel, {
+              node: selectedNode,
+              graphId: selectedGraphId,
+              onClose: () => { setSelectedNode(null); setSelectedNodeId(null); },
+              onNavigateToLinked: (gid, nid) => {
+                const g = graphs.find(g => g.graph_id === gid);
+                if (g) selectGraph(g).then(() => setSelectedNodeId(nid));
+              },
+            })
+          )
+        )
+      );
+    }
+
+    const root = ReactDOM.createRoot(container);
+    root.render(React.createElement(ContextViewerUI));
+    return () => root.unmount();
+  },
+
+  onActivate: function() {},
+  onDeactivate: function() {},
+};
+```
+
+---
+
+# SECTION P: ENGINE TAB UIs
+
+## P.1 Engines Tab Container
+
+```javascript
+module.exports = {
+  meta: { title: 'Engines', icon: '⚙', version: '1.0.0' },
+
+  render: function(container, props, React, ReactDOM) {
+    const { useState, useEffect } = React;
+    const { executePipeline, getSharedState } = props;
+
+    const ENGINE_REGISTRY = {
+      '3d':             { label: '3D Scene',       icon: '🎬', pipelineId: 109 },
+      'eeg':            { label: 'Neural Signal',  icon: '🧠', pipelineId: 108 },
+      'bci':            { label: 'BCI',            icon: '⚡', pipelineId: 119 },
+      'dna':            { label: 'Genome',         icon: '🧬', pipelineId: 107 },
+      'chemistry':      { label: 'Molecular',      icon: '⚗', pipelineId: 106 },
+      'math':           { label: 'Proof',          icon: '∑',  pipelineId: 105 },
+      'code':           { label: 'Code Intel',     icon: '◻',  pipelineId: 101 },
+      'parametric_cad': { label: 'CAD',            icon: '📐', pipelineId: 120 },
+      'kinematics':     { label: 'Kinematics',     icon: '🤖', pipelineId: 121 },
+      'geospatial':     { label: 'Map',            icon: '🗺',  pipelineId: 117 },
+      'radar':          { label: 'Radar',          icon: '📡', pipelineId: 124 },
+      'sonar':          { label: 'Sonar',          icon: '🔊', pipelineId: 125 },
+      'hyperspectral':  { label: 'Hyperspectral',  icon: '🌈', pipelineId: 126 },
+    };
+
+    function EnginesUI() {
+      const [available, setAvailable] = useState([]);
+      const [active, setActive] = useState(null);
+
+      useEffect(() => {
+        const state = getSharedState();
+        const taskId = state.activeTaskId;
+        if (!taskId) return;
+        executePipeline(5, { action: 'GetTaskGraphs', task_id: taskId })
+          .then(r => {
+            const engines = (r?.graphs || [])
+              .filter(g => ENGINE_REGISTRY[g.modality])
+              .map(g => ({ ...ENGINE_REGISTRY[g.modality], modality: g.modality, graphId: g.graph_id }));
+            setAvailable(engines);
+            if (engines.length > 0) setActive(engines[0]);
+          });
+      }, []);
+
+      if (available.length === 0) return React.createElement('div', { className: 'engines-empty' },
+        React.createElement('span', { className: 'empty-icon' }, '⚙'),
+        React.createElement('p', null, 'No engine-capable modalities in current task'));
+
+      return React.createElement('div', { className: 'engines-panel' },
+        React.createElement('div', { className: 'engine-selector' },
+          available.map(eng =>
+            React.createElement('button', {
+              key: eng.modality,
+              className: `engine-tab ${active?.modality === eng.modality ? 'active' : ''}`,
+              onClick: () => setActive(eng),
+            },
+              React.createElement('span', { className: 'engine-icon' }, eng.icon),
+              React.createElement('span', { className: 'engine-label' }, eng.label)
+            )
+          )
+        ),
+        active && React.createElement(EngineContent, { engine: active, executePipeline })
+      );
+    }
+
+    const root = ReactDOM.createRoot(container);
+    root.render(React.createElement(EnginesUI));
+    return () => root.unmount();
+  },
+};
+```
+
+## P.2 3D Engine UI
+
+```javascript
+function ThreeDEngineUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [sceneData, setSceneData] = useState(null);
+  const [selectedObject, setSelectedObject] = useState(null);
+  const [renderMode, setRenderMode] = useState('solid');
+  const [hierarchyLevel, setHierarchyLevel] = useState('object');
+  const [simStatus, setSimStatus] = useState(null);
+  const [agiBusy, setAgiBusy] = useState(false);
+
+  useEffect(() => {
+    executePipeline(109, { action: 'GetGraph', graph_id: engine.graphId })
+      .then(setSceneData);
+  }, [engine.graphId]);
+
+  return React.createElement('div', { className: 'engine-3d' },
+    React.createElement('div', { className: 'engine-toolbar' },
+      React.createElement('div', { className: 'toolbar-group' },
+        ['solid','wireframe','graph','spatial'].map(mode =>
+          React.createElement('button', {
+            key: mode, className: `toolbar-btn ${renderMode === mode ? 'active' : ''}`,
+            onClick: () => setRenderMode(mode),
+          }, mode.charAt(0).toUpperCase() + mode.slice(1))
+        )
+      ),
+      React.createElement('div', { className: 'toolbar-group' },
+        ['scene','object','mesh','bone','physics'].map(level =>
+          React.createElement('button', {
+            key: level, className: `toolbar-btn small ${hierarchyLevel === level ? 'active' : ''}`,
+            onClick: () => setHierarchyLevel(level),
+          }, level)
+        )
+      ),
+      React.createElement('div', { className: 'toolbar-actions' },
+        React.createElement('button', {
+          className: 'toolbar-btn',
+          onClick: () => executePipeline(109, { action: 'RunSimulation', graph_id: engine.graphId, domain: 'Robotics', frames: 120, headless: false }),
+        }, '▶ Simulate'),
+        React.createElement('select', {
+          onChange: (e) => executePipeline(109, { action: 'ExportScene', graph_id: engine.graphId, format: e.target.value }),
+          defaultValue: '',
+        },
+          React.createElement('option', { value: '', disabled: true }, 'Export...'),
+          ['GLTF','USDZ','OBJ','URDF','MJCF','AlembicCache','IsaacSimUSD','STL'].map(fmt =>
+            React.createElement('option', { key: fmt, value: fmt }, fmt)
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'engine-3d-layout' },
+      React.createElement('div', { className: 'hierarchy-panel' },
+        React.createElement('h4', null, 'Scene Hierarchy'),
+        (sceneData?.nodes || [])
+          .filter(n => {
+            if (hierarchyLevel === 'scene') return ['Scene','Collection'].includes(n.node_type);
+            if (hierarchyLevel === 'object') return ['Scene','Collection','Object','Mesh'].includes(n.node_type);
+            if (hierarchyLevel === 'bone') return ['Armature','Bone','Constraint'].includes(n.node_type);
+            if (hierarchyLevel === 'physics') return ['RigidBody','SoftBody','Cloth','FluidDomain','ParticleSystem'].includes(n.node_type);
+            return true;
+          })
+          .map(node =>
+            React.createElement('div', {
+              key: node.node_id,
+              className: `hierarchy-item ${selectedObject?.node_id === node.node_id ? 'selected' : ''}`,
+              onClick: () => setSelectedObject(node),
+            },
+              React.createElement('span', { className: 'item-type-icon' },
+                node.node_type === 'Mesh' ? '▲' : node.node_type === 'Bone' ? '◇' :
+                node.node_type === 'Light' ? '☀' : node.node_type === 'Camera' ? '◎' : '◉'),
+              React.createElement('span', { className: 'item-name' }, (node.content || node.node_type).slice(0, 24))
+            )
+          )
+      ),
+      React.createElement('div', { className: 'viewport-panel' },
+        React.createElement('div', { className: 'viewport-3d' },
+          React.createElement('div', { className: 'viewport-placeholder' },
+            React.createElement('span', null, `Viewport — ${renderMode} mode`),
+            sceneData && React.createElement('div', { className: 'scene-stats' },
+              React.createElement('span', null, `${sceneData.nodes?.length || 0} nodes`),
+              React.createElement('span', null, `${sceneData.edges?.length || 0} edges`)
+            )
+          )
+        ),
+        simStatus && React.createElement('div', { className: 'sim-timeline' },
+          React.createElement('span', null, `${simStatus.domain} [${simStatus.current_frame}/${simStatus.frames}]`),
+          React.createElement('div', { className: 'sim-progress' },
+            React.createElement('div', { className: 'sim-bar', style: { width: `${(simStatus.current_frame / simStatus.frames) * 100}%` } })
+          )
+        )
+      ),
+      React.createElement('div', { className: 'properties-panel' },
+        selectedObject
+          ? React.createElement('div', { className: 'object-properties' },
+              React.createElement('h4', null, selectedObject.node_type),
+              React.createElement('div', { className: 'prop-field' },
+                React.createElement('label', null, 'Name'),
+                React.createElement('span', null, (selectedObject.content || '').slice(0, 40))
+              ),
+              selectedObject.materialized_path && React.createElement('div', { className: 'prop-field' },
+                React.createElement('label', null, 'ZSEI Path'),
+                React.createElement('code', { className: 'small' }, selectedObject.materialized_path)
+              )
+            )
+          : React.createElement('p', { className: 'empty-note' }, 'Select an object'),
+        agiBusy && React.createElement('div', { className: 'agi-activity-panel' },
+          React.createElement('div', { className: 'agi-header' },
+            React.createElement('span', { className: 'agi-indicator active' }),
+            React.createElement('span', null, 'AGI Working')
+          )
+        )
+      )
+    )
+  );
+}
+```
+
+## P.3 Radar Engine UI
+
+```javascript
+function RadarEngineUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [graphData, setGraphData] = useState(null);
+  const [displayMode, setDisplayMode] = useState('rdm');
+
+  useEffect(() => {
+    executePipeline(124, { action: 'GetGraph', graph_id: engine.graphId }).then(setGraphData);
+  }, [engine.graphId]);
+
+  const targets = (graphData?.nodes || []).filter(n => n.node_type === 'RadarTarget');
+  const tracks = (graphData?.nodes || []).filter(n => n.node_type === 'TargetTrack');
+  const weather = (graphData?.nodes || []).filter(n => n.node_type === 'WeatherCell');
+
+  return React.createElement('div', { className: 'engine-radar' },
+    React.createElement('div', { className: 'engine-toolbar' },
+      ['rdm', 'sar', 'targets', 'weather', 'beam'].map(mode =>
+        React.createElement('button', {
+          key: mode, className: `toolbar-btn ${displayMode === mode ? 'active' : ''}`,
+          onClick: () => setDisplayMode(mode),
+        }, mode.toUpperCase())
+      ),
+      React.createElement('select', {
+        onChange: e => executePipeline(124, { action: 'ExportProduct', graph_id: engine.graphId, format: e.target.value }),
+        defaultValue: '',
+      },
+        React.createElement('option', { value: '', disabled: true }, 'Export...'),
+        ['GeoTIFF','KML','GeoJSON','CSV','ASTERIX','CoTXML','CfRadial'].map(f =>
+          React.createElement('option', { key: f, value: f }, f))
+      )
+    ),
+    React.createElement('div', { className: 'radar-layout' },
+      React.createElement('div', { className: 'radar-display' },
+        displayMode === 'rdm' && React.createElement('div', { className: 'rdm-waterfall' },
+          React.createElement('p', null, 'Range-Doppler Waterfall Display'),
+          React.createElement('canvas', { className: 'rdm-canvas', width: 512, height: 256 })
+        ),
+        displayMode === 'targets' && React.createElement('div', { className: 'target-table' },
+          React.createElement('h4', null, `Targets (${targets.length})`),
+          React.createElement('table', null,
+            React.createElement('thead', null,
+              React.createElement('tr', null,
+                ['ID','Range m','Az°','Vel m/s','RCS dBsm','Class'].map(h =>
+                  React.createElement('th', { key: h }, h))
+              )
+            ),
+            React.createElement('tbody', null,
+              targets.map(t =>
+                React.createElement('tr', { key: t.node_id },
+                  React.createElement('td', null, t.node_id),
+                  React.createElement('td', null, t.range_m?.toFixed(0)),
+                  React.createElement('td', null, t.azimuth_deg?.toFixed(1)),
+                  React.createElement('td', null, t.radial_velocity_ms?.toFixed(1)),
+                  React.createElement('td', null, t.rcs_dbsm?.toFixed(1)),
+                  React.createElement('td', null, t.classification)
+                )
+              )
+            )
+          )
+        ),
+        displayMode === 'weather' && React.createElement('div', { className: 'weather-display' },
+          React.createElement('h4', null, `Weather Cells (${weather.length})`),
+          weather.map(w => React.createElement('div', { key: w.node_id, className: 'weather-cell' },
+            React.createElement('span', null, w.content)
+          ))
+        )
+      ),
+      React.createElement('div', { className: 'track-panel' },
+        React.createElement('h4', null, `Tracks (${tracks.length})`),
+        tracks.map(t => React.createElement('div', { key: t.node_id, className: 'track-item' },
+          React.createElement('span', null, t.content?.slice(0, 40))
+        ))
+      )
+    )
+  );
+}
+```
+
+## P.4 Sonar Engine UI
+
+```javascript
+function SonarEngineUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [graphData, setGraphData] = useState(null);
+  const [displayMode, setDisplayMode] = useState('waterfall');
+
+  useEffect(() => {
+    executePipeline(125, { action: 'GetGraph', graph_id: engine.graphId }).then(setGraphData);
+  }, [engine.graphId]);
+
+  const targets = (graphData?.nodes || []).filter(n => n.node_type === 'SonarTarget');
+  const bio = (graphData?.nodes || []).filter(n => n.node_type === 'BiologicalNode');
+  const layers = (graphData?.nodes || []).filter(n => n.node_type === 'SubsurfaceLayer');
+
+  return React.createElement('div', { className: 'engine-sonar' },
+    React.createElement('div', { className: 'engine-toolbar' },
+      ['waterfall','mosaic','bathymetry','spectrum','targets','biology','subbottom'].map(mode =>
+        React.createElement('button', {
+          key: mode, className: `toolbar-btn ${displayMode === mode ? 'active' : ''}`,
+          onClick: () => setDisplayMode(mode),
+        }, mode)
+      )
+    ),
+    React.createElement('div', { className: 'sonar-layout' },
+      React.createElement('div', { className: 'sonar-display' },
+        displayMode === 'waterfall' && React.createElement('div', { className: 'waterfall-display' },
+          React.createElement('canvas', { className: 'waterfall-canvas', width: 512, height: 256 }),
+          React.createElement('p', null, 'Time vs Bearing Waterfall')
+        ),
+        displayMode === 'targets' && React.createElement('div', { className: 'target-table' },
+          React.createElement('h4', null, `Sonar Targets (${targets.length})`),
+          targets.map(t => React.createElement('div', { key: t.node_id, className: 'target-row' },
+            React.createElement('span', null, t.content?.slice(0, 60))
+          ))
+        ),
+        displayMode === 'biology' && React.createElement('div', { className: 'bio-display' },
+          React.createElement('h4', null, `Biological Detections (${bio.length})`),
+          bio.map(b => React.createElement('div', { key: b.node_id, className: 'bio-item' },
+            React.createElement('span', null, b.content?.slice(0, 60))
+          ))
+        ),
+        displayMode === 'subbottom' && React.createElement('div', { className: 'subbottom-display' },
+          React.createElement('h4', null, `Sub-Bottom Layers (${layers.length})`),
+          layers.map((l, i) => React.createElement('div', { key: l.node_id, className: 'layer-item' },
+            React.createElement('span', { className: 'layer-num' }, `L${i+1}`),
+            React.createElement('span', null, l.content?.slice(0, 60))
+          ))
+        )
+      )
+    )
+  );
+}
+```
+
+## P.5 Hyperspectral Engine UI
+
+```javascript
+function HyperspectralEngineUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [graphData, setGraphData] = useState(null);
+  const [displayMode, setDisplayMode] = useState('rgb');
+  const [selectedBand, setSelectedBand] = useState(0);
+  const [selectedPixel, setSelectedPixel] = useState(null);
+
+  useEffect(() => {
+    executePipeline(126, { action: 'GetGraph', graph_id: engine.graphId }).then(setGraphData);
+  }, [engine.graphId]);
+
+  const materials = (graphData?.nodes || []).filter(n => n.node_type === 'MaterialComponentNode');
+  const anomalies = (graphData?.nodes || []).filter(n => n.node_type === 'AnomalyNode');
+  const indices = (graphData?.nodes || []).filter(n => n.node_type === 'VegetationIndexNode');
+
+  return React.createElement('div', { className: 'engine-hyperspectral' },
+    React.createElement('div', { className: 'engine-toolbar' },
+      ['rgb','band','spectral','materials','chemistry','anomalies','vegetation'].map(mode =>
+        React.createElement('button', {
+          key: mode, className: `toolbar-btn ${displayMode === mode ? 'active' : ''}`,
+          onClick: () => setDisplayMode(mode),
+        }, mode)
+      ),
+      displayMode === 'band' && React.createElement('input', {
+        type: 'range', min: 0, max: 399, value: selectedBand,
+        onChange: e => setSelectedBand(+e.target.value),
+        className: 'band-slider',
+        title: `Band ${selectedBand}`,
+      })
+    ),
+    React.createElement('div', { className: 'hsi-layout' },
+      React.createElement('div', { className: 'hsi-image' },
+        displayMode === 'rgb' && React.createElement('div', { className: 'rgb-composite' },
+          React.createElement('canvas', { className: 'hsi-canvas', width: 400, height: 300 }),
+          React.createElement('p', null, 'RGB Composite (R:650nm G:550nm B:450nm)')
+        ),
+        displayMode === 'materials' && React.createElement('div', { className: 'material-map' },
+          React.createElement('h4', null, `Materials (${materials.length})`),
+          materials.map(m => React.createElement('div', { key: m.node_id, className: 'material-item' },
+            React.createElement('span', { className: 'material-name' }, m.material_name || m.content?.slice(0, 30)),
+            React.createElement('span', { className: 'material-fraction' },
+              `${((m.abundance_fraction || 0) * 100).toFixed(1)}%`)
+          ))
+        ),
+        displayMode === 'anomalies' && React.createElement('div', { className: 'anomaly-display' },
+          React.createElement('h4', null, `Anomalies (${anomalies.length})`),
+          anomalies.map(a => React.createElement('div', { key: a.node_id, className: 'anomaly-item' },
+            React.createElement('span', null, a.content?.slice(0, 60))
+          ))
+        ),
+        displayMode === 'vegetation' && React.createElement('div', { className: 'veg-display' },
+          React.createElement('h4', null, `Vegetation Indices (${indices.length})`),
+          indices.map(vi => React.createElement('div', { key: vi.node_id, className: 'index-item' },
+            React.createElement('span', { className: 'index-name' }, vi.content?.slice(0, 20)),
+            React.createElement('div', { className: 'index-bar-container' },
+              React.createElement('div', {
+                className: 'index-bar',
+                style: { width: `${((vi.spectral_index_value || 0) + 1) / 2 * 100}%` }
+              })
+            )
+          ))
+        )
+      ),
+      React.createElement('div', { className: 'hsi-sidebar' },
+        React.createElement('div', { className: 'spectral-curve' },
+          React.createElement('h4', null, 'Spectral Curve'),
+          React.createElement('canvas', { className: 'curve-canvas', width: 200, height: 150 }),
+          selectedPixel
+            ? React.createElement('p', null, `Pixel (${selectedPixel.x}, ${selectedPixel.y})`)
+            : React.createElement('p', { className: 'hint' }, 'Click image to inspect pixel')
+        )
+      )
+    )
+  );
+}
+```
+
+## P.6 Neural Signal Engine UI
+
+```javascript
+function NeuralSignalEngineUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [graphData, setGraphData] = useState(null);
+  const [selectedChannel, setSelectedChannel] = useState(null);
+
+  useEffect(() => {
+    executePipeline(engine.pipelineId, { action: 'GetGraph', graph_id: engine.graphId }).then(setGraphData);
+  }, [engine.graphId]);
+
+  const channels = (graphData?.nodes || []).filter(n => n.node_type === 'Channel');
+  const events = (graphData?.nodes || []).filter(n => n.node_type === 'EpochNode' || n.node_type === 'Event');
+
+  return React.createElement('div', { className: 'engine-neural' },
+    React.createElement('div', { className: 'channel-list' },
+      React.createElement('h4', null, 'Channels'),
+      channels.map(ch =>
+        React.createElement('div', {
+          key: ch.node_id,
+          className: `channel-item ${selectedChannel?.node_id === ch.node_id ? 'selected' : ''}`,
+          onClick: () => setSelectedChannel(ch),
+        },
+          React.createElement('span', { className: 'channel-label' }, ch.content || ch.label),
+          React.createElement('div', { className: 'channel-quality-bar',
+            style: { width: `${(ch.hotness_score || 0.5) * 100}%` } })
+        )
+      )
+    ),
+    React.createElement('div', { className: 'signal-view' },
+      React.createElement('div', { className: 'waveform-area' },
+        React.createElement('canvas', { className: 'waveform-canvas', width: 600, height: 150 }),
+        React.createElement('p', null, selectedChannel
+          ? `Waveform: ${selectedChannel.content || selectedChannel.label}`
+          : 'Select a channel')
+      ),
+      React.createElement('div', { className: 'signal-timeline' },
+        React.createElement('div', { className: 'timeline-bar' },
+          events.map((ev, i) =>
+            React.createElement('div', { key: i, className: 'event-marker', title: ev.content })
+          )
+        )
+      )
+    ),
+    React.createElement('div', { className: 'band-power-panel' },
+      React.createElement('h4', null, 'Band Power'),
+      ['delta (0.5-4Hz)', 'theta (4-8Hz)', 'alpha (8-13Hz)', 'beta (13-30Hz)', 'gamma (30-100Hz)'].map(band =>
+        React.createElement('div', { key: band, className: 'band-row' },
+          React.createElement('span', { className: 'band-name' }, band),
+          React.createElement('div', { className: 'band-gauge' },
+            React.createElement('div', { className: 'band-fill', style: { width: '40%' } })
+          )
+        )
+      )
+    )
+  );
+}
+```
+
+## P.7 Genome Browser Engine UI
+
+```javascript
+function GenomeBrowserUI({ engine, executePipeline }) {
+  const { useState, useEffect } = React;
+  const [chromosome, setChromosome] = useState('chr1');
+  const [geneNodes, setGeneNodes] = useState([]);
+  const [selectedFeature, setSelectedFeature] = useState(null);
+
+  useEffect(() => {
+    executePipeline(107, { action: 'GetGraph', graph_id: engine.graphId })
+      .then(r => setGeneNodes((r?.nodes || []).filter(n =>
+        ['Gene','Exon','Intron','Promoter','Variant','RegulatoryRegion'].includes(n.node_type)
+      )));
+  }, [engine.graphId, chromosome]);
+
+  return React.createElement('div', { className: 'engine-genome' },
+    React.createElement('div', { className: 'genome-nav' },
+      React.createElement('select', {
+        value: chromosome, onChange: e => setChromosome(e.target.value),
+      },
+        ['chr1','chr2','chr3','chr4','chr5','chr6','chr7','chr8','chr9','chr10',
+         'chr11','chr12','chrX','chrY','chrM'].map(chr =>
+          React.createElement('option', { key: chr, value: chr }, chr))
+      )
+    ),
+    React.createElement('div', { className: 'genome-tracks' },
+      ['Gene','Promoter','Variant'].map(trackType =>
+        React.createElement('div', { key: trackType, className: 'track' },
+          React.createElement('div', { className: 'track-label' }, trackType + 's'),
+          React.createElement('div', { className: 'track-content' },
+            geneNodes.filter(n => n.node_type === trackType).map(gene =>
+              React.createElement('div', {
+                key: gene.node_id,
+                className: `${trackType.toLowerCase()}-feature ${selectedFeature?.node_id === gene.node_id ? 'selected' : ''}`,
+                onClick: () => setSelectedFeature(gene),
+                title: gene.content,
+              },
+                React.createElement('span', { className: 'feature-label' }, gene.content?.slice(0, 12))
+              )
+            )
+          )
+        )
+      )
+    ),
+    selectedFeature && React.createElement('div', { className: 'feature-detail' },
+      React.createElement('h4', null, selectedFeature.node_type),
+      React.createElement('p', null, selectedFeature.content),
+      selectedFeature.materialized_path && React.createElement('code', null, selectedFeature.materialized_path)
+    )
+  );
+}
+```
+
+## P.8 Remaining Engine UI Specs
+
+```javascript
+// MOLECULAR VIEWER (Chemistry, Pipeline 106)
+// Layout: 3D ball-and-stick + ribbon visualization
+// Left: atom/bond tree, functional groups
+// Right: IUPAC, formula, properties panel
+// Bottom: reaction pathway timeline (MechanismStep nodes in sequence)
+
+// PROOF ENGINE (Math, Pipeline 105)
+// Layout: LaTeX-rendered notation (center)
+// Left: proof step tree (hierarchical, ProofStep nodes)
+// Right: variable scope tree, assumption tracker (AssumesIn/DischargesIn edges)
+// Gaps = WARNING nodes highlighted
+
+// CODE INTELLIGENCE ENGINE (Code, Pipeline 101)
+// Layout: file tree + code view + graph panel
+// Shows: call graph, dependency graph, intent graph
+// Pattern badges on nodes with ImplementsPattern edge
+// DataFlow visualization between functions
+
+// CAD ENGINE (Parametric CAD, Pipeline 120)
+// Layout: 3D B-rep solid view
+// Left: feature tree (Extrude, Fillet, Revolve, Shell, etc.)
+// Right: constraint panel, tolerance inspector
+// Constraint violated → edge state = red
+
+// KINEMATICS ENGINE (Pipeline 121)
+// Layout: kinematic chain visualization
+// Shows: joint limits, end-effector workspace, gait cycle
+// KinematicChain → Joint → Link → EndEffector nodes
+
+// GEOSPATIAL ENGINE (Pipeline 117)
+// Layout: tile-based map/terrain view
+// Left: layer control (regions, routes, POIs, elevation, weather)
+// Right: feature detail panel
+// RoutesThrough, Borders, Overlaps edges shown on map
+```
+
+---
+
+# SECTION Q: BLUEPRINT / METHODOLOGY / PIPELINE GUIDELINES
+
+## Q.1 Blueprint
+
+A Blueprint is an ordered sequence of steps derived from the AMT. Always created fresh — never search-first.
+
+```rust
+pub struct Blueprint {
+    pub blueprint_id: u64,
+    pub task_id: u64,
+    pub project_id: u64,
+    pub workspace_id: u64,
+    pub steps: Vec<BlueprintStep>,
+    pub intent_summary: String,
+    pub methodology_ids: Vec<u64>,
+    pub modality_graph_ids: Vec<u64>,
+    pub total_tokens_used: u32,
+    pub total_duration_secs: f32,
+    pub steps_completed: u32,
+    pub steps_failed: u32,
+    pub graph_updates_triggered: u32,
+    pub amt_expansions_triggered: u32,
+    pub version: u32,
+    pub version_notes: Vec<VersionNote>,
+    pub created_at: String,
+    pub completed_at: Option<String>,
+    pub state: BlueprintState,
+}
+
+pub enum BlueprintState { Created, Executing, Paused, Completed, Failed, PartiallyComplete }
+
+pub struct BlueprintStep {
+    pub step_index: u32,
+    pub intent_description: String,
+    pub pipeline_id: u64,
+    pub pipeline_name: String,
+    pub action: String,
+    pub parameters: serde_json::Value,
+    pub reads_from_graphs: Vec<String>,
+    pub writes_to_graphs: Vec<String>,
+    pub depends_on_steps: Vec<u32>,
+    pub applicable_methodology_ids: Vec<u64>,
+    pub initial_state: StepStatus,
+    pub stages: Vec<String>,
+}
+```
+
+## Q.2 Methodology Format Rules
+
+```
+NAME: Short, domain-specific (e.g. "Scientific Data Integrity")
+CATEGORY: Scientific | Engineering | Mathematical | Biological | Linguistic |
+          Architectural | Safety | Performance | Quality | Security | Other
+APPLICABLE_MODALITIES: [] = all, ["code"] = code only
+PRINCIPLES: max 10, ordered by priority (1=highest), each actionable
+HEURISTICS: condition → action pairs, concrete not philosophical
+DECISION_RULES: named conditional logic with specific criteria
+```
+
+## Q.3 Pipeline Format Rules
+
+```
+1. NAMING: PascalCase types, snake_case folders, sequential IDs never reused
+2. INPUT: serde #[serde(tag = "action")] enum
+3. OUTPUT: always success: bool + error: Option<String>
+4. HEADLESS: binary callable with --input '<json>' → stdout JSON
+5. ZSEI: OZONE_ZSEI_PATH env var, never hardcode paths
+6. REQUIRED ACTIONS for modality pipelines:
+   Analyze, CreateGraph, UpdateGraph, QueryGraph, GetGraph, TriggerSemanticHook
+7. OPTIONAL: Export, StreamToUI, RunSimulation/Analysis
+8. MAIN: parse --input → tokio runtime → execute → print JSON → exit 0/1
+```
+
+---
+
+# SECTION R: WORKSPACE TAB INTEGRATION UPDATES
+
+## R.1 Context Scope in Orchestrate Calls
+
+```javascript
+// In ProjectChat.handleSubmit:
+const result = await window.ozone.orchestrate({
+    prompt: input,
+    project_id: projectId,
+    workspace_id: workspaceId,
+    user_id: 1,
+    device_id: 1,
+    consciousness_enabled: false,
+    token_budget: 100000,
+    context_scope: projectId ? 'Project' : workspaceId ? 'Workspace' : 'Global',
+});
+```
+
+## R.2 File Attachment Detection in WorkspaceTab
+
+```javascript
+const handleLinkFile = async () => {
+    const path = await window.ozone?.system?.selectFile?.();
+    if (path && selectedProject) {
+        const result = await executePipeline(30, {
+            action: 'Link',
+            project_id: selectedProject.id,
+            file_path: path,
+            analyze: true,
+            detect_modality: true,
+        });
+        // If modality detected, inform user:
+        // "Detected as: 3D scene file → will be processed by 3D Engine"
+        if (result?.detected_modality) {
+            setNotification(`Detected: ${result.detected_modality} → ${result.pipeline_name}`);
+        }
+        await loadProjectFiles(selectedProject.id);
+    }
+};
+```
+
+---
+
+# SECTION S: CONTEXT AGGREGATION PIPELINE UPDATE (#21)
+
+## S.1 Updated Actions
+
+```rust
+#[serde(tag = "action")]
+pub enum ContextAggInput {
+    // Existing actions (unchanged)
+    ForTask { task_id: u64, token_budget: u32, prioritize: Vec<String>,
+              include_consciousness: Option<bool>, context_scope: Option<String> },
+    ForQuery { query: String, token_budget: u32, container_ids: Option<Vec<u64>>, project_id: Option<u64> },
+    ForProject { project_id: u64, workspace_id: u64, token_budget: u32,
+                 include_files: Option<bool>, include_urls: Option<bool> },
+    Custom { container_ids: Vec<u64>, token_budget: u32, include_relationships: bool },
+    ForBlueprint { blueprint_id: u64, step_index: u32, token_budget: u32 },
+
+    // NEW: Smart chunk reconstruction for a specific step
+    ForStep {
+        task_id: u64,
+        step_index: u32,
+        token_budget: u32,
+        relevant_modalities: Vec<String>,
+        prioritize_graphs: Vec<u64>,
+    },
+
+    // NEW: Model-specific reconstruction
+    ReconstructAtLimit {
+        task_id: u64,
+        target_tokens: u32,
+        model_id: Option<String>,
+        chars_per_token_estimate: Option<usize>,
+    },
+}
+```
+
+---
+
+# SECTION T: ADDENDUM — MODALITIES 124–126 (Radar, Sonar, Hyperspectral)
+
+## T.1 Bootstrap Constants
+
+```rust
+pub const RADAR_ROOT: u64 = 124;
+pub const SONAR_ROOT: u64 = 125;
+pub const HYPERSPECTRAL_ROOT: u64 = 126;
+pub const FILE_GRAPH_ROOT: u64 = 4;
+pub const CROSS_MODAL_INDEX_ROOT: u64 = 5;
+```
+
+## T.2 ContainerType Extensions
+
+```rust
+// In ContainerType enum, add:
+RadarRoot = 124,
+SonarRoot = 125,
+HyperspectralRoot = 126,
+FileGraphRoot = 4,
+CrossModalIndexRoot = 5,
+```
+
+## T.3 File Extension Routing Additions
+
+```
+Radar:         .iq  .bin  .cphd  .sicd  .nitf           → pipeline 124
+Sonar:         .xtf  .jsf  .s7k  .gsf  .all  .wcd        → pipeline 125
+Hyperspectral: .hdr  .bil  .bip  .bsq  .h4  .hdf4        → pipeline 126
+               sensor-named .tif (e.g. aviris.tif)        → pipeline 126
+```
+
+## T.4 Cross-Modal Links Summary (124–126)
+
+```
+Radar (124):
+  → 109 (3D):  ContributesTo3DGeometry  (radar point cloud → 3D scene)
+  → 117 (Geo): PlottedOnGeoMap          (target tracks on map)
+  → 118 (EM):  InterferesWithEM         (EM interference detection)
+  → 126 (HSI): MaterialCrossValidatedWith (backscatter vs spectral)
+  → 106 (Chem):IdentifiesChemicalComposition
+  → 122 (Ctrl):ProvidesToControlSystem  (tracking → guidance)
+
+Sonar (125):
+  → 109 (3D):  ContributesTo3DGeometry  (acoustic point cloud → 3D)
+  → 110 (Snd): VocalizationLinksToSound (marine mammal calls)
+  → 111 (Bio): LinksToMarineBiology     (species identification)
+  → 117 (Geo): PlottedOnGeoMap          (bathymetry on map)
+  → 121 (Kine):FeedsAUVKinematics       (AUV navigation)
+  → 114 (Therm):AffectedByThermalLayer  (thermoclines affect propagation)
+  → 124 (Radar):CrossFusedWithRadar     (above/below water handoff)
+
+Hyperspectral (126):
+  → 106 (Chem):ChemicallyLinkedToGraph  (spectral → molecular)
+  → 111 (Bio): LinkedToVegetationBiology (plant stress, phenology)
+  → 112 (Prot):TissueLinkedToProteomics  (medical/tissue imaging)
+  → 109 (3D):  MaterialOnSurface3D      (surface material on 3D geometry)
+  → 114 (Therm):EmissivityCorrelatesWithThermal
+  → 124 (Radar):MaterialCrossValidatedWithRadar
+  → 125 (Sonar):MaterialCrossValidatedWithSonar
+```
+
+## T.5 Engine UI Specifications
+
+```
+Radar Engine UI:
+  - Range-Doppler waterfall (canvas/jet colormap)
+  - SAR image viewer (georeferenced)
+  - Target track table (range, azimuth, velocity, RCS, classification)
+  - Weather overlay (reflectivity, precipitation type)
+  - Beam pattern / steering visualization
+  Export: GeoTIFF, KML, GeoJSON, CSV, ASTERIX, CoTXML
+
+Sonar Engine UI:
+  - Waterfall display (time vs bearing)
+  - Side-scan sonar mosaic
+  - Bathymetric depth map (color-coded)
+  - Echo strength heat map
+  - Frequency spectrum analyzer
+  - Species signature library (acoustic signatures)
+  - Sub-bottom stratigraphy viewer (layer cross-section)
+  Export: GeoTIFF, XTF, GSF, NetCDF, CSV, LAS, KML
+
+Hyperspectral Engine UI:
+  - RGB composite viewer (band selectable)
+  - Single-band viewer with slider (0–999 bands)
+  - Spectral curve canvas (click pixel → plot curve)
+  - Material identification map overlay
+  - Chemical concentration heatmap
+  - Anomaly detection overlay
+  - Vegetation indices panel (NDVI, EVI, NDWI, NBR, etc.)
+  Export: GeoTIFF, ENVI, HDF5, NetCDF, CSV, GeoJSON
+```
+
+---
+
+# COMPLETE MODIFICATION CHECKLIST — MERGED v2.0
+
+## Architecture (All Confirmed)
+- [x] Processing flow: Input → Normalization → File Processing → File Classification (on graphs) → Initial Graphs → AMT → Blueprint → Execution
+- [x] File classification on GRAPHS not raw files (C.1.1 corrected)
+- [x] Initial graph creation BEFORE AMT
+- [x] AMT layer-by-layer with per-layer 5x stable validation
+- [x] Living system hook-based (no separate loop, no max iterations)
+- [x] Smart chunking with token-budget reconstruction
+
+## New Types Added (All Defined)
+- [x] NodeCore composite struct (embedded in all modality nodes)
+- [x] SpatialPosition + TimeRange + BoundingBox (node spatial/temporal fields)
+- [x] CrossModalRef inline on nodes
+- [x] CrossModalIndex dedicated struct with lookup indices
+- [x] EdgeProvenance — granular indexed form
+- [x] GraphState + GraphStateType (with Failed state)
+- [x] GraphStateTransition with nodes_added / edges_added metrics
+- [x] StateTransitionTrigger with Error trigger
+- [x] ChangeType — merged set (both drafts combined)
+- [x] OverlapResolution with ResolutionMethod (LLMZeroShot canonical, RuleBased fallback)
+- [x] ChunkGraph structure
+- [x] FileModalityInfo + FileGraphRole
+- [x] ClassifiedFileGraph
+- [x] RootModalityList + VerifiedModality + UnhandledModality
+- [x] OrchestrationState updated (file_graphs, workspace_id, methodology_gaps)
+- [x] MethodologyGap struct
+- [x] PhaseTransition with reason field
+- [x] ProgressionState + ProcessingPhase
+- [x] ContextScope
+- [x] Blueprint + BlueprintStep
+- [x] Methodology (full format)
+- [x] PipelineDefinition
+- [x] ClarificationRequest + Response
+- [x] TaskStepState + StepStatus (with Cancelled)
+- [x] ModalityEngine trait
+
+## Edge Type Additions (All Modalities)
+- [x] HasInstance, SimilarTo, RelatesTo (from Z.ai)
+- [x] Cross-modal set: ReferencedBy, DescribedBy, Describes, ImplementedIn, Implements, VisualizedAs, Visualizes, SyncedTo, SyncedBy (from Z.ai)
+- [x] HasPart (inverse of PartOf)
+- [x] All existing universal semantic edges retained
+
+## Confidence Fields
+- [x] REMOVED everywhere — including Z.ai's SpectralSignature.confidence
+
+## Modality-Specific (100–126)
+- [x] Text (100): VerbType, SentimentInfo, all node types, all edge types
+- [x] Code (101): intent relationships, edge types
+- [x] Image (102): spatial relationships, affordances, edge types
+- [x] Audio (103): temporal chains, prosody, edge types
+- [x] Video (104): interactions, narrative graph, SyncedTo/SyncedBy
+- [x] Math (105): logical relationships, edge types
+- [x] Chemistry (106): mechanism graphs, edge types
+- [x] DNA (107): regulatory networks, edge types
+- [x] EEG (108): state transitions, cognitive graph, edge types
+- [x] 3D (109): engine actions, TargetEngine enum, simulation domains
+- [x] 110–123: edge type additions from both drafts
+- [x] 124 (Radar): complete modality file provided separately
+- [x] 125 (Sonar): complete modality file provided separately
+- [x] 126 (Hyperspectral): complete modality file provided separately
+
+## Infrastructure
+- [x] ContainerType: Z.ai numbering adopted (modality_id = container_type_value)
+- [x] New: FileGraphRoot (4), CrossModalIndexRoot (5)
+- [x] New: RadarRoot (124), SonarRoot (125), HyperspectralRoot (126)
+- [x] Pipeline Registry: entries 100–126
+- [x] File extension routing: Radar (.iq etc.), Sonar (.xtf etc.), HSI (.hdr etc.)
+- [x] Pipeline Executor: token tracking, shared time utilities
+
+## UI Components
+- [x] TasksUI: clarification banner, stage display, graph impact, version notes
+- [x] ContextViewerTab: 3 modes, modality color codes updated for 124–126
+- [x] EnginesTab: engine selector updated with Radar, Sonar, Hyperspectral
+- [x] ThreeDEngineUI: full 3-panel implementation
+- [x] RadarEngineUI: waterfall, target table, weather, track panel
+- [x] SonarEngineUI: waterfall, targets, biology, sub-bottom
+- [x] HyperspectralEngineUI: RGB composite, band slider, spectral curve, materials, anomalies, vegetation
+- [x] NeuralSignalEngineUI: channel list, waveform, band power gauges
+- [x] GenomeBrowserUI: chromosome navigator, gene/regulatory/variant tracks
+- [x] MolecularViewerUI, ProofEngineUI, CodeIntelEngineUI, CADEngineUI, KinematicsEngineUI, GeospatialEngineUI: specs defined
+- [x] WorkspaceTab: context scope integration, file modality detection notification
+
+## Guidelines
+- [x] Blueprint: lifecycle, data structure, creation process
+- [x] Methodology: format rules, synthesis
+- [x] Pipeline: format rules, required actions, synthesis
+
+---
+
+*End of OZONE Studio Modifications Guide v2.0 — Merged Final.*
+*Companion files: modality_124_radar.rs, modality_125_sonar.rs, modality_126_hyperspectral.rs (complete implementations provided separately).*

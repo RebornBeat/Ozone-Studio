@@ -7,13 +7,11 @@
 //! When ZSEI is wired in via set_zsei(), every new experience/memory also
 //! becomes a traversable ZSEI container under /Consciousness/.
 
-use crate::bootstrap::{
-    experience_container_id, CONSCIOUSNESS_CORE_MEMORY_ROOT_ID, CONSCIOUSNESS_EMOTIONAL_ROOT_ID,
-    CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
-};
 use crate::types::container::{
-    CompressionType, Container, ContainerType, Context, GlobalState, IntegrityData, LocalState,
-    Metadata, Modality, StoragePointers, TraversalHints,
+    experience_container_id, CompressionType, Container, ContainerType, Context, GlobalState,
+    IntegrityData, LocalState, Metadata, Modality, StoragePointers, TraversalHints,
+    CONSCIOUSNESS_CORE_MEMORY_ROOT_ID, CONSCIOUSNESS_EMOTIONAL_ROOT_ID,
+    CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
 };
 use crate::zsei::ZSEI;
 use serde::{Deserialize, Serialize};

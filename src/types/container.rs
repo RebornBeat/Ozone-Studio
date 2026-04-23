@@ -1,17 +1,150 @@
 //! Container types - Section 6 of the specification (ZSEI Core)
+//!
+//! Also houses all reserved container ID constants and ID-computation helpers
+//! that were previously scattered across bootstrap.rs and store modules.
+//! Single source of truth for the ZSEI container identity layer.
 
 use super::{Blake3Hash, ContainerID, PublicKey, SemVer, Value};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Container - the fundamental unit in ZSEI (§6.2)
+// ============================================================================
+// RESERVED CONTAINER IDs — structural roots of the ZSEI hierarchy
+//
+// Ranges:
+//   0–6        : system roots
+//   10–18      : modality nodes (one per modality, under /Modality/)
+//   20–31      : consciousness sphere roots
+//   10000+     : pipeline containers        (10000 + pipeline_id)
+//   30000+     : methodology containers     (30000 + methodology_id)
+//   40000+     : blueprint containers       (40000 + blueprint_id)
+//   100000+    : runtime containers         (experiences, graphs, etc.)
+// ============================================================================
+
+// ── System Roots (0–6) ─────────────────────────────────────────────────────
+pub const ROOT_CONTAINER_ID: ContainerID = 0;
+pub const MODALITY_ROOT_ID: ContainerID = 1;
+pub const METHODOLOGY_ROOT_ID: ContainerID = 2;
+pub const BLUEPRINT_ROOT_ID: ContainerID = 3;
+pub const PIPELINE_ROOT_ID: ContainerID = 4;
+pub const CONSCIOUSNESS_ROOT_ID: ContainerID = 5;
+pub const EXTERNAL_ROOT_ID: ContainerID = 6;
+
+// ── Core Modality Nodes (10–18) ────────────────────────────────────────────
+// One node per modality pipeline, under /Modality/
+pub const MODALITY_TEXT_ID: ContainerID = 10;
+pub const MODALITY_CODE_ID: ContainerID = 11;
+pub const MODALITY_IMAGE_ID: ContainerID = 12;
+pub const MODALITY_AUDIO_ID: ContainerID = 13;
+pub const MODALITY_VIDEO_ID: ContainerID = 14;
+pub const MODALITY_MATH_ID: ContainerID = 15;
+pub const MODALITY_CHEMISTRY_ID: ContainerID = 16;
+pub const MODALITY_DNA_ID: ContainerID = 17;
+pub const MODALITY_EEG_ID: ContainerID = 18;
+
+// ── Extended Modality Nodes (19–35) ───────────────────────────────────────
+// Engines and new modalities added in v2
+pub const MODALITY_3D_ID: ContainerID = 19;
+pub const MODALITY_SOUND_ID: ContainerID = 20; // sound reconstruction
+pub const MODALITY_BIOLOGY_ID: ContainerID = 21;
+pub const MODALITY_PROTEOMICS_ID: ContainerID = 22;
+pub const MODALITY_HAPTIC_ID: ContainerID = 23;
+pub const MODALITY_THERMAL_ID: ContainerID = 24;
+pub const MODALITY_DEPTH_ID: ContainerID = 25;
+pub const MODALITY_IMU_ID: ContainerID = 26;
+pub const MODALITY_GEOSPATIAL_ID: ContainerID = 27;
+pub const MODALITY_ELECTROMAGNETIC_ID: ContainerID = 28;
+pub const MODALITY_BCI_ID: ContainerID = 29;
+pub const MODALITY_PARAMETRIC_CAD_ID: ContainerID = 30;
+pub const MODALITY_KINEMATICS_ID: ContainerID = 31;
+pub const MODALITY_CONTROL_SYSTEMS_ID: ContainerID = 32;
+pub const MODALITY_NETWORK_TOPOLOGY_ID: ContainerID = 33;
+pub const MODALITY_RADAR_ID: ContainerID = 34;
+pub const MODALITY_SONAR_ID: ContainerID = 35;
+pub const MODALITY_HYPERSPECTRAL_ID: ContainerID = 36;
+
+// ── Consciousness Sphere Roots (50–65) ────────────────────────────────────
+pub const CONSCIOUSNESS_EXPERIENCE_ROOT_ID: ContainerID = 50;
+pub const CONSCIOUSNESS_CORE_MEMORY_ROOT_ID: ContainerID = 51;
+pub const CONSCIOUSNESS_EMOTIONAL_ROOT_ID: ContainerID = 52;
+pub const CONSCIOUSNESS_IDENTITY_ROOT_ID: ContainerID = 53;
+pub const CONSCIOUSNESS_METACOGNITION_ROOT_ID: ContainerID = 54;
+pub const CONSCIOUSNESS_RELATIONSHIPS_ROOT_ID: ContainerID = 55;
+pub const CONSCIOUSNESS_ETHICS_ROOT_ID: ContainerID = 56;
+pub const CONSCIOUSNESS_NARRATIVES_ROOT_ID: ContainerID = 57;
+pub const CONSCIOUSNESS_COLLECTIVE_ROOT_ID: ContainerID = 58;
+
+// ── External Roots (70–71) ────────────────────────────────────────────────
+pub const EXTERNAL_PACKAGES_ROOT_ID: ContainerID = 70;
+pub const EXTERNAL_URLS_ROOT_ID: ContainerID = 71;
+
+// ── Runtime Graph Roots (75–79) ───────────────────────────────────────────
+// Stores for chunk graphs, file graphs, and cross-modal indices
+pub const CHUNK_GRAPH_ROOT_ID: ContainerID = 75;
+pub const FILE_GRAPH_ROOT_ID: ContainerID = 76;
+pub const CROSS_MODAL_INDEX_ROOT_ID: ContainerID = 77;
+
+// ============================================================================
+// ID COMPUTATION HELPERS
+//
+// These map domain IDs to their reserved container ID ranges.
+// Used by pipeline store, blueprint store, methodology store, etc.
+// ============================================================================
+
+/// Returns the container ID for a pipeline (range: 10000+).
+#[inline]
+pub const fn pipeline_container_id(pipeline_id: u64) -> ContainerID {
+    10000 + pipeline_id
+}
+
+/// Returns the container ID for a methodology (range: 30000+).
+#[inline]
+pub const fn methodology_container_id(methodology_id: u64) -> ContainerID {
+    30000 + methodology_id
+}
+
+/// Returns the container ID for a blueprint (range: 40000+).
+#[inline]
+pub const fn blueprint_container_id(blueprint_id: u64) -> ContainerID {
+    40000 + blueprint_id
+}
+
+/// Returns the container ID for a runtime experience (range: 100000+).
+#[inline]
+pub const fn experience_container_id(experience_id: u64) -> ContainerID {
+    100000 + experience_id
+}
+
+/// Returns the container ID for a modality graph (range: 200000+).
+#[inline]
+pub const fn modality_graph_container_id(graph_id: u64) -> ContainerID {
+    200000 + graph_id
+}
+
+/// Returns the container ID for a chunk graph (range: 300000+).
+#[inline]
+pub const fn chunk_graph_container_id(chunk_graph_id: u64) -> ContainerID {
+    300000 + chunk_graph_id
+}
+
+/// Returns the container ID for a file graph (range: 400000+).
+#[inline]
+pub const fn file_graph_container_id(file_graph_id: u64) -> ContainerID {
+    400000 + file_graph_id
+}
+
+// ============================================================================
+// CONTAINER STRUCT
+// ============================================================================
+
+/// Container — the fundamental unit in ZSEI (§6.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Container {
     pub global_state: GlobalState,
     pub local_state: LocalState,
 }
 
-/// Global State - ALWAYS a list of IDs (mmap-friendly) (§6.2)
+/// Global State — ALWAYS a list of IDs (mmap-friendly) (§6.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalState {
     pub container_id: ContainerID,
@@ -33,7 +166,7 @@ impl Default for GlobalState {
     }
 }
 
-/// Local State - Metadata, context, pointers (§6.2)
+/// Local State — Metadata, context, pointers (§6.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalState {
     pub metadata: Metadata,
@@ -246,62 +379,73 @@ pub enum ChangeType {
     Merge,
 }
 
+// ============================================================================
+// CONTAINER TYPES
+// ============================================================================
+
 /// Container types (§6.3)
+///
+/// Variants are grouped and annotated.  The `repr(u16)` discriminant is stored
+/// on disk and must remain stable across versions — only append, never renumber.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[repr(u16)]
 pub enum ContainerType {
-    // System
+    // ── System roots ────────────────────────────────────────────────────────
     #[default]
     Root = 0,
 
-    // User Organization
+    // ── User organisation ────────────────────────────────────────────────────
     User = 1,
     Workspace = 2,
     Project = 3,
 
-    // Global/Distributed
+    // ── Global / distributed ─────────────────────────────────────────────────
     Modality = 10,
     Category = 11,
     SubCategory = 12,
 
-    // Knowledge
+    // ── Knowledge ────────────────────────────────────────────────────────────
     Methodology = 20,
     Blueprint = 21,
     Pipeline = 22,
 
-    // Execution
+    // ── Execution ────────────────────────────────────────────────────────────
     Task = 30,
     TaskContext = 31,
     TaskExecutionState = 32,
 
-    // Data
+    // ── Data ─────────────────────────────────────────────────────────────────
     Dataset = 40,
     Shard = 41,
     Document = 42,
     Chunk = 43,
     Embedding = 44,
 
-    // File References (NOT copies)
+    // ── File references (NOT copies) ─────────────────────────────────────────
     FileReference = 50,
     DirectoryReference = 51,
 
-    // External References (NOT copies)
+    // ── External references (NOT copies) ─────────────────────────────────────
     URLReference = 55,
     PackageReference = 56,
 
-    // Code Specific
+    // ── Code-specific ─────────────────────────────────────────────────────────
     CodeModule = 60,
     CodeFunction = 61,
     CodeClass = 62,
     CodeDependency = 63,
 
-    // Text Specific
+    // ── Text-specific ─────────────────────────────────────────────────────────
     TextDocument = 70,
     TextSection = 71,
     TextParagraph = 72,
     TextTheme = 73,
 
-    // Consciousness (Part II)
+    // ── Computed ─────────────────────────────────────────────────────────────
+    Derived = 80,
+    Virtual = 99,
+
+    // ── Consciousness (Part II) ───────────────────────────────────────────────
     ExperienceMemory = 100,
     CoreMemory = 101,
     EmotionalContext = 102,
@@ -313,7 +457,7 @@ pub enum ContainerType {
     Experience = 108,
     EmotionalStateRecord = 109,
 
-    // Hierarchy Root Nodes
+    // ── Hierarchy root nodes ─────────────────────────────────────────────────
     ModalityRoot = 200,      // /Modality/ root
     MethodologyRoot = 201,   // /Methodologies/ root
     BlueprintRoot = 202,     // /Blueprints/ root
@@ -322,14 +466,184 @@ pub enum ContainerType {
     ExternalRoot = 205,      // /External/ root
     PackageRoot = 206,       // /External/Packages/
     URLRoot = 207,           // /External/URLs/
+    ModalityGraph = 210,     // generic modality graph container
 
-    // Modality
-    ModalityGraph = 210,
+    // ── Consciousness sub-roots ───────────────────────────────────────────────
+    CoreMemoryRoot = 211,    // /Consciousness/CoreMemory/
+    EmotionalRoot = 212,     // /Consciousness/Emotional/
+    IdentityRoot = 213,      // /Consciousness/Identity/
+    MetaCognitionRoot = 214, // /Consciousness/MetaCognition/
+    RelationshipRoot = 215,  // /Consciousness/Relationships/
+    EthicsRoot = 216,        // /Consciousness/Ethics/
+    NarrativeRoot = 217,     // /Consciousness/Narratives/
+    CollectiveRoot = 218,    // /Consciousness/Collective/
 
-    // Computed
-    Derived = 80,
-    Virtual = 99,
+    // ── Modality-specific roots (v2 — engine pipelines 109–126) ─────────────
+    ThreeDRoot = 220,              // /Modality/3D/           (pipeline 109)
+    SoundReconstructionRoot = 221, // /Modality/Sound/      (pipeline 110)
+    BiologyRoot = 222,             // /Modality/Biology/      (pipeline 111)
+    ProteomicsRoot = 223,          // /Modality/Proteomics/   (pipeline 112)
+    HapticRoot = 224,              // /Modality/Haptic/       (pipeline 113)
+    ThermalRoot = 225,             // /Modality/Thermal/      (pipeline 114)
+    DepthRoot = 226,               // /Modality/Depth/        (pipeline 115)
+    IMURoot = 227,                 // /Modality/IMU/          (pipeline 116)
+    GeospatialRoot = 228,          // /Modality/Geospatial/   (pipeline 117)
+    ElectromagneticRoot = 229,     // /Modality/Electromagnetic/ (pipeline 118)
+    BCIRoot = 230,                 // /Modality/BCI/          (pipeline 119)
+    ParametricCADRoot = 231,       // /Modality/ParametricCAD/ (pipeline 120)
+    KinematicsRoot = 232,          // /Modality/Kinematics/   (pipeline 121)
+    ControlSystemsRoot = 233,      // /Modality/ControlSystems/ (pipeline 122)
+    NetworkTopologyRoot = 234,     // /Modality/NetworkTopology/ (pipeline 123)
+    ActiveRadarRoot = 235,         // /Modality/Radar/        (pipeline 124)
+    ActiveSonarRoot = 236,         // /Modality/Sonar/        (pipeline 125)
+    HyperspectralRoot = 237,       // /Modality/Hyperspectral/ (pipeline 126)
+
+    // ── Runtime graph stores ───────────────────────────────────────────────
+    ChunkGraphRoot = 240,      // /ChunkGraphs/    — persistent chunk graphs
+    FileGraphRoot = 241,       // /FileGraphs/     — per-file modality graphs
+    CrossModalIndexRoot = 242, // /CrossModalIndex/ — cross-modal link registry
+    ChunkGraph = 243,          // individual chunk graph container
+    FileGraph = 244,           // individual file graph container
 }
+
+impl ContainerType {
+    /// Human-readable name (matches folder names used in ZSEI paths).
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Root => "Root",
+            Self::User => "User",
+            Self::Workspace => "Workspace",
+            Self::Project => "Project",
+            Self::Modality => "Modality",
+            Self::Category => "Category",
+            Self::SubCategory => "SubCategory",
+            Self::Methodology => "Methodology",
+            Self::Blueprint => "Blueprint",
+            Self::Pipeline => "Pipeline",
+            Self::Task => "Task",
+            Self::TaskContext => "TaskContext",
+            Self::TaskExecutionState => "TaskExecutionState",
+            Self::Dataset => "Dataset",
+            Self::Shard => "Shard",
+            Self::Document => "Document",
+            Self::Chunk => "Chunk",
+            Self::Embedding => "Embedding",
+            Self::FileReference => "FileReference",
+            Self::DirectoryReference => "DirectoryReference",
+            Self::URLReference => "URLReference",
+            Self::PackageReference => "PackageReference",
+            Self::CodeModule => "CodeModule",
+            Self::CodeFunction => "CodeFunction",
+            Self::CodeClass => "CodeClass",
+            Self::CodeDependency => "CodeDependency",
+            Self::TextDocument => "TextDocument",
+            Self::TextSection => "TextSection",
+            Self::TextParagraph => "TextParagraph",
+            Self::TextTheme => "TextTheme",
+            Self::Derived => "Derived",
+            Self::Virtual => "Virtual",
+            Self::ExperienceMemory => "ExperienceMemory",
+            Self::CoreMemory => "CoreMemory",
+            Self::EmotionalContext => "EmotionalContext",
+            Self::IdentityState => "IdentityState",
+            Self::Relationship => "Relationship",
+            Self::EthicalPrinciple => "EthicalPrinciple",
+            Self::Narrative => "Narrative",
+            Self::CollectiveWisdom => "CollectiveWisdom",
+            Self::Experience => "Experience",
+            Self::EmotionalStateRecord => "EmotionalStateRecord",
+            Self::ModalityRoot => "ModalityRoot",
+            Self::MethodologyRoot => "MethodologyRoot",
+            Self::BlueprintRoot => "BlueprintRoot",
+            Self::PipelineRoot => "PipelineRoot",
+            Self::ConsciousnessRoot => "ConsciousnessRoot",
+            Self::ExternalRoot => "ExternalRoot",
+            Self::PackageRoot => "PackageRoot",
+            Self::URLRoot => "URLRoot",
+            Self::ModalityGraph => "ModalityGraph",
+            Self::CoreMemoryRoot => "CoreMemoryRoot",
+            Self::EmotionalRoot => "EmotionalRoot",
+            Self::IdentityRoot => "IdentityRoot",
+            Self::MetaCognitionRoot => "MetaCognitionRoot",
+            Self::RelationshipRoot => "RelationshipRoot",
+            Self::EthicsRoot => "EthicsRoot",
+            Self::NarrativeRoot => "NarrativeRoot",
+            Self::CollectiveRoot => "CollectiveRoot",
+            Self::ThreeDRoot => "ThreeDRoot",
+            Self::SoundReconstructionRoot => "SoundReconstructionRoot",
+            Self::BiologyRoot => "BiologyRoot",
+            Self::ProteomicsRoot => "ProteomicsRoot",
+            Self::HapticRoot => "HapticRoot",
+            Self::ThermalRoot => "ThermalRoot",
+            Self::DepthRoot => "DepthRoot",
+            Self::IMURoot => "IMURoot",
+            Self::GeospatialRoot => "GeospatialRoot",
+            Self::ElectromagneticRoot => "ElectromagneticRoot",
+            Self::BCIRoot => "BCIRoot",
+            Self::ParametricCADRoot => "ParametricCADRoot",
+            Self::KinematicsRoot => "KinematicsRoot",
+            Self::ControlSystemsRoot => "ControlSystemsRoot",
+            Self::NetworkTopologyRoot => "NetworkTopologyRoot",
+            Self::ActiveRadarRoot => "ActiveRadarRoot",
+            Self::ActiveSonarRoot => "ActiveSonarRoot",
+            Self::HyperspectralRoot => "HyperspectralRoot",
+            Self::ChunkGraphRoot => "ChunkGraphRoot",
+            Self::FileGraphRoot => "FileGraphRoot",
+            Self::CrossModalIndexRoot => "CrossModalIndexRoot",
+            Self::ChunkGraph => "ChunkGraph",
+            Self::FileGraph => "FileGraph",
+        }
+    }
+
+    /// Whether this container type represents a hierarchy root that should be
+    /// created unconditionally during bootstrap.
+    pub fn is_bootstrap_root(&self) -> bool {
+        matches!(
+            self,
+            Self::ModalityRoot
+                | Self::MethodologyRoot
+                | Self::BlueprintRoot
+                | Self::PipelineRoot
+                | Self::ConsciousnessRoot
+                | Self::ExternalRoot
+                | Self::PackageRoot
+                | Self::URLRoot
+                | Self::CoreMemoryRoot
+                | Self::EmotionalRoot
+                | Self::IdentityRoot
+                | Self::MetaCognitionRoot
+                | Self::RelationshipRoot
+                | Self::EthicsRoot
+                | Self::NarrativeRoot
+                | Self::CollectiveRoot
+                | Self::ThreeDRoot
+                | Self::SoundReconstructionRoot
+                | Self::BiologyRoot
+                | Self::ProteomicsRoot
+                | Self::HapticRoot
+                | Self::ThermalRoot
+                | Self::DepthRoot
+                | Self::IMURoot
+                | Self::GeospatialRoot
+                | Self::ElectromagneticRoot
+                | Self::BCIRoot
+                | Self::ParametricCADRoot
+                | Self::KinematicsRoot
+                | Self::ControlSystemsRoot
+                | Self::NetworkTopologyRoot
+                | Self::ActiveRadarRoot
+                | Self::ActiveSonarRoot
+                | Self::HyperspectralRoot
+                | Self::ChunkGraphRoot
+                | Self::FileGraphRoot
+                | Self::CrossModalIndexRoot
+        )
+    }
+}
+
+// ============================================================================
+// MODALITY TYPES
+// ============================================================================
 
 /// Modality types (§6.4)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -348,6 +662,10 @@ pub enum Modality {
     External = 9,
     Multimodal = 255,
 }
+
+// ============================================================================
+// FILE CONTEXT (§7.2)
+// ============================================================================
 
 /// File context for linked files (§7.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -424,6 +742,10 @@ pub struct ChunkIntegrity {
     pub reconstruction_verified: bool,
     pub last_integrity_check: u64,
 }
+
+// ============================================================================
+// CODE CONTEXT (§8.2)
+// ============================================================================
 
 /// Code context (§8.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -774,6 +1096,10 @@ pub enum DiscrepancyType {
     UndocumentedBehavior,
 }
 
+// ============================================================================
+// TEXT CONTEXT (§9.2)
+// ============================================================================
+
 /// Text context (§9.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TextContext {
@@ -1062,6 +1388,10 @@ pub struct StructureIntegrity {
     pub thematic_coherence_score: f32,
     pub reconstruction_verified: bool,
 }
+
+// ============================================================================
+// EXTERNAL REFERENCES (§23.2)
+// ============================================================================
 
 /// External reference (§23.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]

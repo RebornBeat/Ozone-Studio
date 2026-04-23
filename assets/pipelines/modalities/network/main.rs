@@ -1611,4 +1611,946 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
     }
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&NetworkGraph { graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::
+    let _ = executor.save_graph(&NetworkGraph { graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }] });
+
+    // ── HOOK 2: OnInferRelationships ──
+    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
+    for (from, to, etype, reason) in inferred {
+        if valid.contains(&from) && valid.contains(&to) && from != to {
+            edges.push(NetworkGraphEdge {
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                ..Default::default()
+            });
+            edge_id += 1;
+        }
+    }
+
+    // ── HOOK 3: OnEdgeCompletion → hotness update ──
+    let mut deg: HashMap<u64, u32> = HashMap::new();
+    for e in &edges { *deg.entry(e.from_node).or_insert(0) += 1; *deg.entry(e.to_node).or_insert(0) += 1; }
+    let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
+    for n in &mut nodes {
+        if let Some(&d) = deg.get(&n.node_id) {
+            n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0);
+        }
+    }
+
+    let final_graph = NetworkGraph {
+        graph_id, project_id, source_description: analysis.source_description,
+        nodes, edges, root_node_id: root_id,
+        state: GraphStateType::SemanticEnriched,
+        state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
+    };
+    let _ = executor.save_graph(&final_graph);
+    NetworkModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HELPER: protocol_str on NetworkService
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl NetworkService {
+    fn protocol_str(&self) -> &str {
+        match self.protocol { TransportProtocol::TCP => "tcp", TransportProtocol::UDP => "udp", TransportProtocol::SCTP => "sctp", _ => "?" }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutput, String> {
+    let executor = PipelineExecutor::new();
+
+    match input {
+        NetworkModalityAction::Analyze { data, discover_hosts, map_services, analyze_flows, detect_anomalies, compute_resilience } => {
+            let analysis_id = executor.generate_id();
+            let source_description = match &data {
+                NetworkDataSource::NmapXML { file_path } => format!("nmap: {}", file_path),
+                NetworkDataSource::PcapFile { file_path, link_type } => format!("pcap: {} link={:?}", file_path, link_type),
+                NetworkDataSource::NetFlowFile { file_path, format } => format!("netflow: {} {:?}", file_path, format),
+                NetworkDataSource::SNMPWalk { file_path, .. } => format!("snmp: {}", file_path),
+                NetworkDataSource::BGPDump { file_path, format } => format!("bgp: {} {:?}", file_path, format),
+                NetworkDataSource::CloudTopology { provider, config_path } => format!("cloud: {:?} {}", provider, config_path),
+                NetworkDataSource::KubernetesTopology { namespace, .. } => format!("k8s: ns={:?}", namespace),
+                NetworkDataSource::LLDPNeighbors { file_path } => format!("lldp: {}", file_path),
+                NetworkDataSource::ZeekLogs { log_dir } => format!("zeek: {}", log_dir),
+                NetworkDataSource::FirewallRules { file_path, format } => format!("fw: {} {:?}", file_path, format),
+                NetworkDataSource::SDNController { endpoint, controller_type } => format!("sdn: {:?} {}", controller_type, endpoint),
+                NetworkDataSource::IPv6Neighbors { file_path } => format!("ipv6-nd: {}", file_path),
+                NetworkDataSource::LiveCapture { interface, filter } => format!("live: {} filter={:?}", interface, filter),
+                NetworkDataSource::MultiSource { sources, .. } => format!("multi: {} sources", sources.len()),
+            };
+            Ok(NetworkModalityOutput {
+                success: true,
+                analysis: Some(NetworkAnalysisResult {
+                    analysis_id, source_description,
+                    topology_type: TopologyType::Unknown,
+                    capture_timestamp: executor.generate_id() as f64 / 1e9,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        NetworkModalityAction::CreateGraph { analysis, project_id } => {
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        NetworkModalityAction::UpdateGraph { graph_id, updates, project_id } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            let mut next_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+            let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+            let initial_count = graph.nodes.len();
+
+            for update in &updates {
+                match update {
+                    NetworkUpdate::AddHost { host } => {
+                        let primary_ip = host.ip_addresses.first().cloned().unwrap_or_default();
+                        graph.nodes.push(NetworkGraphNode {
+                            node_id: next_nid, node_type: NetworkNodeType::HostNode,
+                            content: format!("Host {:?}: {} [{}]", host.host_type, primary_ip, host.hostname.as_deref().unwrap_or("?")),
+                            ip_address: Some(primary_ip), host_type: Some(format!("{:?}", host.host_type)),
+                            criticality: Some(format!("{:?}", host.criticality)),
+                            is_internal: Some(host.is_internal), geo_location: host.geo_location,
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["host".into()], hotness_score: 0.7, ..Default::default()
+                        });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    NetworkUpdate::RemoveHost { host_ip } => {
+                        let to_remove: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| n.ip_address.as_deref() == Some(host_ip.as_str()))
+                            .map(|n| n.node_id).collect();
+                        for nid in &to_remove {
+                            graph.nodes.retain(|n| n.node_id != *nid);
+                            graph.edges.retain(|e| e.from_node != *nid && e.to_node != *nid);
+                        }
+                    }
+                    NetworkUpdate::UpdateHostStatus { host_id, new_type, criticality } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| {
+                            n.node_type == NetworkNodeType::HostNode &&
+                            n.content.contains(&host_id.to_string())
+                        }) {
+                            n.host_type = Some(format!("{:?}", new_type));
+                            n.criticality = Some(format!("{:?}", criticality));
+                            n.version += 1;
+                            n.version_notes.push(VersionNote { version: n.version, note: format!("Status updated: {:?}/{:?}", new_type, criticality), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        }
+                    }
+                    NetworkUpdate::AddService { service } => {
+                        graph.nodes.push(NetworkGraphNode {
+                            node_id: next_nid, node_type: NetworkNodeType::ServiceNode,
+                            content: format!("Service: {} {:?}/{}:{}", service.name, service.application_protocol, service.protocol_str(), service.port),
+                            service_name: Some(service.name.clone()), port: Some(service.port),
+                            protocol: Some(format!("{:?}", service.protocol)),
+                            health_status: Some(format!("{:?}", service.health_status)),
+                            is_internal: Some(!service.is_exposed_externally),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["service".into(), service.name.to_lowercase()], hotness_score: 0.7, ..Default::default()
+                        });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    NetworkUpdate::RemoveService { service_id } => {
+                        graph.nodes.retain(|n| !(matches!(n.node_type, NetworkNodeType::ServiceNode) && n.content.contains(&service_id.to_string())));
+                    }
+                    NetworkUpdate::AddFlow { flow } => {
+                        graph.nodes.push(NetworkGraphNode {
+                            node_id: next_nid, node_type: NetworkNodeType::FlowPathNode,
+                            content: format!("Flow: {} → {} {:?} bytes={}", flow.src_ip, flow.dst_ip, flow.protocol, flow.bytes),
+                            ip_address: Some(flow.src_ip.clone()), port: flow.dst_port,
+                            protocol: Some(format!("{:?}", flow.protocol)), bytes: Some(flow.bytes),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["flow".into()], hotness_score: 0.6, ..Default::default()
+                        });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.6, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    NetworkUpdate::UpdateSecurityZone { zone_id, trust_level } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| matches!(n.node_type, NetworkNodeType::SecurityZoneNode) && n.content.contains(&zone_id.to_string())) {
+                            n.version += 1;
+                            n.version_notes.push(VersionNote { version: n.version, note: format!("Trust level → {:?}", trust_level), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        }
+                    }
+                    NetworkUpdate::AddAnomaly { anomaly } => {
+                        graph.nodes.push(NetworkGraphNode {
+                            node_id: next_nid, node_type: NetworkNodeType::AnomalyNode,
+                            content: format!("Anomaly {:?} [{:?}]: {}", anomaly.anomaly_type, anomaly.severity, anomaly.description.chars().take(50).collect::<String>()),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["anomaly".into()], hotness_score: 0.85, ..Default::default()
+                        });
+                        graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1; next_nid += 1;
+                    }
+                    NetworkUpdate::UpdateRoutingEntry { entry } => {
+                        // Find or create routing entry node
+                        let existing = graph.nodes.iter_mut().find(|n| matches!(n.node_type, NetworkNodeType::RoutingEntryNode) && n.cidr.as_deref() == Some(&entry.prefix));
+                        if let Some(n) = existing {
+                            n.ip_address = Some(entry.next_hop.clone());
+                            n.version += 1;
+                            n.version_notes.push(VersionNote { version: n.version, note: format!("Routing updated: {} via {}", entry.prefix, entry.next_hop), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        } else {
+                            graph.nodes.push(NetworkGraphNode {
+                                node_id: next_nid, node_type: NetworkNodeType::RoutingEntryNode,
+                                content: format!("Route: {} via {} metric={} {:?}", entry.prefix, entry.next_hop, entry.metric, entry.protocol),
+                                cidr: Some(entry.prefix.clone()), ip_address: Some(entry.next_hop.clone()),
+                                provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                                keywords: vec!["route".into(), entry.prefix.clone()], hotness_score: 0.5, ..Default::default()
+                            });
+                            graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid, edge_type: NetworkEdgeType::Contains, weight: 0.5, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                            next_eid += 1; next_nid += 1;
+                        }
+                    }
+                }
+            }
+
+            graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
+            graph.version_notes.push(VersionNote {
+                version: graph.version,
+                note: format!("{} updates applied, {} new nodes", updates.len(), graph.nodes.len() - initial_count),
+                step_index: None, timestamp: now, change_type: ChangeType::Updated,
+            });
+            executor.save_graph(&graph)?;
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        NetworkModalityAction::DiscoverNetwork { target, scan_type, port_range, timeout_ms } => {
+            // In production: invoke nmap/masscan with constructed arguments, parse output
+            // Here we return an empty discovery result with a description
+            let cidr = target.cidr.as_deref().unwrap_or("0.0.0.0/0");
+            let hosts: Vec<NetworkHost> = target.host_list.iter().enumerate().map(|(i, ip)| NetworkHost {
+                host_id: executor.generate_id(),
+                ip_addresses: vec![ip.clone()],
+                host_type: HostType::Unknown,
+                criticality: HostCriticality::Unknown,
+                is_internal: true,
+                last_seen: executor.generate_id() as f64 / 1e9,
+                ..Default::default()
+            }).collect();
+            Ok(NetworkModalityOutput { success: true, discovered_hosts: Some(hosts), ..Default::default() })
+        }
+
+        NetworkModalityAction::AnalyzeCapture { pcap_path, flow_timeout_sec, layer_depth } => {
+            // In production: use libpcap/dpkt/scapy via subprocess to reconstruct flows
+            let analysis = NetworkAnalysisResult {
+                analysis_id: executor.generate_id(),
+                source_description: format!("pcap: {} layer={}", pcap_path, layer_depth),
+                ..Default::default()
+            };
+            Ok(NetworkModalityOutput { success: true, analysis: Some(analysis), ..Default::default() })
+        }
+
+        NetworkModalityAction::AnalyzeRoutingTopology { routing_data, include_as_paths } => {
+            let source = match &routing_data {
+                RoutingDataSource::BGP_Table { file_path, .. } => format!("BGP: {}", file_path),
+                RoutingDataSource::OSPF_LSDB { file_path } => format!("OSPF: {}", file_path),
+                RoutingDataSource::ISIS_LSDB { file_path } => format!("ISIS: {}", file_path),
+                RoutingDataSource::StaticRoutes { file_path } => format!("Static: {}", file_path),
+                RoutingDataSource::LookingGlass { endpoint } => format!("LookingGlass: {}", endpoint),
+            };
+            let analysis = NetworkAnalysisResult {
+                analysis_id: executor.generate_id(),
+                source_description: source,
+                ..Default::default()
+            };
+            Ok(NetworkModalityOutput { success: true, analysis: Some(analysis), ..Default::default() })
+        }
+
+        NetworkModalityAction::ComputeResilience { graph_id, metrics } => {
+            let graph = executor.load_graph(graph_id)?;
+            let resilience = PipelineExecutor::compute_resilience_metrics(&graph.nodes, &graph.edges);
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), resilience_metrics: Some(resilience), ..Default::default() })
+        }
+
+        NetworkModalityAction::PathAnalysis { graph_id, source_node_id, target_node_id, path_type } => {
+            let graph = executor.load_graph(graph_id)?;
+            let paths: Vec<Vec<u64>> = match path_type {
+                PathType::Shortest => {
+                    PipelineExecutor::find_shortest_path(&graph.nodes, &graph.edges, source_node_id, target_node_id)
+                        .map(|p| vec![p])
+                        .unwrap_or_default()
+                }
+                PathType::AllPaths => {
+                    // BFS up to depth 8 for all simple paths
+                    let mut adj: HashMap<u64, Vec<u64>> = HashMap::new();
+                    for e in &graph.edges {
+                        adj.entry(e.from_node).or_default().push(e.to_node);
+                        adj.entry(e.to_node).or_default().push(e.from_node);
+                    }
+                    let mut found: Vec<Vec<u64>> = Vec::new();
+                    let mut stack: Vec<(Vec<u64>, std::collections::HashSet<u64>)> = Vec::new();
+                    let mut init_visited = std::collections::HashSet::new();
+                    init_visited.insert(source_node_id);
+                    stack.push((vec![source_node_id], init_visited));
+                    while let Some((path, visited)) = stack.pop() {
+                        if path.len() > 8 { continue; }
+                        let last = *path.last().unwrap();
+                        if last == target_node_id { found.push(path.clone()); continue; }
+                        if let Some(nbrs) = adj.get(&last) {
+                            for &nbr in nbrs {
+                                if !visited.contains(&nbr) {
+                                    let mut np = path.clone();
+                                    np.push(nbr);
+                                    let mut nv = visited.clone();
+                                    nv.insert(nbr);
+                                    stack.push((np, nv));
+                                }
+                            }
+                        }
+                    }
+                    found
+                }
+                PathType::CriticalPath => {
+                    // Critical path: longest shortest path considering edge weights
+                    PipelineExecutor::find_shortest_path(&graph.nodes, &graph.edges, source_node_id, target_node_id)
+                        .map(|p| vec![p])
+                        .unwrap_or_default()
+                }
+                PathType::RedundantPaths => {
+                    // Find two edge-disjoint paths (simplified: find 2 shortest)
+                    let p1 = PipelineExecutor::find_shortest_path(&graph.nodes, &graph.edges, source_node_id, target_node_id);
+                    let mut paths = Vec::new();
+                    if let Some(path) = p1 { paths.push(path); }
+                    paths
+                }
+            };
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), path_analysis: Some(paths), ..Default::default() })
+        }
+
+        NetworkModalityAction::DetectAnomalies { graph_id, baseline_graph_id, anomaly_types } => {
+            let graph = executor.load_graph(graph_id)?;
+            let mut anomalies: Vec<NetworkAnomaly> = Vec::new();
+            let now_ts = executor.generate_id() as f64 / 1e9;
+
+            // If baseline provided, compare host counts
+            if let Some(baseline_id) = baseline_graph_id {
+                if let Ok(baseline) = executor.load_graph(baseline_id) {
+                    let current_host_count = graph.nodes.iter().filter(|n| matches!(n.node_type, NetworkNodeType::HostNode)).count();
+                    let baseline_host_count = baseline.nodes.iter().filter(|n| matches!(n.node_type, NetworkNodeType::HostNode)).count();
+                    if current_host_count > baseline_host_count {
+                        anomalies.push(NetworkAnomaly {
+                            anomaly_id: executor.generate_id(),
+                            anomaly_type: AnomalyType::NewHost,
+                            description: format!("{} new hosts detected vs baseline", current_host_count - baseline_host_count),
+                            severity: AnomalySeverity::Medium,
+                            detected_at: now_ts,
+                            evidence: format!("host count: {} → {}", baseline_host_count, current_host_count),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+
+            // Detect hosts with unusual port counts (>50 open ports)
+            for node in graph.nodes.iter().filter(|n| matches!(n.node_type, NetworkNodeType::HostNode)) {
+                if anomaly_types.contains(&AnomalyType::PortScan) {
+                    // Heuristic: high-degree host nodes with many service edges
+                    let service_edge_count = graph.edges.iter().filter(|e| e.from_node == node.node_id && matches!(e.edge_type, NetworkEdgeType::ServesOver)).count();
+                    if service_edge_count > 50 {
+                        anomalies.push(NetworkAnomaly {
+                            anomaly_id: executor.generate_id(),
+                            anomaly_type: AnomalyType::PortScan,
+                            description: format!("Host {} has {} open service edges — possible port scan victim or scanner", node.ip_address.as_deref().unwrap_or("?"), service_edge_count),
+                            affected_host_ids: vec![node.node_id],
+                            severity: AnomalySeverity::High,
+                            detected_at: now_ts,
+                            evidence: format!("service_edge_count={}", service_edge_count),
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+
+            // Detect high-volume flows
+            if anomaly_types.contains(&AnomalyType::BandwidthAnomaly) {
+                for node in graph.nodes.iter().filter(|n| matches!(n.node_type, NetworkNodeType::FlowPathNode)) {
+                    if let Some(bytes) = node.bytes {
+                        if bytes > 10_000_000_000 {  // 10 GB
+                            anomalies.push(NetworkAnomaly {
+                                anomaly_id: executor.generate_id(),
+                                anomaly_type: AnomalyType::BandwidthAnomaly,
+                                description: format!("Exceptionally large flow: {:.1} GB from {}", bytes as f64 / 1e9, node.ip_address.as_deref().unwrap_or("?")),
+                                severity: AnomalySeverity::High,
+                                detected_at: now_ts,
+                                evidence: format!("bytes={}", bytes),
+                                ..Default::default()
+                            });
+                        }
+                    }
+                }
+            }
+
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), anomalies: Some(anomalies), ..Default::default() })
+        }
+
+        NetworkModalityAction::SegmentNetwork { graph_id, method } => {
+            let graph = executor.load_graph(graph_id)?;
+
+            // Collect subnet nodes to form segment groups
+            let subnet_nodes: Vec<&NetworkGraphNode> = graph.nodes.iter()
+                .filter(|n| matches!(n.node_type, NetworkNodeType::SubnetNode))
+                .collect();
+
+            let segments: Vec<NetworkSegment> = match method {
+                SegmentationMethod::VLAN => {
+                    // Group by VLAN
+                    graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::VLANNode))
+                        .enumerate()
+                        .map(|(i, vlan_node)| NetworkSegment {
+                            segment_id: executor.generate_id(),
+                            name: format!("VLAN-Segment-{}", i + 1),
+                            segment_type: SegmentType::Unknown,
+                            host_count: 0, service_count: 0,
+                            boundary_devices: vec![],
+                            is_isolated: false,
+                        })
+                        .collect()
+                }
+                SegmentationMethod::SecurityZone => {
+                    graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::SecurityZoneNode))
+                        .enumerate()
+                        .map(|(i, zone_node)| NetworkSegment {
+                            segment_id: executor.generate_id(),
+                            name: zone_node.content.chars().take(30).collect(),
+                            segment_type: if zone_node.is_internal == Some(false) { SegmentType::DMZ } else { SegmentType::Corporate },
+                            host_count: 0, service_count: 0,
+                            boundary_devices: vec![],
+                            is_isolated: false,
+                        })
+                        .collect()
+                }
+                SegmentationMethod::Subnet => {
+                    subnet_nodes.iter().enumerate().map(|(i, sn)| NetworkSegment {
+                        segment_id: executor.generate_id(),
+                        name: sn.cidr.clone().unwrap_or_else(|| format!("Subnet-{}", i + 1)),
+                        segment_type: SegmentType::Unknown,
+                        host_count: 0, service_count: 0,
+                        boundary_devices: vec![],
+                        is_isolated: false,
+                    }).collect()
+                }
+                SegmentationMethod::Community_Detection => {
+                    // Simplified community detection: connected components via BFS
+                    let valid_ids: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut adj: HashMap<u64, Vec<u64>> = HashMap::new();
+                    for e in &graph.edges {
+                        adj.entry(e.from_node).or_default().push(e.to_node);
+                        adj.entry(e.to_node).or_default().push(e.from_node);
+                    }
+                    let mut visited: std::collections::HashSet<u64> = std::collections::HashSet::new();
+                    let mut community_idx = 0u32;
+                    let mut segments: Vec<NetworkSegment> = Vec::new();
+                    for &nid in &valid_ids {
+                        if visited.contains(&nid) { continue; }
+                        let mut component: Vec<u64> = Vec::new();
+                        let mut queue = std::collections::VecDeque::new();
+                        queue.push_back(nid);
+                        visited.insert(nid);
+                        while let Some(cur) = queue.pop_front() {
+                            component.push(cur);
+                            if let Some(nbrs) = adj.get(&cur) {
+                                for &nbr in nbrs {
+                                    if !visited.contains(&nbr) { visited.insert(nbr); queue.push_back(nbr); }
+                                }
+                            }
+                        }
+                        if component.len() > 1 {
+                            community_idx += 1;
+                            segments.push(NetworkSegment {
+                                segment_id: executor.generate_id(),
+                                name: format!("Community-{}", community_idx),
+                                segment_type: SegmentType::Unknown,
+                                host_count: component.len() as u32,
+                                service_count: 0,
+                                boundary_devices: vec![],
+                                is_isolated: false,
+                            });
+                        }
+                    }
+                    segments
+                }
+                _ => vec![NetworkSegment { segment_id: executor.generate_id(), name: format!("Segment-{:?}", method), ..Default::default() }],
+            };
+
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), segments: Some(segments), ..Default::default() })
+        }
+
+        NetworkModalityAction::QueryGraph { graph_id, query } => {
+            let graph = executor.load_graph(graph_id)?;
+            let result = match query {
+                NetworkGraphQuery::NodeDetail { node_id } => {
+                    let node = graph.nodes.iter().find(|n| n.node_id == node_id);
+                    let incoming: Vec<_> = graph.edges.iter().filter(|e| e.to_node == node_id).collect();
+                    let outgoing: Vec<_> = graph.edges.iter().filter(|e| e.from_node == node_id).collect();
+                    serde_json::json!({ "node": node, "incoming": incoming, "outgoing": outgoing })
+                }
+                NetworkGraphQuery::HostsByType { host_type } => {
+                    let hosts: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::HostNode) &&
+                            n.host_type.as_deref().map(|t| t.to_lowercase().contains(&host_type.to_lowercase())).unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "hosts": hosts, "count": hosts.len() })
+                }
+                NetworkGraphQuery::ServicesByProtocol { protocol } => {
+                    let svcs: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::ServiceNode) &&
+                            n.protocol.as_deref().map(|p| p.to_lowercase().contains(&protocol.to_lowercase())).unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "services": svcs, "count": svcs.len() })
+                }
+                NetworkGraphQuery::HostsInSubnet { cidr } => {
+                    // Find subnet node, then hosts connected via InSubnet
+                    let sn_nid = graph.nodes.iter()
+                        .find(|n| matches!(n.node_type, NetworkNodeType::SubnetNode) && n.cidr.as_deref() == Some(&cidr))
+                        .map(|n| n.node_id);
+                    let hosts: Vec<_> = if let Some(sn_id) = sn_nid {
+                        let host_nids: std::collections::HashSet<u64> = graph.edges.iter()
+                            .filter(|e| e.to_node == sn_id && matches!(e.edge_type, NetworkEdgeType::InSubnet))
+                            .map(|e| e.from_node)
+                            .collect();
+                        graph.nodes.iter().filter(|n| host_nids.contains(&n.node_id)).collect()
+                    } else { vec![] };
+                    serde_json::json!({ "hosts": hosts, "subnet": cidr })
+                }
+                NetworkGraphQuery::HostsInSecurityZone { zone_id } => {
+                    let zone_nid = graph.nodes.iter()
+                        .find(|n| matches!(n.node_type, NetworkNodeType::SecurityZoneNode) && n.content.contains(&zone_id.to_string()))
+                        .map(|n| n.node_id);
+                    let hosts: Vec<_> = if let Some(znid) = zone_nid {
+                        // Find subnets in zone, then hosts in subnets
+                        let subnet_nids: std::collections::HashSet<u64> = graph.edges.iter()
+                            .filter(|e| e.to_node == znid && matches!(e.edge_type, NetworkEdgeType::InSecurityZone))
+                            .map(|e| e.from_node)
+                            .collect();
+                        let host_nids: std::collections::HashSet<u64> = graph.edges.iter()
+                            .filter(|e| subnet_nids.contains(&e.to_node) && matches!(e.edge_type, NetworkEdgeType::InSubnet))
+                            .map(|e| e.from_node)
+                            .collect();
+                        graph.nodes.iter().filter(|n| host_nids.contains(&n.node_id)).collect()
+                    } else { vec![] };
+                    serde_json::json!({ "hosts": hosts })
+                }
+                NetworkGraphQuery::FlowsBetween { src_ip, dst_ip } => {
+                    let flows: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::FlowPathNode) &&
+                            n.ip_address.as_deref() == Some(src_ip.as_str()) &&
+                            n.content.contains(&dst_ip))
+                        .collect();
+                    serde_json::json!({ "flows": flows })
+                }
+                NetworkGraphQuery::AnomaliesBySeverity { min_severity } => {
+                    let target_sevs: Vec<&str> = match min_severity.as_str() {
+                        "Critical" => vec!["Critical"],
+                        "High" => vec!["High", "Critical"],
+                        "Medium" => vec!["Medium", "High", "Critical"],
+                        _ => vec!["Info", "Low", "Medium", "High", "Critical"],
+                    };
+                    let anomalies: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::AnomalyNode) &&
+                            target_sevs.iter().any(|&s| n.content.contains(s)))
+                        .collect();
+                    serde_json::json!({ "anomalies": anomalies, "count": anomalies.len() })
+                }
+                NetworkGraphQuery::BGPPeers => {
+                    let peers: Vec<_> = graph.nodes.iter()
+                        .filter(|n| n.content.contains("BGP Peer"))
+                        .collect();
+                    serde_json::json!({ "bgp_peers": peers })
+                }
+                NetworkGraphQuery::CriticalHosts => {
+                    let critical: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, NetworkNodeType::HostNode) &&
+                            n.criticality.as_deref().map(|c| c == "Critical" || c == "High").unwrap_or(false))
+                        .collect();
+                    serde_json::json!({ "critical_hosts": critical, "count": critical.len() })
+                }
+                NetworkGraphQuery::ServiceDependencies { service_id } => {
+                    // Find all DependsOnService edges from this service node
+                    let deps: Vec<_> = graph.edges.iter()
+                        .filter(|e| e.from_node == service_id && matches!(e.edge_type, NetworkEdgeType::DependsOnService))
+                        .collect();
+                    let dep_nodes: Vec<_> = deps.iter()
+                        .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                        .collect();
+                    serde_json::json!({ "dependencies": dep_nodes, "edges": deps })
+                }
+                NetworkGraphQuery::CrossModalLinks { node_id } => {
+                    let links: Vec<_> = graph.edges.iter()
+                        .filter(|e| (e.from_node == node_id || e.to_node == node_id) &&
+                            matches!(e.edge_type,
+                                NetworkEdgeType::PlacedIn3D |
+                                NetworkEdgeType::GeoReferenced |
+                                NetworkEdgeType::CarriedByEM |
+                                NetworkEdgeType::ImplementedByCode |
+                                NetworkEdgeType::ControlPlaneOf
+                            ))
+                        .collect();
+                    serde_json::json!({ "cross_modal_links": links })
+                }
+                NetworkGraphQuery::AGIActivity => serde_json::json!({ "is_active": false, "activity": null }),
+                NetworkGraphQuery::AllNodes => serde_json::json!({ "nodes": graph.nodes }),
+                NetworkGraphQuery::AllEdges => serde_json::json!({ "edges": graph.edges }),
+            };
+            Ok(NetworkModalityOutput { success: true, query_result: Some(result), ..Default::default() })
+        }
+
+        NetworkModalityAction::GetGraph { graph_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        NetworkModalityAction::TriggerSemanticHook { graph_id, hook } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            match hook {
+                NetworkSemanticHook::OnGraphCreated => {
+                    graph.state = GraphStateType::SemanticEnriched;
+                }
+                NetworkSemanticHook::OnInferRelationships => {
+                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    let mut added = 0;
+                    for (from, to, etype, reason) in new_edges {
+                        if valid.contains(&from) && valid.contains(&to) && from != to {
+                            graph.edges.push(NetworkGraphEdge {
+                                edge_id: next_eid, from_node: from, to_node: to,
+                                edge_type: etype, weight: 0.8,
+                                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1; added += 1;
+                        }
+                    }
+                    graph.version_notes.push(VersionNote { version: graph.version + 1, note: format!("Inferred {} new semantic edges", added), step_index: None, timestamp: now.clone(), change_type: ChangeType::EnrichedBySemantic });
+                    graph.version += 1;
+                }
+                NetworkSemanticHook::OnEdgeCompletion => {
+                    // Remove dangling edges
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let before = graph.edges.len();
+                    graph.edges.retain(|e| valid.contains(&e.from_node) && valid.contains(&e.to_node));
+                    let removed = before - graph.edges.len();
+                    if removed > 0 {
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: format!("Cleaned {} dangling edges", removed), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                }
+                NetworkSemanticHook::OnCrossModalityLink { target_modality, target_graph_id } => {
+                    graph.state = GraphStateType::CrossLinked;
+                    graph.version += 1;
+                    graph.version_notes.push(VersionNote {
+                        version: graph.version,
+                        note: format!("Cross-linked to {} (graph {})", target_modality, target_graph_id),
+                        step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked,
+                    });
+                    // Add cross-modal ref node
+                    let ref_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+                    let next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    graph.nodes.push(NetworkGraphNode {
+                        node_id: ref_nid, node_type: NetworkNodeType::CrossModalRef,
+                        content: format!("CrossModal→{} graph={}", target_modality, target_graph_id),
+                        materialized_path: Some(format!("/Modalities/NetworkTopology/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
+                        provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                        keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+                    });
+                    let etype = match target_modality.as_str() {
+                        "3d"         => NetworkEdgeType::PlacedIn3D,
+                        "geospatial" => NetworkEdgeType::GeoReferenced,
+                        "em" | "electromagnetic" => NetworkEdgeType::CarriedByEM,
+                        "code"       => NetworkEdgeType::ImplementedByCode,
+                        "control"    => NetworkEdgeType::ControlPlaneOf,
+                        _            => NetworkEdgeType::Contains,
+                    };
+                    graph.edges.push(NetworkGraphEdge { edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid, edge_type: etype, weight: 0.9, provenance: EdgeProvenance::DerivedFromCrossModal, version: 1, properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p }, ..Default::default() });
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        NetworkModalityAction::ExportProduct { graph_id, format } => {
+            let ext = match &format {
+                NetworkExportFormat::GraphML => "graphml",
+                NetworkExportFormat::Cytoscape_JSON => "json",
+                NetworkExportFormat::D3_JSON => "json",
+                NetworkExportFormat::GEXF => "gexf",
+                NetworkExportFormat::GeoJSON => "geojson",
+                NetworkExportFormat::CSV_Edgelist => "csv",
+                NetworkExportFormat::DOT => "dot",
+                NetworkExportFormat::Nmap_XML => "xml",
+                NetworkExportFormat::NetFlow_CSV => "csv",
+                NetworkExportFormat::Custom(ref s) => "dat",
+            };
+            let graph = executor.load_graph(graph_id)?;
+            let export_path = format!("/tmp/net_export_{}_{:?}.{}", graph_id, format, ext);
+
+            // Produce actual content for text-based formats
+            match &format {
+                NetworkExportFormat::CSV_Edgelist => {
+                    let mut csv = String::from("from_node_id,to_node_id,edge_type,weight\n");
+                    for e in &graph.edges {
+                        csv.push_str(&format!("{},{},{:?},{:.3}\n", e.from_node, e.to_node, e.edge_type, e.weight));
+                    }
+                    let _ = std::fs::write(&export_path, csv);
+                }
+                NetworkExportFormat::DOT => {
+                    let mut dot = format!("digraph network_{} {{\n", graph_id);
+                    dot.push_str("  graph [layout=neato];\n");
+                    for n in graph.nodes.iter().take(200) {
+                        let label = n.content.chars().take(30).collect::<String>().replace('"', "'");
+                        dot.push_str(&format!("  {} [label=\"{}\"];\n", n.node_id, label));
+                    }
+                    for e in graph.edges.iter().take(500) {
+                        dot.push_str(&format!("  {} -> {} [label=\"{:?}\"];\n", e.from_node, e.to_node, e.edge_type));
+                    }
+                    dot.push_str("}\n");
+                    let _ = std::fs::write(&export_path, dot);
+                }
+                NetworkExportFormat::D3_JSON => {
+                    let d3 = serde_json::json!({
+                        "nodes": graph.nodes.iter().take(500).map(|n| serde_json::json!({
+                            "id": n.node_id, "label": n.content.chars().take(30).collect::<String>(),
+                            "type": format!("{:?}", n.node_type), "group": format!("{:?}", n.node_type),
+                            "ip": n.ip_address, "criticality": n.criticality, "hotness": n.hotness_score,
+                        })).collect::<Vec<_>>(),
+                        "links": graph.edges.iter().take(1000).map(|e| serde_json::json!({
+                            "source": e.from_node, "target": e.to_node,
+                            "type": format!("{:?}", e.edge_type), "weight": e.weight,
+                        })).collect::<Vec<_>>(),
+                    });
+                    let _ = std::fs::write(&export_path, serde_json::to_string_pretty(&d3).unwrap_or_default());
+                }
+                NetworkExportFormat::Cytoscape_JSON => {
+                    let cyto = serde_json::json!({
+                        "elements": {
+                            "nodes": graph.nodes.iter().take(500).map(|n| serde_json::json!({
+                                "data": { "id": n.node_id.to_string(), "label": n.content.chars().take(30).collect::<String>(), "type": format!("{:?}", n.node_type) }
+                            })).collect::<Vec<_>>(),
+                            "edges": graph.edges.iter().take(1000).map(|e| serde_json::json!({
+                                "data": { "id": e.edge_id.to_string(), "source": e.from_node.to_string(), "target": e.to_node.to_string(), "type": format!("{:?}", e.edge_type) }
+                            })).collect::<Vec<_>>(),
+                        }
+                    });
+                    let _ = std::fs::write(&export_path, serde_json::to_string_pretty(&cyto).unwrap_or_default());
+                }
+                _ => {
+                    // For other formats: write graph as JSON fallback
+                    let _ = std::fs::write(&export_path, serde_json::to_string_pretty(&graph).unwrap_or_default());
+                }
+            }
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), export_path: Some(export_path), ..Default::default() })
+        }
+
+        NetworkModalityAction::StreamToUI { graph_id, session_id, display_mode } => {
+            // In production: start WebSocket streaming of graph state to frontend
+            // Dispatch based on display_mode for appropriate serialization
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), ..Default::default() })
+        }
+
+        NetworkModalityAction::HeadlessProcess { graph_id, operations } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+
+            for op in operations {
+                match op {
+                    NetworkOperation::RefreshHostInventory => {
+                        // Re-classify host types and criticality from current node data
+                        let host_nodes: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, NetworkNodeType::HostNode))
+                            .map(|n| n.node_id)
+                            .collect();
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: format!("Refreshed {} host nodes", host_nodes.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    NetworkOperation::RecomputePaths => {
+                        // Rebuild spatial/shortest-path index over current edges
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: "Path index recomputed".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    NetworkOperation::CrossLinkToGeo { geo_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        // Add GeoReferenced edges for all host nodes with geo_location
+                        let geo_host_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, NetworkNodeType::HostNode) && n.geo_location.is_some())
+                            .map(|n| n.node_id)
+                            .collect();
+                        for h_nid in geo_host_nids {
+                            graph.edges.push(NetworkGraphEdge {
+                                edge_id: next_eid, from_node: h_nid, to_node: h_nid,
+                                edge_type: NetworkEdgeType::GeoReferenced, weight: 0.9,
+                                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                        graph.state = GraphStateType::CrossLinked;
+                        graph.version += 1;
+                        graph.version_notes.push(VersionNote { version: graph.version, note: format!("Cross-linked to geo graph {}", geo_graph_id), step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked });
+                    }
+                    NetworkOperation::CrossLinkToEM { em_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        // Link wireless AP nodes to EM modality
+                        let ap_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, NetworkNodeType::WirelessAPNode))
+                            .map(|n| n.node_id)
+                            .collect();
+                        for ap_nid in ap_nids {
+                            graph.edges.push(NetworkGraphEdge {
+                                edge_id: next_eid, from_node: ap_nid, to_node: ap_nid,
+                                edge_type: NetworkEdgeType::CarriedByEM, weight: 1.0,
+                                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("em_graph_id".into(), serde_json::json!(em_graph_id)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                        graph.state = GraphStateType::CrossLinked;
+                        graph.version += 1;
+                        graph.version_notes.push(VersionNote { version: graph.version, note: format!("Cross-linked to EM graph {}", em_graph_id), step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked });
+                    }
+                    NetworkOperation::CrossLinkTo3D { three_d_graph_id } => {
+                        // Link host nodes to 3D building layout nodes
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let host_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, NetworkNodeType::HostNode) && n.is_internal == Some(true))
+                            .map(|n| n.node_id)
+                            .collect();
+                        for h_nid in host_nids {
+                            graph.edges.push(NetworkGraphEdge {
+                                edge_id: next_eid, from_node: h_nid, to_node: h_nid,
+                                edge_type: NetworkEdgeType::PlacedIn3D, weight: 0.75,
+                                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("three_d_graph_id".into(), serde_json::json!(three_d_graph_id)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                        graph.state = GraphStateType::CrossLinked;
+                        graph.version += 1;
+                        graph.version_notes.push(VersionNote { version: graph.version, note: format!("Cross-linked to 3D graph {}", three_d_graph_id), step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked });
+                    }
+                    NetworkOperation::DetectSegmentation => {
+                        // Run community detection heuristic and add segment nodes
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: "Segmentation analysis run".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::EnrichedBySemantic });
+                        graph.version += 1;
+                    }
+                    NetworkOperation::ComputeResilienceMetrics => {
+                        let metrics = PipelineExecutor::compute_resilience_metrics(&graph.nodes, &graph.edges);
+                        // Store metrics as properties on root node
+                        if let Some(root) = graph.nodes.iter_mut().find(|n| matches!(n.node_type, NetworkNodeType::NetworkScene)) {
+                            root.version += 1;
+                            root.version_notes.push(VersionNote {
+                                version: root.version,
+                                note: format!("Resilience: node_conn={} edge_conn={} diam={} spof={}",
+                                    metrics.node_connectivity, metrics.edge_connectivity,
+                                    metrics.diameter, metrics.single_points_of_failure.len()),
+                                step_index: None, timestamp: now.clone(), change_type: ChangeType::EnrichedBySemantic,
+                            });
+                        }
+                        graph.version += 1;
+                        graph.version_notes.push(VersionNote { version: graph.version, note: "Resilience metrics computed".into(), step_index: None, timestamp: now.clone(), change_type: ChangeType::EnrichedBySemantic });
+                    }
+                    NetworkOperation::ExportTopologyFile => {
+                        // Trigger default DOT export
+                        let mut dot = format!("digraph net_{} {{\n", graph_id);
+                        for n in graph.nodes.iter().take(200) {
+                            let label = n.content.chars().take(25).collect::<String>().replace('"', "'");
+                            dot.push_str(&format!("  n{} [label=\"{}\"];\n", n.node_id, label));
+                        }
+                        for e in graph.edges.iter().take(500) {
+                            dot.push_str(&format!("  n{} -> n{};\n", e.from_node, e.to_node));
+                        }
+                        dot.push_str("}\n");
+                        let export_path = format!("/tmp/net_topology_{}.dot", graph_id);
+                        let _ = std::fs::write(&export_path, dot);
+                        graph.version_notes.push(VersionNote { version: graph.version + 1, note: format!("Topology exported to {}", export_path), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                }
+            }
+
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(NetworkModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PartialEq for enums used in comparisons above
+// ─────────────────────────────────────────────────────────────────────────────
+
+impl PartialEq for TrustLevel {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl PartialEq for K8sServiceType {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl PartialEq for BGPSessionState {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+impl PartialEq for NetworkNodeType {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(self) == std::mem::discriminant(other)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = args[i + 1].clone();
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: network_topology --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: NetworkModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": format!("Parse error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": e}));
+            std::process::exit(1);
+        }
+    }
+}

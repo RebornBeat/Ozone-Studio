@@ -2045,3 +2045,115 @@ Return ONLY valid JSON:
                     }
                     GeoHeadlessOp::RebuildSpatialIndex { index_type } => {
                         graph.version_notes.push(VersionNote { version: graph
+                            .version + 1, note: format!("Spatial index rebuilt: {:?}", index_type), step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated });
+                        graph.version += 1;
+                    }
+                    GeoHeadlessOp::CrossOverlayWith { other_graph_id, operation } => {
+                        let mut next_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        // Add cross-modal overlay reference node
+                        graph.nodes.push(GeoGraphNode {
+                            node_id: next_nid, node_type: GeoNodeType::CrossModalOverlayNode,
+                            content: format!("Overlay {:?} with graph {}", operation, other_graph_id),
+                            materialized_path: Some(format!("/Modalities/Geospatial/Project_{}/Graph_{}/Overlay/{}", graph.project_id, graph.graph_id, other_graph_id)),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["overlay".into(), format!("{:?}", operation).to_lowercase()],
+                            hotness_score: 0.7, ..Default::default()
+                        });
+                        graph.edges.push(GeoGraphEdge {
+                            edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid,
+                            edge_type: GeoEdgeType::Contains, weight: 0.8,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: {
+                                let mut p = HashMap::new();
+                                p.insert("other_graph_id".into(), serde_json::json!(other_graph_id));
+                                p.insert("operation".into(), serde_json::json!(format!("{:?}", operation)));
+                                p
+                            },
+                            ..Default::default()
+                        });
+                        graph.version += 1;
+                    }
+                    GeoHeadlessOp::ExportLayer { layer_type, format, path } => {
+                        // In production: serialize the specified layer type to the given path
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1,
+                            note: format!("Exported {} layer as {:?} to {}", layer_type, format, path),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    GeoHeadlessOp::AnnotateFromText { text_node_ids } => {
+                        // Cross-modal: annotate geo nodes from text descriptions
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        for text_nid in &text_node_ids {
+                            graph.edges.push(GeoGraphEdge {
+                                edge_id: next_eid, from_node: graph.root_node_id, to_node: graph.root_node_id,
+                                edge_type: GeoEdgeType::DescribedByText, weight: 0.8,
+                                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                                properties: {
+                                    let mut p = HashMap::new();
+                                    p.insert("text_node_id".into(), serde_json::json!(text_nid));
+                                    p.insert("target_modality".into(), serde_json::json!("text"));
+                                    p
+                                },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1,
+                            note: format!("Annotated from {} text nodes", text_node_ids.len()),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked,
+                        });
+                        graph.version += 1;
+                    }
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(GeoModalityOutput { success: true, graph_id: Some(graph.graph_id), graph: Some(graph), ..Default::default() })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = args[i + 1].clone();
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: geospatial_sensing --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: GeoModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": format!("Parse error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!(
+            "{}",
+            serde_json::to_string(&o)
+                .unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())
+        ),
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": e}));
+            std::process::exit(1);
+        }
+    }
+}

@@ -174,6 +174,42 @@ async function monitorBackendConnection() {
       countdownStarted = false;
       countdownValue = AUTO_LAUNCH_DELAY_SECONDS;
     }
+
+    // Push stats update when connected
+    if (isBackendConnected && mainWindow) {
+      try {
+        const health = await backendRequest("GET", "/health");
+        const configResult = await backendRequest("POST", "/config/get", {
+          session_token: "",
+        });
+        const config = configResult.config || {};
+
+        mainWindow.webContents.send("stats-update", {
+          backendConnected: true,
+          p2pEnabled: config.p2p?.enabled ?? true,
+          peerCount: config.p2p?.peer_count ?? 0,
+          totalContributions: config.stats?.total_contributions ?? 0,
+          myContributions: config.stats?.my_contributions ?? 0,
+          methodologiesShared: config.stats?.methodologies_shared ?? 0,
+          blueprintsShared: config.stats?.blueprints_shared ?? 0,
+          findingsShared: config.stats?.findings_shared ?? 0,
+          zseiContainers: config.stats?.zsei_containers ?? 1,
+          zseiDepth: config.stats?.zsei_depth ?? 0,
+          consciousnessEnabled: config.consciousness?.enabled ?? false,
+          consciousnessState: config.consciousness?.enabled
+            ? "Active"
+            : undefined,
+          iLoopStatus: config.consciousness?.enabled ? "Running" : undefined,
+          uptime: health.uptime_secs || 0,
+          memoryUsage:
+            (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) *
+            100,
+          activeTaskCount: health.active_tasks || 0,
+        });
+      } catch (e) {
+        // Stats push is best-effort
+      }
+    }
   }
 
   // Handle countdown and auto-launch when not connected
@@ -201,8 +237,9 @@ async function monitorBackendConnection() {
     }
   }
 
-  // Check every second during countdown, every 3 seconds after
-  const interval = !isBackendConnected && !hasAttemptedAutoLaunch ? 1000 : 3000;
+  // Check every 1s during countdown, every 10s once connected
+  const interval =
+    !isBackendConnected && !hasAttemptedAutoLaunch ? 1000 : 10000;
   setTimeout(monitorBackendConnection, interval);
 }
 
@@ -446,7 +483,7 @@ ipcMain.handle("auth:authenticate", async (event, { publicKey, signature }) => {
   });
 });
 
-// Pipeline execution - ONLY this creates tasks (via PromptPipeline)
+// Pipeline execution -
 ipcMain.handle(
   "pipeline:execute",
   async (event, { pipelineId, input, sessionToken }) => {
@@ -458,6 +495,12 @@ ipcMain.handle(
     });
   },
 );
+
+// Orchestration endpoint — routes to backend /orchestrate ONLY this creates tasks
+ipcMain.handle("orchestrate", async (event, request) => {
+  requireConnection();
+  return await backendRequest("POST", "/orchestrate", request);
+});
 
 ipcMain.handle("pipeline:list", async () => {
   requireConnection();

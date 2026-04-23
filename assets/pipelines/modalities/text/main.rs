@@ -118,6 +118,22 @@ pub enum TextModalityAction {
     /// Extract topics via zero-shot LLM
     ExtractTopics { text: String },
 
+    /// Detect modalities present in a chunk via zero-shot (5x stable loop)
+    DetectModalities {
+        text: String,
+        include_true_text: bool,
+        dynamic_modality_list: bool,
+    },
+
+    /// Create a persistent chunk graph from a processed chunk
+    CreateChunkGraph {
+        chunk: ProcessedChunk,
+        root_graph_id: u64,
+    },
+
+    /// Extract grammar relationships via zero-shot LLM
+    ExtractGrammarRelationships { text: String, chunk_index: u32 },
+
     /// Normalize text (basic cleaning without LLM)
     Normalize {
         text: String,
@@ -218,6 +234,15 @@ pub struct TextModalityOutput {
     // Metadata
     #[serde(skip_serializing_if = "Option::is_none")]
     pub processing_time_ms: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub grammar_relationships: Option<Vec<ChunkGrammarRelationship>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modality_detections: Option<Vec<ChunkModalityDetection>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunk_graph: Option<ChunkGraph>,
 }
 
 impl Default for TextModalityOutput {
@@ -240,8 +265,133 @@ impl Default for TextModalityOutput {
             hook_result: None,
             link_result: None,
             processing_time_ms: None,
+            grammar_relationships: None,
+            modality_detections: None,
+            chunk_graph: None,
         }
     }
+}
+
+// ── OVERLAP RESOLUTION TYPES ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct OverlapResolution {
+    pub has_overlap: bool,
+    pub overlap_type: OverlapType,
+    pub current_keep_end: usize, // char index in original current chunk text
+    pub next_start_offset: usize, // char offset to skip in next chunk
+    pub duplicate_belongs_in: DuplicateOwner,
+    pub resolution_method: ResolutionMethod,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum OverlapType {
+    #[default]
+    None,
+    SentenceCutoff,
+    ParagraphCutoff,
+    WordCutoff,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum DuplicateOwner {
+    #[default]
+    CurrentChunk,
+    NextChunk,
+    Neither,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum ResolutionMethod {
+    #[default]
+    LLMZeroShot,
+    RuleBased, // emergency fallback only — not default path
+}
+
+// ── GRAMMAR TYPES ──────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum VerbType {
+    #[default]
+    Action, // run, create, modify
+    Linking, // is, seems, becomes
+    Helping, // has, will, can
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ChunkGrammarRelationship {
+    pub from_text: String,
+    pub to_text: String,
+    pub edge_type: String,
+    pub tense: Option<String>,
+    pub negated: bool,
+    pub verb: String,
+    pub verb_type: VerbType,
+    pub subject: String,
+    pub object: Option<String>,
+    pub source_sentence_start: Option<usize>,
+    pub source_sentence_end: Option<usize>,
+    pub chunk_index: u32,
+}
+
+// ── MODALITY DETECTION TYPES ───────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkModalityDetection {
+    pub modality: String,
+    pub span_start: usize, // char offset within the chunk text
+    pub span_end: usize,   // char offset within the chunk text
+    // NO content_snippet — retrieve dynamically: &text[span_start..span_end]
+    pub intent_reference: String,
+    pub chunk_index: u32,
+}
+
+// ── CHUNK GRAPH TYPES ──────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SentenceBoundary {
+    pub start: usize, // char offset relative to chunk start
+    pub end: usize,
+    pub sentence_type: SentenceType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub enum SentenceType {
+    #[default]
+    Declarative,
+    Interrogative,
+    Imperative,
+    Fragment,
+    CodeBlock,
+    MathExpression,
+}
+
+/// Chunk graph — one per processed chunk. Persistent historical evidence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkGraph {
+    pub graph_id: u64,
+    pub chunk_index: u32,
+    pub prompt_start_char: usize,
+    pub prompt_end_char: usize,
+    pub sentence_boundaries: Vec<SentenceBoundary>,
+    pub paragraph_breaks: Vec<usize>,
+    pub cleaned_text: String,
+    pub overlap_resolution: Option<OverlapResolution>,
+    pub keywords: Vec<String>,
+    pub topics: Vec<String>,
+    pub grammar_relationships: Vec<ChunkGrammarRelationship>,
+    pub modality_detections: Vec<ChunkModalityDetection>,
+    pub root_modality_list_contribution: Vec<String>,
+    pub created_at: String,
+}
+
+/// Result of smart context reconstruction from chunk graphs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReconstructedContext {
+    pub text: String,
+    pub included_chunk_indices: Vec<u32>,
+    pub total_chars: usize,
+    pub estimated_tokens: usize,
 }
 
 // ============================================================================
@@ -274,6 +424,11 @@ pub struct ProcessedChunk {
     pub overlap_from_previous: u32,
     #[serde(default)]
     pub overlap_to_next: u32,
+    pub grammar_relationships: Vec<ChunkGrammarRelationship>,
+    pub detected_modalities: Vec<ChunkModalityDetection>,
+    pub chunk_graph_id: Option<u64>,
+    pub prompt_start_char: usize, // absolute position in original prompt
+    pub prompt_end_char: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -633,16 +788,46 @@ impl TextModalityPipeline {
 
             TextModalityAction::GetGraph { graph_id } => self.get_graph(graph_id).await,
 
+            TextModalityAction::CreateChunkGraph {
+                chunk,
+                root_graph_id,
+            } => {
+                let graph = self.create_chunk_graph(&chunk, root_graph_id);
+                TextModalityOutput {
+                    success: true,
+                    chunk_graph: Some(graph),
+                    ..Default::default()
+                }
+            }
+
             TextModalityAction::ChunkText {
                 text,
                 max_chunk_tokens,
                 overlap_tokens,
                 preserve_paragraphs,
-            } => self.chunk_text(&text, max_chunk_tokens, overlap_tokens, preserve_paragraphs),
+            } => {
+                let chunks = self
+                    .chunk_text_with_llm_overlap(
+                        &text,
+                        max_chunk_tokens,
+                        overlap_tokens,
+                        preserve_paragraphs,
+                    )
+                    .await;
+                TextModalityOutput {
+                    success: true,
+                    chunks: Some(chunks),
+                    token_count: Some(Self::estimate_tokens(&text)),
+                    ..Default::default()
+                }
+            }
 
             TextModalityAction::CleanChunk { chunk } => self.clean_chunk(chunk).await,
 
-            TextModalityAction::ProcessChunk { chunk } => self.process_chunk(chunk).await,
+            TextModalityAction::ProcessChunk {
+                chunk,
+                available_modalities,
+            } => self.process_chunk(chunk, available_modalities).await,
 
             TextModalityAction::ReconstructFromChunks { chunks } => {
                 self.reconstruct_from_chunks(&chunks)
@@ -652,20 +837,53 @@ impl TextModalityPipeline {
                 self.extract_keywords_llm(&text, max_keywords).await
             }
 
+            TextModalityAction::ExtractGrammarRelationships { text, chunk_index } => {
+                let rels = self
+                    .extract_grammar_relationships_from_text(&text, chunk_index)
+                    .await;
+                TextModalityOutput {
+                    success: true,
+                    grammar_relationships: Some(rels),
+                    ..Default::default()
+                }
+            }
+
             TextModalityAction::ExtractEntities { text } => self.extract_entities_llm(&text).await,
 
             TextModalityAction::ExtractTopics { text } => self.extract_topics_llm(&text).await,
-
-            TextModalityAction::Normalize {
-                text,
-                chunk_size,
-                overlap,
-            } => self.normalize_text(&text, chunk_size, overlap),
 
             TextModalityAction::TriggerSemanticHook {
                 graph_id,
                 hook_type,
             } => self.trigger_semantic_hook(graph_id, hook_type).await,
+
+            TextModalityAction::DetectModalities {
+                text,
+                include_true_text,
+                dynamic_modality_list,
+                available_modalities,
+            } => {
+                let available = if dynamic_modality_list && !available_modalities.is_empty() {
+                    available_modalities
+                };
+
+                let detections = self.detect_modalities_stable(&text, 0, &available).await;
+
+                let filtered: Vec<ChunkModalityDetection> = if include_true_text {
+                    detections
+                } else {
+                    detections
+                        .into_iter()
+                        .filter(|d| d.modality != "true_text")
+                        .collect()
+                };
+
+                TextModalityOutput {
+                    success: true,
+                    modality_detections: Some(filtered),
+                    ..Default::default()
+                }
+            }
 
             TextModalityAction::LinkToModality {
                 source_graph_id,
@@ -690,28 +908,6 @@ impl TextModalityPipeline {
     // ========================================================================
     // CHUNKING METHODS
     // ========================================================================
-
-    /// Chunk text with optional semantic awareness (paragraph preservation)
-    fn chunk_text(
-        &self,
-        text: &str,
-        max_chunk_tokens: u32,
-        overlap_tokens: u32,
-        preserve_paragraphs: bool,
-    ) -> TextModalityOutput {
-        let chunks = if preserve_paragraphs {
-            Self::chunk_text_semantic(text, max_chunk_tokens, overlap_tokens)
-        } else {
-            Self::chunk_text_simple(text, max_chunk_tokens, overlap_tokens)
-        };
-
-        TextModalityOutput {
-            success: true,
-            chunks: Some(chunks),
-            token_count: Some(Self::estimate_tokens(text)),
-            ..Default::default()
-        }
-    }
 
     /// Chunk text preserving paragraph boundaries
     fn chunk_text_semantic(text: &str, max_tokens: u32, overlap_tokens: u32) -> Vec<RawChunk> {
@@ -841,60 +1037,6 @@ impl TextModalityPipeline {
         chunks
     }
 
-    /// Simple chunking without semantic awareness
-    fn chunk_text_simple(text: &str, max_tokens: u32, overlap_tokens: u32) -> Vec<RawChunk> {
-        let max_chars = (max_tokens * 4) as usize;
-        let overlap_chars = (overlap_tokens * 4) as usize;
-        let mut chunks = Vec::new();
-        let mut start = 0;
-        let mut index = 0;
-
-        while start < text.len() {
-            let end = (start + max_chars).min(text.len());
-
-            // Try to find a word boundary
-            let adjusted_end = if end < text.len() {
-                text[start..end]
-                    .rfind(|c: char| c.is_whitespace())
-                    .map(|i| start + i)
-                    .unwrap_or(end)
-            } else {
-                end
-            };
-
-            let chunk_text = &text[start..adjusted_end];
-
-            chunks.push(RawChunk {
-                index,
-                text: chunk_text.to_string(),
-                start_char: start as u32,
-                end_char: adjusted_end as u32,
-                token_count: Self::estimate_tokens(chunk_text),
-                is_complete_paragraph: false,
-            });
-
-            index += 1;
-            start = if adjusted_end >= text.len() {
-                text.len()
-            } else {
-                adjusted_end.saturating_sub(overlap_chars)
-            };
-        }
-
-        if chunks.is_empty() {
-            chunks.push(RawChunk {
-                index: 0,
-                text: text.to_string(),
-                start_char: 0,
-                end_char: text.len() as u32,
-                token_count: Self::estimate_tokens(text),
-                is_complete_paragraph: true,
-            });
-        }
-
-        chunks
-    }
-
     /// Estimate token count (roughly 4 chars per token for English)
     fn estimate_tokens(text: &str) -> u32 {
         ((text.len() + 3) / 4) as u32
@@ -913,6 +1055,163 @@ impl TextModalityPipeline {
                 .unwrap_or(start);
             text[adjusted_start..].to_string()
         }
+    }
+
+    /// Resolve overlap boundary between two adjacent chunks via LLM zero-shot.
+    /// Returns OverlapResolution. Falls back to rule-based on LLM failure.
+    async fn resolve_overlap_llm(
+        &self,
+        current_chunk_text: &str,
+        next_chunk_text: &str,
+        overlap_chars: usize,
+    ) -> OverlapResolution {
+        let current_tail_start = current_chunk_text.len().saturating_sub(overlap_chars);
+        let current_tail = &current_chunk_text[current_tail_start..];
+        let next_head_end = overlap_chars.min(next_chunk_text.len());
+        let next_head = &next_chunk_text[..next_head_end];
+
+        let prompt = format!(
+            r#"Analyze the overlapping region between two adjacent text chunks.
+
+    END OF CURRENT CHUNK:
+    ---
+    {}
+    ---
+
+    START OF NEXT CHUNK:
+    ---
+    {}
+    ---
+
+    Determine if there is duplicated content and where the clean boundary should be.
+
+    Return ONLY valid JSON (no explanation, no markdown):
+    {{
+      "has_overlap": true,
+      "overlap_type": "sentence_cutoff|paragraph_cutoff|word_cutoff|none",
+      "current_should_end_at_offset": <integer, chars from start of current_tail to keep>,
+      "next_should_start_at_offset": <integer, chars into next_head to skip>,
+      "duplicate_belongs_in": "current|next|neither"
+    }}"#,
+            current_tail, next_head
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 200,
+            "temperature": 0.05,
+            "system_context": "Text boundary analysis. Return only valid JSON object. No explanation."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => {
+                let raw = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("{}");
+                let json_str = Self::extract_json_from_response(raw, '{', '}');
+                match serde_json::from_str::<serde_json::Value>(&json_str) {
+                    Ok(v) => OverlapResolution {
+                        has_overlap: v["has_overlap"].as_bool().unwrap_or(false),
+                        overlap_type: match v["overlap_type"].as_str().unwrap_or("none") {
+                            "sentence_cutoff" => OverlapType::SentenceCutoff,
+                            "paragraph_cutoff" => OverlapType::ParagraphCutoff,
+                            "word_cutoff" => OverlapType::WordCutoff,
+                            _ => OverlapType::None,
+                        },
+                        current_keep_end: current_tail_start
+                            + v["current_should_end_at_offset"]
+                                .as_usize()
+                                .unwrap_or(current_tail.len()),
+                        next_start_offset: v["next_should_start_at_offset"].as_usize().unwrap_or(0),
+                        duplicate_belongs_in: match v["duplicate_belongs_in"]
+                            .as_str()
+                            .unwrap_or("current")
+                        {
+                            "next" => DuplicateOwner::NextChunk,
+                            "neither" => DuplicateOwner::Neither,
+                            _ => DuplicateOwner::CurrentChunk,
+                        },
+                        resolution_method: ResolutionMethod::LLMZeroShot,
+                    },
+                    Err(_) => Self::rule_based_overlap_fallback(current_chunk_text, overlap_chars),
+                }
+            }
+            Err(_) => Self::rule_based_overlap_fallback(current_chunk_text, overlap_chars),
+        }
+    }
+
+    /// Rule-based overlap fallback — emergency only. Finds last sentence boundary.
+    fn rule_based_overlap_fallback(text: &str, overlap_chars: usize) -> OverlapResolution {
+        let tail_start = text.len().saturating_sub(overlap_chars);
+        let tail = &text[tail_start..];
+        let sentence_end = tail
+            .rfind(|c| c == '.' || c == '!' || c == '?')
+            .map(|i| i + 1)
+            .unwrap_or(tail.len());
+        OverlapResolution {
+            has_overlap: false,
+            overlap_type: OverlapType::SentenceCutoff,
+            current_keep_end: tail_start + sentence_end,
+            next_start_offset: 0,
+            duplicate_belongs_in: DuplicateOwner::CurrentChunk,
+            resolution_method: ResolutionMethod::RuleBased,
+        }
+    }
+
+    /// Chunk text using LLM-based overlap resolution (canonical path).
+    /// Called from the async execute path. Produces RawChunks with resolved boundaries.
+    async fn chunk_text_with_llm_overlap(
+        &self,
+        text: &str,
+        max_chunk_tokens: u32,
+        overlap_tokens: u32,
+        preserve_paragraphs: bool,
+    ) -> Vec<RawChunk> {
+        // Step 1: Get initial raw chunks using existing rule-based splitter
+        let initial_chunks = if preserve_paragraphs {
+            Self::chunk_text_semantic(text, max_chunk_tokens, overlap_tokens)
+        } else {
+            Self::chunk_text_simple(text, max_chunk_tokens, overlap_tokens)
+        };
+
+        if initial_chunks.len() <= 1 {
+            return initial_chunks;
+        }
+
+        // Step 2: LLM-resolve overlaps between each consecutive pair
+        let overlap_chars = (overlap_tokens * 4) as usize;
+        let mut resolved: Vec<RawChunk> = Vec::with_capacity(initial_chunks.len());
+
+        for (i, chunk) in initial_chunks.iter().enumerate() {
+            if i + 1 < initial_chunks.len() {
+                let next = &initial_chunks[i + 1];
+                let resolution = self
+                    .resolve_overlap_llm(&chunk.text, &next.text, overlap_chars)
+                    .await;
+
+                let kept_text =
+                    if resolution.has_overlap && resolution.current_keep_end < chunk.text.len() {
+                        chunk.text[..resolution.current_keep_end].to_string()
+                    } else {
+                        chunk.text.clone()
+                    };
+
+                resolved.push(RawChunk {
+                    index: chunk.index,
+                    text: kept_text,
+                    start_char: chunk.start_char,
+                    end_char: chunk.end_char,
+                    token_count: Self::estimate_tokens(&chunk.text),
+                    is_complete_paragraph: chunk.is_complete_paragraph,
+                });
+            } else {
+                // Last chunk — no next chunk to resolve against
+                resolved.push(chunk.clone());
+            }
+        }
+
+        resolved
     }
 
     /// Split text into sentences
@@ -1003,7 +1302,11 @@ impl TextModalityPipeline {
     }
 
     /// Process a chunk: clean + extract keywords/entities/topics
-    async fn process_chunk(&self, chunk: RawChunk) -> TextModalityOutput {
+    async fn process_chunk(
+        &self,
+        chunk: RawChunk,
+        available_modalities: Vec<String>,
+    ) -> TextModalityOutput {
         // Step 1: Clean the chunk
         let clean_output = self
             .clean_chunk(RawChunk {
@@ -1031,25 +1334,52 @@ impl TextModalityPipeline {
         // Calculate overlap
         let overlap_chars = 200 * 4; // ~200 tokens worth
 
+        // Step 5: Extract grammar relationships
+        let grammar_relationships = self
+            .extract_grammar_relationships_from_text(&cleaned_text, chunk.index)
+            .await;
+
+        // Step 6: Detect modalities (5x stable, dynamic list)
+        // Load modality names dynamically.
+        let modality_list: Vec<String> = if !available_modalities.is_empty() {
+            available_modalities
+        };
+
+        let detected_modalities = self
+            .detect_modalities_stable(&cleaned_text, chunk.index, &modality_list)
+            .await;
+
         let processed = ProcessedChunk {
             index: chunk.index,
-            original_text: chunk.text,
-            cleaned_text,
+            original_text: chunk.text.clone(),
+            cleaned_text: cleaned_text.clone(),
             start_offset: chunk.start_char,
             end_offset: chunk.end_char,
+            prompt_start_char: chunk.start_char as usize, // NEW
+            prompt_end_char: chunk.end_char as usize,     // NEW
             token_count: chunk.token_count,
             keywords,
             entities,
             topics,
+            grammar_relationships: grammar_relationships.clone(), // NEW
+            detected_modalities: detected_modalities.clone(),     // NEW
+            chunk_graph_id: None, // populated after CreateChunkGraph call
             overlap_from_previous: if chunk.index > 0 { overlap_chars } else { 0 },
             overlap_to_next: overlap_chars,
         };
 
-        TextModalityOutput {
+        // Step 7: Create the chunk graph
+        let chunk_graph = self.create_chunk_graph(&processed, 0);
+
+        let mut result = TextModalityOutput {
             success: true,
             processed_chunks: Some(vec![processed]),
+            chunk_graph: Some(chunk_graph),
+            grammar_relationships: Some(grammar_relationships),
+            modality_detections: Some(detected_modalities),
             ..Default::default()
-        }
+        };
+        result
     }
 
     /// Extract keywords from text via LLM (internal helper)
@@ -1158,6 +1488,43 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
         }
     }
 
+    /// Run an async extractor repeatedly until 5 consecutive passes find nothing new.
+    /// K must be Eq + Hash. dedup_key extracts the deduplication key from each item.
+    async fn extract_strings_until_stable<F, Fut>(
+        &self,
+        input: &str,
+        extractor: F,
+        max_rounds: usize,
+    ) -> Vec<String>
+    where
+        F: Fn(String, Vec<String>) -> Fut,
+        Fut: std::future::Future<Output = Vec<String>>,
+    {
+        let mut accumulated: Vec<String> = Vec::new();
+        let mut no_new_consecutive = 0u32;
+        let stable_threshold = 5u32;
+
+        for _round in 0..max_rounds {
+            let candidates = extractor(input.to_string(), accumulated.clone()).await;
+            let existing: std::collections::HashSet<String> = accumulated.iter().cloned().collect();
+            let truly_new: Vec<String> = candidates
+                .into_iter()
+                .filter(|s| !existing.contains(s))
+                .collect();
+
+            if truly_new.is_empty() {
+                no_new_consecutive += 1;
+                if no_new_consecutive >= stable_threshold {
+                    break;
+                }
+            } else {
+                no_new_consecutive = 0;
+                accumulated.extend(truly_new);
+            }
+        }
+        accumulated
+    }
+
     /// Extract keywords via zero-shot LLM (public action)
     async fn extract_keywords_llm(&self, text: &str, max_keywords: usize) -> TextModalityOutput {
         let keywords_raw = self.extract_keywords_from_text(text).await;
@@ -1178,6 +1545,250 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             success: true,
             keywords: Some(keywords),
             ..Default::default()
+        }
+    }
+
+    /// Detect modalities present in a chunk via LLM zero-shot.
+    /// Runs a 5x consecutive stable loop. Modality list is dynamic from registry.
+    /// Returns ChunkModalityDetection with span positions — NO content_snippet.
+    async fn detect_modalities_in_chunk(
+        &self,
+        chunk_text: &str,
+        chunk_index: u32,
+        available_modalities: &[String],
+    ) -> Vec<ChunkModalityDetection> {
+        let modality_list = available_modalities.join(", ");
+
+        let prompt = format!(
+            r#"Identify all modality content present in or referenced by this text.
+
+    Available modalities to detect: {}
+
+    Also detect:
+    - "true_text" — content that is genuinely prose/text (not embedded code/math/etc.)
+    - "unknown" — content that does not fit any listed modality
+
+    For each detected modality, span_start and span_end are character offsets within
+    the provided text. Do NOT include a content_snippet — positions are sufficient.
+
+    Text chunk (index {}):
+    {}
+
+    Return ONLY valid JSON array (no explanation, no markdown):
+    [{{
+      "modality": "modality_name_or_true_text_or_unknown",
+      "span_start": 0,
+      "span_end": 100,
+      "intent_reference": "describes|contains|references|mentions the modality"
+    }}]"#,
+            modality_list,
+            chunk_index,
+            &chunk_text[..chunk_text.len().min(4000)]
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 800,
+            "temperature": 0.05,
+            "system_context": "Modality detection. Return only valid JSON array. No explanation."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => {
+                let raw = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("[]");
+                let json_str = Self::extract_json_from_response(raw, '[', ']');
+                serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|v| {
+                        Some(ChunkModalityDetection {
+                            modality: v["modality"].as_str()?.to_string(),
+                            span_start: v["span_start"].as_usize()?,
+                            span_end: v["span_end"].as_usize()?,
+                            intent_reference: v["intent_reference"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string(),
+                            chunk_index,
+                        })
+                    })
+                    .collect()
+            }
+            Err(_) => vec![],
+        }
+    }
+
+    /// Run modality detection with 5x consecutive stable loop.
+    /// available_modalities: loaded from pipeline registry at runtime, never hardcoded.
+    async fn detect_modalities_stable(
+        &self,
+        chunk_text: &str,
+        chunk_index: u32,
+        available_modalities: &[String],
+    ) -> Vec<ChunkModalityDetection> {
+        let mut accumulated: Vec<ChunkModalityDetection> = Vec::new();
+        let mut no_new_consecutive = 0u32;
+
+        for _round in 0..20usize {
+            let candidates = self
+                .detect_modalities_in_chunk(chunk_text, chunk_index, available_modalities)
+                .await;
+
+            // Dedup key: modality + span_start + span_end
+            let existing_keys: std::collections::HashSet<String> = accumulated
+                .iter()
+                .map(|d| format!("{}:{}:{}", d.modality, d.span_start, d.span_end))
+                .collect();
+
+            let truly_new: Vec<ChunkModalityDetection> = candidates
+                .into_iter()
+                .filter(|d| {
+                    !existing_keys
+                        .contains(&format!("{}:{}:{}", d.modality, d.span_start, d.span_end))
+                })
+                .collect();
+
+            if truly_new.is_empty() {
+                no_new_consecutive += 1;
+                if no_new_consecutive >= 5 {
+                    break;
+                }
+            } else {
+                no_new_consecutive = 0;
+                accumulated.extend(truly_new);
+            }
+        }
+        accumulated
+    }
+
+    /// Extract typed grammar relationships from a chunk via LLM zero-shot.
+    async fn extract_grammar_relationships_from_text(
+        &self,
+        text: &str,
+        chunk_index: u32,
+    ) -> Vec<ChunkGrammarRelationship> {
+        let prompt = format!(
+            r#"Analyze the grammatical and semantic relationships in this text.
+    For each meaningful subject-verb-object or concept-relationship-concept pattern:
+
+    Text:
+    {}
+
+    Return ONLY a valid JSON array (no explanation, no markdown):
+    [{{
+      "from_text": "subject or source concept",
+      "to_text": "object or target concept",
+      "edge_type": "Performs|Affects|Implies|Contradicts|Elaborates|Summarizes|Supports|TemporalPrecedes|TemporalFollows|CausedBy|Enables|Prevents|PartOf|HasPart|FunctionalRole|InstanceOf|HasInstance|SimilarTo|DerivedFrom|VersionOf",
+      "tense": "past|present|future|unknown",
+      "negated": false,
+      "verb": "the main verb",
+      "verb_type": "action|linking|helping",
+      "subject": "grammatical subject",
+      "object": "grammatical object or null",
+      "source_sentence_start": 0,
+      "source_sentence_end": 100
+    }}]"#,
+            &text[..text.len().min(3000)]
+        );
+
+        let input = serde_json::json!({
+            "prompt": prompt,
+            "max_tokens": 800,
+            "temperature": 0.05,
+            "system_context": "Grammar relationship extraction. Return only valid JSON array."
+        });
+
+        match self.executor.execute(9, input).await {
+            Ok(result) => {
+                let raw = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("[]");
+                let json_str = Self::extract_json_from_response(raw, '[', ']');
+                serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter_map(|v| {
+                        Some(ChunkGrammarRelationship {
+                            from_text: v["from_text"].as_str()?.to_string(),
+                            to_text: v["to_text"].as_str()?.to_string(),
+                            edge_type: v["edge_type"].as_str().unwrap_or("Affects").to_string(),
+                            tense: v["tense"].as_str().map(String::from),
+                            negated: v["negated"].as_bool().unwrap_or(false),
+                            verb: v["verb"].as_str().unwrap_or("").to_string(),
+                            verb_type: match v["verb_type"].as_str().unwrap_or("action") {
+                                "linking" => VerbType::Linking,
+                                "helping" => VerbType::Helping,
+                                _ => VerbType::Action,
+                            },
+                            subject: v["subject"].as_str().unwrap_or("").to_string(),
+                            object: v["object"].as_str().map(String::from),
+                            source_sentence_start: v["source_sentence_start"].as_usize(),
+                            source_sentence_end: v["source_sentence_end"].as_usize(),
+                            chunk_index,
+                        })
+                    })
+                    .collect()
+            }
+            Err(_) => vec![],
+        }
+    }
+
+    /// Create a ChunkGraph from a fully processed chunk.
+    /// This is the persistent evidence structure for AMT building.
+    fn create_chunk_graph(&self, chunk: &ProcessedChunk, root_graph_id: u64) -> ChunkGraph {
+        let graph_id = Self::generate_id();
+        let now = chrono::Utc::now().to_rfc3339();
+
+        // Derive sentence boundaries from cleaned text (heuristic)
+        let mut sentence_boundaries = Vec::new();
+        let mut pos = 0usize;
+        for (i, c) in chunk.cleaned_text.char_indices() {
+            if c == '.' || c == '!' || c == '?' {
+                let end = i + c.len_utf8();
+                sentence_boundaries.push(SentenceBoundary {
+                    start: pos,
+                    end,
+                    sentence_type: SentenceType::Declarative,
+                });
+                pos = end;
+            }
+        }
+
+        // Paragraph breaks
+        let mut paragraph_breaks = Vec::new();
+        let mut search_pos = 0;
+        while let Some(found) = chunk.cleaned_text[search_pos..].find("\n\n") {
+            let abs = search_pos + found;
+            paragraph_breaks.push(abs);
+            search_pos = abs + 2;
+        }
+
+        ChunkGraph {
+            graph_id,
+            chunk_index: chunk.index,
+            prompt_start_char: chunk.prompt_start_char,
+            prompt_end_char: chunk.prompt_end_char,
+            sentence_boundaries,
+            paragraph_breaks,
+            cleaned_text: chunk.cleaned_text.clone(),
+            overlap_resolution: None, // populated during chunking phase
+            keywords: chunk.keywords.clone(),
+            topics: chunk.topics.clone(),
+            grammar_relationships: chunk.grammar_relationships.clone(),
+            modality_detections: chunk.detected_modalities.clone(),
+            root_modality_list_contribution: chunk
+                .detected_modalities
+                .iter()
+                .filter(|d| d.modality != "true_text" && d.modality != "unknown")
+                .map(|d| d.modality.clone())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect(),
+            created_at: now,
         }
     }
 
@@ -1918,42 +2529,6 @@ RESPOND ONLY WITH JSON."#,
     }
 
     // ========================================================================
-    // NORMALIZATION (NON-LLM)
-    // ========================================================================
-
-    /// Basic text normalization without LLM
-    fn normalize_text(
-        &self,
-        text: &str,
-        chunk_size: Option<usize>,
-        overlap: usize,
-    ) -> TextModalityOutput {
-        // Normalize: collapse whitespace, trim
-        let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
-
-        let token_count = Self::estimate_tokens(&normalized);
-
-        // Chunk if requested
-        let chunks = if let Some(size) = chunk_size {
-            Some(Self::chunk_text_simple(
-                &normalized,
-                size as u32,
-                overlap as u32,
-            ))
-        } else {
-            None
-        };
-
-        TextModalityOutput {
-            success: true,
-            normalized_text: Some(normalized),
-            token_count: Some(token_count),
-            chunks,
-            ..Default::default()
-        }
-    }
-
-    // ========================================================================
     // ZSEI HOOKS
     // ========================================================================
 
@@ -2040,6 +2615,81 @@ RESPOND ONLY WITH JSON."#,
             }
         }
         trimmed.to_string()
+    }
+}
+
+/// Reconstruct clean text from ChunkGraphs at any token limit.
+/// Enables cross-model capability: same chunk graphs work for any LLM context window.
+pub fn reconstruct_context_at_token_limit(
+    chunk_graphs: &[ChunkGraph],
+    target_tokens: usize,
+    chars_per_token_estimate: usize,
+) -> ReconstructedContext {
+    let target_chars = target_tokens * chars_per_token_estimate;
+    let mut included_chunks = Vec::new();
+    let mut reconstruction_parts: Vec<String> = Vec::new();
+    let mut total_chars = 0usize;
+
+    for chunk in chunk_graphs {
+        let chunk_chars = chunk.cleaned_text.len();
+        if total_chars + chunk_chars <= target_chars {
+            reconstruction_parts.push(chunk.cleaned_text.clone());
+            included_chunks.push(chunk.chunk_index);
+            total_chars += chunk_chars;
+        } else {
+            // Partial chunk — trim to clean sentence boundary
+            let remaining = target_chars - total_chars;
+            if remaining > 0 {
+                let partial = trim_to_sentence_boundary(
+                    &chunk.cleaned_text,
+                    remaining,
+                    &chunk.sentence_boundaries,
+                );
+                if !partial.is_empty() {
+                    total_chars += partial.len();
+                    reconstruction_parts.push(partial);
+                    included_chunks.push(chunk.chunk_index);
+                }
+            }
+            break;
+        }
+    }
+
+    ReconstructedContext {
+        text: reconstruction_parts.join("\n\n"),
+        included_chunk_indices: included_chunks,
+        total_chars,
+        estimated_tokens: total_chars / chars_per_token_estimate.max(1),
+    }
+}
+
+/// Trim text to the nearest sentence boundary at or before `max_chars`.
+fn trim_to_sentence_boundary(
+    text: &str,
+    max_chars: usize,
+    boundaries: &[SentenceBoundary],
+) -> String {
+    if text.len() <= max_chars {
+        return text.to_string();
+    }
+
+    // Find the last sentence boundary whose end falls within max_chars
+    let best_end = boundaries
+        .iter()
+        .filter(|b| b.end <= max_chars)
+        .map(|b| b.end)
+        .max();
+
+    match best_end {
+        Some(end) if end > 0 => text[..end].to_string(),
+        _ => {
+            // No sentence boundary found — fall back to last space before max_chars
+            let slice = &text[..max_chars];
+            match slice.rfind(' ') {
+                Some(space_idx) => text[..space_idx].to_string(),
+                None => slice.to_string(),
+            }
+        }
     }
 }
 

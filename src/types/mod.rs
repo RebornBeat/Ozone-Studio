@@ -8,6 +8,7 @@ pub mod consensus;
 pub mod container;
 pub mod context;
 pub mod external;
+pub mod index;
 pub mod integrity;
 pub mod methodology;
 pub mod modality;

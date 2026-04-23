@@ -4,10 +4,9 @@
 //! ZSEI Container under /Methodologies/ (METHODOLOGY_ROOT_ID).
 //! This enables full structural + semantic + contextual traversal.
 
-use crate::bootstrap::{methodology_container_id, METHODOLOGY_ROOT_ID};
 use crate::types::container::{
-    Container, ContainerType, Context, GlobalState, IntegrityData, LocalState, Metadata, Modality,
-    StoragePointers, TraversalHints,
+    methodology_container_id, Container, ContainerType, Context, GlobalState, IntegrityData,
+    LocalState, Metadata, Modality, StoragePointers, TraversalHints, METHODOLOGY_ROOT_ID,
 };
 use crate::types::index::MethodologyIndex;
 use crate::types::{ContainerID, OzoneError, OzoneResult};

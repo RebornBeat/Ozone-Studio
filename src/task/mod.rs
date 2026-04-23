@@ -1091,6 +1091,63 @@ impl TaskManager {
         Ok(())
     }
 
+    /// Extended step update supporting full orchestrator metadata.
+    /// Callers migrating from update_step should use this for new code.
+    pub async fn update_step_full(
+        &self,
+        task_id: TaskID,
+        step_index: u32,
+        status: &str,
+        tokens_used: Option<u32>,
+        output_preview: Option<String>,
+        execution_id: Option<String>,
+        pipeline_name: &str,
+        graph_ids_updated: Vec<String>,
+        stage_completed: Option<String>,
+        methodology_ids_applied: Vec<u64>,
+    ) -> OzoneResult<()> {
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.get_mut(&task_id) {
+            if let Some(step) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
+                step.status = status.to_string();
+                if let Some(tok) = tokens_used {
+                    step.tokens_used = tok;
+                }
+                if let Some(preview) = output_preview {
+                    step.output_summary = Some(preview);
+                }
+                if let Some(stage) = stage_completed {
+                    // Annotate which stage completed in output summary
+                    let current = step.output_summary.get_or_insert_with(String::new);
+                    if !current.contains(&stage) {
+                        current.push_str(&format!("[stage:{}]", stage));
+                    }
+                }
+                if status == "completed" || status == "failed" {
+                    step.completed_at = Some(now());
+                }
+            } else {
+                task.steps.push(StoredTaskStep {
+                    step_index,
+                    action: pipeline_name.to_string(),
+                    pipeline_id: 0,
+                    status: status.to_string(),
+                    started_at: Some(now()),
+                    completed_at: if status == "completed" || status == "failed" {
+                        Some(now())
+                    } else {
+                        None
+                    },
+                    tokens_used: tokens_used.unwrap_or(0),
+                    output_summary: output_preview,
+                    error: None,
+                });
+            }
+            task.total_tokens = task.steps.iter().map(|s| s.tokens_used).sum();
+        }
+        Ok(())
+    }
+
     /// Add log entry to task
     pub async fn add_log(
         &self,

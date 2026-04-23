@@ -34,7 +34,6 @@ interface UIState {
   systemStats: SystemStats;
 
   // UI configuration
-  currentTheme: string;
   metaPortionWidth: number;
 
   // Features
@@ -92,7 +91,6 @@ interface UIActions {
   // UI state
   setPromptInput: (input: string) => void;
   submitPrompt: () => Promise<void>;
-  setActiveTab: (tab: UIState["activeTab"]) => void;
   setTheme: (theme: string) => void;
   setSelectedModel: (model: string) => void;
   setConsciousnessEnabled: (enabled: boolean) => void;
@@ -128,7 +126,6 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   isAuthenticated: false,
   sessionToken: null,
   systemStats: defaultSystemStats,
-  currentTheme: "home_dashboard",
   metaPortionWidth: 20,
   consciousnessEnabled: false,
   p2pEnabled: false,
@@ -147,7 +144,6 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
     const featuresConfig = config.features || {};
 
     set({
-      currentTheme: uiConfig.theme || "home_dashboard",
       metaPortionWidth: uiConfig.meta_portion_width_percent || 20,
       selectedModel:
         modelConfig.api_model ||
@@ -387,29 +383,12 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
     }
   },
 
-  setActiveTab: (tab: UIState["activeTab"]) => {
-    set({ activeTab: tab });
-
-    if (!window.ozone) return;
-
-    // Execute corresponding tab pipeline
-    const { executePipeline } = get();
-    const tabPipelineMap: Record<UIState["activeTab"], number> = {
-      workspace: 6,
-      library: 7,
-      settings: 8,
-    };
-
-    executePipeline(tabPipelineMap[tab], {}).catch(console.warn);
-  },
-
-  setTheme: (theme: string) => {
-    set({ currentTheme: theme });
-    // Persist to config only
+  setTheme: (_theme: string) => {
+    // ThemeArea is fixed; no dynamic theme switching needed.
+    // Persist to config for any future use.
     if (window.ozone) {
-      window.ozone.config.set({ ui: { theme } }).catch(console.warn);
+      window.ozone.config.set({ ui: { theme: _theme } }).catch(console.warn);
     }
-    // Note: actual tab re-injection is handled by ThemeArea if theme changes
   },
 
   setSelectedModel: (model: string) => {

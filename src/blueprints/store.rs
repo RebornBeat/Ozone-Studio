@@ -1,9 +1,8 @@
 //! Blueprint Store — registers blueprints as ZSEI containers
 
-use crate::bootstrap::{blueprint_container_id, BLUEPRINT_ROOT_ID};
 use crate::types::container::{
-    Container, ContainerType, Context, GlobalState, IntegrityData, LocalState, Metadata, Modality,
-    StoragePointers, TraversalHints,
+    blueprint_container_id, Container, ContainerType, Context, GlobalState, IntegrityData,
+    LocalState, Metadata, Modality, StoragePointers, TraversalHints, BLUEPRINT_ROOT_ID,
 };
 use crate::types::index::BlueprintIndex;
 use crate::types::{OzoneError, OzoneResult};

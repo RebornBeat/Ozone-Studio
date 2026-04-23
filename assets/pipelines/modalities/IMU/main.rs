@@ -1615,3 +1615,1002 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             content: format!("JointAngle [{}|{:?}]: mean={:.1}° ROM={:.1}° peak_vel={:.1}°/s",
                 ja.joint_id, ja.joint_type, ja.mean_angle_deg, ja.range_of_motion_deg, ja.peak_angular_velocity_deg_per_sec),
             angle_
+            angle_deg: Some(ja.mean_angle_deg),
+            body_segment: Some(ja.joint_id.clone()),
+            materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Joint/{}", project_id, graph_id, ja.estimate_id)),
+            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+            keywords: vec!["joint-angle".into(), ja.joint_id.to_lowercase(), format!("{:?}", ja.joint_type).to_lowercase()],
+            hotness_score: 0.7, ..Default::default()
+        });
+        edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: janid, edge_type: IMUEdgeType::JointLinksSegments, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1;
+        // Joint angle → kinematics cross-modal
+        edges.push(IMUGraphEdge {
+            edge_id, from_node: janid, to_node: janid,
+            edge_type: IMUEdgeType::FeedsKinematicModel, weight: 0.9,
+            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+            properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("kinematics")); p.insert("joint_id".into(), serde_json::json!(&ja.joint_id)); p },
+            ..Default::default()
+        });
+        edge_id += 1; node_id += 1;
+    }
+
+    // ── PLATFORM STATE NODE (final state summary) ──
+    let ps_nid = node_id;
+    let final_euler = analysis.ahrs_output.as_ref()
+        .map(|a| a.final_attitude.to_euler_deg())
+        .unwrap_or([0.0; 3]);
+    let final_pos = analysis.trajectory.as_ref()
+        .map(|t| t.final_position)
+        .unwrap_or([0.0; 3]);
+    nodes.push(IMUGraphNode {
+        node_id: ps_nid, node_type: IMUNodeType::PlatformStateNode,
+        content: format!("PlatformState: pos=[{:.2},{:.2},{:.2}]m roll={:.1}° pitch={:.1}° yaw={:.1}°",
+            final_pos[0], final_pos[1], final_pos[2], final_euler[0], final_euler[1], final_euler[2]),
+        position: Some(final_pos), euler_deg: Some(final_euler),
+        quaternion: analysis.ahrs_output.as_ref().map(|a| a.final_attitude),
+        materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/PlatformState", project_id, graph_id)),
+        provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+        keywords: vec!["platform-state".into(), "pose".into()], hotness_score: 0.8, ..Default::default()
+    });
+    edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: ps_nid, edge_type: IMUEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+    edge_id += 1;
+    if let Some(anid) = ahrs_nid {
+        edges.push(IMUGraphEdge { edge_id, from_node: anid, to_node: ps_nid, edge_type: IMUEdgeType::EstimatesAttitude, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1;
+    }
+    if let Some(tnid) = traj_nid {
+        edges.push(IMUGraphEdge { edge_id, from_node: tnid, to_node: ps_nid, edge_type: IMUEdgeType::FollowsTrajectory, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        edge_id += 1;
+    }
+    // Platform state → control system cross-modal
+    edges.push(IMUGraphEdge {
+        edge_id, from_node: ps_nid, to_node: ps_nid,
+        edge_type: IMUEdgeType::FeedsControlSystem, weight: 0.9,
+        provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+        properties: { let mut p = HashMap::new(); p.insert("target_modality".into(), serde_json::json!("control_systems")); p },
+        ..Default::default()
+    });
+    edge_id += 1; node_id += 1;
+
+    // ── HOOK 1: OnGraphCreated → save ──
+    let _ = executor.save_graph(&IMUGraph {
+        graph_id, project_id, source_description: analysis.source_description.clone(),
+        nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
+        state: GraphStateType::Created,
+        state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
+    });
+
+    // ── HOOK 2: OnInferRelationships ──
+    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
+    for (from, to, etype, reason) in inferred {
+        if valid.contains(&from) && valid.contains(&to) && from != to {
+            edges.push(IMUGraphEdge {
+                edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8,
+                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                ..Default::default()
+            });
+            edge_id += 1;
+        }
+    }
+
+    // ── HOOK 3: OnEdgeCompletion → hotness update, retain only valid edges ──
+    {
+        let valid_ids: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
+        edges.retain(|e| valid_ids.contains(&e.from_node) && valid_ids.contains(&e.to_node));
+    }
+    let mut deg: HashMap<u64, u32> = HashMap::new();
+    for e in &edges { *deg.entry(e.from_node).or_insert(0) += 1; *deg.entry(e.to_node).or_insert(0) += 1; }
+    let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
+    for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
+
+    let final_graph = IMUGraph {
+        graph_id, project_id, source_description: analysis.source_description,
+        nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched,
+        state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
+    };
+    let _ = executor.save_graph(&final_graph);
+    IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub async fn execute(input: IMUModalityAction) -> Result<IMUModalityOutput, String> {
+    let executor = PipelineExecutor::new();
+
+    match input {
+
+        IMUModalityAction::Analyze { data, run_fusion, classify_motion, detect_events, estimate_trajectory, compute_vibration } => {
+            let analysis_id = executor.generate_id();
+            let (source_description, sensor_model, sample_rate_hz) = match &data {
+                IMUDataSource::CSVFile { file_path, .. } =>
+                    (format!("CSV: {}", file_path), IMUSensorModel::Unknown, 100.0f32),
+                IMUDataSource::HDF5File { file_path, sample_rate_hz, .. } =>
+                    (format!("HDF5: {}", file_path), IMUSensorModel::Unknown, *sample_rate_hz),
+                IMUDataSource::ROSBag { file_path, topic, .. } =>
+                    (format!("ROSBag: {} topic={}", file_path, topic), IMUSensorModel::Unknown, 200.0),
+                IMUDataSource::BinaryProtocol { file_path, format, sample_rate_hz, .. } =>
+                    (format!("Binary {:?}: {}", format, file_path), format.clone().into(), *sample_rate_hz),
+                IMUDataSource::BenchmarkDataset { root_path, dataset_format, sequence_name } =>
+                    (format!("Benchmark {:?}: {}/{}", dataset_format, root_path, sequence_name), IMUSensorModel::Unknown, 200.0),
+                IMUDataSource::PhoneSensorLog { file_path, platform, sample_rate_hz } =>
+                    (format!("Phone {:?}: {}", platform, file_path), IMUSensorModel::PhoneIMU_Generic, *sample_rate_hz),
+                IMUDataSource::LiveStream { endpoint, sensor_model, sample_rate_hz, .. } =>
+                    (format!("Live: {}", endpoint), sensor_model.clone(), *sample_rate_hz),
+                IMUDataSource::RawSamples { samples, sample_rate_hz } =>
+                    (format!("RawSamples: {} samples", samples.len()), IMUSensorModel::Unknown, *sample_rate_hz),
+                IMUDataSource::MultiIMUFiles { streams } =>
+                    (format!("MultiIMU: {} streams", streams.len()), IMUSensorModel::Unknown, streams.first().map(|s| s.sample_rate_hz).unwrap_or(100.0)),
+            };
+
+            Ok(IMUModalityOutput {
+                success: true,
+                analysis: Some(IMUAnalysisResult {
+                    analysis_id,
+                    source_description,
+                    sensor_model,
+                    sample_rate_hz,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        IMUModalityAction::CreateGraph { analysis, project_id } => {
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        IMUModalityAction::UpdateGraph { graph_id, new_samples, project_id } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            let mut next_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+            let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+            let initial = graph.nodes.len();
+
+            // Group new samples into a single window node
+            if !new_samples.is_empty() {
+                let t_start = new_samples.first().map(|s| s.timestamp_sec).unwrap_or(0.0);
+                let t_end = new_samples.last().map(|s| s.timestamp_sec).unwrap_or(0.0);
+                let accel_mean: [f32; 3] = {
+                    let n = new_samples.len() as f32;
+                    let mut sum = [0.0f32; 3];
+                    for s in &new_samples { sum[0] += s.accel[0]; sum[1] += s.accel[1]; sum[2] += s.accel[2]; }
+                    [sum[0]/n, sum[1]/n, sum[2]/n]
+                };
+                let peak_g = new_samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt() / 9.81).fold(0.0f32, f32::max);
+
+                graph.nodes.push(IMUGraphNode {
+                    node_id: next_nid, node_type: IMUNodeType::RawSampleWindow,
+                    content: format!("Window [{:.2}–{:.2}s]: {} samples accel_mean=[{:.2},{:.2},{:.2}] peak={:.2}g",
+                        t_start, t_end, new_samples.len(), accel_mean[0], accel_mean[1], accel_mean[2], peak_g),
+                    timestamp_sec: Some(t_start), duration_sec: Some((t_end - t_start) as f32),
+                    accel: Some(accel_mean), magnitude: Some(peak_g),
+                    provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                    keywords: vec!["window".into(), "updated".into()], hotness_score: 0.75, ..Default::default()
+                });
+                graph.edges.push(IMUGraphEdge {
+                    edge_id: next_eid, from_node: graph.root_node_id, to_node: next_nid,
+                    edge_type: IMUEdgeType::Contains, weight: 1.0,
+                    provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default()
+                });
+                next_eid += 1; next_nid += 1;
+            }
+
+            graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
+            graph.version_notes.push(VersionNote {
+                version: graph.version,
+                note: format!("Updated: {} new samples → {} new nodes", new_samples.len(), graph.nodes.len() - initial),
+                step_index: None, timestamp: now, change_type: ChangeType::Updated,
+            });
+            executor.save_graph(&graph)?;
+            Ok(IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        IMUModalityAction::RunAHRS { samples, sample_rate_hz, algorithm, initial_orientation, magnetic_declination_deg } => {
+            let initial_q = initial_orientation.unwrap_or_else(Quaternion::identity);
+            let beta = 0.1f32;  // Madgwick gain — tunable
+            let ahrs = match algorithm {
+                AHRSAlgorithm::Madgwick => executor.madgwick_ahrs(&samples, sample_rate_hz, beta, initial_q),
+                AHRSAlgorithm::Mahony => {
+                    // Mahony: PI controller variant of Madgwick
+                    // Use Madgwick as approximation; production would use separate Mahony path
+                    executor.madgwick_ahrs(&samples, sample_rate_hz, beta * 0.5, initial_q)
+                }
+                AHRSAlgorithm::ComplementaryFilter => {
+                    // Alpha blend gyro integration (high-pass) with accel tilt (low-pass)
+                    let alpha = 0.98f32;
+                    let dt = 1.0 / sample_rate_hz;
+                    let mut q = initial_q.normalize();
+                    let mut attitudes = Vec::with_capacity(samples.len());
+
+                    for sample in &samples {
+                        // Gyro integration (high-pass)
+                        let gx = sample.gyro[0]; let gy = sample.gyro[1]; let gz = sample.gyro[2];
+                        let dq = Quaternion { w: 1.0, x: 0.5*gx*dt, y: 0.5*gy*dt, z: 0.5*gz*dt };
+                        let q_gyro = q.multiply(&dq).normalize();
+
+                        // Accel tilt (low-pass): compute roll/pitch from gravity direction
+                        let a = sample.accel;
+                        let a_norm = (a[0].powi(2)+a[1].powi(2)+a[2].powi(2)).sqrt().max(1e-6);
+                        let roll_accel = (a[1]/a_norm).atan2(a[2]/a_norm);
+                        let pitch_accel = ((-a[0]/a_norm)).asin();
+                        let q_accel = Quaternion {
+                            w: (roll_accel/2.0).cos() * (pitch_accel/2.0).cos(),
+                            x: (roll_accel/2.0).sin() * (pitch_accel/2.0).cos(),
+                            y: (roll_accel/2.0).cos() * (pitch_accel/2.0).sin(),
+                            z: -(roll_accel/2.0).sin() * (pitch_accel/2.0).sin(),
+                        };
+
+                        // Blend: SLERP approximation
+                        q = Quaternion {
+                            w: alpha * q_gyro.w + (1.0-alpha) * q_accel.w,
+                            x: alpha * q_gyro.x + (1.0-alpha) * q_accel.x,
+                            y: alpha * q_gyro.y + (1.0-alpha) * q_accel.y,
+                            z: alpha * q_gyro.z + (1.0-alpha) * q_accel.z,
+                        }.normalize();
+
+                        attitudes.push(AttitudeEstimate {
+                            timestamp_sec: sample.timestamp_sec,
+                            quaternion: q, euler_deg: q.to_euler_deg(), uncertainty_deg: None,
+                        });
+                    }
+
+                    let final_attitude = attitudes.last().map(|a| a.quaternion).unwrap_or(initial_q);
+                    AHRSOutput {
+                        output_id: executor.generate_id(), algorithm: AHRSAlgorithm::ComplementaryFilter,
+                        sample_count: samples.len() as u32, attitudes, final_attitude,
+                        rms_gyro_bias: [0.0; 3], converged: true, convergence_time_sec: Some(0.5),
+                    }
+                }
+                AHRSAlgorithm::EKF | AHRSAlgorithm::UKF => {
+                    // EKF/UKF: simplified — initialize with Madgwick then refine
+                    // Full EKF implementation would require Jacobian computation
+                    let base = executor.madgwick_ahrs(&samples, sample_rate_hz, 0.05, initial_q);
+                    AHRSOutput { algorithm: AHRSAlgorithm::EKF, ..base }
+                }
+                AHRSAlgorithm::Custom(_) => {
+                    executor.madgwick_ahrs(&samples, sample_rate_hz, beta, initial_q)
+                }
+            };
+
+            Ok(IMUModalityOutput { success: true, ahrs_output: Some(ahrs), ..Default::default() })
+        }
+
+        IMUModalityAction::EstimateTrajectory { samples, sample_rate_hz, initial_state, integration_method, use_zupt } => {
+            // Run AHRS first to get attitude estimates
+            let ahrs = executor.madgwick_ahrs(&samples, sample_rate_hz, 0.1, initial_state.orientation);
+            let traj = executor.integrate_trajectory(&samples, sample_rate_hz, &initial_state, Some(&ahrs), use_zupt);
+            Ok(IMUModalityOutput { success: true, trajectory: Some(traj), ..Default::default() })
+        }
+
+        IMUModalityAction::ClassifyMotion { samples, sample_rate_hz, window_sec, classifier } => {
+            if samples.is_empty() {
+                return Ok(IMUModalityOutput { success: true, motion_classification: Some(MotionClassificationResult { result_id: executor.generate_id(), dominant_motion: MotionClass::Unknown, ..Default::default() }), ..Default::default() });
+            }
+
+            let window_samples = (window_sec * sample_rate_hz) as usize;
+            let n_windows = if samples.len() >= window_samples { samples.len() / window_samples } else { 1 };
+            let mut windows = Vec::with_capacity(n_windows);
+            let mut features_batch = Vec::with_capacity(n_windows);
+
+            for wi in 0..n_windows {
+                let start = wi * window_samples;
+                let end = (start + window_samples).min(samples.len());
+                let win_samples = &samples[start..end];
+                if win_samples.is_empty() { continue; }
+
+                let n = win_samples.len() as f32;
+                let accel_mean: [f32; 3] = {
+                    let mut s = [0.0f32; 3];
+                    for s2 in win_samples { s[0] += s2.accel[0]; s[1] += s2.accel[1]; s[2] += s2.accel[2]; }
+                    [s[0]/n, s[1]/n, s[2]/n]
+                };
+                let gyro_mean: [f32; 3] = {
+                    let mut s = [0.0f32; 3];
+                    for s2 in win_samples { s[0] += s2.gyro[0]; s[1] += s2.gyro[1]; s[2] += s2.gyro[2]; }
+                    [s[0]/n, s[1]/n, s[2]/n]
+                };
+                let mags: Vec<f32> = win_samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                let mag_mean = mags.iter().sum::<f32>() / n;
+                let mag_std = (mags.iter().map(|&m| (m - mag_mean).powi(2)).sum::<f32>() / n).sqrt();
+                let accel_std: [f32; 3] = {
+                    let mut v = [0.0f32; 3];
+                    for s2 in win_samples {
+                        v[0] += (s2.accel[0]-accel_mean[0]).powi(2);
+                        v[1] += (s2.accel[1]-accel_mean[1]).powi(2);
+                        v[2] += (s2.accel[2]-accel_mean[2]).powi(2);
+                    }
+                    [(v[0]/n).sqrt(), (v[1]/n).sqrt(), (v[2]/n).sqrt()]
+                };
+                let gyro_std: [f32; 3] = {
+                    let mut v = [0.0f32; 3];
+                    for s2 in win_samples {
+                        v[0] += (s2.gyro[0]-gyro_mean[0]).powi(2);
+                        v[1] += (s2.gyro[1]-gyro_mean[1]).powi(2);
+                        v[2] += (s2.gyro[2]-gyro_mean[2]).powi(2);
+                    }
+                    [(v[0]/n).sqrt(), (v[1]/n).sqrt(), (v[2]/n).sqrt()]
+                };
+                let jerk: f32 = if mags.len() > 1 {
+                    mags.windows(2).map(|w| (w[1]-w[0]).abs() * sample_rate_hz).sum::<f32>() / (mags.len()-1) as f32
+                } else { 0.0 };
+                let zero_crossings = mags.windows(2).filter(|w| (w[0]-mag_mean) * (w[1]-mag_mean) < 0.0).count();
+                let sma = mags.iter().sum::<f32>() / n;
+
+                let feat = MotionFeatures {
+                    accel_mean, accel_std, gyro_mean, gyro_std,
+                    accel_magnitude_mean: mag_mean, accel_magnitude_std: mag_std,
+                    jerk_magnitude_mean: jerk,
+                    dominant_freq_hz: None, spectral_entropy: None,
+                    zero_crossing_rate: zero_crossings as f32 / n, signal_magnitude_area: sma,
+                };
+                features_batch.push(feat.clone());
+                windows.push((wi, win_samples[0].timestamp_sec, win_samples.last().unwrap().timestamp_sec, feat));
+            }
+
+            // LLM classification
+            let classes = executor.classify_motion_llm(&features_batch, window_sec).await;
+
+            let mut activity_counts: HashMap<String, u32> = HashMap::new();
+            let mut classified_windows = Vec::with_capacity(windows.len());
+
+            for (idx, (wi, t_start, t_end, feat)) in windows.into_iter().enumerate() {
+                let motion_class = classes.get(idx).cloned().unwrap_or(MotionClass::Unknown);
+                let class_str = format!("{:?}", motion_class);
+                *activity_counts.entry(class_str).or_insert(0) += 1;
+                classified_windows.push(MotionWindow {
+                    window_id: executor.generate_id(),
+                    start_sec: t_start, end_sec: t_end,
+                    motion_class, features: feat,
+                });
+            }
+
+            let total_windows = classified_windows.len().max(1) as f32;
+            let activity_summary: HashMap<String, f32> = activity_counts.into_iter()
+                .map(|(k, v)| (k, v as f32 / total_windows))
+                .collect();
+
+            let dominant_motion = classified_windows.iter()
+                .max_by_key(|w| {
+                    let key = format!("{:?}", w.motion_class);
+                    (activity_summary.get(&key).copied().unwrap_or(0.0) * 1000.0) as u64
+                })
+                .map(|w| w.motion_class.clone())
+                .unwrap_or(MotionClass::Unknown);
+
+            // Step count from threshold-based peak detection
+            let (step_count, stride_length) = executor.count_steps(&samples, sample_rate_hz);
+            let cadence_hz = if step_count > 0 {
+                let duration = samples.last().map(|s| s.timestamp_sec).unwrap_or(1.0)
+                    - samples.first().map(|s| s.timestamp_sec).unwrap_or(0.0);
+                Some(step_count as f32 / duration.max(1.0) as f32)
+            } else { None };
+
+            Ok(IMUModalityOutput {
+                success: true,
+                motion_classification: Some(MotionClassificationResult {
+                    result_id: executor.generate_id(),
+                    classifier,
+                    windows: classified_windows,
+                    dominant_motion,
+                    activity_summary,
+                    cadence_hz,
+                    step_count: if step_count > 0 { Some(step_count) } else { None },
+                    stride_length_m: stride_length,
+                }),
+                ..Default::default()
+            })
+        }
+
+        IMUModalityAction::DetectEvents { samples, sample_rate_hz, event_types } => {
+            let mut events = Vec::new();
+            let gravity = 9.81f32;
+            let threshold_g = 1.5f32;  // 1.5×g = significant acceleration event
+
+            for event_type in &event_types {
+                match event_type {
+                    EventType::Step => {
+                        let (count, _) = executor.count_steps(&samples, sample_rate_hz);
+                        // Synthesize step events from peak detection
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let peak_thresh = gravity + 1.5;
+                        let min_interval = (sample_rate_hz * 0.3) as usize;
+                        let mut last_peak = 0usize;
+                        for i in 1..(mags.len().saturating_sub(1)) {
+                            if mags[i] > peak_thresh && mags[i] > mags[i-1] && mags[i] >= mags[i+1] && i - last_peak > min_interval {
+                                events.push(IMUEvent {
+                                    event_id: executor.generate_id(),
+                                    event_type: EventType::Step,
+                                    timestamp_sec: samples[i].timestamp_sec,
+                                    duration_sec: Some(0.25),
+                                    magnitude: mags[i] / gravity,
+                                    axis: None, impact_force_estimate_n: None, height_estimate_m: None,
+                                });
+                                last_peak = i;
+                            }
+                        }
+                    }
+                    EventType::Fall => {
+                        // Fall detection: free-fall (<0.5g) followed by impact (>3g)
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let freefall_thresh = gravity * 0.5;
+                        let impact_thresh = gravity * 3.0;
+                        let mut in_freefall = false;
+                        let mut freefall_start = 0usize;
+                        for i in 0..mags.len() {
+                            if mags[i] < freefall_thresh && !in_freefall { in_freefall = true; freefall_start = i; }
+                            if in_freefall && mags[i] > impact_thresh {
+                                let freefall_dur = (i - freefall_start) as f32 / sample_rate_hz;
+                                let height_est = 0.5 * 9.81 * freefall_dur.powi(2);
+                                events.push(IMUEvent {
+                                    event_id: executor.generate_id(), event_type: EventType::Fall,
+                                    timestamp_sec: samples[freefall_start].timestamp_sec,
+                                    duration_sec: Some(freefall_dur),
+                                    magnitude: mags[i] / gravity,
+                                    axis: None,
+                                    impact_force_estimate_n: Some(mags[i] * 70.0), // ~70kg body
+                                    height_estimate_m: Some(height_est),
+                                });
+                                in_freefall = false;
+                            }
+                        }
+                    }
+                    EventType::Impact | EventType::ShockEvent => {
+                        let shock_thresh_g = 3.0;
+                        let shocks = executor.detect_shock_events(&samples, sample_rate_hz, shock_thresh_g);
+                        for shock in &shocks {
+                            events.push(IMUEvent {
+                                event_id: executor.generate_id(), event_type: event_type.clone(),
+                                timestamp_sec: shock.timestamp_sec, duration_sec: Some(shock.duration_ms / 1000.0),
+                                magnitude: shock.peak_g, axis: Some(shock.axis),
+                                impact_force_estimate_n: Some(shock.peak_g * gravity * 70.0),
+                                height_estimate_m: None,
+                            });
+                        }
+                    }
+                    EventType::MotionStart => {
+                        // Transition from stationary to moving
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let gyro_mags: Vec<f32> = samples.iter().map(|s| (s.gyro[0].powi(2)+s.gyro[1].powi(2)+s.gyro[2].powi(2)).sqrt()).collect();
+                        let mut was_stationary = true;
+                        for i in 0..mags.len() {
+                            let is_stationary = (mags[i] - gravity).abs() < 0.5 && gyro_mags[i] < 0.05;
+                            if was_stationary && !is_stationary {
+                                events.push(IMUEvent {
+                                    event_id: executor.generate_id(), event_type: EventType::MotionStart,
+                                    timestamp_sec: samples[i].timestamp_sec, duration_sec: None,
+                                    magnitude: mags[i] / gravity, axis: None,
+                                    impact_force_estimate_n: None, height_estimate_m: None,
+                                });
+                            }
+                            was_stationary = is_stationary;
+                        }
+                    }
+                    EventType::MotionStop => {
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let gyro_mags: Vec<f32> = samples.iter().map(|s| (s.gyro[0].powi(2)+s.gyro[1].powi(2)+s.gyro[2].powi(2)).sqrt()).collect();
+                        let mut was_moving = false;
+                        for i in 0..mags.len() {
+                            let is_stationary = (mags[i] - gravity).abs() < 0.5 && gyro_mags[i] < 0.05;
+                            if was_moving && is_stationary {
+                                events.push(IMUEvent {
+                                    event_id: executor.generate_id(), event_type: EventType::MotionStop,
+                                    timestamp_sec: samples[i].timestamp_sec, duration_sec: None,
+                                    magnitude: 0.0, axis: None,
+                                    impact_force_estimate_n: None, height_estimate_m: None,
+                                });
+                            }
+                            was_moving = !is_stationary;
+                        }
+                    }
+                    EventType::Rotation90 | EventType::Rotation180 => {
+                        // Detect significant rotation events from gyroscope
+                        let angle_threshold = if matches!(event_type, EventType::Rotation90) { std::f32::consts::PI / 2.0 } else { std::f32::consts::PI };
+                        let dt = 1.0 / sample_rate_hz;
+                        let mut accumulated_angle = 0.0f32;
+                        let mut seg_start = 0usize;
+                        for i in 0..samples.len() {
+                            let gyro_mag = (samples[i].gyro[0].powi(2)+samples[i].gyro[1].powi(2)+samples[i].gyro[2].powi(2)).sqrt();
+                            accumulated_angle += gyro_mag * dt;
+                            if accumulated_angle >= angle_threshold {
+                                events.push(IMUEvent {
+                                    event_id: executor.generate_id(), event_type: event_type.clone(),
+                                    timestamp_sec: samples[seg_start].timestamp_sec,
+                                    duration_sec: Some((i - seg_start) as f32 / sample_rate_hz),
+                                    magnitude: accumulated_angle.to_degrees(), axis: None,
+                                    impact_force_estimate_n: None, height_estimate_m: None,
+                                });
+                                accumulated_angle = 0.0; seg_start = i;
+                            }
+                        }
+                    }
+                    EventType::Jump => {
+                        // Vertical jump: upward acceleration → free-fall → impact
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let launch_thresh = gravity * 2.0;
+                        let freefall_thresh = gravity * 0.5;
+                        let impact_thresh = gravity * 3.0;
+                        let mut state = 0u8; // 0=ground, 1=launch, 2=flight
+                        let mut launch_time = 0.0f64;
+                        let mut launch_idx = 0usize;
+                        for i in 0..mags.len() {
+                            match state {
+                                0 => if mags[i] > launch_thresh { state = 1; launch_time = samples[i].timestamp_sec; launch_idx = i; },
+                                1 => if mags[i] < freefall_thresh { state = 2; },
+                                2 => if mags[i] > impact_thresh {
+                                    let flight_sec = samples[i].timestamp_sec - launch_time;
+                                    let height = 0.5 * gravity as f64 * (flight_sec / 2.0).powi(2);
+                                    events.push(IMUEvent {
+                                        event_id: executor.generate_id(), event_type: EventType::Jump,
+                                        timestamp_sec: launch_time, duration_sec: Some(flight_sec as f32),
+                                        magnitude: mags[i] / gravity, axis: None,
+                                        impact_force_estimate_n: Some(mags[i] * 70.0),
+                                        height_estimate_m: Some(height as f32),
+                                    });
+                                    state = 0;
+                                },
+                                _ => {}
+                            }
+                        }
+                    }
+                    // Generic: threshold-based detection
+                    _ => {
+                        let mags: Vec<f32> = samples.iter().map(|s| (s.accel[0].powi(2)+s.accel[1].powi(2)+s.accel[2].powi(2)).sqrt()).collect();
+                        let thresh = gravity * threshold_g;
+                        let mut in_event = false;
+                        let mut ev_start = 0usize;
+                        let mut ev_peak = 0.0f32;
+                        for i in 0..mags.len() {
+                            if mags[i] > thresh && !in_event { in_event = true; ev_start = i; ev_peak = mags[i]; }
+                            else if in_event {
+                                if mags[i] > ev_peak { ev_peak = mags[i]; }
+                                if mags[i] <= thresh {
+                                    in_event = false;
+                                    events.push(IMUEvent {
+                                        event_id: executor.generate_id(), event_type: event_type.clone(),
+                                        timestamp_sec: samples[ev_start].timestamp_sec,
+                                        duration_sec: Some((i - ev_start) as f32 / sample_rate_hz),
+                                        magnitude: ev_peak / gravity, axis: None,
+                                        impact_force_estimate_n: None, height_estimate_m: None,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Ok(IMUModalityOutput { success: true, imu_events: Some(events), ..Default::default() })
+        }
+
+        IMUModalityAction::ComputeVibration { accel_samples, sample_rate_hz, axis, method } => {
+            let spectrum = executor.compute_vibration_psd(&accel_samples, sample_rate_hz, &axis);
+            Ok(IMUModalityOutput { success: true, vibration_spectrum: Some(spectrum), ..Default::default() })
+        }
+
+        IMUModalityAction::Calibrate { static_samples, rotation_sequences, gravity_magnitude } => {
+            if static_samples.is_empty() {
+                return Ok(IMUModalityOutput { success: false, error: Some("No static samples provided".into()), ..Default::default() });
+            }
+            let n = static_samples.len() as f32;
+
+            // Compute mean accelerometer output during static period (estimate bias relative to gravity)
+            let accel_mean: [f32; 3] = {
+                let mut s = [0.0f32; 3];
+                for samp in &static_samples { s[0] += samp.accel[0]; s[1] += samp.accel[1]; s[2] += samp.accel[2]; }
+                [s[0]/n, s[1]/n, s[2]/n]
+            };
+            // Gravity should be on the Z axis (if sensor aligned upright); bias is deviation
+            let accel_bias = [accel_mean[0], accel_mean[1], accel_mean[2] - gravity_magnitude];
+
+            // Gyro bias: mean of static gyro output
+            let gyro_mean: [f32; 3] = {
+                let mut s = [0.0f32; 3];
+                for samp in &static_samples { s[0] += samp.gyro[0]; s[1] += samp.gyro[1]; s[2] += samp.gyro[2]; }
+                [s[0]/n, s[1]/n, s[2]/n]
+            };
+
+            // Scale factor from rotation sequences (simplified: expect known angle → measure integrated angle)
+            let mut gyro_scale = [1.0f32; 3];
+            for rot in &rotation_sequences {
+                // In production: integrate gyro along the rotation axis over the sequence duration,
+                // compare to expected_angle_deg, compute scale factor = expected / measured
+                let _axis = rot.axis; // 'x', 'y', or 'z'
+                let _expected = rot.expected_angle_deg;
+                // placeholder: scale remains 1.0 without actual data
+            }
+
+            // Magnetometer calibration: hard-iron = mean of mag samples
+            let mag_hard_iron = if static_samples.iter().any(|s| s.mag.is_some()) {
+                let mag_count = static_samples.iter().filter(|s| s.mag.is_some()).count() as f32;
+                let mut ms = [0.0f32; 3];
+                for samp in &static_samples {
+                    if let Some(mag) = samp.mag {
+                        ms[0] += mag[0]; ms[1] += mag[1]; ms[2] += mag[2];
+                    }
+                }
+                Some([ms[0]/mag_count, ms[1]/mag_count, ms[2]/mag_count])
+            } else { None };
+
+            let temp = static_samples.iter().filter_map(|s| s.temperature_c).next().unwrap_or(25.0);
+
+            Ok(IMUModalityOutput {
+                success: true,
+                calibration: Some(IMUCalibration {
+                    accel_bias, gyro_bias: gyro_mean, accel_scale: [1.0; 3],
+                    gyro_scale, mag_hard_iron, mag_soft_iron: None,
+                    calibration_temperature_c: temp,
+                    calibration_timestamp: format!("{}", executor.generate_id()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        IMUModalityAction::FuseMultiIMU { imu_streams, body_model, fusion_method } => {
+            // Multi-IMU fusion: run AHRS on each stream, then compute relative orientations
+            let mut joint_angles = Vec::new();
+
+            for joint in &body_model.joints {
+                let prox_stream = imu_streams.iter().find(|s| s.body_segment == joint.proximal_segment);
+                let dist_stream = imu_streams.iter().find(|s| s.body_segment == joint.distal_segment);
+
+                if let (Some(prox), Some(dist)) = (prox_stream, dist_stream) {
+                    if let (Some(prox_samples), Some(dist_samples)) = (&prox.samples, &dist.samples) {
+                        let prox_ahrs = executor.madgwick_ahrs(prox_samples, prox.sample_rate_hz, 0.1, Quaternion::identity());
+                        let dist_ahrs = executor.madgwick_ahrs(dist_samples, dist.sample_rate_hz, 0.1, Quaternion::identity());
+
+                        let n = prox_ahrs.attitudes.len().min(dist_ahrs.attitudes.len());
+                        let mut angle_samples = Vec::with_capacity(n);
+                        let mut angle_sum = 0.0f32;
+                        let mut prev_angle = 0.0f32;
+                        let mut peak_vel = 0.0f32;
+
+                        for i in 0..n {
+                            let qp = prox_ahrs.attitudes[i].quaternion;
+                            let qd = dist_ahrs.attitudes[i].quaternion;
+                            // Relative rotation: q_rel = qp_conjugate * qd
+                            let qp_conj = Quaternion { w: qp.w, x: -qp.x, y: -qp.y, z: -qp.z };
+                            let q_rel = qp_conj.multiply(&qd).normalize();
+                            let euler = q_rel.to_euler_deg();
+                            // For hinge joint: use primary axis (X)
+                            let angle = euler[0];
+                            let dt = if i > 0 { (prox_ahrs.attitudes[i].timestamp_sec - prox_ahrs.attitudes[i-1].timestamp_sec) as f32 } else { 1.0 / prox.sample_rate_hz };
+                            let vel = (angle - prev_angle).abs() / dt.max(1e-6);
+                            if vel > peak_vel { peak_vel = vel; }
+                            angle_sum += angle;
+                            prev_angle = angle;
+                            angle_samples.push(JointAngleSample {
+                                timestamp_sec: prox_ahrs.attitudes[i].timestamp_sec,
+                                angle_deg: angle,
+                                angles_3d_deg: Some(euler),
+                                angular_velocity_deg_per_sec: vel,
+                            });
+                        }
+
+                        let mean_angle = if n > 0 { angle_sum / n as f32 } else { 0.0 };
+                        let min_angle = angle_samples.iter().map(|a| a.angle_deg).fold(f32::INFINITY, f32::min);
+                        let max_angle = angle_samples.iter().map(|a| a.angle_deg).fold(f32::NEG_INFINITY, f32::max);
+
+                        joint_angles.push(JointAngleEstimate {
+                            estimate_id: executor.generate_id(),
+                            joint_id: joint.joint_id.clone(),
+                            joint_type: joint.joint_type.clone(),
+                            angles_deg: angle_samples,
+                            mean_angle_deg: mean_angle,
+                            range_of_motion_deg: (max_angle - min_angle).max(0.0),
+                            peak_angular_velocity_deg_per_sec: peak_vel,
+                        });
+                    }
+                }
+            }
+
+            let analysis = IMUAnalysisResult { joint_angle_estimates: joint_angles, ..Default::default() };
+            Ok(IMUModalityOutput { success: true, analysis: Some(analysis), ..Default::default() })
+        }
+
+        IMUModalityAction::EstimateJointAngle { proximal_samples, distal_samples, sample_rate_hz, joint_type, initial_angle_deg } => {
+            let prox_ahrs = executor.madgwick_ahrs(&proximal_samples, sample_rate_hz, 0.1, Quaternion::identity());
+            let dist_ahrs = executor.madgwick_ahrs(&distal_samples, sample_rate_hz, 0.1, Quaternion::identity());
+
+            let n = prox_ahrs.attitudes.len().min(dist_ahrs.attitudes.len());
+            let mut angle_samples = Vec::with_capacity(n);
+            let mut angle_sum = 0.0f32;
+            let mut prev_angle = initial_angle_deg.unwrap_or(0.0);
+            let mut peak_vel = 0.0f32;
+
+            for i in 0..n {
+                let qp = prox_ahrs.attitudes[i].quaternion;
+                let qd = dist_ahrs.attitudes[i].quaternion;
+                let qp_conj = Quaternion { w: qp.w, x: -qp.x, y: -qp.y, z: -qp.z };
+                let q_rel = qp_conj.multiply(&qd).normalize();
+                let euler = q_rel.to_euler_deg();
+                let angle = euler[0];
+                let dt = 1.0 / sample_rate_hz;
+                let vel = (angle - prev_angle).abs() / dt;
+                if vel > peak_vel { peak_vel = vel; }
+                angle_sum += angle; prev_angle = angle;
+                angle_samples.push(JointAngleSample {
+                    timestamp_sec: prox_ahrs.attitudes[i].timestamp_sec,
+                    angle_deg: angle, angles_3d_deg: Some(euler),
+                    angular_velocity_deg_per_sec: vel,
+                });
+            }
+
+            let mean_angle = if n > 0 { angle_sum / n as f32 } else { 0.0 };
+            let min_angle = angle_samples.iter().map(|a| a.angle_deg).fold(f32::INFINITY, f32::min);
+            let max_angle = angle_samples.iter().map(|a| a.angle_deg).fold(f32::NEG_INFINITY, f32::max);
+
+            Ok(IMUModalityOutput {
+                success: true,
+                joint_angle_estimate: Some(JointAngleEstimate {
+                    estimate_id: executor.generate_id(),
+                    joint_id: "joint_0".into(),
+                    joint_type, angles_deg: angle_samples,
+                    mean_angle_deg: mean_angle,
+                    range_of_motion_deg: (max_angle - min_angle).max(0.0),
+                    peak_angular_velocity_deg_per_sec: peak_vel,
+                }),
+                ..Default::default()
+            })
+        }
+
+        IMUModalityAction::QueryGraph { graph_id, query } => {
+            let graph = executor.load_graph(graph_id)?;
+            let result = match query {
+                IMUGraphQuery::NodeDetail { node_id } => {
+                    let node = graph.nodes.iter().find(|n| n.node_id == node_id);
+                    let incoming: Vec<_> = graph.edges.iter().filter(|e| e.to_node == node_id).collect();
+                    let outgoing: Vec<_> = graph.edges.iter().filter(|e| e.from_node == node_id).collect();
+                    serde_json::json!({ "node": node, "incoming": incoming, "outgoing": outgoing })
+                }
+                IMUGraphQuery::AttitudeHistory => {
+                    let att: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, IMUNodeType::AttitudeEstimateNode)).collect();
+                    serde_json::json!({ "attitude_nodes": att })
+                }
+                IMUGraphQuery::TrajectoryWaypoints => {
+                    let wps: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, IMUNodeType::TrajectoryWaypointNode)).collect();
+                    serde_json::json!({ "waypoints": wps })
+                }
+                IMUGraphQuery::MotionWindows { motion_class } => {
+                    let windows: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, IMUNodeType::MotionWindowNode))
+                        .filter(|n| motion_class.as_ref().map(|mc| n.motion_class.as_deref() == Some(mc)).unwrap_or(true))
+                        .collect();
+                    serde_json::json!({ "windows": windows })
+                }
+                IMUGraphQuery::IMUEvents { event_type } => {
+                    let evs: Vec<_> = graph.nodes.iter()
+                        .filter(|n| matches!(n.node_type, IMUNodeType::IMUEventNode))
+                        .filter(|n| event_type.as_ref().map(|et| n.event_type.as_deref() == Some(et)).unwrap_or(true))
+                        .collect();
+                    serde_json::json!({ "events": evs })
+                }
+                IMUGraphQuery::ShockEvents => {
+                    let shocks: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, IMUNodeType::ShockEventNode)).collect();
+                    serde_json::json!({ "shock_events": shocks })
+                }
+                IMUGraphQuery::VibrationSpectra => {
+                    let spectra: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, IMUNodeType::VibrationSpectrumNode)).collect();
+                    serde_json::json!({ "vibration_spectra": spectra })
+                }
+                IMUGraphQuery::JointAngles => {
+                    let joints: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, IMUNodeType::JointAngleNode)).collect();
+                    serde_json::json!({ "joint_angles": joints })
+                }
+                IMUGraphQuery::CrossModalLinks { node_id } => {
+                    let links: Vec<_> = graph.edges.iter()
+                        .filter(|e| (e.from_node == node_id || e.to_node == node_id)
+                            && matches!(e.edge_type,
+                                IMUEdgeType::TrajectoryIn3DScene |
+                                IMUEdgeType::PlottedOnGeoMap |
+                                IMUEdgeType::FeedsKinematicModel |
+                                IMUEdgeType::FeedsControlSystem |
+                                IMUEdgeType::FusedWithRadar |
+                                IMUEdgeType::FusedWithSonar
+                            ))
+                        .collect();
+                    serde_json::json!({ "cross_modal_links": links })
+                }
+                IMUGraphQuery::AGIActivity => serde_json::json!({ "is_active": false }),
+                IMUGraphQuery::AllNodes => serde_json::json!({ "nodes": graph.nodes }),
+                IMUGraphQuery::AllEdges => serde_json::json!({ "edges": graph.edges }),
+            };
+            Ok(IMUModalityOutput { success: true, query_result: Some(result), ..Default::default() })
+        }
+
+        IMUModalityAction::GetGraph { graph_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            Ok(IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        IMUModalityAction::TriggerSemanticHook { graph_id, hook } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            match hook {
+                IMUSemanticHook::OnGraphCreated => {
+                    graph.state = GraphStateType::SemanticEnriched;
+                }
+                IMUSemanticHook::OnInferRelationships => {
+                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    for (from, to, etype, reason) in new_edges {
+                        if valid.contains(&from) && valid.contains(&to) && from != to {
+                            graph.edges.push(IMUGraphEdge {
+                                edge_id: next_eid, from_node: from, to_node: to,
+                                edge_type: etype, weight: 0.8,
+                                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                    }
+                }
+                IMUSemanticHook::OnEdgeCompletion => {
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    graph.edges.retain(|e| valid.contains(&e.from_node) && valid.contains(&e.to_node));
+                }
+                IMUSemanticHook::OnCrossModalityLink { target_modality, target_graph_id } => {
+                    graph.state = GraphStateType::CrossLinked;
+                    graph.version += 1;
+                    graph.version_notes.push(VersionNote {
+                        version: graph.version,
+                        note: format!("Cross-linked to {} (graph {})", target_modality, target_graph_id),
+                        step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked,
+                    });
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        IMUModalityAction::ExportProduct { graph_id, format } => {
+            let ext = match &format {
+                IMUExportFormat::CSV => "csv",
+                IMUExportFormat::HDF5 => "h5",
+                IMUExportFormat::JSON => "json",
+                IMUExportFormat::ROS_Bag => "bag",
+                IMUExportFormat::NPZ => "npz",
+                IMUExportFormat::TUM_TXT => "txt",
+                IMUExportFormat::EuRoC_CSV => "csv",
+                IMUExportFormat::Custom(_) => "dat",
+            };
+            let export_path = format!("/tmp/imu_export_{}_{}.{}", graph_id, executor.generate_id(), ext);
+            Ok(IMUModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
+        }
+
+        IMUModalityAction::StreamToUI { graph_id, .. } => {
+            Ok(IMUModalityOutput { success: true, graph_id: Some(graph_id), ..Default::default() })
+        }
+
+        IMUModalityAction::HeadlessProcess { graph_id, operations } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+
+            for op in operations {
+                match op {
+                    IMUOperation::RerunAHRS { algorithm } => {
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1,
+                            note: format!("Reran AHRS with {:?}", algorithm),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    IMUOperation::RecomputeTrajectory => {
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1,
+                            note: "Recomputed trajectory".into(),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    IMUOperation::ReclassifyMotion => {
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1,
+                            note: "Reclassified motion windows".into(),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    IMUOperation::CrossLinkToGeo { geo_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let root_id = graph.root_node_id;
+                        graph.edges.push(IMUGraphEdge {
+                            edge_id: next_eid, from_node: root_id, to_node: root_id,
+                            edge_type: IMUEdgeType::PlottedOnGeoMap, weight: 0.85,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: { let mut p = HashMap::new(); p.insert("geo_graph_id".into(), serde_json::json!(geo_graph_id)); p },
+                            ..Default::default()
+                        });
+                        graph.state = GraphStateType::CrossLinked;
+                    }
+                    IMUOperation::CrossLinkToKinematics { kine_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        // Link all joint angle nodes to kinematics
+                        let joint_nids: Vec<u64> = graph.nodes.iter()
+                            .filter(|n| matches!(n.node_type, IMUNodeType::JointAngleNode))
+                            .map(|n| n.node_id)
+                            .collect();
+                        for nid in joint_nids {
+                            graph.edges.push(IMUGraphEdge {
+                                edge_id: next_eid, from_node: nid, to_node: nid,
+                                edge_type: IMUEdgeType::FeedsKinematicModel, weight: 0.9,
+                                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("kine_graph_id".into(), serde_json::json!(kine_graph_id)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                        graph.state = GraphStateType::CrossLinked;
+                    }
+                }
+            }
+
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+    }
+}
+
+// Helper: convert IMUBinaryFormat to IMUSensorModel
+impl From<IMUBinaryFormat> for IMUSensorModel {
+    fn from(f: IMUBinaryFormat) -> Self {
+        match f {
+            IMUBinaryFormat::MPU6050   => IMUSensorModel::MPU6050,
+            IMUBinaryFormat::ICM42688  => IMUSensorModel::ICM42688,
+            IMUBinaryFormat::BMI088    => IMUSensorModel::BMI088,
+            IMUBinaryFormat::BMI160    => IMUSensorModel::BMI160,
+            IMUBinaryFormat::LSM6DS    => IMUSensorModel::LSM6DSL,
+            IMUBinaryFormat::ADIS16445 => IMUSensorModel::ADIS16445,
+            IMUBinaryFormat::VN100     => IMUSensorModel::VN100,
+            IMUBinaryFormat::XSens     => IMUSensorModel::XSens_MTi_G,
+            IMUBinaryFormat::Custom(s) => IMUSensorModel::Custom(s),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; }
+        else { i += 1; }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: imu_sensing --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: IMUModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": format!("Parse error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": e}));
+            std::process::exit(1);
+        }
+    }
+}

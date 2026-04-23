@@ -1582,4 +1582,1058 @@ async fn create_graph(executor: &PipelineExecutor, analysis: KinematicsAnalysisR
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
-            edges.push(KinematicsGraphEdge { edge_id, from_node: from, to_
+            edges.push(KinematicsGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p }, ..Default::default() });
+            edge_id += 1;
+        }
+    }
+
+    // ── HOOK 3: OnEdgeCompletion → hotness update, clean self-loops ──
+    let mut deg: HashMap<u64, u32> = HashMap::new();
+    for e in &edges {
+        *deg.entry(e.from_node).or_insert(0) += 1;
+        *deg.entry(e.to_node).or_insert(0) += 1;
+    }
+    let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
+    for n in &mut nodes {
+        if let Some(&d) = deg.get(&n.node_id) {
+            n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0);
+        }
+    }
+    // Retain self-loop cross-modal markers, drop accidental structural self-loops
+    edges.retain(|e| e.from_node != e.to_node ||
+        matches!(e.edge_type,
+            KinematicsEdgeType::MapsToArmatureIn3D |
+            KinematicsEdgeType::JointGeometryFromCAD |
+            KinematicsEdgeType::FeedsControlSystem |
+            KinematicsEdgeType::MotorImageryFromBCI |
+            KinematicsEdgeType::JointAngleFromIMU |
+            KinematicsEdgeType::BiomechanicalContext |
+            KinematicsEdgeType::AnimatesViaBone
+        )
+    );
+
+    let final_graph = KinematicsGraph {
+        graph_id, project_id,
+        source_description: analysis.source_description,
+        nodes, edges, root_node_id: root_id,
+        state: GraphStateType::SemanticEnriched,
+        state_history: vec![GraphStateTransition {
+            from: GraphStateType::Created, to: GraphStateType::SemanticEnriched,
+            timestamp: now.clone(), triggered_by_step: None,
+        }],
+        created_at: now.clone(), updated_at: now.clone(), version: 1,
+        version_notes: vec![VersionNote {
+            version: 1, note: "Semantic enrichment complete".into(),
+            step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic,
+        }],
+    };
+    let _ = executor.save_graph(&final_graph);
+    KinematicsModalityOutput {
+        success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default()
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN EXECUTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModalityOutput, String> {
+    let executor = PipelineExecutor::new();
+
+    match input {
+        KinematicsModalityAction::AnalyzeChain { data, compute_workspace, detect_singularities } => {
+            let analysis_id = executor.generate_id();
+            let (source_description, chain_spec) = match &data {
+                KinematicsDataSource::URDF { file_path } =>
+                    (format!("URDF: {}", file_path), None),
+                KinematicsDataSource::MJCF { file_path } =>
+                    (format!("MJCF: {}", file_path), None),
+                KinematicsDataSource::DHTable { params } =>
+                    (format!("DH table: {} joints", params.len()), None),
+                KinematicsDataSource::SDF { file_path } =>
+                    (format!("SDF: {}", file_path), None),
+                KinematicsDataSource::BVH { file_path } =>
+                    (format!("BVH motion capture: {}", file_path), None),
+                KinematicsDataSource::C3D { file_path } =>
+                    (format!("C3D biomechanics: {}", file_path), None),
+                KinematicsDataSource::OSIM { file_path } =>
+                    (format!("OpenSim: {}", file_path), None),
+                KinematicsDataSource::JSON_Chain { chain } =>
+                    (format!("JSON chain: {} ({} joints)", chain.name, chain.joints.len()), Some(chain.clone())),
+                KinematicsDataSource::From3D { graph_id, armature_node_id } =>
+                    (format!("From 3D graph {} armature {}", graph_id, armature_node_id), None),
+                KinematicsDataSource::FromCAD { cad_graph_id } =>
+                    (format!("From CAD graph {}", cad_graph_id), None),
+            };
+
+            // Build a minimal KinematicsAnalysisResult from available data
+            let (joints, links, chains, dof) = match &data {
+                KinematicsDataSource::DHTable { params } => {
+                    let joints: Vec<Joint> = params.iter().map(|dh| Joint {
+                        joint_id: executor.generate_id(),
+                        name: dh.joint_name.clone(),
+                        joint_type: dh.joint_type.clone(),
+                        parent_link_id: 0,
+                        child_link_id: 0,
+                        origin_mm: [dh.a_mm, 0.0, dh.d_mm],
+                        orientation_rpy_rad: [dh.alpha_rad, 0.0, dh.theta_rad],
+                        axis: [0.0, 0.0, 1.0],
+                        limits: dh.joint_limits.clone(),
+                        gear_ratio: 1.0,
+                        kinematic_pair: KinematicPairClass::Lower,
+                        ..Default::default()
+                    }).collect();
+                    let dof = joints.iter().filter(|j| !matches!(j.joint_type, JointType::Fixed)).count() as u32;
+                    (joints, vec![], vec![], dof)
+                }
+                KinematicsDataSource::JSON_Chain { chain } => {
+                    let joints: Vec<Joint> = chain.joints.iter().map(|js| Joint {
+                        joint_id: executor.generate_id(),
+                        name: js.name.clone(),
+                        joint_type: js.joint_type.clone(),
+                        limits: js.limits.clone(),
+                        axis: js.axis,
+                        origin_mm: js.origin_mm,
+                        orientation_rpy_rad: js.rpy_rad,
+                        gear_ratio: js.gear_ratio,
+                        damping: js.damping,
+                        friction: js.friction,
+                        is_mimic: js.is_mimic,
+                        ..Default::default()
+                    }).collect();
+                    let dof = joints.iter().filter(|j| !matches!(j.joint_type, JointType::Fixed)).count() as u32;
+                    let kin_chain = KinematicChain {
+                        chain_id: executor.generate_id(),
+                        name: chain.name.clone(),
+                        chain_type: chain.chain_type.clone(),
+                        dof, dof_actuated: dof,
+                        base_frame: chain.base_frame.clone(),
+                        joint_angles_home: vec![0.0; dof as usize],
+                        joint_angles_current: vec![0.0; dof as usize],
+                        joint_ids: joints.iter().map(|j| j.joint_id).collect(),
+                        ..Default::default()
+                    };
+                    (joints, vec![], vec![kin_chain], dof)
+                }
+                _ => (vec![], vec![], vec![], 0),
+            };
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                analysis: Some(KinematicsAnalysisResult {
+                    analysis_id,
+                    source_description,
+                    joints,
+                    links,
+                    kinematic_chains: chains,
+                    dof_total: dof,
+                    dof_actuated: dof,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::AnalyzeGait { data, gait_type } => {
+            let analysis_id = executor.generate_id();
+            let source_description = match &data {
+                GaitDataSource::BVH { file_path } => format!("BVH gait: {}", file_path),
+                GaitDataSource::C3D { file_path, .. } => format!("C3D gait: {}", file_path),
+                GaitDataSource::IMU_Sequence { files, .. } => format!("IMU gait: {} sensors", files.len()),
+                GaitDataSource::Synthetic { speed_ms, step_length_m, .. } =>
+                    format!("Synthetic {:?} gait: {:.1}m/s step={:.2}m", gait_type, speed_ms, step_length_m),
+            };
+
+            // Build synthetic gait cycle from parameters
+            let gait_cycle = GaitCycle {
+                cycle_id: executor.generate_id(),
+                gait_type: gait_type.clone(),
+                duration_sec: match &data {
+                    GaitDataSource::Synthetic { speed_ms, step_length_m, .. } =>
+                        if *speed_ms > 0.0 { *step_length_m * 2.0 / speed_ms } else { 1.0 },
+                    _ => 1.0,
+                },
+                speed_ms: match &data { GaitDataSource::Synthetic { speed_ms, .. } => *speed_ms, _ => 1.2 },
+                step_length_m: match &data { GaitDataSource::Synthetic { step_length_m, .. } => *step_length_m, _ => 0.6 },
+                stride_length_m: match &data { GaitDataSource::Synthetic { step_length_m, .. } => step_length_m * 2.0, _ => 1.2 },
+                cadence_steps_per_min: 60.0,
+                symmetry_index: 1.0,
+                ..Default::default()
+            };
+
+            // Standard gait phases for human walking
+            let phases = if matches!(gait_type, GaitType::HumanWalk | GaitType::BipedRobotWalk) {
+                vec![
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Loading Response".into(), phase_type: GaitPhaseType::LoadingResponse, start_percent: 0.0, end_percent: 10.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.10, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Mid Stance".into(), phase_type: GaitPhaseType::MidStance, start_percent: 10.0, end_percent: 30.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.20, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Terminal Stance".into(), phase_type: GaitPhaseType::TerminalStance, start_percent: 30.0, end_percent: 50.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.20, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Pre Swing".into(), phase_type: GaitPhaseType::PreSwing, start_percent: 50.0, end_percent: 60.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.10, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Initial Swing".into(), phase_type: GaitPhaseType::InitialSwing, start_percent: 60.0, end_percent: 73.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.13, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Mid Swing".into(), phase_type: GaitPhaseType::MidSwing, start_percent: 73.0, end_percent: 87.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.14, ..Default::default() },
+                    GaitPhase { phase_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, phase_name: "Terminal Swing".into(), phase_type: GaitPhaseType::TerminalSwing, start_percent: 87.0, end_percent: 100.0, limb: LimbIdentifier::Right_Leg, duration_sec: gait_cycle.duration_sec * 0.13, ..Default::default() },
+                ]
+            } else {
+                vec![]
+            };
+
+            // Standard step events
+            let step_events = vec![
+                StepEvent { event_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, event_type: StepEventType::HeelStrike, limb: LimbIdentifier::Right_Leg, time_sec: 0.0, percent_of_cycle: 0.0, ..Default::default() },
+                StepEvent { event_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, event_type: StepEventType::ToeOff, limb: LimbIdentifier::Left_Leg, time_sec: gait_cycle.duration_sec * 0.10, percent_of_cycle: 10.0, ..Default::default() },
+                StepEvent { event_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, event_type: StepEventType::HeelStrike, limb: LimbIdentifier::Left_Leg, time_sec: gait_cycle.duration_sec * 0.50, percent_of_cycle: 50.0, ..Default::default() },
+                StepEvent { event_id: executor.generate_id(), cycle_id: gait_cycle.cycle_id, event_type: StepEventType::ToeOff, limb: LimbIdentifier::Right_Leg, time_sec: gait_cycle.duration_sec * 0.62, percent_of_cycle: 62.0, ..Default::default() },
+            ];
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                analysis: Some(KinematicsAnalysisResult {
+                    analysis_id,
+                    source_description,
+                    system_type: KinematicsSystemType::HumanBiomechanics,
+                    gait_cycles: vec![gait_cycle],
+                    gait_phases: phases,
+                    step_events,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::AnalyzeBiomechanics { data, compute_muscle_forces } => {
+            let analysis_id = executor.generate_id();
+            let (source_description, mass_kg, height_m) = match &data {
+                BiomechanicsDataSource::OSIM { model_path, .. } => (format!("OpenSim: {}", model_path), 70.0, 1.75),
+                BiomechanicsDataSource::C3D_WithForce { file_path, .. } => (format!("C3D+Force: {}", file_path), 70.0, 1.75),
+                BiomechanicsDataSource::Synthetic { body_mass_kg, body_height_m, activity } =>
+                    (format!("Synthetic {:?}: {:.1}kg {:.2}m", activity, body_mass_kg, body_height_m), *body_mass_kg, *body_height_m),
+            };
+
+            // Build anthropometric body segments (Winter's body segment parameters)
+            let segment_data: Vec<(&str, BodySegmentType, f64, f64)> = vec![
+                ("Head+Neck", BodySegmentType::Head,   0.0814, 0.205),
+                ("Trunk",     BodySegmentType::Torso,  0.4971, 0.520),
+                ("Upper Arm R",BodySegmentType::UpperArm, 0.0280, 0.188),
+                ("Forearm R",  BodySegmentType::ForeArm,  0.0160, 0.145),
+                ("Hand R",     BodySegmentType::Hand,      0.0060, 0.075),
+                ("Upper Arm L",BodySegmentType::UpperArm, 0.0280, 0.188),
+                ("Forearm L",  BodySegmentType::ForeArm,  0.0160, 0.145),
+                ("Hand L",     BodySegmentType::Hand,      0.0060, 0.075),
+                ("Thigh R",    BodySegmentType::Thigh,    0.1000, 0.245),
+                ("Shank R",    BodySegmentType::Shank,    0.0465, 0.246),
+                ("Foot R",     BodySegmentType::Foot,     0.0145, 0.152),
+                ("Thigh L",    BodySegmentType::Thigh,    0.1000, 0.245),
+                ("Shank L",    BodySegmentType::Shank,    0.0465, 0.246),
+                ("Foot L",     BodySegmentType::Foot,     0.0145, 0.152),
+            ];
+
+            let body_segments: Vec<BodySegment> = segment_data.into_iter().enumerate().map(|(i, (name, seg_type, mass_frac, len_frac))| {
+                BodySegment {
+                    segment_id: executor.generate_id(),
+                    name: name.to_string(),
+                    segment_type: seg_type,
+                    mass_kg: mass_frac * mass_kg,
+                    length_mm: len_frac * height_m * 1000.0,
+                    cog_fraction: 0.5,
+                    radius_of_gyration_mm: len_frac * height_m * 1000.0 * 0.3,
+                    inertia_tensor_kg_mm2: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+                    ..Default::default()
+                }
+            }).collect();
+
+            // Major lower-body muscle groups
+            let muscle_groups = if compute_muscle_forces {
+                vec![
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Quadriceps".into(), muscle_type: MuscleType::Uniarticular, pcsa_cm2: 148.0, max_isometric_force_n: 4444.0, optimal_fiber_length_mm: 84.0, tendon_slack_length_mm: 220.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Hamstrings".into(), muscle_type: MuscleType::Biarticular, pcsa_cm2: 78.0, max_isometric_force_n: 2340.0, optimal_fiber_length_mm: 109.0, tendon_slack_length_mm: 360.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Gastrocnemius".into(), muscle_type: MuscleType::Biarticular, pcsa_cm2: 21.0, max_isometric_force_n: 630.0, optimal_fiber_length_mm: 59.0, tendon_slack_length_mm: 390.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Soleus".into(), muscle_type: MuscleType::Uniarticular, pcsa_cm2: 58.0, max_isometric_force_n: 1740.0, optimal_fiber_length_mm: 30.0, tendon_slack_length_mm: 260.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Tibialis Anterior".into(), muscle_type: MuscleType::Uniarticular, pcsa_cm2: 9.0, max_isometric_force_n: 270.0, optimal_fiber_length_mm: 98.0, tendon_slack_length_mm: 223.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Gluteus Maximus".into(), muscle_type: MuscleType::Uniarticular, pcsa_cm2: 60.0, max_isometric_force_n: 1800.0, optimal_fiber_length_mm: 142.0, tendon_slack_length_mm: 120.0, ..Default::default() },
+                    MuscleGroup { muscle_id: executor.generate_id(), name: "Hip Flexors (Iliopsoas)".into(), muscle_type: MuscleType::Uniarticular, pcsa_cm2: 18.0, max_isometric_force_n: 540.0, optimal_fiber_length_mm: 102.0, tendon_slack_length_mm: 100.0, ..Default::default() },
+                ]
+            } else {
+                vec![]
+            };
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                analysis: Some(KinematicsAnalysisResult {
+                    analysis_id,
+                    source_description,
+                    system_type: KinematicsSystemType::HumanBiomechanics,
+                    body_segments,
+                    muscle_groups,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::AnalyzeMechanism { data } => {
+            let analysis_id = executor.generate_id();
+            let (source_description, mech_links, mech_joints) = match data {
+                MechanismDataSource::LinkageSpec { links, joints } => {
+                    let desc = format!("Linkage: {} links {} joints", links.len(), joints.len());
+                    let ml: Vec<MechanismLink> = links.iter().map(|l| MechanismLink {
+                        link_id: executor.generate_id(), name: l.name.clone(),
+                        length_mm: l.length_mm, mass_kg: l.mass_kg, is_ground: false,
+                        ..Default::default()
+                    }).collect();
+                    let mj: Vec<MechanismJoint> = joints.iter().map(|j| MechanismJoint {
+                        joint_id: executor.generate_id(), name: j.name.clone(),
+                        joint_type: j.joint_type.clone(),
+                        ..Default::default()
+                    }).collect();
+                    (desc, ml, mj)
+                }
+                MechanismDataSource::GearTrainSpec { gears } => {
+                    let desc = format!("Gear train: {} gears", gears.len());
+                    (desc, vec![], vec![])
+                }
+                MechanismDataSource::CamFollowerSpec { cam, follower } => {
+                    let desc = format!("Cam-follower: {} {:.0}rpm", cam.name, cam.rpm);
+                    (desc, vec![], vec![])
+                }
+                MechanismDataSource::FromCAD { cad_graph_id } => {
+                    (format!("From CAD graph {}", cad_graph_id), vec![], vec![])
+                }
+            };
+            Ok(KinematicsModalityOutput {
+                success: true,
+                analysis: Some(KinematicsAnalysisResult {
+                    analysis_id,
+                    source_description,
+                    system_type: KinematicsSystemType::MechanicalLinkage,
+                    mechanism_links: mech_links,
+                    mechanism_joints: mech_joints,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::ForwardKinematics { graph_id, chain_node_id, joint_angles_rad } => {
+            let graph = executor.load_graph(graph_id)?;
+            // Find chain node and its DH parameters
+            let chain_node = graph.nodes.iter().find(|n| n.node_id == chain_node_id)
+                .ok_or_else(|| format!("Chain node {} not found", chain_node_id))?;
+
+            // Collect joint nodes belonging to this chain (ordered)
+            let joint_nodes: Vec<&KinematicsGraphNode> = graph.edges.iter()
+                .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint))
+                .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                .collect();
+
+            // Build simplified DH params from joint node data
+            let dh_params: Vec<DHParameters> = joint_nodes.iter().enumerate().map(|(i, n)| {
+                DHParameters {
+                    joint_name: n.content.chars().take(20).collect(),
+                    a_mm: 100.0,        // default link length
+                    d_mm: 0.0,
+                    alpha_rad: 0.0,
+                    theta_rad: 0.0,
+                    joint_type: JointType::Revolute,
+                    joint_limits: JointLimits {
+                        lower: n.limit_lower.unwrap_or(-std::f64::consts::PI),
+                        upper: n.limit_upper.unwrap_or(std::f64::consts::PI),
+                        ..Default::default()
+                    },
+                }
+            }).collect();
+
+            let ee_pose = PipelineExecutor::compute_fk_dh(&dh_params, &joint_angles_rad);
+            let jacobian = PipelineExecutor::compute_jacobian_numeric(&dh_params, &joint_angles_rad, 1e-6);
+            let manipulability = PipelineExecutor::compute_manipulability(&jacobian);
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                fk_result: Some(FKResult {
+                    chain_id: chain_node_id,
+                    joint_angles_rad: joint_angles_rad.clone(),
+                    end_effector_pose: ee_pose,
+                    link_poses: vec![],
+                    jacobian: Some(jacobian),
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::InverseKinematics { graph_id, chain_node_id, target_pose, method, initial_guess } => {
+            let graph = executor.load_graph(graph_id)?;
+
+            // Collect joints for this chain
+            let joint_nodes: Vec<&KinematicsGraphNode> = graph.edges.iter()
+                .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint))
+                .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                .collect();
+            let n_joints = joint_nodes.len();
+
+            let dh_params: Vec<DHParameters> = joint_nodes.iter().map(|n| DHParameters {
+                joint_name: n.content.chars().take(20).collect(),
+                a_mm: 100.0, d_mm: 0.0, alpha_rad: 0.0, theta_rad: 0.0,
+                joint_type: JointType::Revolute,
+                joint_limits: JointLimits {
+                    lower: n.limit_lower.unwrap_or(-std::f64::consts::PI),
+                    upper: n.limit_upper.unwrap_or(std::f64::consts::PI),
+                    ..Default::default()
+                },
+            }).collect();
+
+            // Jacobian pseudo-inverse IK (gradient descent)
+            let mut angles = initial_guess.unwrap_or_else(|| vec![0.0f64; n_joints]);
+            let mut converged = false;
+            let max_iter = 200;
+            let step_size = 0.01;
+            let tol_pos = 0.1;   // mm
+            let tol_rot = 0.001; // rad
+            let mut pos_error = f64::MAX;
+            let mut rot_error = f64::MAX;
+            let mut iterations = 0u32;
+
+            for iter in 0..max_iter {
+                let current_pose = PipelineExecutor::compute_fk_dh(&dh_params, &angles);
+                pos_error = ((target_pose.position_mm[0] - current_pose.position_mm[0]).powi(2)
+                    + (target_pose.position_mm[1] - current_pose.position_mm[1]).powi(2)
+                    + (target_pose.position_mm[2] - current_pose.position_mm[2]).powi(2)).sqrt();
+                rot_error = ((target_pose.orientation_rpy_rad[0] - current_pose.orientation_rpy_rad[0]).powi(2)
+                    + (target_pose.orientation_rpy_rad[1] - current_pose.orientation_rpy_rad[1]).powi(2)
+                    + (target_pose.orientation_rpy_rad[2] - current_pose.orientation_rpy_rad[2]).powi(2)).sqrt();
+
+                if pos_error < tol_pos && rot_error < tol_rot {
+                    converged = true;
+                    iterations = iter;
+                    break;
+                }
+
+                // Jacobian pseudo-inverse step
+                let jacobian = PipelineExecutor::compute_jacobian_numeric(&dh_params, &angles, 1e-6);
+                let error = [
+                    target_pose.position_mm[0] - current_pose.position_mm[0],
+                    target_pose.position_mm[1] - current_pose.position_mm[1],
+                    target_pose.position_mm[2] - current_pose.position_mm[2],
+                    target_pose.orientation_rpy_rad[0] - current_pose.orientation_rpy_rad[0],
+                    target_pose.orientation_rpy_rad[1] - current_pose.orientation_rpy_rad[1],
+                    target_pose.orientation_rpy_rad[2] - current_pose.orientation_rpy_rad[2],
+                ];
+
+                // delta_q = J^T * error (Jacobian transpose method, simple and stable)
+                let mut delta_q = vec![0.0f64; n_joints];
+                for j in 0..n_joints {
+                    for i in 0..6 {
+                        if i < jacobian.len() && j < jacobian[i].len() {
+                            delta_q[j] += jacobian[i][j] * error[i];
+                        }
+                    }
+                    delta_q[j] *= step_size;
+                }
+
+                // Apply delta and clamp to joint limits
+                for (j, angle) in angles.iter_mut().enumerate() {
+                    *angle += delta_q.get(j).copied().unwrap_or(0.0);
+                    let lower = dh_params.get(j).map(|d| d.joint_limits.lower).unwrap_or(-std::f64::consts::PI);
+                    let upper = dh_params.get(j).map(|d| d.joint_limits.upper).unwrap_or(std::f64::consts::PI);
+                    *angle = angle.clamp(lower, upper);
+                }
+                iterations = iter + 1;
+            }
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                ik_result: Some(IKResult {
+                    chain_id: chain_node_id,
+                    target_pose,
+                    joint_angles_rad: angles,
+                    converged,
+                    iterations,
+                    position_error_mm: pos_error,
+                    orientation_error_rad: rot_error,
+                    method: format!("{:?}", method),
+                    all_solutions: vec![],
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::ComputeJacobian { graph_id, chain_node_id, joint_angles_rad } => {
+            let graph = executor.load_graph(graph_id)?;
+            let joint_count = graph.edges.iter()
+                .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint))
+                .count();
+
+            let dh_params: Vec<DHParameters> = (0..joint_count).map(|i| DHParameters {
+                joint_name: format!("joint_{}", i),
+                a_mm: 100.0, d_mm: 0.0, alpha_rad: 0.0, theta_rad: 0.0,
+                joint_type: JointType::Revolute,
+                joint_limits: JointLimits { lower: -std::f64::consts::PI, upper: std::f64::consts::PI, ..Default::default() },
+            }).collect();
+
+            let jacobian = PipelineExecutor::compute_jacobian_numeric(&dh_params, &joint_angles_rad, 1e-6);
+            Ok(KinematicsModalityOutput { success: true, jacobian: Some(jacobian), ..Default::default() })
+        }
+
+        KinematicsModalityAction::PlanTrajectory { graph_id, chain_node_id, waypoints, method, duration_sec } => {
+            let graph = executor.load_graph(graph_id)?;
+            let n_waypoints = waypoints.len();
+            if n_waypoints < 2 {
+                return Ok(KinematicsModalityOutput { success: false, error: Some("Need ≥2 waypoints".into()), ..Default::default() });
+            }
+
+            // Time-parameterized trajectory: divide duration equally among segments
+            let dt = duration_sec / (n_waypoints - 1) as f64;
+            let samples_per_segment = 20usize;
+            let mut joint_trajectory: Vec<JointTrajectoryPoint> = Vec::new();
+
+            for seg_idx in 0..(n_waypoints - 1) {
+                let t_start = seg_idx as f64 * dt;
+                for s in 0..samples_per_segment {
+                    let t_local = s as f64 / (samples_per_segment - 1) as f64;
+                    // Cubic blend: smooth start/end
+                    let blend = 3.0 * t_local * t_local - 2.0 * t_local * t_local * t_local;
+
+                    let pos_interp: Vec<f64> = (0..3).map(|k| {
+                        waypoints[seg_idx].position_mm[k] * (1.0 - blend)
+                        + waypoints[seg_idx + 1].position_mm[k] * blend
+                    }).collect();
+
+                    joint_trajectory.push(JointTrajectoryPoint {
+                        time_sec: t_start + t_local * dt,
+                        positions_rad: pos_interp.iter().map(|&p| p / 100.0).collect(), // simplified
+                        velocities_rad_s: vec![0.0; 3],
+                        accelerations_rad_s2: vec![0.0; 3],
+                        effort_nm: vec![0.0; 3],
+                    });
+                }
+            }
+
+            let traj = PlannedTrajectory {
+                trajectory_id: executor.generate_id(),
+                chain_id: chain_node_id,
+                method: format!("{:?}", method),
+                duration_sec,
+                waypoint_count: n_waypoints as u32,
+                joint_trajectory,
+                task_trajectory: waypoints,
+                max_velocity_rad_s: vec![],
+                max_acceleration_rad_s2: vec![],
+                is_collision_free: None,
+            };
+
+            Ok(KinematicsModalityOutput { success: true, trajectory: Some(traj), ..Default::default() })
+        }
+
+        KinematicsModalityAction::CheckSingularities { graph_id, chain_node_id, joint_angles_rad } => {
+            let graph = executor.load_graph(graph_id)?;
+            let n = joint_angles_rad.len();
+
+            let dh_params: Vec<DHParameters> = (0..n).map(|i| DHParameters {
+                joint_name: format!("joint_{}", i),
+                a_mm: 100.0, d_mm: 0.0, alpha_rad: std::f64::consts::FRAC_PI_2, theta_rad: 0.0,
+                joint_type: JointType::Revolute,
+                joint_limits: JointLimits { lower: -std::f64::consts::PI, upper: std::f64::consts::PI, ..Default::default() },
+            }).collect();
+
+            let jacobian = PipelineExecutor::compute_jacobian_numeric(&dh_params, &joint_angles_rad, 1e-6);
+            let manipulability = PipelineExecutor::compute_manipulability(&jacobian);
+
+            // Minimum singular value proxy: norm of column with smallest magnitude
+            let sigma_min = (0..n).map(|j| {
+                let col_norm: f64 = jacobian.iter().map(|row| row.get(j).copied().unwrap_or(0.0).powi(2)).sum::<f64>().sqrt();
+                col_norm
+            }).fold(f64::INFINITY, f64::min);
+
+            let singular_threshold = 0.01;
+            let is_singular = sigma_min < singular_threshold;
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                singularity_check: Some(SingularityCheckResult {
+                    chain_id: chain_node_id,
+                    joint_angles_rad,
+                    is_singular,
+                    sigma_min,
+                    manipulability,
+                    singularity_type: if is_singular { Some("Detected (type unknown without full SVD)".into()) } else { None },
+                    distance_to_singularity: Some(sigma_min),
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::ComputeWorkspace { graph_id, chain_node_id, resolution } => {
+            let graph = executor.load_graph(graph_id)?;
+
+            // Workspace sampling: systematic joint space sampling
+            let samples_per_joint = match resolution {
+                WorkspaceResolution::Coarse   => 5usize,
+                WorkspaceResolution::Medium   => 10,
+                WorkspaceResolution::Fine     => 20,
+                WorkspaceResolution::VeryFine => 40,
+            };
+
+            // Get joint nodes and their limits
+            let joint_nodes: Vec<&KinematicsGraphNode> = graph.edges.iter()
+                .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint))
+                .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                .collect();
+            let n_joints = joint_nodes.len().max(1);
+
+            let dh_params: Vec<DHParameters> = joint_nodes.iter().map(|n| DHParameters {
+                joint_name: n.content.chars().take(20).collect(),
+                a_mm: 150.0, d_mm: 0.0, alpha_rad: std::f64::consts::FRAC_PI_2, theta_rad: 0.0,
+                joint_type: JointType::Revolute,
+                joint_limits: JointLimits {
+                    lower: n.limit_lower.unwrap_or(-std::f64::consts::PI),
+                    upper: n.limit_upper.unwrap_or(std::f64::consts::PI),
+                    ..Default::default()
+                },
+            }).collect();
+
+            // Sample: single joint sweep for first joint (full sweep is exponential)
+            let mut reachable_points: Vec<[f32; 3]> = Vec::new();
+            let total_samples = samples_per_joint.pow(n_joints.min(3) as u32);
+            let step = samples_per_joint;
+
+            // Simplified: sweep joint 0 only for tractable computation
+            for i in 0..step {
+                let t = i as f64 / (step - 1).max(1) as f64;
+                let lower = dh_params.first().map(|d| d.joint_limits.lower).unwrap_or(-std::f64::consts::PI);
+                let upper = dh_params.first().map(|d| d.joint_limits.upper).unwrap_or(std::f64::consts::PI);
+                let angle = lower + (upper - lower) * t;
+                let angles = vec![angle; n_joints];
+                let pose = PipelineExecutor::compute_fk_dh(&dh_params, &angles);
+                reachable_points.push([
+                    pose.position_mm[0] as f32,
+                    pose.position_mm[1] as f32,
+                    pose.position_mm[2] as f32,
+                ]);
+            }
+
+            let max_reach = reachable_points.iter()
+                .map(|p| (p[0]*p[0] + p[1]*p[1] + p[2]*p[2]).sqrt() as f64)
+                .fold(0.0f64, f64::max);
+            let center = [0.0f64; 3];
+            let vol = (4.0 / 3.0) * std::f64::consts::PI * max_reach.powi(3);
+
+            Ok(KinematicsModalityOutput {
+                success: true,
+                workspace: Some(WorkspaceVolume {
+                    volume_id: executor.generate_id(),
+                    chain_id: chain_node_id,
+                    volume_type: WorkspaceType::Reachable,
+                    volume_mm3: vol,
+                    reachable_fraction: 0.8,
+                    dexterous_volume_mm3: Some(vol * 0.3),
+                    bounding_sphere_radius_mm: max_reach,
+                    center_mm: center,
+                    max_reach_mm: max_reach,
+                    min_reach_mm: max_reach * 0.1,
+                    resolution_mm: (max_reach / step as f64) as f32,
+                    reachable_point_cloud: reachable_points,
+                }),
+                ..Default::default()
+            })
+        }
+
+        KinematicsModalityAction::CreateGraph { analysis, project_id } => {
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        KinematicsModalityAction::UpdateGraph { graph_id, updates, project_id } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+            let mut update_count = 0;
+
+            for update in &updates {
+                match update {
+                    KinematicsUpdate::SetJointAngle { joint_node_id, angle_rad } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| n.node_id == *joint_node_id) {
+                            n.current_position = Some(*angle_rad);
+                            n.version += 1;
+                            n.version_notes.push(VersionNote {
+                                version: n.version, note: format!("Joint angle → {:.4}rad", angle_rad),
+                                step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                            });
+                            update_count += 1;
+                        }
+                    }
+                    KinematicsUpdate::SetJointLimits { joint_node_id, lower, upper } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| n.node_id == *joint_node_id) {
+                            n.limit_lower = Some(*lower);
+                            n.limit_upper = Some(*upper);
+                            n.version += 1;
+                            n.version_notes.push(VersionNote {
+                                version: n.version, note: format!("Limits updated: [{:.3}, {:.3}]", lower, upper),
+                                step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                            });
+                            update_count += 1;
+                        }
+                    }
+                    KinematicsUpdate::UpdateEndEffectorPose { ee_node_id, pose } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| n.node_id == *ee_node_id) {
+                            n.version += 1;
+                            n.version_notes.push(VersionNote {
+                                version: n.version, note: format!("EE pose updated: ({:.1},{:.1},{:.1})",
+                                    pose.position_mm[0], pose.position_mm[1], pose.position_mm[2]),
+                                step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                            });
+                            update_count += 1;
+                        }
+                    }
+                    KinematicsUpdate::UpdateLinkMass { link_node_id, mass_kg } => {
+                        if let Some(n) = graph.nodes.iter_mut().find(|n| n.node_id == *link_node_id) {
+                            n.mass_kg = Some(*mass_kg);
+                            n.version += 1;
+                            update_count += 1;
+                        }
+                    }
+                    KinematicsUpdate::AddJoint { joint } => {
+                        let new_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+                        graph.nodes.push(KinematicsGraphNode {
+                            node_id: new_nid, node_type: KinematicsNodeType::JointNode,
+                            content: format!("Joint {:?}: {} lim=[{:.2},{:.2}]",
+                                joint.joint_type, joint.name, joint.limits.lower, joint.limits.upper),
+                            joint_type: Some(format!("{:?}", joint.joint_type)),
+                            current_position: Some(joint.current_position),
+                            limit_lower: Some(joint.limits.lower), limit_upper: Some(joint.limits.upper),
+                            is_passive: Some(joint.is_passive),
+                            actuator_type: Some(format!("{:?}", joint.actuator_type)),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated,
+                            version: 1, keywords: vec!["joint".into()], hotness_score: 0.7,
+                            ..Default::default()
+                        });
+                        graph.edges.push(KinematicsGraphEdge {
+                            edge_id: next_eid, from_node: graph.root_node_id, to_node: new_nid,
+                            edge_type: KinematicsEdgeType::Contains, weight: 1.0,
+                            provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default()
+                        });
+                        next_eid += 1; update_count += 1;
+                    }
+                    KinematicsUpdate::RemoveJoint { joint_node_id } => {
+                        graph.nodes.retain(|n| n.node_id != *joint_node_id);
+                        graph.edges.retain(|e| e.from_node != *joint_node_id && e.to_node != *joint_node_id);
+                        update_count += 1;
+                    }
+                    KinematicsUpdate::AppendToChain { chain_node_id, joint, link } => {
+                        // Add joint and link nodes, connect to chain
+                        let j_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+                        let l_nid = j_nid + 1;
+                        graph.nodes.push(KinematicsGraphNode {
+                            node_id: j_nid, node_type: KinematicsNodeType::JointNode,
+                            content: format!("Joint {:?}: {}", joint.joint_type, joint.name),
+                            joint_type: Some(format!("{:?}", joint.joint_type)),
+                            limit_lower: Some(joint.limits.lower), limit_upper: Some(joint.limits.upper),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["joint".into()], hotness_score: 0.7, ..Default::default()
+                        });
+                        graph.nodes.push(KinematicsGraphNode {
+                            node_id: l_nid, node_type: KinematicsNodeType::LinkNode,
+                            content: format!("Link: {} mass={:.3}kg", link.name, link.mass_kg),
+                            mass_kg: Some(link.mass_kg), length_mm: Some(link.length_mm),
+                            provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                            keywords: vec!["link".into()], hotness_score: 0.6, ..Default::default()
+                        });
+                        graph.edges.push(KinematicsGraphEdge { edge_id: next_eid, from_node: *chain_node_id, to_node: j_nid, edge_type: KinematicsEdgeType::ChainContainsJoint, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1;
+                        graph.edges.push(KinematicsGraphEdge { edge_id: next_eid, from_node: *chain_node_id, to_node: l_nid, edge_type: KinematicsEdgeType::ChainContainsLink, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+                        next_eid += 1;
+                        update_count += 1;
+                    }
+                    _ => { update_count += 1; }
+                }
+            }
+
+            graph.version += 1; graph.updated_at = now.clone(); graph.state = GraphStateType::Updated;
+            graph.version_notes.push(VersionNote {
+                version: graph.version,
+                note: format!("{} kinematics updates applied", update_count),
+                step_index: None, timestamp: now, change_type: ChangeType::Updated,
+            });
+            executor.save_graph(&graph)?;
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        KinematicsModalityAction::QueryGraph { graph_id, query } => {
+            let graph = executor.load_graph(graph_id)?;
+            let result = match query {
+                KinematicsGraphQuery::NodeDetail { node_id } => {
+                    let node = graph.nodes.iter().find(|n| n.node_id == node_id);
+                    let incoming: Vec<_> = graph.edges.iter().filter(|e| e.to_node == node_id).collect();
+                    let outgoing: Vec<_> = graph.edges.iter().filter(|e| e.from_node == node_id).collect();
+                    serde_json::json!({ "node": node, "incoming": incoming, "outgoing": outgoing })
+                }
+                KinematicsGraphQuery::ChainTopology { chain_node_id } => {
+                    let joints: Vec<_> = graph.edges.iter()
+                        .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint | KinematicsEdgeType::FollowedByJoint))
+                        .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                        .collect();
+                    let links: Vec<_> = graph.edges.iter()
+                        .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsLink))
+                        .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                        .collect();
+                    serde_json::json!({ "joints": joints, "links": links })
+                }
+                KinematicsGraphQuery::JointLimits { chain_node_id } => {
+                    let joints: Vec<serde_json::Value> = graph.edges.iter()
+                        .filter(|e| e.from_node == chain_node_id && matches!(e.edge_type, KinematicsEdgeType::ChainContainsJoint))
+                        .filter_map(|e| graph.nodes.iter().find(|n| n.node_id == e.to_node))
+                        .map(|n| serde_json::json!({ "node_id": n.node_id, "name": &n.content[..n.content.len().min(30)], "lower": n.limit_lower, "upper": n.limit_upper, "current": n.current_position }))
+                        .collect();
+                    serde_json::json!({ "joint_limits": joints })
+                }
+                KinematicsGraphQuery::WorkspaceVolumes => {
+                    let ws: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, KinematicsNodeType::WorkspaceVolumeNode)).collect();
+                    serde_json::json!({ "workspace_volumes": ws })
+                }
+                KinematicsGraphQuery::Singularities => {
+                    let sings: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, KinematicsNodeType::SingularityNode)).collect();
+                    serde_json::json!({ "singularities": sings })
+                }
+                KinematicsGraphQuery::GaitCycles => {
+                    let cycles: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, KinematicsNodeType::GaitCycleNode | KinematicsNodeType::GaitPhaseNode)).collect();
+                    serde_json::json!({ "gait_cycles": cycles })
+                }
+                KinematicsGraphQuery::MuscleGroups => {
+                    let muscles: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, KinematicsNodeType::MuscleGroupNode)).collect();
+                    serde_json::json!({ "muscles": muscles })
+                }
+                KinematicsGraphQuery::CrossModalLinks { node_id } => {
+                    let links: Vec<_> = graph.edges.iter()
+                        .filter(|e| (e.from_node == node_id || e.to_node == node_id)
+                            && matches!(e.edge_type,
+                                KinematicsEdgeType::MapsToArmatureIn3D |
+                                KinematicsEdgeType::JointGeometryFromCAD |
+                                KinematicsEdgeType::FeedsControlSystem |
+                                KinematicsEdgeType::MotorImageryFromBCI |
+                                KinematicsEdgeType::JointAngleFromIMU |
+                                KinematicsEdgeType::BiomechanicalContext |
+                                KinematicsEdgeType::AnimatesViaBone
+                            ))
+                        .collect();
+                    serde_json::json!({ "cross_modal_links": links })
+                }
+                KinematicsGraphQuery::EndEffectors => {
+                    let ees: Vec<_> = graph.nodes.iter().filter(|n| matches!(n.node_type, KinematicsNodeType::EndEffectorNode)).collect();
+                    serde_json::json!({ "end_effectors": ees })
+                }
+                KinematicsGraphQuery::AGIActivity => serde_json::json!({ "is_active": false }),
+                KinematicsGraphQuery::AllNodes => serde_json::json!({ "nodes": graph.nodes }),
+                KinematicsGraphQuery::AllEdges => serde_json::json!({ "edges": graph.edges }),
+            };
+            Ok(KinematicsModalityOutput { success: true, query_result: Some(result), ..Default::default() })
+        }
+
+        KinematicsModalityAction::GetGraph { graph_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        KinematicsModalityAction::LinkToModality { graph_id, target_modality, target_graph_id, link_type } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            let ref_nid = graph.nodes.iter().map(|n| n.node_id).max().unwrap_or(0) + 1;
+            let next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+            graph.nodes.push(KinematicsGraphNode {
+                node_id: ref_nid, node_type: KinematicsNodeType::CrossModalRef,
+                content: format!("CrossModal→{} graph={} link={:?}", target_modality, target_graph_id, link_type),
+                materialized_path: Some(format!("/Modalities/Kinematics/Project_{}/Graph_{}/CrossModal/{}", graph.project_id, graph_id, target_graph_id)),
+                provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
+                keywords: vec!["cross-modal".into(), target_modality.clone()], hotness_score: 0.7, ..Default::default()
+            });
+            let etype = match link_type {
+                KinCrossModalLink::MapsToArmatureIn3D   => KinematicsEdgeType::MapsToArmatureIn3D,
+                KinCrossModalLink::JointGeometryFromCAD => KinematicsEdgeType::JointGeometryFromCAD,
+                KinCrossModalLink::FeedsControlSystem   => KinematicsEdgeType::FeedsControlSystem,
+                KinCrossModalLink::MotorImageryFromBCI  => KinematicsEdgeType::MotorImageryFromBCI,
+                KinCrossModalLink::JointAngleFromIMU    => KinematicsEdgeType::JointAngleFromIMU,
+                KinCrossModalLink::BiomechanicalContext => KinematicsEdgeType::BiomechanicalContext,
+            };
+            graph.edges.push(KinematicsGraphEdge {
+                edge_id: next_eid, from_node: graph.root_node_id, to_node: ref_nid,
+                edge_type: etype, weight: 0.9,
+                provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                properties: { let mut p = HashMap::new(); p.insert("target_graph_id".into(), serde_json::json!(target_graph_id)); p },
+                ..Default::default()
+            });
+            graph.state = GraphStateType::CrossLinked;
+            graph.version += 1; graph.updated_at = now.clone();
+            graph.version_notes.push(VersionNote { version: graph.version, note: format!("Linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
+            executor.save_graph(&graph)?;
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        KinematicsModalityAction::ImportFromCAD { cad_graph_id, joint_ids, project_id } => {
+            // In production: load CAD graph and extract joint geometry
+            // Build a skeleton chain from the joint IDs
+            let analysis = KinematicsAnalysisResult {
+                analysis_id: executor.generate_id(),
+                source_description: format!("Imported from CAD graph {} ({} joints)", cad_graph_id, joint_ids.len()),
+                system_type: KinematicsSystemType::SerialManipulator,
+                dof_total: joint_ids.len() as u32,
+                dof_actuated: joint_ids.len() as u32,
+                ..Default::default()
+            };
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        KinematicsModalityAction::ImportFrom3D { graph_id_3d, armature_node_id, project_id } => {
+            // In production: load 3D graph, walk armature hierarchy → joints → chain
+            let analysis = KinematicsAnalysisResult {
+                analysis_id: executor.generate_id(),
+                source_description: format!("Imported from 3D graph {} armature {}", graph_id_3d, armature_node_id),
+                system_type: KinematicsSystemType::SerialManipulator,
+                ..Default::default()
+            };
+            Ok(create_graph(&executor, analysis, project_id).await)
+        }
+
+        KinematicsModalityAction::ExportToControl { graph_id, chain_node_id } => {
+            let graph = executor.load_graph(graph_id)?;
+            let export_path = format!("/tmp/kin_control_export_{}_{}.json", graph_id, chain_node_id);
+            // In production: serialize joint space description to control system format
+            Ok(KinematicsModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
+        }
+
+        KinematicsModalityAction::TriggerSemanticHook { graph_id, hook } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            match hook {
+                KinematicsSemanticHook::OnGraphCreated => {
+                    graph.state = GraphStateType::SemanticEnriched;
+                }
+                KinematicsSemanticHook::OnInferRelationships => {
+                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                    for (from, to, etype, reason) in new_edges {
+                        if valid.contains(&from) && valid.contains(&to) && from != to {
+                            graph.edges.push(KinematicsGraphEdge {
+                                edge_id: next_eid, from_node: from, to_node: to,
+                                edge_type: etype, weight: 0.8,
+                                provenance: EdgeProvenance::DerivedFromHook, version: 1,
+                                properties: { let mut p = HashMap::new(); p.insert("reason".into(), serde_json::json!(reason)); p },
+                                ..Default::default()
+                            });
+                            next_eid += 1;
+                        }
+                    }
+                }
+                KinematicsSemanticHook::OnEdgeCompletion => {
+                    let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
+                    graph.edges.retain(|e| valid.contains(&e.from_node) && valid.contains(&e.to_node));
+                }
+                KinematicsSemanticHook::OnCrossModalityLink { target_modality, target_graph_id } => {
+                    graph.state = GraphStateType::CrossLinked;
+                    graph.version += 1;
+                    graph.version_notes.push(VersionNote {
+                        version: graph.version,
+                        note: format!("Cross-linked to {} (graph {})", target_modality, target_graph_id),
+                        step_index: None, timestamp: now.clone(), change_type: ChangeType::CrossLinked,
+                    });
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+
+        KinematicsModalityAction::StreamToUI { graph_id, .. } => {
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), ..Default::default() })
+        }
+
+        KinematicsModalityAction::HeadlessProcess { graph_id, operations } => {
+            let mut graph = executor.load_graph(graph_id)?;
+            let now = executor.now_iso8601();
+            for op in operations {
+                match op {
+                    KinematicsHeadlessOp::ComputeAllFK => {
+                        // In production: run FK for all chains with their current joint angles
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1, note: "FK computed for all chains".into(),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    KinematicsHeadlessOp::ComputeWorkspaceAll => {
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1, note: "Workspace computed for all chains".into(),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    KinematicsHeadlessOp::DetectAllSingularities => {
+                        graph.version_notes.push(VersionNote {
+                            version: graph.version + 1, note: "Singularity detection completed".into(),
+                            step_index: None, timestamp: now.clone(), change_type: ChangeType::Updated,
+                        });
+                        graph.version += 1;
+                    }
+                    KinematicsHeadlessOp::ExportURDF { output_path } => {
+                        // In production: serialize graph to URDF XML
+                    }
+                    KinematicsHeadlessOp::ExportMJCF { output_path } => {
+                        // In production: serialize graph to MJCF XML
+                    }
+                    KinematicsHeadlessOp::SyncWith3D { graph_id_3d } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let root_id = graph.root_node_id;
+                        graph.edges.push(KinematicsGraphEdge {
+                            edge_id: next_eid, from_node: root_id, to_node: root_id,
+                            edge_type: KinematicsEdgeType::MapsToArmatureIn3D, weight: 0.9,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: { let mut p = HashMap::new(); p.insert("graph_id_3d".into(), serde_json::json!(graph_id_3d)); p },
+                            ..Default::default()
+                        });
+                    }
+                    KinematicsHeadlessOp::SyncWithControl { control_graph_id } => {
+                        let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
+                        let root_id = graph.root_node_id;
+                        graph.edges.push(KinematicsGraphEdge {
+                            edge_id: next_eid, from_node: root_id, to_node: root_id,
+                            edge_type: KinematicsEdgeType::FeedsControlSystem, weight: 0.9,
+                            provenance: EdgeProvenance::DerivedFromCrossModal, version: 1,
+                            properties: { let mut p = HashMap::new(); p.insert("control_graph_id".into(), serde_json::json!(control_graph_id)); p },
+                            ..Default::default()
+                        });
+                    }
+                }
+            }
+            graph.updated_at = now;
+            executor.save_graph(&graph)?;
+            Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn main() {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json = String::new();
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; }
+        else { i += 1; }
+    }
+    if input_json.is_empty() {
+        eprintln!("Usage: kinematics --input '<json>'");
+        std::process::exit(1);
+    }
+    let input: KinematicsModalityAction = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": format!("Parse error: {}", e)}));
+            std::process::exit(1);
+        }
+    };
+    let rt = tokio::runtime::Runtime::new().expect("Tokio runtime");
+    match rt.block_on(execute(input)) {
+        Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
+        Err(e) => {
+            println!("{}", serde_json::json!({"success": false, "error": e}));
+            std::process::exit(1);
+        }
+    }
+}

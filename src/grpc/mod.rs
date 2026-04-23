@@ -26,9 +26,7 @@ pub struct AppState {
     pub runtime: Arc<RwLock<OzoneRuntime>>,
     pub start_time: std::time::Instant,
     pub executor_progress: Arc<
-        tokio::sync::RwLock<
-            std::collections::HashMap<String, crate::pipeline::executor::PipelineProgress>,
-        >,
+        tokio::sync::RwLock<std::collections::HashMap<String, crate::pipeline::PipelineProgress>>,
     >,
 }
 
@@ -168,8 +166,12 @@ pub struct PipelineProgressResponse {
     pub success: bool,
     pub execution_id: String,
     pub pipeline_id: Option<u64>,
+    pub pipeline_name: Option<String>,
+    pub task_id: Option<u64>,
+    pub step_index: Option<u32>,
     pub status: String,
     pub progress_percent: u8,
+    pub tokens_used: Option<u32>,
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
     pub error: Option<String>,
@@ -186,6 +188,33 @@ pub struct PipelineCancelResponse {
     pub success: bool,
     pub was_running: bool,
     pub error: Option<String>,
+}
+
+// Request/Response types (add with other types)
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OrchestrateRequest {
+    pub prompt: String,
+    pub project_id: Option<u64>,
+    pub workspace_id: Option<u64>,
+    pub user_id: u64,
+    pub device_id: u64,
+    pub consciousness_enabled: bool,
+    pub token_budget: Option<u32>,
+    pub model_config: Option<serde_json::Value>,
+    pub session_token: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OrchestrateResponse {
+    pub success: bool,
+    pub response: Option<String>,
+    pub task_id: Option<u64>,
+    pub blueprint_id: Option<u64>,
+    pub stages_completed: Vec<serde_json::Value>,
+    pub needs_clarification: bool,
+    pub clarification_points: Vec<String>,
+    pub error: Option<String>,
+    pub execution_time_ms: u64,
 }
 
 // ============================================================================
@@ -596,6 +625,127 @@ async fn set_config(
 }
 
 // ============================================================================
+// Orchestration Handler — full 14-stage AMT flow
+// ============================================================================
+
+async fn orchestrate(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<OrchestrateRequest>,
+) -> Json<OrchestrateResponse> {
+    let start = std::time::Instant::now();
+
+    // Build the pipeline input that the orchestrator understands
+    let mut data = std::collections::HashMap::new();
+    data.insert(
+        "prompt".to_string(),
+        serde_json::Value::String(req.prompt.clone()),
+    );
+    data.insert(
+        "consciousness_enabled".to_string(),
+        serde_json::Value::Bool(req.consciousness_enabled),
+    );
+    data.insert(
+        "token_budget".to_string(),
+        serde_json::json!(req.token_budget.unwrap_or(100_000)),
+    );
+    if let Some(proj_id) = req.project_id {
+        data.insert("project_id".to_string(), serde_json::json!(proj_id));
+    }
+    if let Some(ws_id) = req.workspace_id {
+        data.insert("workspace_id".to_string(), serde_json::json!(ws_id));
+    }
+    if let Some(model_cfg) = &req.model_config {
+        if let Some(model_id) = model_cfg.get("model_identifier").and_then(|v| v.as_str()) {
+            data.insert(
+                "model_identifier".to_string(),
+                serde_json::Value::String(model_id.to_string()),
+            );
+        }
+    }
+
+    let pipeline_input = crate::types::pipeline::PipelineInput {
+        data: data
+            .into_iter()
+            .map(|(k, v)| {
+                let val = match v {
+                    serde_json::Value::String(s) => crate::types::Value::String(s),
+                    serde_json::Value::Bool(b) => crate::types::Value::Bool(b),
+                    serde_json::Value::Number(n) => {
+                        if let Some(i) = n.as_i64() {
+                            crate::types::Value::Int(i)
+                        } else {
+                            crate::types::Value::Float(n.as_f64().unwrap_or(0.0))
+                        }
+                    }
+                    other => crate::types::Value::String(other.to_string()),
+                };
+                (k, val)
+            })
+            .collect(),
+        context: crate::types::pipeline::ExecutionContext {
+            user_id: req.user_id,
+            device_id: req.device_id,
+            workspace_id: req.workspace_id,
+            project_id: req.project_id,
+            task_context_id: None,
+            metadata: std::collections::HashMap::new(),
+        },
+    };
+
+    let runtime = state.runtime.read().await;
+
+    // Run through the orchestrator — full 14-stage AMT flow:
+    // Stage 1-3: Intent capture (IntentCapture, BranchCapture, DetailCapture)
+    // Stage 4-5: Context aggregation + cross-reference
+    // Stage 6-7: Blueprint search + selection
+    // Stage 8-12: Pipeline execution per blueprint step
+    // Stage 13-14: Response synthesis + consciousness post-hook
+    match runtime
+        .orchestrate(pipeline_input, req.user_id, req.device_id)
+        .await
+    {
+        Ok(result) => {
+            let execution_time_ms = start.elapsed().as_millis() as u64;
+            tracing::info!(
+                "Orchestration complete: task={:?}, blueprint={:?}, {}ms",
+                result.task_id,
+                result.blueprint_id,
+                execution_time_ms
+            );
+            Json(OrchestrateResponse {
+                success: result.success,
+                response: result.response_text,
+                task_id: result.task_id,
+                blueprint_id: result.blueprint_id,
+                stages_completed: result
+                    .stages_completed
+                    .into_iter()
+                    .map(|s| serde_json::to_value(s).unwrap_or_default())
+                    .collect(),
+                needs_clarification: result.needs_clarification,
+                clarification_points: result.clarification_points,
+                error: None,
+                execution_time_ms,
+            })
+        }
+        Err(e) => {
+            tracing::error!("Orchestration failed: {}", e);
+            Json(OrchestrateResponse {
+                success: false,
+                response: None,
+                task_id: None,
+                blueprint_id: None,
+                stages_completed: vec![],
+                needs_clarification: false,
+                clarification_points: vec![],
+                error: Some(e.to_string()),
+                execution_time_ms: start.elapsed().as_millis() as u64,
+            })
+        }
+    }
+}
+
+// ============================================================================
 // v0.4.0 - Pipeline Registry Handlers
 // ============================================================================
 
@@ -636,7 +786,6 @@ fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
                             .and_then(|d| d.as_str())
                             .unwrap_or("")
                             .to_string();
-
                         Some(PipelineRegistryEntry {
                             id,
                             name,
@@ -655,6 +804,21 @@ fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
             }
         }
     }
+
+    // Fallback to compile-time PIPELINE_INFO when index.json is missing/invalid
+    tracing::warn!("Pipeline index not found, falling back to compile-time registry");
+    crate::pipeline::PIPELINE_INFO
+        .iter()
+        .map(|(id, info)| PipelineRegistryEntry {
+            id: *id,
+            name: info.name.clone(),
+            folder_name: info.folder_name.clone(),
+            category: info.category.clone(),
+            has_ui: info.has_ui,
+            is_tab: info.is_tab,
+            description: info.description.clone(),
+        })
+        .collect()
 }
 
 /// Get pipeline UI component.js content
@@ -717,13 +881,14 @@ async fn websocket_handler(
     ws.on_upgrade(|socket| handle_websocket(socket, state))
 }
 
-async fn handle_websocketasync fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
+async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
     // Start progress broadcast task
     let progress_map = state.executor_progress.clone();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
 
     tokio::spawn(async move {
-        let mut last_snapshot: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut last_snapshot: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
         loop {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             let map = progress_map.read().await;
@@ -737,9 +902,16 @@ async fn handle_websocketasync fn handle_websocket(mut socket: WebSocket, state:
                         "status": status,
                         "progress_percent": progress.progress_percent,
                         "pipeline_id": progress.pipeline_id,
+                        "pipeline_name": progress.pipeline_name,
                         "task_id": progress.task_id,
+                        "step_index": progress.step_index,
+                        "tokens_used": progress.tokens_used,
                     });
-                    if tx.send(serde_json::to_string(&event).unwrap_or_default()).await.is_err() {
+                    if tx
+                        .send(serde_json::to_string(&event).unwrap_or_default())
+                        .await
+                        .is_err()
+                    {
                         break;
                     }
                 }
@@ -852,6 +1024,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/ws", get(websocket_handler))
         .route("/pipeline/progress", post(get_pipeline_progress))
         .route("/pipeline/cancel", post(cancel_pipeline))
+        .route("/orchestrate", post(orchestrate))
         .layer(cors)
         .with_state(state);
 
@@ -888,8 +1061,12 @@ async fn get_pipeline_progress(
             success: true,
             execution_id: req.execution_id,
             pipeline_id: Some(progress.pipeline_id),
+            pipeline_name: Some(progress.pipeline_name.clone()),
+            task_id: progress.task_id,
+            step_index: progress.step_index,
             status: format!("{:?}", progress.status),
             progress_percent: progress.progress_percent,
+            tokens_used: progress.tokens_used,
             started_at: Some(progress.started_at),
             completed_at: progress.completed_at,
             error: progress.error.clone(),
@@ -898,8 +1075,12 @@ async fn get_pipeline_progress(
             success: false,
             execution_id: req.execution_id,
             pipeline_id: None,
+            pipeline_name: None,
+            task_id: None,
+            step_index: None,
             status: "NotFound".to_string(),
             progress_percent: 0,
+            tokens_used: None,
             started_at: None,
             completed_at: None,
             error: Some("Execution not found".to_string()),

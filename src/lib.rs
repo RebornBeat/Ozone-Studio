@@ -34,6 +34,7 @@ pub mod grpc;
 pub mod integrity;
 pub mod methodologies;
 pub mod network;
+pub mod orchestrator;
 pub mod pipeline;
 pub mod task;
 pub mod types;
@@ -48,6 +49,18 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use task::{RefinementConfig, TaskQueueConfig};
+
+/// Result of the full AMT orchestration flow
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OrchestrationOutput {
+    pub success: bool,
+    pub response_text: Option<String>,
+    pub task_id: Option<u64>,
+    pub blueprint_id: Option<u64>,
+    pub stages_completed: Vec<serde_json::Value>,
+    pub needs_clarification: bool,
+    pub clarification_points: Vec<String>,
+}
 
 /// Main Ozone Studio runtime
 pub struct OzoneRuntime {
@@ -122,7 +135,7 @@ impl OzoneRuntime {
                 tracing::warn!("Blueprint ZSEI registration: {}", e);
             }
 
-            let pipeline_store = crate::pipeline::store::PipelineStore::new(zsei_arc.clone());
+            let pipeline_store = crate::pipeline::PipelineStore::new(zsei_arc.clone());
             if let Err(e) = pipeline_store.register_all().await {
                 tracing::warn!("Pipeline ZSEI registration: {}", e);
             }
@@ -165,7 +178,7 @@ impl OzoneRuntime {
 
         Ok(Self {
             config,
-            zsei: Arc::new(RwLock::new(zsei)),
+            zsei: zsei_arc.clone(),
             pipeline_registry: Arc::new(RwLock::new(pipeline_registry)),
             task_manager: Arc::new(RwLock::new(task_manager)),
             auth: Arc::new(RwLock::new(auth)),
@@ -241,6 +254,141 @@ impl OzoneRuntime {
     /// Check if consciousness is enabled
     pub fn is_consciousness_enabled(&self) -> bool {
         self.consciousness.is_some()
+    }
+
+    /// Run the full 14-stage AMT orchestration flow.
+    /// This is the ONLY entry point for prompt-driven task execution.
+    pub async fn orchestrate(
+        &self,
+        input: crate::types::pipeline::PipelineInput,
+        user_id: u64,
+        device_id: u64,
+    ) -> OzoneResult<OrchestrationOutput> {
+        let prompt = input
+            .data
+            .get("prompt")
+            .and_then(|v| {
+                if let crate::types::Value::String(s) = v {
+                    Some(s.clone())
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        if prompt.trim().is_empty() {
+            return Err(OzoneError::ValidationError("Prompt cannot be empty".into()));
+        }
+
+        let project_id = input.data.get("project_id").and_then(|v| {
+            if let crate::types::Value::Int(i) = v {
+                Some(*i as u64)
+            } else {
+                None
+            }
+        });
+
+        let workspace_id = input.data.get("workspace_id").and_then(|v| {
+            if let crate::types::Value::Int(i) = v {
+                Some(*i as u64)
+            } else {
+                None
+            }
+        });
+
+        let token_budget = input
+            .data
+            .get("token_budget")
+            .and_then(|v| {
+                if let crate::types::Value::Int(i) = v {
+                    Some(*i as u32)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(100_000);
+
+        let consciousness_enabled = input
+            .data
+            .get("consciousness_enabled")
+            .and_then(|v| {
+                if let crate::types::Value::Bool(b) = v {
+                    Some(*b)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(false);
+
+        // Enqueue via task manager — task manager owns queue ordering + consciousness gate
+        let task_manager = self.task_manager.read().await;
+        let mut inputs = std::collections::HashMap::new();
+        inputs.insert(
+            "prompt".to_string(),
+            serde_json::Value::String(prompt.clone()),
+        );
+        if let Some(files_val) = input.data.get("attached_files") {
+            inputs.insert(
+                "attached_files".to_string(),
+                serde_json::to_value(files_val).unwrap_or_default(),
+            );
+        }
+        if let Some(pid) = project_id {
+            inputs.insert("project_id".to_string(), serde_json::json!(pid));
+        }
+        if let Some(wid) = workspace_id {
+            inputs.insert("workspace_id".to_string(), serde_json::json!(wid));
+        }
+
+        let task_id = task_manager
+            .enqueue_task(
+                None, // blueprint selected by orchestrator, not here
+                inputs,
+                user_id,
+                device_id,
+                workspace_id,
+                project_id,
+                crate::task::TaskPriority::Normal,
+            )
+            .await?;
+
+        drop(task_manager);
+
+        // Run the orchestrator — builds the AMT, selects a blueprint, executes steps
+        let mut orchestrator = crate::orchestrator::PromptOrchestrator::new(
+            self.pipeline_registry.clone(),
+            self.zsei.clone(),
+            self.task_manager.clone(),
+        );
+
+        let orch_result = orchestrator
+            .process(
+                task_id,
+                &prompt,
+                project_id,
+                workspace_id,
+                token_budget,
+                consciousness_enabled,
+            )
+            .await;
+
+        match orch_result {
+            Ok(state) => Ok(OrchestrationOutput {
+                success: true,
+                response_text: state.final_response,
+                task_id: Some(task_id),
+                blueprint_id: state.selected_blueprint_id,
+                stages_completed: state.completed_stages,
+                needs_clarification: state.needs_clarification,
+                clarification_points: state.clarification_points.unwrap_or_default(),
+            }),
+            Err(e) => {
+                // Mark task as failed in task manager
+                let task_manager = self.task_manager.read().await;
+                let _ = task_manager.fail_task(task_id, e.to_string()).await;
+                Err(e)
+            }
+        }
     }
 }
 

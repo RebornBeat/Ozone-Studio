@@ -1,0 +1,11 @@
+1. Branch Quality isn't needed just as we don't need confidence and we don't want to prune ever as we don't need to yet or anytime in the future this is a Local AGI not serving the whole world right like there is no need to prune either way we still traverse and chunk accordingly.
+
+2. for ## 2.1 Add `resolve_overlap_llm` method it looks good but I feel like we aren't giving the prompt enough context on what its supposed to do so that it knows everytime like its not fully explaining the purpose and need of what we want also we will never fall back to fn rule_based_overlap_fallback because we should expect it to work or retry if not to pause gracefully and return errors so that a fix can be applied gracefully and to return to it from where paused
+
+3. ## 3.1 Add detection methods this looks good as well but again I feel like we also aren't giving the prompt enough context IE we are dynamiclly loading in the modalities which is awesome but we don't provide a description per modality for it to truly understand what we are looking to capture and what formats etc based on each modality
+
+4. for ## 4.1 Add grammar extraction method now again the same thing, this is expecting to obtain grammar extration and it's per chunk I believe and if so this means this would have multiple multiple and again with chunk reconstruction I feel like its best if we start where when processing chunks, we then start obtaining true text and identify all sentences and parapgrahs upon cleaning our chunks, so first we clean the chunks then identify all sentences and parapgrahs and then we can ID this IE identifying what sentence belongs in what parapgrahs as well as when we do chunk reconstruction so I say from here we do chunk reconstruction for all where we automatically then start reconstruction our chunks but actually I think its best not to do so here if we just convert everything to graphs because this is graphs as well we first start processing each chunk initially for a prompt/workspace/project so that we can deconstruct the chunks and convert them to graphs but we should be handling everything via graphs that is via AMT building the methodology detections
+
+
+
+we still have to review each zero-shot prompt from the implementation guide to ensure completeness as these are drafts and not fully complete nor capturing all information with consistency
