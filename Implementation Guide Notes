@@ -20,7 +20,7 @@
 
 11. 5.3 validates mythoughts in 9 as chunk reconstruction at context limit is really unnecesary but we can keep if we ever come to find a purpose in the future maybe to rescan but if we rescan it would be just about maintain order so instead of chunk ID when we work with our content reviewing traversing we still also want to now keep order established so that we identify what came first and last and this even helps as well with change or update identification etc
 
-12.
+12.  7.2 is found in our types modality
 
 
 we still have to review each zero-shot prompt from the implementation guide to ensure completeness as these are drafts and not fully complete nor capturing all information with consistency

@@ -861,60 +861,7 @@ impl PromptOrchestrator {
                 .filter(|p| !p.deprecated)
                 .cloned()
                 .collect()
-        } else {
-            // Return default core pipelines if index not loaded
-            Self::get_default_pipelines()
         }
-    }
-
-    /// Get default pipeline list (fallback if index not loaded)
-    fn get_default_pipelines() -> Vec<PipelineInfo> {
-        vec![
-            PipelineInfo {
-                pipeline_id: 9,
-                name: "Prompt".to_string(),
-                folder_name: "prompt".to_string(),
-                category: "general".to_string(),
-                description: "LLM prompt processing".to_string(),
-                modality: None,
-                has_ui: false,
-                is_tab: false,
-                deprecated: false,
-            },
-            PipelineInfo {
-                pipeline_id: 21,
-                name: "ContextAggregation".to_string(),
-                folder_name: "context_aggregation".to_string(),
-                category: "general".to_string(),
-                description: "Aggregate context for tasks".to_string(),
-                modality: None,
-                has_ui: false,
-                is_tab: false,
-                deprecated: false,
-            },
-            PipelineInfo {
-                pipeline_id: 100,
-                name: "TextAnalysisPipeline".to_string(),
-                folder_name: "text".to_string(),
-                category: "modalities".to_string(),
-                description: "Text modality analysis".to_string(),
-                modality: Some("text".to_string()),
-                has_ui: false,
-                is_tab: false,
-                deprecated: false,
-            },
-            PipelineInfo {
-                pipeline_id: 101,
-                name: "CodeAnalysisPipeline".to_string(),
-                folder_name: "code".to_string(),
-                category: "modalities".to_string(),
-                description: "Code modality analysis".to_string(),
-                modality: Some("code".to_string()),
-                has_ui: false,
-                is_tab: false,
-                deprecated: false,
-            },
-        ]
     }
 
     /// Main entry point - orchestrates the full 11-stage flow
