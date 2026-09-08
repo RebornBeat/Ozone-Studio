@@ -163,82 +163,131 @@ export function MetaPortion({ width }: MetaPortionProps) {
     }
   };
 
-  // Toggle voice input with proper transcription capture
+  // ── Whisper-native voice capture ────────────────────────────────────────
+  // AudioContext captures Float32 PCM at 16 kHz directly (the browser
+  // resamples internally), so the chunks sent to pipeline #10 are already in
+  // whisper's input format — no ffmpeg transcode server-side. PCM16 WAV is
+  // assembled client-side.
+
+  const startWhisperCapture = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    // 16 kHz context: the browser resamples the mic's native rate for us.
+    const ctx = new AudioContext({ sampleRate: 16000 });
+    const source = ctx.createMediaStreamSource(stream);
+    const processor = ctx.createScriptProcessor(4096, 1, 1);
+    const chunks: Float32Array[] = [];
+
+    processor.onaudioprocess = (e: AudioProcessingEvent) => {
+      chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    source.connect(processor);
+    // ScriptProcessor needs a destination connection to fire in some browsers;
+    // connect to a zero-gain node so nothing audible leaks.
+    const silent = ctx.createGain();
+    silent.gain.value = 0;
+    processor.connect(silent);
+    silent.connect(ctx.destination);
+
+    (window as any).__whisperCapture = { ctx, stream, processor, chunks };
+  };
+
+  // Assemble accumulated Float32 chunks → PCM16 → WAV bytes → base64.
+  const encodeWhisperWav = async (): Promise<{ base64: string; format: string } | null> => {
+    const capture = (window as any).__whisperCapture;
+    if (!capture || capture.chunks.length === 0) return null;
+
+    const total = capture.chunks.reduce((a: number, c: Float32Array) => a + c.length, 0);
+    const pcm16 = new Int16Array(total);
+    let offset = 0;
+    for (const chunk of capture.chunks) {
+      for (let i = 0; i < chunk.length; i++) {
+        const s = Math.max(-1, Math.min(1, chunk[i]));
+        pcm16[offset++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+      }
+    }
+    capture.chunks.length = 0;
+
+    const sampleRate = capture.ctx.sampleRate;
+    const header = new ArrayBuffer(44);
+    const view = new DataView(header);
+    const writeStr = (pos: number, s: string) => {
+      for (let i = 0; i < s.length; i++) view.setUint8(pos + i, s.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + pcm16.byteLength, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);              // PCM
+    view.setUint16(22, 1, true);              // mono
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); // byte rate
+    view.setUint16(32, 2, true);              // block align
+    view.setUint16(34, 16, true);             // bits
+    writeStr(36, 'data');
+    view.setUint32(40, pcm16.byteLength, true);
+
+    const blob = new Blob([header, pcm16.buffer], { type: 'audio/wav' });
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+    return new Promise<{ base64: string; format: string } | null>((resolve) => {
+      reader.onloadend = () => {
+        const base64 = (reader.result as string)?.split(',')[1];
+        resolve(base64 ? { base64, format: 'wav' } : null);
+      };
+    });
+  };
+
+  const stopWhisperCapture = async (): Promise<{ base64: string; format: string } | null> => {
+    const capture = (window as any).__whisperCapture;
+    if (!capture) return null;
+    const wav = await encodeWhisperWav();
+    try {
+      capture.processor.disconnect();
+      capture.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
+      await capture.ctx.close();
+    } catch (e) {
+      console.warn('capture cleanup:', e);
+    }
+    delete (window as any).__whisperCapture;
+    return wav;
+  };
+
+  // Toggle voice input — whisper-native capture: accumulate PCM16/16 kHz WAV
+  // while active, transcribe on stop (final transcript appended to prompt).
   const toggleVoice = async () => {
     if (!isConnected) return;
-    
+
     try {
       if (!voiceActive) {
-        // Start listening
-        const result = await executePipeline(10, { action: 'StartListening' });
+        await executePipeline(10, { action: 'StartListening' });
+        await startWhisperCapture();
         setVoiceActive(true);
-        
-        // Set up voice activity polling
-        const pollInterval = setInterval(async () => {
-          try {
-            // Check for audio data from microphone (this would come from browser API)
-            const audioData = await captureAudioFromMicrophone();
-            if (audioData) {
-              // Process audio to get transcription
-              const transcribeResult = await executePipeline(10, {
-                action: 'ProcessAudio',
-                audio_base64: audioData.base64,
-                format: audioData.format || 'webm',
-              });
-              
-              if (transcribeResult?.transcription && transcribeResult.is_final) {
-                // Add transcribed text to prompt input
-                setPromptInput(prev => {
-                  const space = prev && !prev.endsWith(' ') ? ' ' : '';
-                  return prev + space + transcribeResult.transcription;
-                });
-              }
-            }
-          } catch (e) {
-            console.warn('Voice processing error:', e);
-          }
-        }, 500); // Poll every 500ms
-        
-        // Store interval ID for cleanup
-        (window as any).__voicePollInterval = pollInterval;
-        
       } else {
-        // Stop listening
-        await executePipeline(10, { action: 'StopListening' });
         setVoiceActive(false);
-        
-        // Clear polling interval
-        if ((window as any).__voicePollInterval) {
-          clearInterval((window as any).__voicePollInterval);
-          delete (window as any).__voicePollInterval;
+        const wav = await stopWhisperCapture();
+        await executePipeline(10, { action: 'StopListening' });
+
+        if (!wav) return;
+        const transcribeResult = await executePipeline(10, {
+          action: 'ProcessAudio',
+          audio_base64: wav.base64,
+          format: 'wav',
+        });
+
+        if (transcribeResult?.transcription && transcribeResult.is_final) {
+          setPromptInput((prev: string) => {
+            const space = prev && !prev.endsWith(' ') ? ' ' : '';
+            return prev + space + transcribeResult.transcription;
+          });
         }
       }
     } catch (err) {
       console.error('Voice toggle failed:', err);
+      // Cleanup partial capture on failure
+      try { await stopWhisperCapture(); } catch { /* already gone */ }
       setVoiceActive(false);
     }
-  };
-  
-  // Capture audio from browser microphone API
-  const captureAudioFromMicrophone = async (): Promise<{ base64: string; format: string } | null> => {
-    // This integrates with the browser's MediaRecorder API
-    // The actual implementation would capture audio chunks
-    const mediaRecorder = (window as any).__mediaRecorder;
-    if (mediaRecorder && mediaRecorder.audioChunks?.length > 0) {
-      const audioBlob = new Blob(mediaRecorder.audioChunks, { type: 'audio/webm' });
-      mediaRecorder.audioChunks = []; // Clear processed chunks
-      
-      // Convert to base64
-      const reader = new FileReader();
-      return new Promise((resolve) => {
-        reader.onloadend = () => {
-          const base64 = (reader.result as string)?.split(',')[1];
-          resolve(base64 ? { base64, format: 'webm' } : null);
-        };
-        reader.readAsDataURL(audioBlob);
-      });
-    }
-    return null;
   };
   
   // Speak response aloud using voice pipeline with consciousness identity

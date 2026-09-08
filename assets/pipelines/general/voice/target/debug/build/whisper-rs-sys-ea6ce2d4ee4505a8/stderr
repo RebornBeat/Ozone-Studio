@@ -1,0 +1,79 @@
+running: cd "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build" && CMAKE_PREFIX_PATH="" LC_ALL="C" "cmake" "-Wdev" "--debug-output" "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/" "-B" "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build" "-DBUILD_SHARED_LIBS=OFF" "-DWHISPER_ALL_WARNINGS=OFF" "-DWHISPER_ALL_WARNINGS_3RD_PARTY=OFF" "-DWHISPER_BUILD_TESTS=OFF" "-DWHISPER_BUILD_EXAMPLES=OFF" "-DGGML_METAL=OFF" "-DCMAKE_BUILD_TYPE=RelWithDebInfo" "-DGGML_OPENMP=OFF" "-DCMAKE_INSTALL_PREFIX=/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out" "-DCMAKE_C_FLAGS= -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_C_COMPILER=/usr/bin/cc" "-DCMAKE_CXX_FLAGS= -DWHISPER_DEBUG -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_CXX_COMPILER=/usr/bin/c++" "-DCMAKE_ASM_FLAGS= -ffunction-sections -fdata-sections -fPIC -m64 -w" "-DCMAKE_ASM_COMPILER=/usr/bin/cc" "-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON"
+CMake Warning (dev) at /usr/share/cmake-3.28/Modules/CMakeFindBinUtils.cmake:224 (find_program):
+  Policy CMP0126 is not set: set(CACHE) does not remove a normal variable of
+  the same name.  Run "cmake --help-policy CMP0126" for policy details.  Use
+  the cmake_policy command to set the policy and suppress this warning.
+
+  For compatibility with older versions of CMake, normal variable
+  "CMAKE_TAPI" will be removed from the current scope.
+Call Stack (most recent call first):
+  /usr/share/cmake-3.28/Modules/CMakeDetermineCXXCompiler.cmake:202 (include)
+  CMakeLists.txt:2 (project)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+   Called from: [3]	/usr/share/cmake-3.28/Modules/CMakeFindBinUtils.cmake
+                [2]	/usr/share/cmake-3.28/Modules/CMakeDetermineCXXCompiler.cmake
+                [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+CMake Warning (dev) at /usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:57 (try_compile):
+  Policy CMP0066 is not set: Honor per-config flags in try_compile()
+  source-file signature.  Run "cmake --help-policy CMP0066" for policy
+  details.  Use the cmake_policy command to set the policy and suppress this
+  warning.
+
+  For compatibility with older versions of CMake, try_compile is not honoring
+  caller config-specific compiler flags (e.g.  CMAKE_C_FLAGS_DEBUG) in the
+  test project.
+Call Stack (most recent call first):
+  /usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)
+  CMakeLists.txt:2 (project)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+   Called from: [3]	/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake
+                [2]	/usr/share/cmake-3.28/Modules/CMakeTestCCompiler.cmake
+                [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+CMake Warning (dev) at /usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake:57 (try_compile):
+  Policy CMP0066 is not set: Honor per-config flags in try_compile()
+  source-file signature.  Run "cmake --help-policy CMP0066" for policy
+  details.  Use the cmake_policy command to set the policy and suppress this
+  warning.
+
+  For compatibility with older versions of CMake, try_compile is not honoring
+  caller config-specific compiler flags (e.g.  CMAKE_C_FLAGS_DEBUG) in the
+  test project.
+Call Stack (most recent call first):
+  /usr/share/cmake-3.28/Modules/CMakeTestCXXCompiler.cmake:26 (CMAKE_DETERMINE_COMPILER_ABI)
+  CMakeLists.txt:2 (project)
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+   Called from: [3]	/usr/share/cmake-3.28/Modules/CMakeDetermineCompilerABI.cmake
+                [2]	/usr/share/cmake-3.28/Modules/CMakeTestCXXCompiler.cmake
+                [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+   Entering             /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+   Entering             /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/CMakeLists.txt
+   Returning to         /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/CMakeLists.txt
+   Returning to         /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+   Entering             /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/src
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+   Returning to         /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+CMake Warning (dev) in CMakeLists.txt:
+  Policy CMP0082 is not set: Install rules from add_subdirectory() are
+  interleaved with those in caller.  Run "cmake --help-policy CMP0082" for
+  policy details.  Use the cmake_policy command to set the policy and
+  suppress this warning.
+
+This warning is for project developers.  Use -Wno-dev to suppress it.
+
+   Called from: [1]	/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/CMakeLists.txt
+CMake Warning:
+  Manually-specified variables were not used by the project:
+
+    CMAKE_ASM_COMPILER
+    CMAKE_ASM_FLAGS
+
+
+running: cd "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build" && LC_ALL="C" MAKEFLAGS="-j --jobserver-fds=3,8 --jobserver-auth=3,8" "cmake" "--build" "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build" "--target" "install" "--config" "Release"

@@ -383,6 +383,38 @@ pub struct ModelConfig {
     /// Model selection UI setting
     pub allow_user_selection: bool,
     pub available_models: Vec<AvailableModel>,
+
+    /// Named wire protocol for the prompt pipeline (#9): "anthropic" |
+    /// "chat_completions". Unset → endpoint-sniffed (backward compatible).
+    #[serde(default)]
+    pub wire_protocol: Option<String>,
+}
+
+impl ModelConfig {
+    /// Export the model settings as the OZONE_MODEL_* / OZONE_WIRE_PROTOCOL
+    /// environment variables the prompt pipeline (#9) reads. Only the NAME of
+    /// the API key env var crosses — the key VALUE itself is inherited by the
+    /// child from the process environment, never copied here.
+    pub fn to_pipeline_env(&self) -> Vec<(String, String)> {
+        let mut env = vec![
+            ("OZONE_MODEL_TYPE".to_string(), self.model_type.clone()),
+            ("OZONE_API_KEY_ENV".to_string(), self.api_key_env.clone().unwrap_or_else(|| "ANTHROPIC_API_KEY".into())),
+            ("OZONE_CONTEXT_LENGTH".to_string(), self.context_length.to_string()),
+        ];
+        if let Some(e) = &self.api_endpoint {
+            env.push(("OZONE_API_ENDPOINT".to_string(), e.clone()));
+        }
+        if let Some(m) = &self.api_model {
+            env.push(("OZONE_API_MODEL".to_string(), m.clone()));
+        }
+        if let Some(p) = &self.local_model_path {
+            env.push(("OZONE_LOCAL_MODEL_PATH".to_string(), p.clone()));
+        }
+        if let Some(w) = &self.wire_protocol {
+            env.push(("OZONE_WIRE_PROTOCOL".to_string(), w.clone()));
+        }
+        env
+    }
 }
 
 impl Default for ModelConfig {
@@ -406,6 +438,7 @@ impl Default for ModelConfig {
                 },
                 // Local models are added by user via UI or config
             ],
+            wire_protocol: None,
         }
     }
 }
@@ -444,6 +477,59 @@ pub struct VoiceConfig {
 
     /// API key environment variable (if using API backend)
     pub api_key_env: Option<String>,
+
+    /// Transcription language hint (e.g. "en"). The shipped base.en model is
+    /// English-only — set this to avoid auto-detect misfires. Forwarded to
+    /// the voice pipeline as OZONE_VOICE_LANGUAGE.
+    #[serde(default)]
+    pub language: Option<String>,
+
+    /// ffmpeg binary for transcoding compressed captures (webm/opus from
+    /// MediaRecorder) into the 16 kHz mono WAV whisper requires. Forwarded
+    /// as OZONE_VOICE_FFMPEG.
+    #[serde(default = "default_ffmpeg_path")]
+    pub ffmpeg_path: String,
+}
+
+fn default_ffmpeg_path() -> String {
+    "ffmpeg".into()
+}
+
+impl VoiceConfig {
+    /// Export the voice settings as the OZONE_VOICE_* environment variables
+    /// the voice pipeline (#10) reads. Called at bootstrap and whenever the
+    /// gRPC voice-settings update lands — spawned pipeline children inherit
+    /// the process environment, so no per-pipeline host code is needed.
+    pub fn to_pipeline_env(&self) -> Vec<(String, String)> {
+        let mut env = vec![
+            (
+                "OZONE_VOICE_BACKEND".to_string(),
+                self.backend.clone(),
+            ),
+            (
+                "OZONE_VOICE_FFMPEG".to_string(),
+                self.ffmpeg_path.clone(),
+            ),
+        ];
+        if let Some(p) = &self.whisper_model_path {
+            env.push(("OZONE_VOICE_MODEL_PATH".to_string(), p.clone()));
+        }
+        if let Some(p) = &self.whisper_cpp_path {
+            env.push(("OZONE_VOICE_CPP_PATH".to_string(), p.clone()));
+        }
+        if let Some(e) = &self.api_endpoint {
+            env.push(("OZONE_VOICE_API_ENDPOINT".to_string(), e.clone()));
+        }
+        if let Some(k) = &self.api_key_env {
+            if let Ok(key) = std::env::var(k) {
+                env.push(("OZONE_VOICE_API_KEY".to_string(), key));
+            }
+        }
+        if let Some(l) = &self.language {
+            env.push(("OZONE_VOICE_LANGUAGE".to_string(), l.clone()));
+        }
+        env
+    }
 }
 
 impl Default for VoiceConfig {
@@ -455,6 +541,8 @@ impl Default for VoiceConfig {
             whisper_cpp_path: Some("/usr/local/bin/whisper-cli".into()),
             api_endpoint: None,
             api_key_env: None,
+            language: None,
+            ffmpeg_path: default_ffmpeg_path(),
         }
     }
 }

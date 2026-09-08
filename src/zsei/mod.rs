@@ -20,6 +20,7 @@
 mod storage;
 mod traversal;
 mod query;
+pub mod search;
 
 pub use storage::*;
 pub use traversal::*;

@@ -1,7 +1,6 @@
 //! ZSEI traversal types - Section 6.7 of the specification
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use super::{ContainerID, Value};
 use super::container::{Container, Modality};
 
@@ -136,7 +135,14 @@ pub enum ZSEIQuery {
     GetMethodologies { category_ids: Vec<ContainerID> },
     GetMethodologiesByKeywords { keywords: Vec<String> },
     GetMethodologiesByTopics { topics: Vec<String> },
-    
+
+    /// Generic keyword search over all containers, optionally filtered by
+    /// container type (parsed by name; unknown names match unfiltered).
+    SearchContainersByKeywords {
+        keywords: Vec<String>,
+        container_type: Option<String>,
+    },
+
     // Blueprint
     SearchBlueprints { task_signature: TaskSignature },
     SearchBlueprintsByKeywords { keywords: Vec<String> },

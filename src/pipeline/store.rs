@@ -9,7 +9,7 @@ use crate::types::container::{
     LocalState, Metadata, Modality, StoragePointers, TraversalHints, CONSCIOUSNESS_ROOT_ID,
     PIPELINE_ROOT_ID,
 };
-use crate::types::{OzoneError, OzoneResult};
+use crate::types::OzoneResult;
 use crate::zsei::ZSEI;
 use std::sync::Arc;
 use tokio::sync::RwLock;

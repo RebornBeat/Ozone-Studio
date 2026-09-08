@@ -1,0 +1,143 @@
+2.
+
+        let model_identifier = request
+            .model_config
+            .as_ref()
+            .and_then(|c| c.model_identifier.as_ref())
+            .map(|s| s.as_str())
+            .unwrap_or("claude-sonnet-4");
+
+here we are sticking strictly to the model provided by the request in model_config if not found we gracefully save state to return when its there if needed and/or inform user of this so that they can select or swtich models but we should not hardcode a default in.
+
+3.
+
+        let model_context_limit = request
+            .model_config
+            .as_ref()
+            .and_then(|c| c.context_length)
+            .unwrap_or_else(|| get_model_context_limit(model_identifier));
+
+model_context_limit is strictly provided by the request in which the request obtains it from the settings or we obtain it ourselves either or the request provides it from the config files directly based on the model selection or we do, these are not hardcoded values as they can change they are obtained from the config file so they live in only one place and modifiable by user
+
+
+4.
+
+        state.raw_chunks = chunk_result
+            .get("chunks")
+            .and_then(|c| serde_json::from_value(c.clone()).ok())
+            .unwrap_or_else(|| {
+                vec![RawChunk {
+                    index: 0,
+                    text: state.request.prompt.clone(),
+                    start_char: 0,
+                    end_char: state.request.prompt.len() as u32,
+                    token_count: state.prompt_tokens,
+                    is_complete_paragraph: true,
+                }]
+            });
+
+we do not want to or else on the unwrap if chunk_result can't unwrap then we gracefully save state and retry  or IE but here we should not be in a situation where chunk result doesn't unwrap
+
+5.
+
+I do not find that we need let prompt_tokens = Self::estimate_tokens(&request.prompt); truly at the start, unless it was used to pass it into our text modality pipeline but from there it can obtain it itself for chunking purpsoes, the reason why is because since we are chunking the propmt there is really no need to identify the propmt token estimate at the start and neither after
+state.prompt_tokens = Self::estimate_tokens(&state.cleaned_prompt); isn't needed either meaning tokens_used_so_far: prompt_tokens, should be set to 0 so that we can accurately track this because we are not starting with intaking the whole propmt without going through the chunking verification process
+
+
+6.
+
+        // STEP 1: Chunk the text using text modality pipeline
+        let chunk_input = serde_json::json!({
+            "action": {
+                "type": "ChunkText",
+                "text": state.request.prompt,
+                "max_chunk_tokens": state.model_context_limit / 4,
+                "overlap_tokens": 200,
+                "preserve_paragraphs": true
+            }
+        });
+
+ChunkText arm for the text modality should not be chunking based on paragraphs or sentences as this is not cleaned a uncleaned version which will then not be universall and thus be improper if done so as is, this is purely just grouping it within the the token limit
+
+IE "max_chunk_tokens": state.model_context_limit / 4, for the overlap we can just have it be handled directly in
+
+        for chunk in &state.raw_chunks {
+            let process_input = serde_json::json!({
+                "action": {
+                    "type": "ProcessChunk",
+                    "chunk": chunk,
+                    "available_modalities": state.root_modality_list
+                        .verified_modalities
+                        .iter()
+                        .map(|vm| vm.modality.clone())
+                        .chain(
+                            // On first pass, root_modality_list may be empty — use name_to_pipeline_id keys
+                            if state.root_modality_list.verified_modalities.is_empty() {
+                                vec!["code","image","audio","video","math","chemistry","dna","eeg",
+                                     "3d","sound","biology","proteomics","haptic","thermal","depth",
+                                     "imu","geospatial","electromagnetic","bci","parametric_cad",
+                                     "kinematics","control_systems","network_topology","radar",
+                                     "sonar","hyperspectral"]
+                                    .iter().map(|s| s.to_string()).collect::<Vec<_>>()
+                            } else {
+                                vec![]
+                            }
+                        )
+                        .collect::<Vec<_>>()
+                }
+            });
+
+also in ProcessChunk we want to remove the fallback to hardcoded keys as this should not be the case verified modalities should be loaded in on first try we as well
+
+in Clean CHunk in the PRocessChunk process
+
+        let clean_input = serde_json::json!({
+            "prompt": clean_prompt,
+            "max_tokens": (chunk.token_count + 150) as u32,
+            "temperature": 0.1,
+            "system_context": "You are a text cleaning assistant. Return only valid JSON: {\"cleaned_text\": \"...\"}. No explanation. No markdown. No preamble."
+        });
+
+the max tokens or IE tokens set to be used should not be passed with a 150 + token count we have and should ensure that we are withing the token limit or within the token limit defined by the model
+
+
+7.
+
+for     /// Detect modality string from a file path using extension and path hints.
+    fn detect_file_modality(&self, file_path: &str) -> String { we hae to verify because this can be redundant, we assume that when we attacha file via our workspace_tab pipeline with the file link and unlink that we process and identify modalities there which we just need to pass back to the state so we need to verify this carefully
+
+which we do in the workspace_tab upon linking a file via the file_link pipeline it automatically identifies the file modality by extension which is best to keep there thus making this redundant we need to ensure and verify that we are passing in the modality per file in the prompt request to the orchestrator.
+
+8.
+
+            // Execute: Analyze → CreateGraph for this file
+            let analyze_input = serde_json::json!({
+                "action": {
+                    "type": "Analyze",
+                    "text": file_spec.content_preview.as_deref().unwrap_or(""),
+                    "depth": "Standard",
+                    "extract_entities": true,
+                    "extract_topics": true,
+                    "extract_structure": false
+                }
+            });
+
+for the text modality extract structure should always be true as we are always looking to identify the structure within a text content and this is even for within the prompt analyzse itself as a prompt may contain true text or it may contain a document within it wether complete or incomplete
+
+9. we will remove the CleanCHunk and ProcessChunk from the text modality as these are all to be incorporated into the Analyze arm, haaving them seperate is redundant as either way we need to process text files and the text prompt the same way and to analyze the structure of both the same way.
+
+10. for
+
+    /// Extract document structure
+    fn extract_structure(&self, text: &str) -> DocumentStructure {
+
+we are not doing rule based extraction this all is to be LLM base as it guarantees to be more accurate based on the huge number of differences of file formats
+
+
+11.
+
+We do not need NodeCore if we have the GraphID if we can derive the core nodes by traversing the Graph, now here is the thing we need to ensure when it comes to graphs as graphs can link to multiple projects we want to take into account for graph creation/input/results/insertions that a file may already link to another project or may have been reviewed and we want to ensure cleanliness here when we review a file so that we don't waste time first identify if we have analyzed the file itself even if in another project as this is what we call the core graph right and then we have our per project relations so we need to garps this correctly to ensure and maintan cleanlisness now but also take into account our hooks if we have a file which we have analyzed the graph of and the file was updated on the disk then we need to then thats a hook to review and esnure we sync for all projects that take it into account and this is can be from maunal edits etc etc outside of OZONE-STUDIO and we need to then take into account for when updating graphs of files linked to other projects that we sync it gracefully if doing so within OZONE-STUDIO, while for the promp now the prompt itself is being turnt completely into a graph itself we chunk to analyze the prompt as we will do with any text content, so we for the prompt chunk it to analyze it just like any other text modalit to turn it into a graph we do not then need to save the chunks as we can traverse the graph directly once created this allows for traversal no matter what model size accesses this in the future it allows intrepability thus we then eliminate Reconstruct cleaned prompt from chunks we don't need to reconstruct here we just now assign the graph to the promptID, this is important we save this this is historicall so we need to ensure also for promptID its unique and not the same as another
+
+12.
+
+Now that we are turning our prompt into chunks to convert them into a graph we now need to update our AMT handling process to work with these graphs instead of chunks, and the way I see this now is intent and grammar if we have our graphs with grammar relationships extracted we traverse each what verb/action and obtain the the understanding around that to provide so instead of providing chunks we are providing the graph treeh around the verb center if centered aroudn the verb and related verb and its grammars around it.

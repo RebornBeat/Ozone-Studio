@@ -1,8 +1,6 @@
 //! Integrity types - Section 25 of the specification
 
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::time::Duration;
 use super::{ContainerID, Severity};
 
 /// Storage integrity system (§25.2)

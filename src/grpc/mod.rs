@@ -328,7 +328,7 @@ async fn authenticate(
         }
     };
 
-    let mut runtime = state.runtime.write().await;
+    let runtime = state.runtime.write().await;
 
     match runtime.authenticate(&public_key, &signature).await {
         Ok(session) => Json(AuthResponse {
@@ -405,7 +405,7 @@ async fn get_task(
 ) -> Json<Option<TaskInfo>> {
     let runtime = state.runtime.read().await;
     let task_mgr = runtime.task_manager.read().await;
-    let active_tasks = task_mgr.active_count().await as u32;
+    let _active_tasks = task_mgr.active_count().await as u32;
 
     match task_mgr.get_task(req.task_id).await {
         Some(task) => Json(Some(TaskInfo {
@@ -571,7 +571,15 @@ async fn set_config(
             if let Some(v) = models.get("local_model_type").and_then(|v| v.as_str()) {
                 model_config.local_model_type = Some(v.to_string());
             }
+            if let Some(v) = models.get("wire_protocol").and_then(|v| v.as_str()) {
+                model_config.wire_protocol = Some(v.to_string());
+            }
 
+            // Re-export env BEFORE moving into runtime config, so spawned or
+            // connected pipeline-9 instances pick up new settings immediately.
+            for (k, v) in model_config.to_pipeline_env() {
+                std::env::set_var(&k, &v);
+            }
             runtime.config.models = model_config;
         }
 
@@ -594,7 +602,13 @@ async fn set_config(
             // Optional: add more fields if your wizard ever sends them
             // e.g. backend type, model size preference, etc.
 
-            runtime.config.voice = voice_config;
+            runtime.config.voice = voice_config.clone();
+
+            // Voice pipeline (#10) children inherit these — no per-pipeline
+            // host code needed (inherited environment).
+            for (k, v) in voice_config.to_pipeline_env() {
+                std::env::set_var(&k, &v);
+            }
         }
 
         // Handle UI updates
@@ -813,7 +827,7 @@ fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
             id: *id,
             name: info.name.clone(),
             folder_name: info.folder_name.clone(),
-            category: info.category.clone(),
+            category: info.category.to_string(),
             has_ui: info.has_ui,
             is_tab: info.is_tab,
             description: info.description.clone(),
@@ -995,7 +1009,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
 
     let progress_map = {
         let r = runtime.read().await;
-        r.pipeline_registry.read().await.executor().progress_map()
+        let map = r.pipeline_registry.read().await.progress_map();
+        map
     };
 
     let state = Arc::new(AppState {
@@ -1025,6 +1040,11 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/pipeline/progress", post(get_pipeline_progress))
         .route("/pipeline/cancel", post(cancel_pipeline))
         .route("/orchestrate", post(orchestrate))
+        // CONNECT MODEL — pipelines register themselves here on boot; the
+        // executor dispatches to registered remotes before any spawn.
+        .route("/pipelines/remote", get(list_remote_pipelines))
+        .route("/pipelines/register", post(register_remote_pipeline))
+        .route("/pipelines/unregister", post(unregister_remote_pipeline))
         .layer(cors)
         .with_state(state);
 
@@ -1094,11 +1114,90 @@ async fn cancel_pipeline(
 ) -> Json<PipelineCancelResponse> {
     let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
-    let was_running = registry.executor().cancel(&req.execution_id).await;
+    let was_running = registry.cancel_execution(&req.execution_id).await;
 
     Json(PipelineCancelResponse {
         success: true,
         was_running,
         error: None,
+    })
+}
+
+// ============================================================================
+// CONNECT MODEL — pipeline self-registration (see src/pipeline/remote.rs)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct RemotePipelineRegisterRequest {
+    pub pipeline_id: u64,
+    pub name: String,
+    /// Endpoint accepting POST <PipelineInput JSON> → one JSON output object.
+    pub execute_url: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemotePipelineRegisterResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RemotePipelineUnregisterRequest {
+    pub pipeline_id: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemotePipelineUnregisterResponse {
+    pub success: bool,
+    pub was_registered: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RemotePipelineListResponse {
+    pub pipelines: Vec<crate::pipeline::RemotePipelineInfo>,
+}
+
+/// A pipeline booting elsewhere announces itself here. Latest registration
+/// for an id wins (reconnect / replacement).
+async fn register_remote_pipeline(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RemotePipelineRegisterRequest>,
+) -> Json<RemotePipelineRegisterResponse> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let entry = registry
+        .remote_pipelines()
+        .register(req.pipeline_id, req.name, req.execute_url)
+        .await;
+    tracing::info!(
+        pipeline_id = entry.pipeline_id,
+        name = %entry.name,
+        url = %entry.execute_url,
+        "Remote pipeline registered"
+    );
+    Json(RemotePipelineRegisterResponse {
+        success: true,
+        error: None,
+    })
+}
+
+async fn unregister_remote_pipeline(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RemotePipelineUnregisterRequest>,
+) -> Json<RemotePipelineUnregisterResponse> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let was_registered = registry.remote_pipelines().deregister(req.pipeline_id).await;
+    Json(RemotePipelineUnregisterResponse {
+        success: true,
+        was_registered,
+    })
+}
+
+async fn list_remote_pipelines(State(state): State<Arc<AppState>>) -> Json<RemotePipelineListResponse> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    Json(RemotePipelineListResponse {
+        pipelines: registry.remote_pipelines().list().await,
     })
 }

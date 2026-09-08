@@ -15,13 +15,15 @@ mod executor;
 mod registry;
 mod store;
 
+pub mod remote;
 pub use executor::*;
 pub use registry::*;
+pub use remote::{RemotePipeline, RemotePipelineInfo, RemotePipelines};
 pub use store::*;
 
 use crate::config::PipelineConfig;
 use crate::types::pipeline::{
-    BuiltinPipeline, ExecutionContext, PipelineBlueprint, PipelineInput, PipelineOutput, Schema,
+    BuiltinPipeline, PipelineBlueprint, PipelineInput, PipelineOutput, Schema,
 };
 use crate::types::{OzoneError, OzoneResult, PipelineID, TaskID};
 use std::collections::HashMap;
@@ -174,6 +176,21 @@ impl PipelineRegistry {
             .ok_or_else(|| OzoneError::NotFound(format!("Pipeline {} not found", pipeline_id)))?;
 
         self.executor.execute(blueprint, input, task_id).await
+    }
+
+    /// Registration table for self-connecting pipelines (delegate).
+    pub fn remote_pipelines(&self) -> Arc<crate::pipeline::remote::RemotePipelines> {
+        self.executor.remote_pipelines()
+    }
+
+    /// Read-only access to the executor's progress map (gRPC/dashboard use).
+    pub fn progress_map(&self) -> Arc<tokio::sync::RwLock<HashMap<String, PipelineProgress>>> {
+        self.executor.progress_map()
+    }
+
+    /// Cancel a running execution by id (gRPC/dashboard use).
+    pub async fn cancel_execution(&self, execution_id: &str) -> bool {
+        self.executor.cancel(execution_id).await
     }
 
     /// Get pipeline blueprint

@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld("ozone", {
   // ========================================================================
   // Pipeline Execution
   // ========================================================================
+  pipelinesRemote: () => ipcRenderer.invoke("pipelines:remote"),
   pipeline: {
     /**
      * Execute a pipeline

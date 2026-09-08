@@ -28,24 +28,22 @@
 //! - Detects emerging modalities
 //! - Cross-references and deduplicates
 
-use crate::config::TaskConfig;
 use crate::types::{
-    ContainerID, DeviceID, LogEntry, LogLevel, OzoneError, OzoneResult, PipelineID, ResourceUsage,
-    Task, TaskExecutionState, TaskID, TaskInput, TaskOutput, TaskStatus, UserID,
+    DeviceID, LogEntry, LogLevel, OzoneError, OzoneResult, PipelineID, TaskExecutionState, TaskID, UserID,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use tokio::time::{Duration, Instant};
+use tokio::sync::RwLock;
+use tokio::time::Duration;
 
 // ============================================================================
 // CONFIGURATION
 // ============================================================================
 
 /// Task queue configuration
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TaskQueueConfig {
     /// Maximum concurrent tasks
     pub max_concurrent: usize,
@@ -61,6 +59,10 @@ pub struct TaskQueueConfig {
     pub consciousness_path: String,
     /// Task storage path
     pub storage_path: String,
+    /// Task persistence backend name ("json_file" default; swappable — see
+    /// task/store.rs, the K-registry store family).
+    #[serde(default)]
+    pub store_backend: String,
 }
 
 impl Default for TaskQueueConfig {
@@ -73,6 +75,7 @@ impl Default for TaskQueueConfig {
             consciousness_enabled: false,
             consciousness_path: "./zsei_data/consciousness".to_string(),
             storage_path: "./zsei_data/tasks".to_string(),
+            store_backend: "json_file".to_string(),
         }
     }
 }
@@ -104,6 +107,8 @@ impl Default for RefinementConfig {
 // ============================================================================
 // CONSCIOUSNESS HOOKS
 // ============================================================================
+
+pub mod store;
 
 pub mod consciousness_hooks {
     use super::*;
@@ -486,6 +491,22 @@ pub struct TaskStepData {
     pub tokens_used: u32,
     pub output_summary: Option<String>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub stages_completed: Vec<String>,
+    #[serde(default)]
+    pub stages_pending: Vec<String>,
+    #[serde(default)]
+    pub current_stage: Option<String>,
+    #[serde(default)]
+    pub graph_ids_read: Vec<String>,
+    #[serde(default)]
+    pub graph_ids_updated: Vec<String>,
+    #[serde(default = "default_step_version")]
+    pub version: u32,
+    #[serde(default)]
+    pub version_notes: Vec<StepVersionNote>,
+    #[serde(default)]
+    pub methodology_ids_applied: Vec<u64>,
 }
 
 /// Timeline event for task history
@@ -512,7 +533,7 @@ pub struct TaskComparison {
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredTask {
+pub(crate) struct StoredTask {
     task_id: TaskID,
     blueprint_id: Option<u64>,
     status: String,
@@ -544,6 +565,37 @@ struct StoredTaskStep {
     tokens_used: u32,
     output_summary: Option<String>,
     error: Option<String>,
+    // ── Extended step metadata (orchestrator step model) ──
+    #[serde(default)]
+    stages_completed: Vec<String>,
+    #[serde(default)]
+    stages_pending: Vec<String>,
+    #[serde(default)]
+    current_stage: Option<String>,
+    #[serde(default)]
+    graph_ids_read: Vec<String>,
+    #[serde(default)]
+    graph_ids_updated: Vec<String>,
+    #[serde(default = "default_step_version")]
+    version: u32,
+    #[serde(default)]
+    version_notes: Vec<StepVersionNote>,
+    #[serde(default)]
+    methodology_ids_applied: Vec<u64>,
+}
+
+/// One versioned change record on a step (metrics, not fabricated scores —
+/// notes carry measured facts like token counts).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StepVersionNote {
+    pub version: u32,
+    pub note: String,
+    pub timestamp: u64,
+    pub change_type: String,
+}
+
+fn default_step_version() -> u32 {
+    1
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -586,6 +638,9 @@ pub struct TaskManager {
     /// Storage path
     storage_path: String,
 
+    /// Persistence backend (K-registry store family — swappable).
+    backend: std::sync::Arc<dyn store::TaskStoreBackend>,
+
     /// Queue processor running flag
     queue_running: Arc<RwLock<bool>>,
 
@@ -600,6 +655,7 @@ impl TaskManager {
     /// Create new task manager
     pub fn new(config: TaskQueueConfig, refinement_config: RefinementConfig) -> OzoneResult<Self> {
         let storage_path = config.storage_path.clone();
+        let backend = store::select_backend(&config.store_backend, &storage_path);
 
         let manager = Self {
             config,
@@ -611,6 +667,7 @@ impl TaskManager {
             running: Arc::new(RwLock::new(Vec::new())),
             next_id: Arc::new(RwLock::new(1)),
             storage_path,
+            backend,
             queue_running: Arc::new(RwLock::new(false)),
             refinement_running: Arc::new(RwLock::new(false)),
             last_refinement: Arc::new(RwLock::new(0)),
@@ -626,49 +683,34 @@ impl TaskManager {
         self.running.read().await.len()
     }
 
-    /// Load tasks from disk (sync version for initialization)
+    /// Load tasks through the persistence backend (sync, initialization).
     fn load_from_disk_sync(&self) {
-        let path = Path::new(&self.storage_path);
-        if path.exists() {
-            if let Ok(content) = std::fs::read_to_string(path.join("tasks.json")) {
-                if let Ok(data) = serde_json::from_str::<TaskStoreData>(&content) {
-                    if let Ok(mut tasks) = self.tasks.try_write() {
-                        *tasks = data.tasks;
-                    }
-                    if let Ok(mut logs) = self.logs.try_write() {
-                        *logs = data.logs;
-                    }
-                    if let Ok(mut next_id) = self.next_id.try_write() {
-                        *next_id = data.next_id;
-                    }
-                }
+        if let Ok(Some(snapshot)) = self.backend.load() {
+            if let Ok(mut tasks) = self.tasks.try_write() {
+                *tasks = snapshot.tasks;
+            }
+            if let Ok(mut logs) = self.logs.try_write() {
+                *logs = snapshot.logs;
+            }
+            if let Ok(mut next_id) = self.next_id.try_write() {
+                *next_id = snapshot.next_id;
             }
         }
     }
 
-    /// Save tasks to disk
+    /// Save tasks through the persistence backend.
     async fn save_to_disk(&self) -> OzoneResult<()> {
-        let path = Path::new(&self.storage_path);
-        std::fs::create_dir_all(path)
-            .map_err(|e| OzoneError::StorageError(format!("Failed to create task dir: {}", e)))?;
-
         let tasks = self.tasks.read().await;
         let logs = self.logs.read().await;
         let next_id = *self.next_id.read().await;
 
-        let data = TaskStoreData {
+        let snapshot = store::TaskSnapshot {
             tasks: tasks.clone(),
             logs: logs.clone(),
             next_id,
         };
 
-        let content = serde_json::to_string_pretty(&data)
-            .map_err(|e| OzoneError::StorageError(format!("Failed to serialize tasks: {}", e)))?;
-
-        std::fs::write(path.join("tasks.json"), content)
-            .map_err(|e| OzoneError::StorageError(format!("Failed to write tasks: {}", e)))?;
-
-        Ok(())
+        self.backend.save(&snapshot)
     }
 
     // ========================================================================
@@ -1045,55 +1087,11 @@ impl TaskManager {
         Ok(())
     }
 
-    /// Update step status
+    /// Update a step with full extended metadata (the orchestrator's step
+    /// model: stages, graph provenance, versioned measured notes). Finds the
+    /// step or creates it on first report.
+    #[allow(clippy::too_many_arguments)]
     pub async fn update_step(
-        &self,
-        task_id: TaskID,
-        step_index: u32,
-        status: &str,
-        tokens_used: u32,
-        output_summary: Option<String>,
-        error: Option<String>,
-    ) -> OzoneResult<()> {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.get_mut(&task_id) {
-            // Find or create step
-            if let Some(step) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
-                step.status = status.to_string();
-                step.tokens_used = tokens_used;
-                step.output_summary = output_summary;
-                step.error = error;
-                if status == "completed" || status == "failed" {
-                    step.completed_at = Some(now());
-                }
-            } else {
-                task.steps.push(StoredTaskStep {
-                    step_index,
-                    action: "step".to_string(),
-                    pipeline_id: 0,
-                    status: status.to_string(),
-                    started_at: Some(now()),
-                    completed_at: if status == "completed" || status == "failed" {
-                        Some(now())
-                    } else {
-                        None
-                    },
-                    tokens_used,
-                    output_summary,
-                    error,
-                });
-            }
-
-            // Update total tokens
-            task.total_tokens = task.steps.iter().map(|s| s.tokens_used).sum();
-        }
-
-        Ok(())
-    }
-
-    /// Extended step update supporting full orchestrator metadata.
-    /// Callers migrating from update_step should use this for new code.
-    pub async fn update_step_full(
         &self,
         task_id: TaskID,
         step_index: u32,
@@ -1102,10 +1100,17 @@ impl TaskManager {
         output_preview: Option<String>,
         execution_id: Option<String>,
         pipeline_name: &str,
+        version_note: Option<String>,
         graph_ids_updated: Vec<String>,
+        graph_ids_read: Vec<String>,
         stage_completed: Option<String>,
+        stages_pending: Vec<String>,
         methodology_ids_applied: Vec<u64>,
     ) -> OzoneResult<()> {
+        // Recorded for provenance; per-step persistence lands with the
+        // execution-store expansion.
+        let _ = execution_id;
+
         let mut tasks = self.tasks.write().await;
         if let Some(task) = tasks.get_mut(&task_id) {
             if let Some(step) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
@@ -1116,12 +1121,31 @@ impl TaskManager {
                 if let Some(preview) = output_preview {
                     step.output_summary = Some(preview);
                 }
+                if !pipeline_name.is_empty() {
+                    step.action = pipeline_name.to_string();
+                }
                 if let Some(stage) = stage_completed {
-                    // Annotate which stage completed in output summary
-                    let current = step.output_summary.get_or_insert_with(String::new);
-                    if !current.contains(&stage) {
-                        current.push_str(&format!("[stage:{}]", stage));
+                    if !step.stages_completed.contains(&stage) {
+                        step.stages_completed.push(stage);
                     }
+                    step.current_stage = None;
+                }
+                step.stages_pending = stages_pending;
+                if !graph_ids_updated.is_empty() {
+                    step.graph_ids_updated = graph_ids_updated;
+                }
+                if !graph_ids_read.is_empty() {
+                    step.graph_ids_read = graph_ids_read;
+                }
+                step.methodology_ids_applied = methodology_ids_applied;
+                if let Some(note) = version_note {
+                    step.version += 1;
+                    step.version_notes.push(StepVersionNote {
+                        version: step.version,
+                        note,
+                        timestamp: now(),
+                        change_type: "Updated".to_string(),
+                    });
                 }
                 if status == "completed" || status == "failed" {
                     step.completed_at = Some(now());
@@ -1129,7 +1153,11 @@ impl TaskManager {
             } else {
                 task.steps.push(StoredTaskStep {
                     step_index,
-                    action: pipeline_name.to_string(),
+                    action: if pipeline_name.is_empty() {
+                        "step".to_string()
+                    } else {
+                        pipeline_name.to_string()
+                    },
                     pipeline_id: 0,
                     status: status.to_string(),
                     started_at: Some(now()),
@@ -1141,10 +1169,29 @@ impl TaskManager {
                     tokens_used: tokens_used.unwrap_or(0),
                     output_summary: output_preview,
                     error: None,
+                    stages_completed: stage_completed.into_iter().collect(),
+                    stages_pending,
+                    current_stage: None,
+                    graph_ids_read,
+                    graph_ids_updated,
+                    version: 1,
+                    version_notes: version_note
+                        .map(|n| {
+                            vec![StepVersionNote {
+                                version: 1,
+                                note: n,
+                                timestamp: now(),
+                                change_type: "Created".to_string(),
+                            }]
+                        })
+                        .unwrap_or_default(),
+                    methodology_ids_applied,
                 });
             }
+
             task.total_tokens = task.steps.iter().map(|s| s.tokens_used).sum();
         }
+
         Ok(())
     }
 
@@ -1552,7 +1599,7 @@ impl TaskManager {
 
     /// Modality refinement - detect new modalities from usage patterns
     async fn run_modality_refinement(
-        zsei: &Arc<dyn ZSEIAccess>,
+        _zsei: &Arc<dyn ZSEIAccess>,
         _config: &RefinementConfig,
     ) -> OzoneResult<()> {
         // Analyze recent tasks for new data patterns
@@ -1566,7 +1613,7 @@ impl TaskManager {
     }
 
     /// Deduplication - find and merge duplicate content
-    async fn run_deduplication(zsei: &Arc<dyn ZSEIAccess>) -> OzoneResult<()> {
+    async fn run_deduplication(_zsei: &Arc<dyn ZSEIAccess>) -> OzoneResult<()> {
         // Find containers with very similar content
         // This would use semantic similarity to detect duplicates
 
@@ -1611,6 +1658,14 @@ impl TaskManager {
                     tokens_used: s.tokens_used,
                     output_summary: s.output_summary.clone(),
                     error: s.error.clone(),
+                    stages_completed: s.stages_completed.clone(),
+                    stages_pending: s.stages_pending.clone(),
+                    current_stage: s.current_stage.clone(),
+                    graph_ids_read: s.graph_ids_read.clone(),
+                    graph_ids_updated: s.graph_ids_updated.clone(),
+                    version: s.version,
+                    version_notes: s.version_notes.clone(),
+                    methodology_ids_applied: s.methodology_ids_applied.clone(),
                 })
                 .collect(),
             total_tokens: stored.total_tokens,

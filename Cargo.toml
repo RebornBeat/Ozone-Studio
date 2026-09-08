@@ -16,6 +16,17 @@ path = "src/lib.rs"
 name = "ozone-studio"
 path = "src/main.rs"
 
+# Pipeline binaries are NOT compiled into the host package. Each pipeline is
+# an independent unit (assets/pipelines/**/Cargo.toml, script-generated) that
+# builds, tests, and — going forward — connects to the host and registers
+# itself; see the pipeline registration/dispatch design. Spawn from the host
+# is a configured fallback convention, never per-pipeline host code.
+
+[workspace]
+exclude = [
+    "assets/pipelines",
+]
+
 [dependencies]
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }

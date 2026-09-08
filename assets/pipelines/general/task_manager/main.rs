@@ -496,7 +496,6 @@ struct StoredTaskStep {
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
     pub output_summary: Option<String>,
-    // New fields for Section N UI
     pub stages_completed: Vec<String>,
     pub stages_pending: Vec<String>,
     pub current_stage: Option<String>,
@@ -553,7 +552,9 @@ pub enum TaskManagerInput {
         device_id: Option<u64>,
     },
     /// Get task by ID
-    Get { task_id: u64 },
+    Get {
+        task_id: u64,
+    },
     /// List tasks with filters
     List {
         status: Option<String>,
@@ -562,8 +563,9 @@ pub enum TaskManagerInput {
         limit: Option<u32>,
         offset: Option<u32>,
     },
-    /// Update task status
-    UpdateStatus {
+    /// Update TASK-level status (the whole task, not a step). Named to
+    /// disambiguate from UpdateStep.
+    UpdateTaskStatus {
         task_id: u64,
         status: String,
         error: Option<String>,
@@ -581,29 +583,84 @@ pub enum TaskManagerInput {
         total_steps: u32,
     },
     /// Cancel task
-    Cancel { task_id: u64 },
+    Cancel {
+        task_id: u64,
+    },
     /// Retry failed task
-    Retry { task_id: u64 },
+    Retry {
+        task_id: u64,
+    },
     /// Get task children
-    GetChildren { task_id: u64 },
+    GetChildren {
+        task_id: u64,
+    },
     /// Get task logs
-    GetLogs { task_id: u64, limit: Option<u32> },
+    GetLogs {
+        task_id: u64,
+        limit: Option<u32>,
+    },
     /// Clear completed tasks
-    ClearCompleted { older_than_secs: Option<u64> },
+    ClearCompleted {
+        older_than_secs: Option<u64>,
+    },
 
     // === MERGED FROM TASK_VIEWER (#36 - DEPRECATED) ===
     /// Get detailed task information (from task_viewer)
-    GetDetails { task_id: u64 },
+    GetDetails {
+        task_id: u64,
+    },
     /// Get task inputs (from task_viewer)
-    GetInputs { task_id: u64 },
+    GetInputs {
+        task_id: u64,
+    },
     /// Get task outputs (from task_viewer)
-    GetOutputs { task_id: u64 },
+    GetOutputs {
+        task_id: u64,
+    },
     /// Get task timeline/history (from task_viewer)
-    GetTimeline { task_id: u64 },
+    GetTimeline {
+        task_id: u64,
+    },
     /// Compare multiple tasks (from task_viewer)
-    Compare { task_ids: Vec<u64> },
+    Compare {
+        task_ids: Vec<u64>,
+    },
     /// Get step information for a task
-    GetSteps { task_id: u64 },
+    GetSteps {
+        task_id: u64,
+    },
+    SubmitClarification {
+        task_id: u64,
+        request_id: u64,
+        response_type: String,
+        selected_option: Option<String>,
+        free_text: Option<String>,
+    },
+    SetClarification {
+        task_id: u64,
+        clarification: serde_json::Value,
+    },
+    ClearClarification {
+        task_id: u64,
+    },
+    RegisterGraphs {
+        task_id: u64,
+        modality_graph_ids: HashMap<String, u64>,
+    },
+    UpdateStep {
+        task_id: u64,
+        step_index: u32,
+        status: String,
+        tokens_used: Option<u32>,
+        output_preview: Option<String>,
+        pipeline_name: Option<String>,
+        version_note: Option<String>,
+        graph_ids_updated: Vec<String>,
+        graph_ids_read: Vec<String>,
+        stage_completed: Option<String>,
+        stages_pending: Vec<String>,
+        methodology_ids_applied: Vec<u64>,
+    },
 }
 
 /// Task data
@@ -645,7 +702,6 @@ pub struct TaskManagerOutput {
     pub logs: Option<Vec<LogEntry>>,
     pub task_id: Option<u64>,
     pub error: Option<String>,
-    // === NEW: From task_viewer merge ===
     pub inputs: Option<serde_json::Value>,    // Task input data
     pub outputs: Option<serde_json::Value>,   // Task output data
     pub timeline: Option<Vec<TimelineEvent>>, // Task timeline/history
@@ -841,6 +897,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                 outputs: None,
                 steps: None,
                 error: None,
+                pending_clarification: None,
+                modality_graph_ids: None,
             };
 
             let task_id = {
@@ -979,7 +1037,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
             })
         }
 
-        TaskManagerInput::UpdateStatus {
+        TaskManagerInput::UpdateTaskStatus {
             task_id,
             status,
             error,
@@ -1157,7 +1215,11 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     project_id: t.project_id,
                     parent_task_id: t.parent_task_id,
                     inputs: t.inputs.clone(),
+                    outputs: t.outputs.clone(),
+                    steps: t.steps.clone(),
                     error: None,
+                    pending_clarification: None,
+                    modality_graph_ids: None,
                 })
             };
 
@@ -1311,8 +1373,8 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
                     timeline: None,
                     steps: None,
                     comparison: None,
-                    pending_clarification: None,
-                    modality_graph_ids: None,
+                    pending_clarification: task.pending_clarification.clone(),
+                    modality_graph_ids: task.modality_graph_ids.clone(),
                 })
             } else {
                 Ok(TaskManagerOutput {
@@ -1723,7 +1785,7 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
             })
         }
 
-        TaskManagerInput::UpdateStepFull {
+        TaskManagerInput::UpdateStep {
             task_id,
             step_index,
             status,
@@ -1820,17 +1882,58 @@ pub async fn execute(input: TaskManagerInput) -> Result<TaskManagerOutput, Strin
     }
 }
 
-fn main() {
+/// Executor contract: `--input` carries the full PipelineInput JSON
+/// ({"data":{...},"context":{...}}) — unwrap the data envelope. A bare
+/// action payload is accepted too; stdin is the legacy standalone path.
+fn parse_cli_input<T: serde::de::DeserializeOwned>() -> Result<T, String> {
     let args: Vec<String> = std::env::args().collect();
-    let mut input_json = String::new();
-
-    for i in 1..args.len() {
+    let mut input_json: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
         }
     }
+    let raw = match input_json {
+        Some(s) => s,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| e.to_string())?;
+            buf
+        }
+    };
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let inner = v.get("data").cloned().unwrap_or(v);
+    serde_json::from_value(inner).map_err(|e| e.to_string())
+}
 
-    let input: TaskManagerInput = match serde_json::from_str(&input_json) {
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
+fn main() {
+    // SERVE MODE — connect-model (see text pipeline reference impl).
+    if let Some(opts) = ozone_serve::serve_mode() {
+        const TASK_MANAGER_PIPELINE_ID: u64 = 5; // pipeline #5
+        let handler = std::sync::Arc::new(|action_payload: serde_json::Value| {
+            let input: TaskManagerInput = serde_json::from_value(action_payload)
+                .unwrap_or_else(|_| TaskManagerInput::GetDetails { task_id: 0 });
+            let rt = tokio::runtime::Runtime::new().expect("serve runtime");
+            match rt.block_on(execute(input)) {
+                Ok(output) => serde_json::to_value(&output)
+                    .unwrap_or(serde_json::json!({"success": false})),
+                Err(e) => serde_json::json!({"success": false, "error": e}),
+            }
+        });
+        ozone_serve::serve(opts, TASK_MANAGER_PIPELINE_ID, "task_manager".to_string(), handler);
+    }
+
+    let input: TaskManagerInput = match parse_cli_input() {
         Ok(i) => i,
         Err(e) => {
             eprintln!("Failed to parse input: {}", e);

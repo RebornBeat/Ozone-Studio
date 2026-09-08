@@ -115,6 +115,19 @@ pub struct ExecutionContext {
     pub metadata: HashMap<String, String>,
 }
 
+impl Default for ExecutionContext {
+    fn default() -> Self {
+        Self {
+            user_id: 0,
+            device_id: 0,
+            workspace_id: None,
+            project_id: None,
+            task_context_id: None,
+            metadata: HashMap::new(),
+        }
+    }
+}
+
 /// Pipeline blueprint for library storage (§10.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PipelineBlueprint {
@@ -325,6 +338,8 @@ pub enum BuiltinPipeline {
     VoiceIdentity = 53,
 
     MetaPortionConsciousness = 54,
+
+    ContextViewer = 55,
 }
 
 impl BuiltinPipeline {
@@ -372,38 +387,23 @@ impl BuiltinPipeline {
             Self::TaskViewer => "TaskViewerPipeline",
             Self::LogViewer => "LogViewerPipeline",
             Self::DeviceStatus => "DeviceStatusPipeline",
-
             Self::ConsciousnessDecisionGate => "ConsciousnessDecisionGatePipeline",
-
             Self::ExperienceCategorization => "ExperienceCategorizationPipeline",
-
             Self::CoreMemoryFormation => "CoreMemoryFormationPipeline",
-
             Self::ExperienceRetrieval => "ExperienceRetrievalPipeline",
-
             Self::EmotionalBaselineUpdate => "EmotionalBaselineUpdatePipeline",
-
             Self::ILoop => "ILoopPipeline",
-
             Self::InternalLanguage => "InternalLanguagePipeline",
-
             Self::NarrativeConstruction => "NarrativeConstructionPipeline",
-
             Self::RelationshipDevelopment => "RelationshipDevelopmentPipeline",
-
             Self::EthicalAssessment => "EthicalAssessmentPipeline",
-
             Self::EthicalSimulation => "EthicalSimulationPipeline",
-
             Self::PlaybackReview => "PlaybackReviewPipeline",
-
             Self::UserFeedback => "UserFeedbackPipeline",
-
             Self::CollectiveConsciousness => "CollectiveConsciousnessPipeline",
-
             Self::VoiceIdentity => "VoiceIdentityPipeline",
-
             Self::MetaPortionConsciousness => "MetaPortionConsciousnessPipeline",
+            Self::ContextViewer => "ContextViewerPipeline",
         }
     }
 }

@@ -1,0 +1,38 @@
+[
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/ggml/src",
+  "command": "/usr/bin/cc -DGGML_SCHED_MAX_COPIES=4 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/.  -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -std=gnu11 -march=native -o CMakeFiles/ggml.dir/ggml.c.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml.c",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml.c",
+  "output": "ggml/src/CMakeFiles/ggml.dir/ggml.c.o"
+},
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/ggml/src",
+  "command": "/usr/bin/cc -DGGML_SCHED_MAX_COPIES=4 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/.  -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -std=gnu11 -march=native -o CMakeFiles/ggml.dir/ggml-alloc.c.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-alloc.c",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-alloc.c",
+  "output": "ggml/src/CMakeFiles/ggml.dir/ggml-alloc.c.o"
+},
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/ggml/src",
+  "command": "/usr/bin/c++ -DGGML_SCHED_MAX_COPIES=4 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/.  -DWHISPER_DEBUG -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -std=gnu++11 -march=native -o CMakeFiles/ggml.dir/ggml-backend.cpp.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-backend.cpp",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-backend.cpp",
+  "output": "ggml/src/CMakeFiles/ggml.dir/ggml-backend.cpp.o"
+},
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/ggml/src",
+  "command": "/usr/bin/cc -DGGML_SCHED_MAX_COPIES=4 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/.  -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -std=gnu11 -march=native -o CMakeFiles/ggml.dir/ggml-quants.c.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-quants.c",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-quants.c",
+  "output": "ggml/src/CMakeFiles/ggml.dir/ggml-quants.c.o"
+},
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/ggml/src",
+  "command": "/usr/bin/cc -DGGML_SCHED_MAX_COPIES=4 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/.  -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -std=gnu11 -march=native -o CMakeFiles/ggml.dir/ggml-aarch64.c.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-aarch64.c",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/ggml-aarch64.c",
+  "output": "ggml/src/CMakeFiles/ggml.dir/ggml-aarch64.c.o"
+},
+{
+  "directory": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/build/src",
+  "command": "/usr/bin/c++  -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/src/. -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/src/../include -I/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/ggml/src/../include  -DWHISPER_DEBUG -ffunction-sections -fdata-sections -fPIC -m64 -w -O2 -g -DNDEBUG -o CMakeFiles/whisper.dir/whisper.cpp.o -c /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/src/whisper.cpp",
+  "file": "/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/whisper.cpp/src/whisper.cpp",
+  "output": "src/CMakeFiles/whisper.dir/whisper.cpp.o"
+}
+]

@@ -1,7 +1,7 @@
 //! Context types - derived from sections 7 and 34
 
 use serde::{Deserialize, Serialize};
-use super::{ContainerID, Blake3Hash};
+use super::ContainerID;
 
 /// Package context for dependency tracking (§8.4)
 #[derive(Debug, Clone, Serialize, Deserialize)]

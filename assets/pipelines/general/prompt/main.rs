@@ -18,6 +18,20 @@
 //!
 //! For the full flow see: docs/PIPELINE_ORDER_OF_EVENTS.md
 
+//! ═══════════════════════════════════════════════════════════════════════════
+//! PIPELINE-9 MODEL-CALL CONTRACT (the standardized wire contract)
+//! ═══════════════════════════════════════════════════════════════════════════
+//! Callers (orchestrator, pipelines, serve mode) speak ONLY this shape:
+//!   IN : { prompt, system_prompt?, temperature?, max_tokens?, … }
+//!   OUT: { response, model_used, tokens_used?, finish_reason?, … }
+//!
+//! Wire protocols (HOW the request reaches a model) are adapters BEHIND this
+//! contract, selected by config — never by callers. Adapters ship for:
+//!   anthropic          — Anthropic Messages (/v1/messages)
+//!   chat_completions   — OpenAI Chat Completions (/chat/completions)
+//! Selection: ModelConfig.wire_protocol ("anthropic" | "chat_completions");
+//! when unset, the endpoint URL is sniffed for backward compatibility.
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -63,6 +77,31 @@ pub struct ModelConfig {
     pub gpu_layers: Option<u32>,
     /// BitNet-specific: path to bitnet.cpp binary
     pub bitnet_cli_path: Option<String>,
+    /// Named wire protocol: "anthropic" | "chat_completions".
+    /// Unset → sniffed from the endpoint URL (backward compatible).
+    #[serde(default)]
+    pub wire_protocol: Option<String>,
+}
+
+/// Named wire protocols — the K-registry `model_call` family members.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WireProtocol {
+    /// Anthropic Messages: system as top-level field, content blocks,
+    /// `x-api-key` header, `anthropic-version` required.
+    Anthropic,
+    /// OpenAI Chat Completions: system as a message, `choices[0]`,
+    /// `Authorization: Bearer` header.
+    ChatCompletions,
+}
+
+impl WireProtocol {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "anthropic" | "messages" => Some(Self::Anthropic),
+            "chat_completions" | "chatcompletions" | "openai" => Some(Self::ChatCompletions),
+            _ => None,
+        }
+    }
 }
 
 /// Execute the prompt pipeline
@@ -119,12 +158,40 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
     let api_key = env::var(api_key_env)
         .map_err(|_| format!("API key not found in env var: {}", api_key_env))?;
     
-    let model = input.model_override
+    // Clone: input is borrowed by the wire calls below — a by-value move
+    // here would partially move it.
+    let model = input.model_override.clone()
         .or_else(|| config.api_model.clone())
         .ok_or("No model specified")?;
     
-    // Build request based on endpoint type
-    let response = if endpoint.contains("anthropic") {
+    // Build request via the NAMED wire protocol when configured; sniff the
+    // endpoint URL otherwise (backward compatibility).
+    let wire = config
+        .wire_protocol
+        .as_deref()
+        .and_then(WireProtocol::parse)
+        .unwrap_or_else(|| {
+            if endpoint.contains("anthropic") {
+                WireProtocol::Anthropic
+            } else {
+                WireProtocol::ChatCompletions
+            }
+        });
+
+    let response = match wire {
+        WireProtocol::Anthropic => call_anthropic_api(
+            endpoint,
+            &api_key,
+            &model,
+            &input,
+        ).await?,
+        WireProtocol::ChatCompletions => call_openai_api(
+            endpoint,
+            &api_key,
+            &model,
+            &input,
+        ).await?
+    };
         call_anthropic_api(
             endpoint,
             &api_key,
@@ -132,14 +199,6 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
             &input,
         ).await?
     } else if endpoint.contains("openai") {
-        call_openai_api(
-            endpoint,
-            &api_key,
-            &model,
-            &input,
-        ).await?
-    } else {
-        // Generic OpenAI-compatible API
         call_openai_api(
             endpoint,
             &api_key,
@@ -167,12 +226,12 @@ async fn call_anthropic_api(
         // Anthropic uses system as top-level field, not in messages
         messages.push(serde_json::json!({
             "role": "user",
-            "content": input.prompt
+            "content": input.prompt.clone()
         }));
     } else {
         messages.push(serde_json::json!({
             "role": "user", 
-            "content": input.prompt
+            "content": input.prompt.clone()
         }));
     }
     
@@ -252,7 +311,7 @@ async fn call_openai_api(
     
     messages.push(serde_json::json!({
         "role": "user",
-        "content": input.prompt
+        "content": input.prompt.clone()
     }));
     
     let mut body = serde_json::json!({
@@ -489,13 +548,12 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     }
     
     // Get bitnet.cpp CLI path
-    let bitnet_cli = config.bitnet_cli_path.as_ref()
-        .map(|s| s.as_str())
+    // Owned String — the env-var fallback would otherwise return a
+    // reference into a temporary.
+    let bitnet_cli: String = config.bitnet_cli_path.as_ref()
+        .map(|s| s.clone())
         .unwrap_or_else(|| {
-            std::env::var("BITNET_CLI_PATH")
-                .as_ref()
-                .map(|s| s.as_str())
-                .unwrap_or("bitnet-cli")
+            std::env::var("BITNET_CLI_PATH").unwrap_or_else(|_| "bitnet-cli".to_string())
         });
     
     // Build the prompt
@@ -575,9 +633,61 @@ fn build_prompt(input: &PromptInput) -> String {
 // CLI entry point for standalone execution
 // ============================================================================
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
+/// Model config from OZONE_MODEL_* env (bootstrap + serve mode share it).
+fn load_model_config_from_env() -> ModelConfig {
+    ModelConfig {
+        model_type: env::var("OZONE_MODEL_TYPE").unwrap_or_else(|_| "api".into()),
+        api_endpoint: env::var("OZONE_API_ENDPOINT").ok(),
+        api_key_env: Some(env::var("OZONE_API_KEY_ENV").unwrap_or_else(|_| "ANTHROPIC_API_KEY".into())),
+        api_model: env::var("OZONE_API_MODEL").ok(),
+        local_model_path: env::var("OZONE_LOCAL_MODEL_PATH").ok(),
+        context_length: env::var("OZONE_CONTEXT_LENGTH")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(200000),
+        gpu_layers: env::var("OZONE_GPU_LAYERS")
+            .ok()
+            .and_then(|s| s.parse().ok()),
+        bitnet_cli_path: env::var("BITNET_CLI_PATH").ok(),
+        wire_protocol: env::var("OZONE_WIRE_PROTOCOL").ok(),
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    
+
+    // SERVE MODE — connect-model: persistent model-call service registered
+    // with the host. Model config comes from OZONE_MODEL_* env (same as
+    // one-shot path; set at bootstrap from config::ModelConfig).
+    if let Some(opts) = ozone_serve::serve_mode() {
+        let handler = std::sync::Arc::new(move |action_payload: serde_json::Value| {
+            let input: PromptInput = serde_json::from_value(action_payload)
+                .unwrap_or(PromptInput {
+                    prompt: String::new(),
+                    system_prompt: None,
+                    context: None,
+                    model_override: None,
+                    temperature: None,
+                    max_tokens: None,
+                    stream: None,
+                    token_budget: None,
+                    aggregated_context: None,
+                });
+            let config = load_model_config_from_env();
+            let rt = tokio::runtime::Runtime::new().expect("serve runtime");
+            match rt.block_on(execute(input, &config)) {
+                Ok(output) => serde_json::to_value(&output)
+                    .unwrap_or(serde_json::json!({"success": false})),
+                Err(e) => serde_json::json!({"success": false, "error": e}),
+            }
+        });
+        let pipeline_id: u64 = 9;
+        ozone_serve::serve(opts, pipeline_id, "prompt".to_string(), handler);
+    }
+
     let mut input_json = String::new();
     let mut task_id = 0u64;
     
@@ -610,22 +720,7 @@ fn main() {
         }
     };
     
-    // Load config from environment or default
-    let config = ModelConfig {
-        model_type: env::var("OZONE_MODEL_TYPE").unwrap_or_else(|_| "api".into()),
-        api_endpoint: env::var("OZONE_API_ENDPOINT").ok(),
-        api_key_env: Some(env::var("OZONE_API_KEY_ENV").unwrap_or_else(|_| "ANTHROPIC_API_KEY".into())),
-        api_model: env::var("OZONE_API_MODEL").ok(),
-        local_model_path: env::var("OZONE_LOCAL_MODEL_PATH").ok(),
-        context_length: env::var("OZONE_CONTEXT_LENGTH")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(200000),
-        gpu_layers: env::var("OZONE_GPU_LAYERS")
-            .ok()
-            .and_then(|s| s.parse().ok()),
-        bitnet_cli_path: env::var("BITNET_CLI_PATH").ok(),
-    };
+    let config = load_model_config_from_env();
     
     // Execute
     let rt = tokio::runtime::Runtime::new().unwrap();

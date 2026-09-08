@@ -14,11 +14,21 @@ pub struct PipelineIndex {
 pub struct PipelineIndexEntry {
     pub pipeline_id: u64,
     pub name: String,
-    pub version: String,
+    pub folder_name: String,
     pub category: String,
     pub modality: Option<String>,
+    pub has_ui: bool,
+    pub is_tab: bool,
+    pub description: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub deprecated: Option<bool>,
+    // Metrics + provenance (retained — tracked for reference)
     pub file: String,
+    #[serde(default)]
     pub use_count: u64,
+    #[serde(default)]
     pub success_rate: f32,
 }
 

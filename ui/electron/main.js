@@ -496,6 +496,14 @@ ipcMain.handle(
   },
 );
 
+// Connected pipelines — the connect-model registry (GET /pipelines/remote).
+// Any agent/pipeline that registered itself appears here; the dashboard's
+// Connected-Agents panel polls this every few seconds.
+ipcMain.handle("pipelines:remote", async () => {
+  requireConnection();
+  return await backendRequest("GET", "/pipelines/remote");
+});
+
 // Orchestration endpoint — routes to backend /orchestrate ONLY this creates tasks
 ipcMain.handle("orchestrate", async (event, request) => {
   requireConnection();

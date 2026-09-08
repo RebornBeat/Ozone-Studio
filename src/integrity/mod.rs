@@ -7,7 +7,7 @@
 use crate::config::IntegrityConfig;
 use crate::types::{ContainerID, OzoneError, OzoneResult, Blake3Hash};
 use crate::types::integrity::{
-    IntegrityCheck, IntegrityCheckType, IntegrityCheckResult,
+    IntegrityCheckType, IntegrityCheckResult,
     RollbackRequest, ImpactAnalysis,
 };
 use std::collections::HashMap;
@@ -112,7 +112,7 @@ impl IntegrityMonitor {
             .as_secs();
         
         let mut issues_found: Vec<String> = Vec::new();
-        let mut repairs_made: Vec<String> = Vec::new();
+        let repairs_made: Vec<String> = Vec::new();
         let mut containers_checked = 0u32;
         
         // Check all versioned containers
@@ -249,7 +249,7 @@ impl IntegrityMonitor {
     /// Analyze impact of a rollback
     pub async fn analyze_impact(&self, request: &RollbackRequest) -> OzoneResult<ImpactAnalysis> {
         let versions = self.versions.read().await;
-        let mut affected_containers = vec![request.container_id];
+        let affected_containers = vec![request.container_id];
         let mut warnings = Vec::new();
         let mut estimated_data_loss = 0u64;
         

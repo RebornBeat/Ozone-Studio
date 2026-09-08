@@ -85,6 +85,8 @@ lazy_static::lazy_static! {
         m.insert(53, info(53, "VoiceIdentity", "voice_identity", "consciousness", false, false, "Voice identity"));
         m.insert(54, info(54, "MetaPortionConsciousness", "meta_portion_consciousness", "consciousness", false, false, "Meta-portion consciousness"));
 
+        m.insert(55, info(55, "ContextViewer", "context_viewer", "general", true, false, "Context Viewer — surfaces ZSEI modality graphs, AMT structure, and cross-modal links. Injected by TaskManager when a task has graph data."));
+
         m
     };
 }

@@ -4271,7 +4271,7 @@ This is a comprehensive multi-section implementation. Given the architectural de
 
 ---
 
-# PART 1: UNIVERSAL TYPES BLOCK (Insert Into All Pipelines 100–108)
+# PART 20: UNIVERSAL TYPES BLOCK (Insert Into All Pipelines 100–108)
 
 **This exact block gets added to each of the 9 pipeline files.** The location for each is specified per-pipeline in subsequent parts.
 
@@ -4408,13 +4408,13 @@ pub struct EdgeMeta {
 
 ---
 
-# PART 2: PIPELINE 100 — TEXT MODALITY (`assets/pipelines/modalities/text/main.rs`)
+# PART 21: PIPELINE 100 — TEXT MODALITY (`assets/pipelines/modalities/text/main.rs`)
 
-## 2.1 — Location: after `pub const PIPELINE_MODALITY`
+## 21.1 — Location: after `pub const PIPELINE_MODALITY`
 
 **Insert the universal types block** (PART 1 above) here.
 
-## 2.2 — Location: `TextEdgeType` enum — add variants
+## 21.2 — Location: `TextEdgeType` enum — add variants
 
 **Add** after `TranscribedFrom`:
 
@@ -4462,7 +4462,7 @@ pub struct EdgeMeta {
 
 *(Remove any duplicates with existing variants — `SimilarTo`, `Contradicts`, `Supports`, `Elaborates`, `Summarizes`, `RelatesTo`, `References` already exist; keep whichever spelling matches existing code and skip adding duplicates.)*
 
-## 2.3 — Location: `TextNodeType` enum — add variants
+## 21.3 — Location: `TextNodeType` enum — add variants
 
 **Add** after `Chunk`:
 
@@ -4477,7 +4477,7 @@ pub struct EdgeMeta {
     InferredConcept,
 ```
 
-## 2.4 — Location: `TextGraphNode` struct — add fields
+## 21.4 — Location: `TextGraphNode` struct — add fields
 
 **Add** after `semantic_annotations: Vec<SemanticAnnotation>`:
 
@@ -4526,7 +4526,7 @@ fn default_version() -> u32 { 1 }
 fn default_hotness() -> f32 { 0.5 }
 ```
 
-## 2.5 — Location: `TextGraphEdge` struct — add fields
+## 21.5 — Location: `TextGraphEdge` struct — add fields
 
 **Add** after `properties: HashMap<String, Value>`:
 
@@ -4549,7 +4549,7 @@ fn default_hotness() -> f32 { 0.5 }
     pub grammar_info: Option<GrammarEdgeInfo>,
 ```
 
-## 2.6 — Location: after `TextGraphEdge` struct — add `GrammarEdgeInfo`
+## 21.6 — Location: after `TextGraphEdge` struct — add `GrammarEdgeInfo`
 
 ```rust
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -4562,7 +4562,7 @@ pub struct GrammarEdgeInfo {
 }
 ```
 
-## 2.7 — Location: `impl TextModalityPipeline` — add `to_node_core` extractor
+## 21.7 — Location: `impl TextModalityPipeline` — add `to_node_core` extractor
 
 **Add** after `fn generate_id()`:
 
@@ -4596,7 +4596,7 @@ pub struct GrammarEdgeInfo {
     }
 ```
 
-## 2.8 — Section F: Text-specific new types
+## 21.8 — Section F: Text-specific new types
 
 **Location:** after `GrammarEdgeInfo` struct.
 
@@ -4637,7 +4637,7 @@ pub struct SentenceAnalysis {
 }
 ```
 
-## 2.9 — Update `TextModalityOutput` to include sentence analysis
+## 21.9 — Update `TextModalityOutput` to include sentence analysis
 
 **Location:** `TextModalityOutput` struct — add field after `topics`:
 
@@ -4656,7 +4656,7 @@ pub struct SentenceAnalysis {
     true_text_spans: None,
 ```
 
-## 2.10 — `ProcessedChunk` — update `Default` derivation
+## 21.10 — `ProcessedChunk` — update `Default` derivation
 
 The struct already has the new fields from Part 6 of the previous guide. No additional changes needed here if Part 6 was applied.
 

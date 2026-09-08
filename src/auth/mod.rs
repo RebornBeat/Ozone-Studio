@@ -6,7 +6,7 @@
 //! No passwords - cryptographic key pairs only.
 
 use crate::config::AuthConfig;
-use crate::types::{UserID, DeviceID, OzoneError, OzoneResult, PublicKey};
+use crate::types::{UserID, DeviceID, OzoneError, OzoneResult};
 use crate::types::auth::{User, Session, DeviceRegistration, DeviceType, AuthChallenge};
 use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use rand::RngCore;

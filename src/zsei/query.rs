@@ -8,6 +8,7 @@ use crate::types::container::{ContainerType, Container, VersionRecord};
 use super::storage::ContainerStorage;
 use super::traversal::TraversalEngine;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Compute Blake3 hash of data
 fn compute_blake3_hash(data: &[u8]) -> Blake3Hash {
@@ -19,6 +20,8 @@ fn compute_blake3_hash(data: &[u8]) -> Blake3Hash {
 pub struct QueryProcessor {
     /// Version history cache (container_id -> versions)
     version_history: HashMap<ContainerID, Vec<ContainerVersion>>,
+    /// K-ALGORITHM: selectable search strategies (scan default, exact, ...).
+    pub search_registry: Arc<super::search::SearchRegistry>,
 }
 
 #[derive(Debug, Clone)]
@@ -34,6 +37,7 @@ impl QueryProcessor {
     pub fn new() -> Self {
         Self {
             version_history: HashMap::new(),
+            search_registry: Arc::new(super::search::SearchRegistry::new()),
         }
     }
     
@@ -80,6 +84,34 @@ impl QueryProcessor {
             
             ZSEIQuery::SearchBlueprints { task_signature } => {
                 let ids = self.search_blueprints(storage, task_signature)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::SearchBlueprintsByKeywords { keywords } => {
+                let ids = self.search_registry.run(
+                    None,
+                    storage,
+                    &keywords,
+                    Some(ContainerType::Blueprint),
+                ).await?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::SearchContainersByKeywords {
+                keywords,
+                container_type,
+            } => {
+                // Unknown type names degrade to an unfiltered keyword search
+                // rather than erroring — the caller decides whether an empty
+                // result is meaningful.
+                let ct = container_type.as_deref().and_then(|s| {
+                    serde_json::from_value::<ContainerType>(serde_json::Value::String(
+                        s.to_string(),
+                    ))
+                    .ok()
+                });
+                let ids =
+                    self.search_registry.run(None, storage, &keywords, ct).await?;
                 Ok(ZSEIQueryResult::Containers(ids))
             }
             

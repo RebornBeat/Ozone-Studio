@@ -10,6 +10,7 @@ import { useOzoneStore } from "./services/store";
 import { MetaPortion } from "./components/MetaPortion";
 import { ThemeArea } from "./components/ThemeArea";
 import { StatusBar } from "./components/StatusBar";
+import ConnectedAgents from "./components/ConnectedAgents";
 import "./App.css";
 
 // TypeScript declarations
@@ -937,6 +938,17 @@ function App() {
         <ThemeArea theme={currentTheme} />
       </div>
 
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          alignItems: "center",
+          padding: "0 12px",
+          fontSize: 12,
+        }}
+      >
+        <ConnectedAgents compact pollMs={5000} />
+      </div>
       <StatusBar />
     </div>
   );

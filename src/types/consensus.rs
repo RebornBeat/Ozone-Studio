@@ -1,7 +1,6 @@
 //! Consensus types - Section 20 of the specification
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use super::{PublicKey, Blake3Hash, Value};
 use super::pipeline::ConsensusStatus;
 

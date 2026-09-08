@@ -4,9 +4,8 @@
 //! that were previously scattered across bootstrap.rs and store modules.
 //! Single source of truth for the ZSEI container identity layer.
 
-use super::{Blake3Hash, ContainerID, PublicKey, SemVer, Value};
+use super::{Blake3Hash, ContainerID};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 // ============================================================================
 // RESERVED CONTAINER IDs — structural roots of the ZSEI hierarchy

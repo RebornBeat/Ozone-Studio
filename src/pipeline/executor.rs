@@ -6,8 +6,8 @@
 use crate::config::PipelineConfig;
 use crate::types::pipeline::ExecutionID;
 use crate::types::{
-    BuiltinPipeline, OzoneError, OzoneResult, PipelineBlueprint, PipelineID, PipelineInput,
-    PipelineOutput, TaskID, Value,
+    OzoneError, OzoneResult, PipelineBlueprint, PipelineID, PipelineInput,
+    PipelineOutput, TaskID,
 };
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -52,6 +52,10 @@ pub struct PipelineExecutor {
     /// Currently running pipeline count
     running_count: std::sync::atomic::AtomicUsize,
 
+    /// Live self-registered remote pipelines — dispatch tries here FIRST,
+    /// spawn is the fallback convention.
+    remote: Arc<crate::pipeline::remote::RemotePipelines>,
+
     progress_map: Arc<tokio::sync::RwLock<std::collections::HashMap<String, PipelineProgress>>>,
     cancel_set: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
 }
@@ -64,9 +68,15 @@ impl PipelineExecutor {
             custom_path: PathBuf::from(&config.custom_path),
             max_concurrent: config.max_concurrent_pipelines,
             running_count: std::sync::atomic::AtomicUsize::new(0),
+            remote: Arc::new(crate::pipeline::remote::RemotePipelines::new()),
             progress_map: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             cancel_set: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         })
+    }
+
+    /// Registration table for self-connecting pipelines.
+    pub fn remote_pipelines(&self) -> Arc<crate::pipeline::remote::RemotePipelines> {
+        self.remote.clone()
     }
 
     /// Execute a pipeline
@@ -131,11 +141,11 @@ impl PipelineExecutor {
 
         {
             let cancelled = self.cancel_set.read().await;
-            if cancelled.contains(execution_id_str) {
+            if cancelled.contains(&execution_id_str) {
                 self.running_count
                     .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                 let mut map = self.progress_map.write().await;
-                if let Some(p) = map.get_mut(execution_id_str) {
+                if let Some(p) = map.get_mut(&execution_id_str) {
                     p.status = ProgressStatus::Cancelled;
                     p.completed_at = Some(now_secs());
                 }
@@ -198,6 +208,22 @@ impl PipelineExecutor {
             pipeline_id = pipeline_id,
             "Executing inner pipeline logic"
         );
+
+        // CONNECT MODEL: a self-registered remote pipeline wins — it owns
+        // its runtime; the host never spawns over a live connection.
+        if self.remote.get(pipeline_id).await.is_some() {
+            tracing::info!(
+                execution_id = %execution_id,
+                pipeline_id = pipeline_id,
+                "Dispatching to registered remote pipeline"
+            );
+            let output = self
+                .remote
+                .execute(pipeline_id, &input, execution_id, task_id)
+                .await
+                .map_err(OzoneError::PipelineError)?;
+            return Ok(output);
+        }
 
         if self.is_builtin(pipeline_id) {
             self.execute_builtin(pipeline_id, input, execution_id, task_id)

@@ -1,0 +1,1191 @@
+great job so now you understand just how we are working precise edits
+
+       // Basic metrics
+        let word_count = text.split_whitespace().count();
+        let sentence_count = sentences.len();
+        let paragraph_count = text.split("\n\n").filter(|p| !p.trim().is_empty()).count();
+        let character_count = text.len();
+
+this actually will be after we clean chunks, if we do it before it will be working on skewed data
+
+now for
+
+here is our processing flow
+
+## The Processing Flow
+
+
+│                    TEXT MODALITY PROCESSING FLOW                            │
+
+
+│  PHASE 1: PER-CHUNK PROCESSING                                              │
+
+│  For each chunk:
+│    1. CleanChunk (grammar correction, normalization via zero-shot LLM)
+
+now here is what we are going to do we are going to split this into two pathways from here on out, because yes for all we process in chunks to clean but not from here specifically in the clean chunk we will now have to paths and this is for testing and benchmark purposes
+
+1. as is where we have the zero-shot LLM input the full chunk and output the full chunk corrected
+
+2. we break this down further so for each chunk we 1. detect all sentences and we are looping through this taking into account how we do this in async fn build_amt_layer_by_layer( where we have something like
+
+        ALREADY KNOWN INTENTS (do NOT repeat these):
+        {}
+
+but for sentences, so we are capturing first per chunk all sentences per chunk until stable and that is per chunk so of course our
+
+        ALREADY KNOWN SENTENCES (do NOT repeat these):
+        {}
+
+always starts out blank, we now also want to capture the sentence order as well so 1:first sentence 2: second sentence
+
+now here is something we need to take into account we will be detecing sentences while doing grammar correction at the same time so we will have the zero shot explicictly provding identified sentences which may or may not be gramtratically correct IE it will provide us the before the text span of the original sentence as is wether gramatticaly correct or not in which we are working on and provide the corrected sentence as well if it needs correction.
+
+so we will had as it adds
+
+        ALREADY KNOWN SENTENCES (do NOT repeat these):
+        {1: {original sentence: "", text_span_start: x, text_span_ends: x, corrected_sentence, ""}, }
+
+now here is the thing where we have to be careful here as well we obvious will have a 5x stability function for this because now for each item we need to confirm its correct but say with a model like Bitnet
+
+the 4096-token limit is shared
+
+For a standard causal LLM like BitNet, the context window is shared between the prompt (system + user + any history) and the generated output.
+
+Conceptually:
+
+4096 tokens total
+
++---------------------------+----------------------+
+| Input / Prompt            | Generated Output     |
++---------------------------+----------------------+
+
+So if your prompt consumes:
+
+System prompt: ~40 tokens
+Instructions: ~120 tokens
+Chunk: ~1800 tokens
+
+Your input is roughly:
+
+40
++120
++1800
+-----
+1960 input tokens
+
+That leaves approximately:
+
+4096 - 1960 = 2136 tokens
+
+available before the model hits the context limit (subject to the -n/max_tokens limit you set).
+
+so we want to understand as we do this approach the input may exceed the limit or not allow for a complete output this is why we work at 1/4 of the token limit for a LLM per chunk. SO what can we and what should we do here for path 2 ?
+The good thing is that for path 1 we have more then enough room for it to output everything back correcte but now for path 2 we have to take this into account carefully
+
+and here is how I see it. If we take a look at it as chunk state we when we start it has an empty known sentences array right, we are at the original 1/4 token limit we established eh taking into account the system prompt and instructions, we receive the response we need to add this also to used tokens we are tracking over time in the orchestrator state but going back to what I am saying we start with an empty array, we pass in our initial chunk state with the empty array from here we receive the formated response the structured JSON response for us to analyze, what is this reponse going to provide? a list of sentences or 1 sentnces either or. so now we are in the processing phase of response from the chunk state we here are processing each input IE each sentence 1x1 but how should it provide this back grammarly corrected? so should we say provide a list or 1 sentences iedntified in this chunk in order? I mean it will be more accurate if we wrked on it 1x1 we tell it to provide the first sentence and we can ensure if its working one by one that it can provide a more accurate answer, provide the first sentence in a JSON so that we maintain a ordered list since SLM's/LLM's arent always good with numberings/orderings this will ensure we maintain consistency. we let it know this may or may not be gramatically correct in this response provide the if the list is empty the first sentence in this chunk and it can provide us {1: {original sentence: "", text_span_start: x, text_span_ends: x, corrected_sentence, ""}, } what do we do from here ? from here then we individually now do the 5x stability verification and we are doing it per item in the processing state, now this isn't returning fully to the seen setences list in full right away, we are keeping the original sentence even if gramtally correct or not becauseifwe add everything else then its just unncesary clutter it just needs to know what we have processed everything else the corrected sentences etc with the text span and end we are maintain order listing as well here to now add this to our copy graph or nodes, because now what are we doing with sentences? we are turning them or capturing them into nodes right away once we fully validate them 1x1
+
+SentenceNode {
+  node_id: 12345,
+  node_type: Sentence,
+  content: "John submitted the report yesterday.",
+
+  // POSITION (populated during Phase 1 chunk processing)
+  position: {
+    start_byte: 4523,
+    end_byte: 4558,
+    start_line: 23,
+    end_line: 23
+  },
+
+  // CHUNK ANCHOR (stored in ChunkGraph — enables cross-model reconstruction)
+  chunk_id: 3,
+  chunk_offset: 145,
+
+  // VERSION
+  version: 1,
+  last_modified_step: None
+}
+
+this we are capturing it all to transfer to our graphs once we process all chunks we need to capture these correctly,
+
+so now you see at first we take in the chunk whole with the seen sentences array this is the starting state as we loop per graph for each graph we then in order identify all sentences 1x1 starting with identifying the first sentences, then we transition to a different state per response where now we we look solely at the chunk and the response itself to verify if correct 5x we also truly want to verirfy as well 5x agaisnt seen list if truly not there or captured to ensure no duplicates, this isn't eauting up or stacking up within our token limits we then now proceess each sentence to offload properties to SentenceNode and capture only each sentence and order original back to the array for the chunk as we continue looping over that same chunk until complete to move onto the next chunk we then review the chunk against the seen sentences to validate 5x that there are no new sentences to process really on each loop per chunk we start with is there any sentences inthis cunk which we have not captured in our seen sentences array etc andthis is our validation to have a no after 5x let's us know we have completed all but not just completed all but completed all in order because we are also again keeping track of order we say not just is there any but our seen sentences array has x items 0 or 1 or 2 or 3 is there any or if we haven't seen any what is the first or following sentences from the last one we capture and if any we display the last one this controls context explosion.
+
+
+okay so awesome we have here identified and captured identifying sentences correctly per node in path 2 but now here is the thing alongside this we first want to keep track of what section we are in
+
+because we have to take into account of
+
+## Section & Document Detection
+
+### Why Section Detection Matters
+
+Section detection is the only mechanism that allows the system to distinguish:
+- Raw text (user's prompt, conversational input, free-form request)
+- Embedded documents (guides, articles, reports, specifications)
+- Mixed content (user request containing an attached or inline document)
+
+Intent detection belongs to the AMT. Section detection belongs to the text modality.
+The text modality identifies WHAT the content is structurally; the AMT determines
+WHY the user provided it and what to do with it.
+
+so we first have CleanChunks and in the path 2 we need to take into account what section we are in first while we find sentences and correct grammar.
+
+SectionStateTracking (cross-chunk state machine, format-agnostic)
+
+│  DocumentNode                                                               │
+│    node_type: Document                                                      │
+│    content: summary (word count, type, etc.)                               │
+│    properties: { document_type, word_count, sentence_count, paragraph_count,│
+│                  readability_score, title, source, role }                   │
+│    position: { start_byte, end_byte }                                       │
+│                                                                             │
+│  SectionNode                                                                │
+│    node_type: Section                                                       │
+│    content: section title                                                   │
+│    properties: { level (1-6), formatting_pattern, parent_section }          │
+│    position: { start_byte, end_byte, start_line }
+
+
+so we are getting rid of in full of the     /// Extract document structure
+    fn extract_structure(&self, text: &str) -> DocumentStructure {
+
+as this was rule based and going to utilize a zero-shot approach in place within the chunk processing itself
+
+### Section State Machine
+
+State tracking runs across chunk boundaries. The state is carried from chunk N to
+chunk N+1 to handle sections that span multiple chunks.
+
+```
+SECTION TRACKING STATE MACHINE
+
+State: IDLE
+  Trigger: Any structured heading pattern detected
+           (regardless of format — zero-shot determines the format)
+  Transition → IN_SECTION
+
+State: IN_SECTION
+  Trigger: Another heading of same or higher level detected
+  Transition → NEW_SECTION (close current, open new)
+
+  Trigger: Sub-heading detected (lower level than current)
+  Transition → IN_SUBSECTION (nest under current)
+
+  Trigger: Formatting pattern breaks (N paragraphs with no heading,
+           style shift detected by zero-shot, narrative voice changes)
+  Transition → DOCUMENT_BREAK or IDLE
+
+State: DOCUMENT_BREAK
+  Trigger: New structural pattern begins
+  Transition → IN_SECTION (new document context)
+
+CROSS-CHUNK CONTINUATION:
+
+  Chunk N ends mid-section:
+    State carries:
+      - section_id (persistent across chunks)
+      - section_level (1-6 or detected equivalent)
+      - formatting_pattern (discovered by zero-shot — any format)
+      - current_document_id
+
+  Chunk N+1 receives continuation context:
+    - Inherits open section from chunk N
+    - May close it or extend it
+    - May detect a break → new document
+```
+
+**Format-agnostic detection:** The system does not hardcode markdown or any specific
+format. Zero-shot LLM determines the formatting pattern from the content itself.
+Patterns include (but are not limited to): markdown headers, numbered sections,
+all-caps headings, underlined headings, Roman numerals, bold lead lines,
+indented outlines, any consistent structural pattern the LLM identifies.
+
+### Zero-Shot Section Detection Prompt
+
+```text
+You are analyzing text to detect document structure and section boundaries.
+The formatting style is UNKNOWN — do not assume any specific format (not just
+markdown). Detect whatever structural patterns actually appear in the text.
+
+CHUNK CONTEXT:
+- This is chunk {chunk_index} of {total_chunks}
+- Previous section state: {previous_section_state}
+- Formatting pattern being tracked: {formatting_pattern or "not yet detected"}
+
+CHUNK TEXT:
+{chunk_text}
+
+TASK: Identify sections and document boundaries.
+
+A "section" is any coherent block that begins with a recognizable heading or
+structural marker — regardless of format. This includes but is not limited to:
+- Markdown headers (# ## ###)
+- Numbered sections (1. 2. 2.1)
+- ALL-CAPS headings (INTRODUCTION, METHODS)
+- Underlined or decorated headings (===, ---)
+- Bold lead lines followed by body text
+- Any other consistent structural marker you detect
+
+A "document break" occurs when:
+- The formatting pattern changes significantly
+- The writing style or voice shifts substantially
+- Structural markers stop appearing after a consistent run
+
+Return ONLY valid JSON:
+{
+  "section_events": [
+    {
+      "type": "section_start|section_continue|section_end|document_break",
+      "position": <character_offset_in_chunk>,
+      "section_title": "title if section_start, null otherwise",
+      "section_level": <1-6 or null>,
+      "formatting_pattern": "description of detected pattern or null"
+    }
+  ],
+  "current_section_context": {
+    "section_id": "unique identifier for tracking across chunks",
+    "level": <1-6 or null>,
+    "title": "current section title or null",
+    "formatting_pattern": "detected pattern description"
+  },
+  "document_boundary_detected": false,
+  "document_boundary_reason": "reason or null"
+}
+```
+
+### Zero-Shot Document Identification Prompt
+
+Called when a section boundary or document break is detected, to classify
+whether the content constitutes a standalone document.
+
+```text
+You are identifying whether a block of text constitutes a standalone document
+within a larger corpus.
+
+A "document" is a coherent, self-contained unit characterized by:
+- Unified topic or theme throughout
+- Consistent formatting pattern (whatever format)
+- Clear structural organization (sections, paragraphs, or both)
+- Neutral or third-person narrative voice (for reference/informational documents)
+- OR: a sustained narrative voice (for stories, guides, essays)
+
+NOT a document:
+- First-person conversational requests ("I want", "Please help me")
+- Imperative instructions addressed to the AI ("Fix this", "Create a")
+- Questions without context ("How do I", "What is")
+- Short mixed-intent fragments
+
+IMPORTANT: Documents sometimes contain user intent mixed in. The presence of
+some conversational sentences does not disqualify a document — look for the
+dominant structure and voice.
+
+TEXT TO ANALYZE:
+{text_span}
+
+Return ONLY valid JSON:
+{
+  "is_document": true|false,
+  "document_type": "article|guide|story|report|specification|reference|code_doc|data|unknown|null",
+  "title": "extracted title if detectable, null otherwise",
+  "confidence": 0.0-1.0,
+  "dominant_structure": "description of what makes this a document or not",
+  "mixed_intent_detected": true|false,
+  "mixed_intent_description": "what conversational/intent elements appear, or null"
+}
+```
+
+### Document vs Raw Text Classification
+
+After section state detection, content falls into two categories:
+
+**Document** — minimum structure: one section OR one paragraph with consistent
+formatting and unified topic. Documents are broken down into their own
+Document → Section → Paragraph → Sentence node hierarchy.
+
+**Raw text** — minimum structure: one sentence (or even a fragment). Raw text
+from the prompt itself is still formalized to complete sentences during
+cleaning (CleanChunk), but it does not require section or document structure.
+It links directly to the root of the text modality graph.
+
+**Mixed content** — both exist simultaneously. The section state machine handles
+this by detecting document starts and stops within the same chunk stream. A
+user request followed by an inline document results in:
+- Raw text nodes for the user's words (linked to prompt root)
+- A DocumentNode + full hierarchy for the document portion
+
+Intent identification (what the user wants, what's primary vs supplementary)
+is NOT handled here — that belongs to the AMT building phase in the
+orchestrator, via zero-shot role detection and the FileGraphRole classification.
+
+now here is the thing to keep in mind, we for now will yes be tracking Sections, but we will not be tracking documents, in a finalized version we would be assigning Paragraph nodes to sections if within one but for now no we are just tracking sections because for 1. to truly identify or track a document we need full understanding of all the contents within it to fully accurately identify when a document breaks and for this we need to have the whole graph completed or a majority at least up to the grammar nodes to not have context explosion when reviewing a document break as we need to take into account all reltionships perataining to it to identify if it is a true document break, as well as for the section iedntifier and start we still need some refinements afterwards but it doesn't mean that I still don't want to have it included yet so we will, for path 2 per chunk we are keeping track of sections as well as identifying sentences to correct the grammar for each sentence
+
+now for the grammar extraction,
+
+async fn extract_grammar_relationships_from_text(
+
+we want to keep in mind this is actually not per chunk this will be done at the end after all chunks are processed and this now won't be exracting gramar-relationships from text but we will be extracting it from graphs
+
+### Phase 3: Grammar Extraction
+
+Grammar extraction runs on the full graph after all chunks are processed and
+the complete sentence/paragraph/section hierarchy is assembled. This ensures
+cross-sentence relationships can form across any sentence in the corpus,
+not just within a single chunk.
+
+#### Per-Sentence Grammar Extraction Prompt
+
+```text
+You are extracting grammatical structure from a single sentence.
+
+SENTENCE: "{sentence_text}"
+
+TASK: Identify the grammatical components and their relationships.
+
+Return ONLY valid JSON:
+{
+  "subject": {
+    "text": "the subject noun phrase",
+    "position_start": 0,
+    "position_end": 10,
+    "entity_type_hint": "Person|Organization|Location|Document|Time|Concept|Unknown"
+  },
+  "verb": {
+    "text": "the main verb",
+    "position_start": 11,
+    "position_end": 20,
+    "verb_type": "action|linking|helping",
+    "tense": "past|present|future|unknown",
+    "negated": false
+  },
+  "object": {
+    "text": "the object noun phrase or null",
+    "position_start": 21,
+    "position_end": 35,
+    "entity_type_hint": "..."
+  },
+  "modifiers": [
+    {
+      "text": "modifier text",
+      "position_start": 36,
+      "position_end": 45,
+      "modifier_type": "temporal|adjectival|adverbial|prepositional",
+      "modifies": "subject|verb|object"
+    }
+  ],
+  "sentence_type": "declarative|interrogative|imperative|fragment",
+  "edge_type": ""Performs|Affects|Implies|Contradicts|Elaborates|Summarizes|Supports|TemporalPrecedes|TemporalFollows|CausedBy|Enables|Prevents|PartOf|HasPart|FunctionalRole|InstanceOf|HasInstance|SimilarTo|DerivedFrom|VersionOf..","
+}
+```
+
+#### Cross-Sentence Relationship Prompt (Pairwise Comparison)
+
+Run after all per-sentence grammar extraction. The pairwise comparison produces
+the relationship depth of the graph — this is where the most cross-sentence
+connections form.
+
+```text
+You are analyzing relationships between sentences in a text corpus.
+
+SENTENCES:
+{sentence_list_with_indices_and_grammar_summaries}
+
+TASK: Identify all meaningful relationships between these sentences.
+
+Relationship types:
+- Elaborates:        S2 provides more detail about S1
+- Causes:            S1's action or state leads to S2
+- Enables:           S1 makes S2 possible
+- Prevents:          S1 prevents S2
+- Contradicts:       S2 contradicts or negates S1
+- Exemplifies:       S2 is a concrete example of S1
+- Summarizes:        S2 is a summary of S1 (or vice versa)
+- TemporalPrecedes:  S1 happens before S2 in described time
+- Coreference:       S2 contains a pronoun or reference to an entity in S1
+- PartOf:            S2 is a component of the whole described in S1
+- SimilarTo:         S1 and S2 describe closely related concepts
+
+Return ONLY valid JSON:
+{
+  "relationships": [
+    {
+      "from_sentence_index": 0,
+      "to_sentence_index": 1,
+      "relationship_type": "Elaborates|Causes|Enables|...",
+      "evidence": "brief quote showing the relationship"
+    }
+  ],
+  "coreference_chains": [
+    {
+      "canonical_entity": "John Smith",
+      "mentions": [
+        {"sentence_index": 0, "text": "John Smith", "grammar_role": "subject"},
+        {"sentence_index": 2, "text": "He", "grammar_role": "subject"},
+        {"sentence_index": 5, "text": "the manager", "grammar_role": "object"}
+      ]
+    }
+  ]
+}
+```
+
+but now I also want you to take this into account
+
+The tree is.
+
+For example,
+
+> I want to try on a suit I saw in a shop that's across the street from the hotel.
+
+is not really
+
+```text
+I → want → to → try → on → a → suit ...
+```
+
+It is closer to
+
+```text
+Sentence
+│
+└── Predicate (want)
+    │
+    ├── Subject
+    │   └── I
+    │
+    ├── Infinitive Clause
+    │   └── try
+    │       │
+    │       ├── Object
+    │       │   └── suit
+    │       │
+    │       └── Relative Clause
+    │           └── saw
+    │               │
+    │               ├── Subject
+    │               │   └── I
+    │               │
+    │               ├── Object
+    │               │   └── suit
+    │               │
+    │               └── Location
+    │                   └── shop
+    │                       │
+    │                       └── Relative Clause
+    │                           └── across
+    │                               │
+    │                               ├── street
+    │                               └── hotel
+```
+
+Notice something important.
+
+**Nothing is duplicated.**
+
+Everything simply **attaches to its grammatical parent.**
+
+we have our grammar nodes per sentence
+
+│  │ Grammar nodes (per sentence):                                        │   │
+│  │   Subject, Verb, Object, Modifier                                   │   │
+│  │                                                                      │   │
+│  │ Derived nodes (from graph traversal):                                │   │
+│  │   EntityNode (Person, Org, Location, Concept, etc.)                  │   │
+│  │   CoreferenceChain (John → He → the manager)
+
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  GRAMMAR NODES (per sentence, derived via zero-shot)                        │
+│  ────────────────────────────────────────────────────                       │
+│                                                                             │
+│  Subject                                                                    │
+│    text: the subject noun phrase                                            │
+│    position_in_sentence: { start, end }                                     │
+│    entity_type_hint: Person|Organization|Location|Concept|Unknown           │
+│                                                                             │
+│  Verb                                                                       │
+│    text: the main verb                                                      │
+│    verb_type: action|linking|helping (VerbType enum in code)                │
+│    tense: past|present|future                                               │
+│    negated: bool                                                            │
+│                                                                             │
+│  Object                                                                     │
+│    text: the object noun phrase                                             │
+│    position_in_sentence: { start, end }                                     │
+│    entity_type_hint                                                         │
+│                                                                             │
+│  Modifier                                                                   │
+│    text: the modifier text                                                  │
+│    modifier_type: temporal|adjectival|adverbial|prepositional               │
+│    modifies: subject|verb|object                                            │
+│                                                                             │
+│  ChunkGrammarRelationship (code struct) captures all of the above:          │
+│    from_text, to_text, edge_type, tense, negated, verb, verb_type,          │
+│    subject, object, source_sentence_start, source_sentence_end              │
+│                                                                             │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  DERIVED NODES (from graph traversal after Phase 3)                         │
+│  ──────────────────────────────────────────────────                         │
+│                                                                             │
+│  EntityNode                                                                 │
+│    node_type: Entity                                                        │
+│    text: canonical entity text                                              │
+│    entity_type: Person|Organization|Location|Date|Product|Event|           │
+│                 Technology|Concept|Custom (EntityType enum in code)         │
+│    confidence: f32                                                          │
+│    mentions: [grammar_node_ids across sentences]                            │
+│    coreference_chain_id: Option<u64>                                        │
+│                                                                             │
+│  CoreferenceChain                                                           │
+│    chain_id                                                                 │
+│    mentions: [node_ids in order of appearance]                              │
+│    canonical_form: e.g. "John Smith"                                        │
+│                                                                             │
+│  TopicNode                                                                  │
+│    node_type: Topic                                                         │
+│    text: topic name                                                         │
+│    relevance: f32 (derived from relationship traversal coverage)            │
+│                                                                             │
+│  KeywordNode                                                                │
+│    node_type: Keyword                                                       │
+│    text: keyword or phrase                                                  │
+│    relevance: f32                                                           │
+│    (derived from verb/object traversal, NOT separate extraction pass)
+
+
+now remember
+
+│  ChunkGrammarRelationship (code struct) captures all of the above:          │
+│    from_text, to_text, edge_type, tense, negated, verb, verb_type,          │
+│    subject, object, source_sentence_start, source_sentence_end
+
+this now isn't chunkgrammarrelationships but tied to the sentencenode itself
+
+
+now we again want to ensure we are capturing all it seems like we are missing stuff not saying this has everything we are missing we are already capturing some likes entence but we now nee to ensure we have the full inclusion for all
+
+    Sentence,
+
+    Clause,
+
+    Phrase,
+
+    Subject,
+
+    Predicate,
+
+    Verb,
+
+    DirectObject,
+
+    IndirectObject,
+
+    Complement,
+
+    Modifier,
+
+    Determiner,
+
+    Adjective,
+
+    Adverb,
+
+    Preposition,
+
+    PrepositionalPhrase,
+
+    RelativeClause,
+
+    Conjunction,
+
+    Pronoun,
+
+    Noun,
+
+    ...
+}
+```
+
+
+```text
+Sentence
+│
+└── Predicate
+    │
+    ├── Subject
+    │
+    ├── Verb
+    │
+    ├── Object
+    │
+    ├── Modifier
+    │
+    └── Clause
+        │
+        ├── Verb
+        ├── Subject
+        └── Object
+```
+
+Everything has **one parent**.
+
+Everything belongs somewhere.
+
+There is no clutter.
+
+```text
+Paragraph
+
+├── Sentence Tree
+
+├── Sentence Tree
+
+├── Sentence Tree
+
+└── Sentence Tree
+```
+
+Each sentence owns its grammar.
+
+---
+
+## Sections
+
+Exactly the same.
+
+```text
+Document
+
+└── Section
+
+    ├── Paragraph
+
+    │   ├── Sentence Tree
+
+    │   ├── Sentence Tree
+
+    │   └── Sentence Tree
+
+    │
+
+    └── Paragraph
+
+        ├── Sentence Tree
+
+        └── Sentence Tree
+```
+
+Grammar remains local to each sentence and we create relationships between sentences and parapgrahs to sections/documents
+
+
+```text
+Document Layer
+────────────────────────────────────
+
+Document
+└── Section
+    └── Paragraph
+        └── Sentence
+
+
+Grammar Layer (one tree per sentence)
+────────────────────────────────────
+
+Sentence
+│
+├── Clause
+│   ├── Subject
+│   ├── Predicate
+│   │   ├── Verb
+│   │   ├── Object
+│   │   ├── Complement
+│   │   └── Modifiers
+│   └── Nested Clauses
+└── Punctuation (optional)
+```
+
+
+    //====================================================
+    // ROOTS
+    //====================================================
+
+    Sentence,
+    MainClause,
+    SubordinateClause,
+    RelativeClause,
+    ComplementClause,
+    AdverbialClause,
+    ConditionalClause,
+    ComparativeClause,
+    CoordinateClause,
+    ParentheticalClause,
+    EllipticalClause,
+    QuotedClause,
+
+    //====================================================
+    // PHRASES
+    //====================================================
+
+    Phrase,
+
+    NounPhrase,
+    VerbPhrase,
+    AdjectivePhrase,
+    AdverbPhrase,
+    PrepositionalPhrase,
+    InfinitivePhrase,
+    ParticipialPhrase,
+    GerundPhrase,
+    AbsolutePhrase,
+    AppositivePhrase,
+    CoordinatePhrase,
+    ParentheticalPhrase,
+
+    //====================================================
+    // PREDICATE STRUCTURE
+    //====================================================
+
+    Predicate,
+
+    Verb,
+
+    MainVerb,
+    AuxiliaryVerb,
+    ModalVerb,
+    LinkingVerb,
+    HelpingVerb,
+    PhrasalVerb,
+    Copula,
+
+    PredicateComplement,
+    PredicateNominative,
+    PredicateAdjective,
+
+    //====================================================
+    // ARGUMENTS
+    //====================================================
+
+    Subject,
+    ImpliedSubject,
+    ExpletiveSubject,
+
+    DirectObject,
+    IndirectObject,
+
+    ObjectComplement,
+
+    SubjectComplement,
+
+    Complement,
+
+    //====================================================
+    // NOUNS
+    //====================================================
+
+    Noun,
+
+    CommonNoun,
+    ProperNoun,
+    CollectiveNoun,
+    MassNoun,
+    CountNoun,
+    ConcreteNoun,
+    AbstractNoun,
+    CompoundNoun,
+
+    //====================================================
+    // PRONOUNS
+    //====================================================
+
+    Pronoun,
+
+    PersonalPronoun,
+    ReflexivePronoun,
+    ReciprocalPronoun,
+    RelativePronoun,
+    DemonstrativePronoun,
+    InterrogativePronoun,
+    IndefinitePronoun,
+    PossessivePronoun,
+
+    //====================================================
+    // DETERMINERS
+    //====================================================
+
+    Determiner,
+
+    Article,
+    Demonstrative,
+    PossessiveDeterminer,
+    Quantifier,
+    Numeral,
+    DistributiveDeterminer,
+
+    //====================================================
+    // MODIFIERS
+    //====================================================
+
+    Modifier,
+
+    Adjective,
+    AttributiveAdjective,
+    PredicativeAdjective,
+    ComparativeAdjective,
+    SuperlativeAdjective,
+
+    Adverb,
+    AdverbOfTime,
+    AdverbOfPlace,
+    AdverbOfManner,
+    AdverbOfDegree,
+    AdverbOfFrequency,
+    SentenceAdverb,
+
+    //====================================================
+    // PREPOSITIONS
+    //====================================================
+
+    Preposition,
+
+    SimplePreposition,
+    CompoundPreposition,
+    PhrasalPreposition,
+
+    //====================================================
+    // CONJUNCTIONS
+    //====================================================
+
+    Conjunction,
+
+    CoordinatingConjunction,
+    SubordinatingConjunction,
+    CorrelativeConjunction,
+
+    //====================================================
+    // DEPENDENTS
+    //====================================================
+
+    RelativePronounClause,
+
+    RelativeModifier,
+
+    AdjectivalModifier,
+    AdverbialModifier,
+
+    NominalModifier,
+
+    DeterminerModifier,
+
+    PossessiveModifier,
+
+    NumericModifier,
+
+    QuantifierModifier,
+
+    Apposition,
+
+    Vocative,
+
+    Parenthetical,
+
+    //====================================================
+    // PREPOSITIONAL COMPONENTS
+    //====================================================
+
+    PrepositionalObject,
+
+    ObjectOfPreposition,
+
+    ComplementOfPreposition,
+
+    //====================================================
+    // VERBAL COMPONENTS
+    //====================================================
+
+    InfinitiveMarker,
+
+    Infinitive,
+
+    Gerund,
+
+    PresentParticiple,
+
+    PastParticiple,
+
+    //====================================================
+    // CLAUSE FUNCTIONS
+    //====================================================
+
+    ClauseSubject,
+
+    ClausePredicate,
+
+    ClauseObject,
+
+    ClauseComplement,
+
+    ClauseModifier,
+
+    //====================================================
+    // NEGATION
+    //====================================================
+
+    Negation,
+
+    NegativeMarker,
+
+    NegativeDeterminer,
+
+    NegativePronoun,
+
+    //====================================================
+    // QUESTIONS
+    //====================================================
+
+    QuestionMarker,
+
+    InterrogativeWord,
+
+    TagQuestion,
+
+    WhPhrase,
+
+    //====================================================
+    // COMPARISON
+    //====================================================
+
+    Comparison,
+
+    ComparativeMarker,
+
+    SuperlativeMarker,
+
+    EqualityMarker,
+
+    //====================================================
+    // COORDINATION
+    //====================================================
+
+    Coordination,
+
+    Coordinator,
+
+    CoordinatedElement,
+
+    //====================================================
+    // AGREEMENT
+    //====================================================
+
+    AgreementMarker,
+
+    CaseMarker,
+
+    NumberMarker,
+
+    GenderMarker,
+
+    PersonMarker,
+
+    //====================================================
+    // PUNCTUATION
+    //====================================================
+
+    Punctuation,
+
+    Comma,
+
+    Period,
+
+    Colon,
+
+    Semicolon,
+
+    Dash,
+
+    Hyphen,
+
+    Parenthesis,
+
+    Quotation,
+
+    Apostrophe,
+
+    Ellipsis,
+
+    Exclamation,
+
+    QuestionMark,
+
+    //====================================================
+    // TERMINALS
+    //====================================================
+
+    Token,
+
+    Word,
+
+    Symbol,
+
+    Number,
+
+    Letter,
+
+    Unknown,
+}
+```
+
+
+# Grammar Layer
+
+Now imagine one sentence
+
+```text
+The dog quickly chased the cat through the garden.
+```
+
+The grammar becomes
+
+```text
+Sentence
+│
+└── MainClause
+    │
+    ├── Subject
+    │   │
+    │   └── NounPhrase
+    │       │
+    │       ├── Determiner
+    │       │     "The"
+    │       │
+    │       └── Noun
+    │             "dog"
+    │
+    └── Predicate
+        │
+        ├── Verb
+        │     "chased"
+        │
+        ├── Adverb
+        │     "quickly"
+        │
+        ├── DirectObject
+        │   │
+        │   └── NounPhrase
+        │       │
+        │       ├── Determiner
+        │       └── Noun
+        │
+        └── PrepositionalPhrase
+            │
+            ├── Preposition
+            │      "through"
+            │
+            └── ObjectOfPreposition
+                   "garden"
+```
+
+Notice something.
+
+Every node has exactly
+
+```text
+Parent
+
+Children
+```
+
+we can now also look at organizing properties
+
+# Properties
+
+Properties contain grammar information.
+
+```rust
+GrammarProperties {
+
+    tense,
+
+    aspect,
+
+    mood,
+
+    voice,
+
+    person,
+
+    number,
+
+    gender,
+
+    case,
+
+    definiteness,
+
+    comparison,
+
+    polarity,
+
+    subtype,
+
+}
+```
+
+Properties answer
+
+> "Describe me."
+
+Huge difference.
+
+---
+
+```rust
+    properties: {
+        tense: Past,
+        aspect: Perfect,
+        mood: Indicative,
+        voice: Active,
+    }
+}
+```
+
+Likewise,
+
+```rust
+    properties: {
+        number: Plural,
+        case: Possessive,
+        gender: Unknown,
+    }
+}
+```
+
+and
+
+```rust
+    properties: {
+        subtype: Personal,
+        person: First,
+        number: Singular,
+        case: Subjective,
+    }
+}
+```
+
+
+The reason between the two paths in which we are studying is because while 1 does less work quality also depends on the SLM/LLM quality and while also larger models it may allow for less work and a reasonable quality path 2 still ensures higher quality by thrughlyreviewing each thus yes it esnures more work which can be beneficial for models it may benefit smaller models more highly while it can also outbeat larger models in accuracy so we will be benchmarking both paths thoroughly for full comparisons in speeds/quality and work/loops called for completion.
+
+
+## The Chunking Boundary
+
+Chunking happens ONCE on initial intake. After chunks are processed and nodes are created,
+all subsequent work is graph-based. Chunks exist only to:
+
+1. Fit text within any LLM context window (cross-model capability)
+2. Enable parallel processing of large documents
+3. Anchor byte positions for the Text Engine
+
+The ChunkGraph for each processed chunk preserves the byte offset mapping so that any
+node in the text modality graph can be found in O(1) via position lookup — enabling the
+Text Engine to perform precise byte-level editing without scanning file contents.
+
+Chunks are always to still happen once no matter which path but each path now defines how thoroughly we are now processing each chunk.

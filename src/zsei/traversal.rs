@@ -9,12 +9,11 @@
 //! - BruteForce: Exhaustive search (fallback)
 
 use crate::config::ZSEIConfig;
-use crate::types::{ContainerID, OzoneResult, Value};
+use crate::types::{ContainerID, OzoneResult};
 use crate::types::zsei::{
     TraversalRequest, TraversalResult, TraversalMode, Path,
     TraversalStats, Filter, Operator,
 };
-use crate::types::container::Container;
 use super::storage::ContainerStorage;
 use std::collections::{HashSet, VecDeque};
 use regex::Regex;

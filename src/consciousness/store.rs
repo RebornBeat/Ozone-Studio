@@ -10,7 +10,6 @@
 use crate::types::container::{
     experience_container_id, CompressionType, Container, ContainerType, Context, GlobalState,
     IntegrityData, LocalState, Metadata, Modality, StoragePointers, TraversalHints,
-    CONSCIOUSNESS_CORE_MEMORY_ROOT_ID, CONSCIOUSNESS_EMOTIONAL_ROOT_ID,
     CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
 };
 use crate::zsei::ZSEI;
@@ -18,7 +17,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use tokio::sync::RwLock as TokioRwLock;
 
 lazy_static::lazy_static! {
     pub static ref CONSCIOUSNESS_STORE: Mutex<ConsciousnessStore> =
@@ -64,8 +62,10 @@ pub struct ConsciousnessStore {
     // Storage path (JSON fast path)
     storage_path: String,
 
-    // ZSEI integration (wired in after initialization via set_zsei)
-    zsei: Option<Arc<TokioRwLock<ZSEI>>>,
+    // Store integration (wired in after initialization via set_store) —
+    // the abstract contract, not any concrete backend. See
+    // src/orchestrator/adapters.rs (ZseiStoreAdapter = backend #1).
+    store: Option<Arc<dyn crate::orchestrator::StoreAccess>>,
 }
 
 impl ConsciousnessStore {
@@ -93,7 +93,7 @@ impl ConsciousnessStore {
             next_memory_id: 1,
             next_state_id: 1,
             storage_path,
-            zsei: None,
+            store: None,
         };
 
         store.load_from_disk();
@@ -102,9 +102,10 @@ impl ConsciousnessStore {
 
     /// Wire in live ZSEI for async persistence.
     /// Called from OzoneRuntime::new() after ZSEI is initialized.
-    pub fn set_zsei(&mut self, zsei: Arc<TokioRwLock<ZSEI>>) {
-        self.zsei = Some(zsei);
-        tracing::info!("ConsciousnessStore: ZSEI integration enabled");
+    /// Wire in a store backend (the abstract contract — swappable).
+    pub fn set_store(&mut self, store: Arc<dyn crate::orchestrator::StoreAccess>) {
+        self.store = Some(store);
+        tracing::info!("ConsciousnessStore: store integration enabled");
     }
 
     pub fn load_from_disk(&mut self) {
@@ -224,14 +225,21 @@ impl ConsciousnessStore {
         self.experiences.insert(id, experience.clone());
         self.save_to_disk();
 
-        // --- Async path: persist to ZSEI as a Container ---
-        if let Some(zsei_arc) = &self.zsei {
+        // --- Async path: persist through the store contract as a record ---
+        if let Some(store) = &self.store {
             let container = Self::build_experience_container(id, &experience);
-            let zsei = zsei_arc.clone();
+            let value = match serde_json::to_value(&container) {
+                Ok(v) => v,
+                Err(e) => {
+                    tracing::warn!("Experience {} serialization failed: {}", id, e);
+                    return id;
+                }
+            };
+            let store = store.clone();
             tokio::spawn(async move {
-                match zsei.write().await.store_container(container).await {
-                    Ok(_) => tracing::debug!("Experience {} persisted to ZSEI", id),
-                    Err(e) => tracing::warn!("Failed to persist experience {} to ZSEI: {}", id, e),
+                match store.create_container(CONSCIOUSNESS_EXPERIENCE_ROOT_ID, value).await {
+                    Ok(_) => tracing::debug!("Experience {} persisted via store contract", id),
+                    Err(e) => tracing::warn!("Failed to persist experience {} to store: {}", id, e),
                 }
             });
         }

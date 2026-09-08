@@ -1,0 +1,301 @@
+### 0.1.1 — `src/types/pipeline.rs`
+
+**Location:** In `BuiltinPipeline` enum, after `MetaPortionConsciousness = 54`.
+
+**Location:** In the `name()` implementation.
+
+### 0.1.2 — `src/pipeline/registry.rs`
+
+**Location:** In `PIPELINE_INFO` lazy_static block, after `m.insert(54, ...)`.
+
+### 0.1.3 — `assets/pipelines/general/context_viewer/main.rs`
+
+**Location:** At the top of the file.
+
+### 0.1.5 — `src/bootstrap.rs`
+
+**Location:** In `get_default_pipeline_index()`, after the consciousness pipelines.
+
+
+### 0.2.1 — `workspace_tab/ui/component.js`
+
+**Location:** `handleLinkFile` function. **Replace entire function:**
+
+## 0.3 Remove 'Global' from context_scope
+
+**Location:** `workspace_tab/ui/component.js`, in `ProjectChat.handleSubmit`.
+
+## 1.1 In `assets/pipelines/modalities/text/main.rs`
+
+**Location:** Immediately after the closing `}` of `impl Default for TextModalityOutput`.
+
+
+## 1.2 Modify `ProcessedChunk` struct
+
+**Location:** In the `// CHUNK TYPES` section.
+
+## 1.3 Modify `TextModalityOutput` struct
+
+**Location:** In the `// INPUT/OUTPUT TYPES` section.
+
+## 1.4 Add new `TextModalityAction` variants
+
+**Location:** In `TextModalityAction` enum, after `ExtractTopics` and before `Normalize`.
+
+## 1.5 In `src/orchestrator/mod.rs` — File/Role Types
+
+**Location:** In the `// Types` section.
+
+## 1.6 Extend `OrchestrationRequest`
+
+**Location:** `pub struct OrchestrationRequest`.
+
+## 1.7 Extend `OrchestrationState`
+
+**Location:** `struct OrchestrationState`.
+
+## 1.8 Initialize new `OrchestrationState` fields
+
+**Location:** In `pub async fn orchestrate`, where `OrchestrationState { ... }` is constructed.
+
+## 1.9 Modality/Graph State Types
+
+**Location:** In `src/orchestrator/mod.rs` types section, after `ClassifiedFileGraph`.
+
+## 1.10 Orchestrator Step Types
+
+**Location:** After `SessionGraphState`.
+
+## 1.11 Layer Input Types (E-1)
+
+**Location:** After `OrchestratorStepState`.
+
+## 1.12 Knowledge/Synthesis/Quality Types (K/M/Q)
+
+**Location:** After `GraphLayerContext`.
+
+## 2.1 Add `resolve_overlap_llm` method
+
+**Location:** Inside `impl TextModalityPipeline`, after `fn get_end_overlap`.
+
+## 2.2 Add `chunk_text_with_llm_overlap` method
+
+**Location:** After `resolve_overlap_llm`.
+
+## 2.3 Wire `ChunkText` into `execute`
+
+**Location:** In `execute`, replace the `ChunkText` arm:
+
+## 3.1 Add detection methods
+
+**Location:** Inside `impl TextModalityPipeline`, after `extract_topics_from_text`.
+
+## 4.1 Add grammar extraction method
+
+**Location:** Inside `impl TextModalityPipeline`, after `detect_modalities_stable`.
+
+## 4.2 Wire into `execute`
+
+**Location:** In `execute`, add after the `ExtractTopics` arm:
+
+## 5.1 Add `create_chunk_graph` method
+
+**Location:** Inside `impl TextModalityPipeline`, after `extract_grammar_relationships_from_text`.
+
+## 5.2 Wire `CreateChunkGraph` into `execute`
+
+## 5.3 Add `reconstruct_context_at_token_limit` and helpers
+
+**Location:** After the closing `}` of `impl TextModalityPipeline` (outside the impl block).
+
+# PART 6: Upgrade `process_chunk`
+
+**Location:** In `impl TextModalityPipeline`, the existing `async fn process_chunk` method.
+
+## 7.1 Add `process_attached_files`
+
+**Location:** Inside `impl PromptOrchestrator`, after `wait_for_i_loop`.
+
+## 7.2 Add helper methods
+
+**Location:** Inside `impl PromptOrchestrator`.
+
+## 7.3 Add `classify_file_graphs_post_creation` -**-
+
+**Location:** Inside `impl PromptOrchestrator`, after the helper methods.
+
+## 7.4 Wire into `stage_2_text_normalization_and_amt`
+
+## 7.5 Add `aggregate_root_modalities`
+
+**Location:** Inside `impl PromptOrchestrator`.
+
+## 8.1 Add `create_initial_modality_graphs`
+
+**Location:** Inside `impl PromptOrchestrator`.
+
+## 8.2 Add cross-modal reference methods
+
+**Location:** Inside `impl PromptOrchestrator`.
+
+## 8.3 Wire into `execute_stages`
+
+**Location:** In `async fn execute_stages`, after `self.stage_2_text_normalization_and_amt(state).await?;`.
+
+# PART 9: Context Viewer Pipeline
+
+**Create:** `assets/pipelines/general/context_viewer/main.rs`
+
+## 10.1 Extend `StoredTask`
+
+## 10.2 Replace `StoredTaskStep` and add `StepVersionNote`
+
+**Replace entire struct:**
+
+## 10.3 Add `TaskManagerInput` variants
+
+**Add after `GetSteps`:**
+
+## 10.4 Extend `TaskManagerOutput`
+
+**Add:**
+
+## 10.5 Extend `TaskStep`
+
+**Replace:**
+
+## 10.6 Extend `TaskData`
+
+**Add:**
+
+## 10.7 Global `TaskManagerOutput` literal fix
+
+Search the entire `execute` function for every `TaskManagerOutput { success: ...` literal. Add to each:
+
+## 10.8 Add execute match arms
+
+**Location:** After the `GetSteps` arm.
+
+## 10.9 Update `GetSteps` arm
+
+**Replace** the step-building closure:
+
+## 10.10 Update `GetDetails` arm
+
+**Add to `TaskManagerOutput`:**
+
+## 10.11 Update `Retry` arm
+
+**Add to `StoredTask` literal:**
+
+## 11.1 Add `clarificationInput` state
+
+**Location:** Inside `function TasksUI()`.
+
+## 11.2 Add `handleClarificationResponse`
+
+**Location:** After `handleRetryTask`.
+
+## 11.3 Add clarification banner
+
+**Location:** In the `details-content` div, after the `details-header` div.
+
+## 11.4 Replace steps section with extended display
+
+**Location:** Find the `taskDetails?.steps && taskDetails.steps.length > 0 &&` block. **Replace:**
+
+## 12.1 Add fields to `ProcessedChunk`
+
+**Location:** In `struct ProcessedChunk`, after the last existing field.
+
+## 21.1 — Location: after `pub const PIPELINE_MODALITY`
+
+**Insert the universal types block** (PART 1 above) here.
+
+## 21.2 — Location: `TextEdgeType` enum — add variants
+
+**Add** after `TranscribedFrom`:
+
+## 21.3 — Location: `TextNodeType` enum — add variants
+
+**Add** after `Chunk`:
+
+## 21.4 — Location: `TextGraphNode` struct — add fields
+
+**Add** after `semantic_annotations: Vec<SemanticAnnotation>`:
+
+## 21.5 — Location: `TextGraphEdge` struct — add fields
+
+**Add** after `properties: HashMap<String, Value>`:
+
+## 21.6 — Location: after `TextGraphEdge` struct — add `GrammarEdgeInfo`
+
+## 21.7 — Location: `impl TextModalityPipeline` — add `to_node_core` extractor
+
+**Add** after `fn generate_id()`:
+
+## 21.8 — Section F: Text-specific new types
+
+**Location:** after `GrammarEdgeInfo` struct.
+
+## 21.9 — Update `TextModalityOutput` to include sentence analysis
+
+**Location:** `TextModalityOutput` struct — add field after `topics`:
+We need to remove Quality Branches and Pruning and as well as Remove Fallbacks if LLM doesn't work it pauses until it does it doesn't crash it saves state to resume when back
+
+for pub fn reconstruct_context_at_token_limit( if we have or processed grammar already in the first pass we don't really truly need to process chunks and overlaps again fi we properly handlethis the first time where we handle paragraphs identification properly already and sentences we should just between a span start and end or etc be able to identify all which fit within a chunk we can or use LLM or may but not needed to identify the best to start and stop at but we don't really then now need to process all chunks again from scratch.
+
+for
+
+            if pipeline_id == 0 {
+                // Unknown modality — store as unknown, do not halt
+                tracing::warn!(
+                    "Unknown modality for file: {} — treating as text",
+                    file_spec.file_path
+                );
+                // Fall through to text pipeline
+            }
+
+we don't just want to warn but we want to save to disk or state for meta reviewal we need to come back to modalities unknown and review and come back to others as well an review as we gather more and more to identify in future use cases or as we aggregate to identify correlations between unkown modalities etc etc
+
+
+for
+
+            // Execute: Analyze → CreateGraph for this file
+            let analyze_input = serde_json::json!({
+                "action": {
+                    "type": "Analyze",
+                    "text": file_spec.content_preview.as_deref().unwrap_or(""),
+                    "depth": "Standard",
+                    "extract_entities": true,
+                    "extract_topics": true,
+                    "extract_structure": false
+                }
+            });
+
+we have to be careful of what we are passing in text, because it should not be relying on content_preview as if we are passing a file to the modality to be analyzed it doesn't need a content_preview this is unnecasry as it should review the whole file
+
+we also want to review extract entities/topic/structure in correlations to modalities to be passed universally or if its meant only for osme modalities
+
+for
+
+            let graph_input = serde_json::json!({
+                "action": {
+                    "type": "CreateGraph",
+                    "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
+                    "project_id": state.request.project_id.unwrap_or(0),
+                    "link_to_existing": false
+                }
+            });
+
+we want to take into account for graph creation/input/results/insertions that a file may already link to another project or may have been reviewed and we want to ensure cleanliness here when we review a file so that we don't waste time first identify if we have analyzed the file itself even if in another project as this is what we call the core graph right and then we have our per project relations so we need to garps this correctly to ensure and maintan cleanlisness now but also take into account our hooks if we have a file which we have analyzed the graph of and the file was updated on the disk then we need to then thats a hook to review and esnure we sync for all projects that take it into account and this is can be from maunal edits etc etc outside of OZONE-STUDIO and we need to then take into account for when updating graphs of files linked to other projects that we sync it gracefully if doing so within OZONE-STUDIO
+
+for ## 7.3 Add `classify_file_graphs_post_creation` we want to carefully review how this is working alonside the AMT per intent branch as as we classify we also do want to classify to what intent it supports as well belongs to
+
+for  async fn aggregate_root_modalities(&self, state: &mut OrchestrationState) { we need to verify as we are expecting to already have normalized text for this within the AMT procress itself and it may be redundant and or called to late and may be best to directly call within the text nomarlizaation itself upon moality detection for         self.create_initial_modality_graphs(state) we have to take into account the same as well in relations to the order of execution as it seems to be after AMT creation
+
+in     /// Load pipeline index from ZSEI
+    pub async fn load_pipeline_index(&self) -> Result<(), String> {
+        // Try to load from ZSEI storage
+
+we try to get the pipeline index as we try if we can't get it or obtain it we do want to save state until retry or it works meaning IE this prompt it can come back to later on so we need to have our propmt and orchestration states saved to disk before so on new

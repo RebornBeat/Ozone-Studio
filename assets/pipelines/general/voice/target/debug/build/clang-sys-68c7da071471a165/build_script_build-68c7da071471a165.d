@@ -1,0 +1,9 @@
+/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/clang-sys-68c7da071471a165/build_script_build-68c7da071471a165.d: /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/macros.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/common.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/dynamic.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/static.rs
+
+/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/clang-sys-68c7da071471a165/build_script_build-68c7da071471a165: /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/macros.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/common.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/dynamic.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/static.rs
+
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/macros.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/common.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/dynamic.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/clang-sys-1.9.1/build/static.rs:

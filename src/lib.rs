@@ -40,6 +40,14 @@ pub mod task;
 pub mod types;
 pub mod zsei;
 
+/// K-ALGORITHM shared contracts (single host inclusion point).
+#[path = "../shared/contracts/mod.rs"]
+pub mod shared_contracts;
+
+/// K-ALGORITHM typed registry facade.
+pub mod k_registry;
+
+
 // Re-exports
 pub use config::OzoneConfig;
 pub use types::*;
@@ -112,6 +120,18 @@ impl OzoneRuntime {
             }
         }
 
+        // Voice pipeline (#10) reads OZONE_VOICE_* from its inherited
+        // environment — export the configured voice settings once at boot
+        // (and again on gRPC voice updates) so spawned children inherit them.
+        for (k, v) in config.voice.to_pipeline_env() {
+            std::env::set_var(&k, &v);
+        }
+        // Prompt pipeline (#9) reads OZONE_MODEL_* / OZONE_WIRE_PROTOCOL the
+        // same way (serve mode + one-shot share this config source).
+        for (k, v) in config.models.to_pipeline_env() {
+            std::env::set_var(&k, &v);
+        }
+
         // Initialize ZSEI
         let zsei = zsei::ZSEI::new(&config.zsei)?;
 
@@ -144,7 +164,9 @@ impl OzoneRuntime {
         // Wire ZSEI into ConsciousnessStore (so experiences persist to ZSEI)
         {
             if let Ok(mut store) = crate::consciousness::CONSCIOUSNESS_STORE.lock() {
-                store.set_zsei(zsei_arc.clone());
+                let consciousness_store: Arc<dyn crate::orchestrator::StoreAccess> =
+                    Arc::new(crate::orchestrator::ZseiStoreAdapter { zsei: zsei_arc.clone() });
+                store.set_store(consciousness_store);
             }
         }
 
@@ -234,7 +256,7 @@ impl OzoneRuntime {
     ) -> Result<types::pipeline::PipelineOutput, OzoneError> {
         // Ensure user is authenticated
         let session = self.session.read().await;
-        let session = session
+        let _session = session
             .as_ref()
             .ok_or_else(|| OzoneError::AuthError("Not authenticated".into()))?;
 
@@ -320,75 +342,66 @@ impl OzoneRuntime {
             })
             .unwrap_or(false);
 
-        // Enqueue via task manager — task manager owns queue ordering + consciousness gate
-        let task_manager = self.task_manager.read().await;
-        let mut inputs = std::collections::HashMap::new();
-        inputs.insert(
-            "prompt".to_string(),
-            serde_json::Value::String(prompt.clone()),
-        );
-        if let Some(files_val) = input.data.get("attached_files") {
-            inputs.insert(
-                "attached_files".to_string(),
-                serde_json::to_value(files_val).unwrap_or_default(),
-            );
-        }
-        if let Some(pid) = project_id {
-            inputs.insert("project_id".to_string(), serde_json::json!(pid));
-        }
-        if let Some(wid) = workspace_id {
-            inputs.insert("workspace_id".to_string(), serde_json::json!(wid));
-        }
+        // The orchestrator owns task creation (Stage: Task Creation) —
+        // no pre-enqueue here. Adapters wire the orchestrator's abstract
+        // contracts to the concrete pipeline registry and ZSEI store.
+        let attached_files: Vec<crate::orchestrator::AttachedFileSpec> = input
+            .data
+            .get("attached_files")
+            .and_then(|v| serde_json::to_value(v).ok())
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default();
 
-        let task_id = task_manager
-            .enqueue_task(
-                None, // blueprint selected by orchestrator, not here
-                inputs,
-                user_id,
-                device_id,
-                workspace_id,
-                project_id,
-                crate::task::TaskPriority::Normal,
-            )
-            .await?;
+        let model_config = input
+            .data
+            .get("model_config")
+            .and_then(|v| serde_json::to_value(v).ok())
+            .and_then(|v| serde_json::from_value(v).ok());
 
-        drop(task_manager);
+        let request = crate::orchestrator::OrchestrationRequest {
+            prompt: prompt.clone(),
+            project_id,
+            workspace_id,
+            user_id,
+            device_id,
+            consciousness_enabled,
+            token_budget: Some(token_budget),
+            model_config,
+            attached_files,
+            processing_path: Default::default(),
+            executor_model: Default::default(),
+            voice_input: None,
+        };
 
-        // Run the orchestrator — builds the AMT, selects a blueprint, executes steps
-        let mut orchestrator = crate::orchestrator::PromptOrchestrator::new(
-            self.pipeline_registry.clone(),
-            self.zsei.clone(),
+        let executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+            registry: self.pipeline_registry.clone(),
+        });
+        let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
+            zsei: self.zsei.clone(),
+        });
+
+        let orchestrator = crate::orchestrator::PromptOrchestrator::new(
+            executor_adapter,
+            zsei_adapter,
             self.task_manager.clone(),
+            Arc::new(RwLock::new(None)),
         );
 
-        let orch_result = orchestrator
-            .process(
-                task_id,
-                &prompt,
-                project_id,
-                workspace_id,
-                token_budget,
-                consciousness_enabled,
-            )
-            .await;
+        let response = orchestrator.orchestrate(request).await;
 
-        match orch_result {
-            Ok(state) => Ok(OrchestrationOutput {
-                success: true,
-                response_text: state.final_response,
-                task_id: Some(task_id),
-                blueprint_id: state.selected_blueprint_id,
-                stages_completed: state.completed_stages,
-                needs_clarification: state.needs_clarification,
-                clarification_points: state.clarification_points.unwrap_or_default(),
-            }),
-            Err(e) => {
-                // Mark task as failed in task manager
-                let task_manager = self.task_manager.read().await;
-                let _ = task_manager.fail_task(task_id, e.to_string()).await;
-                Err(e)
-            }
-        }
+        Ok(OrchestrationOutput {
+            success: response.success,
+            response_text: response.response,
+            task_id: response.task_id,
+            blueprint_id: response.blueprint_id,
+            stages_completed: response
+                .stages_completed
+                .iter()
+                .map(|s| serde_json::to_value(s).unwrap_or_default())
+                .collect(),
+            needs_clarification: response.needs_clarification,
+            clarification_points: response.clarification_points,
+        })
     }
 }
 

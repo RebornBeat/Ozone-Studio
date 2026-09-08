@@ -9,14 +9,7 @@
 use crate::config::OzoneConfig;
 use crate::types::container::{
     // ── Types ─────────────────────────────────────────────────────────────────
-    Container,
     ContainerType,
-    Context,
-    GlobalState,
-    LocalState,
-    Metadata,
-    Modality,
-    StoragePointers,
     BLUEPRINT_ROOT_ID,
     // ── Runtime graph roots ───────────────────────────────────────────────────
     CHUNK_GRAPH_ROOT_ID,
@@ -686,7 +679,7 @@ impl BootstrapManager {
             "pipeline_count": 80,
             "categories": {
                 "general":        [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
-                                   21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38],
+                                   21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,55],
                 "consciousness":  [39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54],
                 "modalities":     [100,101,102,103,104,105,106,107,108,
                                    109,110,111,112,113,114,115,116,117,118,
@@ -700,7 +693,7 @@ impl BootstrapManager {
             .and_then(Value::as_array_mut)
             .expect("pipelines field must be an array");
 
-        // ── General Pipelines (1–38) ──────────────────────────────────────────
+        // ── General Pipelines (1–38, 55) ──────────────────────────────────────────
         let general = vec![
             json!({"pipeline_id":1,"name":"Auth","folder_name":"auth","category":"general","modality":null,"description":"Authentication and session management","version":"0.4.0"}),
             json!({"pipeline_id":2,"name":"ThemeLoader","folder_name":"theme_loader","category":"general","modality":null,"description":"UI theme management","version":"0.4.0"}),
@@ -740,6 +733,7 @@ impl BootstrapManager {
             json!({"pipeline_id":36,"name":"TaskViewer","folder_name":"task_viewer","category":"general","modality":null,"description":"DEPRECATED - merged into TaskManager","version":"0.4.0","deprecated":true}),
             json!({"pipeline_id":37,"name":"LogViewer","folder_name":"log_viewer","category":"general","modality":null,"description":"View system logs","version":"0.4.0"}),
             json!({"pipeline_id":38,"name":"DeviceStatus","folder_name":"device_status","category":"general","modality":null,"description":"Device status monitoring","version":"0.4.0"}),
+            json!({"pipeline_id":55,"name":"ContextViewer","folder_name":"context_viewer","category":"general","modality":null,"description":"Context Viewer — graph state surfaces, injected by TaskManager","version":"0.4.0","has_ui":true,"is_tab":false}),
         ];
         for p in general {
             pipelines.push(p);

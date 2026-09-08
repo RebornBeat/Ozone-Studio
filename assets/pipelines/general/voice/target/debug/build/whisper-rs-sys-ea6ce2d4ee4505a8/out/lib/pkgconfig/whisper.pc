@@ -1,0 +1,10 @@
+prefix=/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out
+exec_prefix=${prefix}
+libdir=/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/voice/target/debug/build/whisper-rs-sys-ea6ce2d4ee4505a8/out/lib
+includedir=${prefix}/include
+
+Name: whisper
+Description: Port of OpenAI's Whisper model in C/C++
+Version: 1.7.1
+Libs: -L${libdir} -lwhisper
+Cflags: -I${includedir}

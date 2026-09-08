@@ -9,7 +9,7 @@ use crate::types::container::{
     LocalState, Metadata, Modality, StoragePointers, TraversalHints, METHODOLOGY_ROOT_ID,
 };
 use crate::types::index::MethodologyIndex;
-use crate::types::{ContainerID, OzoneError, OzoneResult};
+use crate::types::{OzoneError, OzoneResult};
 use crate::zsei::ZSEI;
 use std::path::PathBuf;
 use std::sync::Arc;
