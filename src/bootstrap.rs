@@ -240,14 +240,26 @@ impl BootstrapManager {
             OzoneError::StorageError(format!("Failed to create {}: {}", dst.display(), e))
         })?;
 
+        // Build/tooling artifacts never belong in the runtime data tree —
+        // pipeline crates are independent workspace roots now, so their
+        // target/ dirs (and node_modules) live inside assets/pipelines/*/.
+        const SKIP_DIRS: &[&str] = &["target", "node_modules", ".git"];
+
         for entry in fs::read_dir(src)? {
             let entry = entry?;
             let src_path = entry.path();
             let dst_path = dst.join(entry.file_name());
 
             if entry.file_type()?.is_dir() {
+                if SKIP_DIRS.contains(&entry.file_name().to_str().unwrap_or("")) {
+                    continue;
+                }
                 self.copy_dir_recursive(&src_path, &dst_path, name)?;
             } else {
+                // Never copy a crate manifest into the runtime data tree.
+                if entry.file_name() == "Cargo.toml" || entry.file_name() == "Cargo.lock" {
+                    continue;
+                }
                 fs::copy(&src_path, &dst_path).map_err(|e| {
                     OzoneError::StorageError(format!(
                         "Failed to copy {}: {}",

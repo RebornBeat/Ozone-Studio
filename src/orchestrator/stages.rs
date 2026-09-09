@@ -770,19 +770,21 @@ Return JSON:
         for iteration in 0..iterations {
             total_iterations = iteration + 1;
 
-            // STAGE 6: Context aggregation for this step
+            // STAGE 6: Context aggregation for this step — Section S ForStep:
+            // the session's own text graph (validated sentences from the chunk
+            // graphs) at top priority, merged with query-scoped store context.
+            let session_context =
+                self.reconstruct_session_context(state, state.model_context_limit / 8);
             let context_input = serde_json::json!({
-                "action": "ForQuery",
+                "action": "ForStep",
                 "query": format!("{} - {}", state.cleaned_prompt, step.description),
+                "session_context": session_context,
                 "token_budget": state.model_context_limit / 4,
                 "project_id": state.request.project_id,
-                "workspace_id": state.request.workspace_id,
                 "priority_order": step.context_requirements,
-                "step_index": step.step_index,
-                "iteration": iteration
             });
 
-            let context_result = self.executor.execute(21, context_input).await?;
+            let context_result = self.metered_execute(state, 21, context_input).await?;
             let step_context = context_result
                 .get("context")
                 .and_then(|c| c.get("context_text"))
@@ -1046,5 +1048,34 @@ Return JSON:
         );
 
         Ok(())
+    }
+    /// Section S — reconstruct the session's text graph under a token budget:
+    /// validated sentence nodes from the chunk graphs (fallback: cleaned_text
+    /// for chunks whose extraction produced no sentences).
+    fn reconstruct_session_context(
+        &self,
+        state: &OrchestrationState,
+        budget_tokens: u32,
+    ) -> String {
+        let budget_chars = (budget_tokens as usize).saturating_mul(4);
+        let mut out = String::new();
+        'outer: for chunk in &state.processed_chunks {
+            if chunk.sentence_nodes.is_empty() {
+                if out.len() + chunk.cleaned_text.len() + 1 > budget_chars {
+                    break 'outer;
+                }
+                out.push_str(chunk.cleaned_text.trim());
+                out.push('\n');
+                continue;
+            }
+            for s in &chunk.sentence_nodes {
+                if out.len() + s.content.len() + 1 > budget_chars {
+                    break 'outer;
+                }
+                out.push_str(s.content.trim());
+                out.push('\n');
+            }
+        }
+        out.trim().to_string()
     }
 }

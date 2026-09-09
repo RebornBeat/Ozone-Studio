@@ -54,6 +54,10 @@ export function MetaPortion({ width }: MetaPortionProps) {
   
   const [voiceActive, setVoiceActive] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Live mic level (RMS from an AnalyserNode) — drives the orb + bars with
+  // real captured audio, never simulated.
+  const [micLevel, setMicLevel] = useState(0);
+  const rafRef = useRef<number | null>(null);
   const [emotionState, setEmotionState] = useState<EmotionState>({
     primary: 'neutral',
     intensity: 0.3,
@@ -132,19 +136,28 @@ export function MetaPortion({ width }: MetaPortionProps) {
     return () => clearInterval(interval);
   }, [isConnected, consciousnessEnabled, fetchEmotionalState, fetchILoopStatus]);
 
-  // Voice waveform animation
+  // Voice waveform — REAL mic level while listening (AnalyserNode RMS);
+  // synthesized motion only while the assistant is speaking.
   useEffect(() => {
-    if (isSpeaking || voiceActive) {
+    if (isSpeaking) {
       const interval = setInterval(() => {
-        setVoiceWaveform(prev => 
+        setVoiceWaveform(prev =>
           prev.map(() => 0.1 + Math.random() * 0.9)
         );
       }, 80);
       return () => clearInterval(interval);
-    } else {
-      setVoiceWaveform(new Array(24).fill(0.15));
     }
-  }, [isSpeaking, voiceActive]);
+    if (voiceActive) {
+      setVoiceWaveform(prev =>
+        prev.map((_, i) => {
+          const wave = Math.abs(Math.sin(Date.now() / 120 + i * 0.55));
+          return Math.max(0.06, Math.min(1, micLevel * (0.55 + 0.45 * wave) + 0.04));
+        })
+      );
+    } else {
+      setVoiceWaveform(new Array(24).fill(0.12));
+    }
+  }, [isSpeaking, voiceActive, micLevel]);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -176,6 +189,23 @@ export function MetaPortion({ width }: MetaPortionProps) {
     const source = ctx.createMediaStreamSource(stream);
     const processor = ctx.createScriptProcessor(4096, 1, 1);
     const chunks: Float32Array[] = [];
+
+    // Analyser feeds the UI orb/bars with the live captured level.
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    const levelBuf = new Uint8Array(analyser.fftSize);
+    const tick = () => {
+      analyser.getByteTimeDomainData(levelBuf);
+      let sum = 0;
+      for (let i = 0; i < levelBuf.length; i++) {
+        const v = (levelBuf[i] - 128) / 128;
+        sum += v * v;
+      }
+      setMicLevel(Math.min(1, Math.sqrt(sum / levelBuf.length) * 4));
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    tick();
 
     processor.onaudioprocess = (e: AudioProcessingEvent) => {
       chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
@@ -242,6 +272,11 @@ export function MetaPortion({ width }: MetaPortionProps) {
     const capture = (window as any).__whisperCapture;
     if (!capture) return null;
     const wav = await encodeWhisperWav();
+    if (rafRef.current !== null) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    setMicLevel(0);
     try {
       capture.processor.disconnect();
       capture.stream.getTracks().forEach((t: MediaStreamTrack) => t.stop());
@@ -643,30 +678,6 @@ export function MetaPortion({ width }: MetaPortionProps) {
           </div>
         </div>
 
-        {/* Voice Visualization */}
-        <div className={`voice-section ${isSpeaking ? 'speaking' : voiceActive ? 'listening' : ''}`}>
-          <div className="voice-header">
-            <span className="voice-status">
-              {isSpeaking ? '🔊 Speaking' : voiceActive ? '🎤 Listening...' : '🔇 Voice Ready'}
-            </span>
-          </div>
-          <div className="waveform-container">
-            {voiceWaveform.map((height, i) => (
-              <div 
-                key={i} 
-                className="wave-bar" 
-                style={{ 
-                  height: `${height * 50}px`,
-                  backgroundColor: isSpeaking 
-                    ? emotionColor 
-                    : voiceActive ? '#4ade80' : '#374151',
-                  animationDelay: `${i * 0.05}s`
-                }}
-              />
-            ))}
-          </div>
-        </div>
-
         {/* Transcript */}
         <div className="transcript-section" ref={transcriptRef}>
           <div className="transcript-header">
@@ -743,15 +754,32 @@ export function MetaPortion({ width }: MetaPortionProps) {
         )}
       </div>
 
-      {/* Prompt Input - Always visible */}
+      {/* Prompt Input - Always visible; voice lives HERE, in the chat */}
       <div className="meta-prompt">
         <form onSubmit={handleSubmit}>
-          <div className="prompt-input-wrapper">
+          <div className={`prompt-input-wrapper ${voiceActive ? 'listening' : ''}`}>
+            {voiceActive && (
+              <div className="listen-meter">
+                {voiceWaveform.map((h, i) => (
+                  <div
+                    key={i}
+                    className="listen-bar"
+                    style={{ height: `${Math.max(3, h * 20)}px` }}
+                  />
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={promptInput}
               onChange={handleTextareaChange}
-              placeholder={isConnected ? "Chat with OZONE..." : "Connecting to backend..."}
+              placeholder={
+                voiceActive
+                  ? "Listening… speak now (mic again to stop)"
+                  : isConnected
+                    ? "Chat with OZONE..."
+                    : "Connecting to backend..."
+              }
               disabled={!isConnected}
               rows={1}
               onKeyDown={(e) => {
@@ -772,8 +800,11 @@ export function MetaPortion({ width }: MetaPortionProps) {
             >
               {voiceActive ? '🔴' : '🎤'}
             </button>
-            <button 
-              type="submit" 
+            {voiceActive && (
+              <span className="voice-db">level {Math.round(micLevel * 100)}%</span>
+            )}
+            <button
+              type="submit"
               className="control-btn send-btn"
               disabled={!isConnected || !promptInput.trim()}
               title="Send message"

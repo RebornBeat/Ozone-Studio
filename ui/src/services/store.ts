@@ -138,10 +138,11 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   // Actions
   initializeApp: async (config: any) => {
-    // Extract configuration
+    // Extract configuration — the real config shape is
+    // { consciousness: { enabled }, network: {…}, models: {…}, ui: {…} };
+    // the old "features" section never existed.
     const uiConfig = config.ui || {};
     const modelConfig = config.models || {};
-    const featuresConfig = config.features || {};
 
     set({
       metaPortionWidth: uiConfig.meta_portion_width_percent || 20,
@@ -150,8 +151,8 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
         modelConfig.local_model_path ||
         "claude-sonnet-4-20250514",
       availableModels: modelConfig.available_models || [],
-      consciousnessEnabled: featuresConfig.consciousness_enabled || false,
-      p2pEnabled: featuresConfig.p2p_enabled || false,
+      consciousnessEnabled: config.consciousness?.enabled ?? false,
+      p2pEnabled: config.network?.p2p_enabled ?? false,
     });
   },
 
@@ -412,7 +413,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
     if (window.ozone) {
       window.ozone.config
-        .set({ features: { consciousness_enabled: enabled } })
+        .set({ consciousness: { enabled } })
         .catch(console.warn);
     }
   },

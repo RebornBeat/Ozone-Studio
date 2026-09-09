@@ -33,6 +33,7 @@ pub mod consciousness;
 pub mod grpc;
 pub mod integrity;
 pub mod methodologies;
+pub mod monitor;
 pub mod network;
 pub mod orchestrator;
 pub mod pipeline;
@@ -46,6 +47,12 @@ pub mod shared_contracts;
 
 /// K-ALGORITHM typed registry facade.
 pub mod k_registry;
+
+/// MCP TOOL registry — external tool connection surface.
+pub mod mcp;
+
+/// QR DEVICE pairing — the phone as authenticator, multi-device onboarding.
+pub mod pairing;
 
 
 // Re-exports

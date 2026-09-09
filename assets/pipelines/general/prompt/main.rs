@@ -192,21 +192,7 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
             &input,
         ).await?
     };
-        call_anthropic_api(
-            endpoint,
-            &api_key,
-            &model,
-            &input,
-        ).await?
-    } else if endpoint.contains("openai") {
-        call_openai_api(
-            endpoint,
-            &api_key,
-            &model,
-            &input,
-        ).await?
-    };
-    
+
     Ok(response)
 }
 

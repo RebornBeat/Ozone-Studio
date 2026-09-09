@@ -11,6 +11,10 @@ import { MetaPortion } from "./components/MetaPortion";
 import { ThemeArea } from "./components/ThemeArea";
 import { StatusBar } from "./components/StatusBar";
 import ConnectedAgents from "./components/ConnectedAgents";
+import MonitoringPanel from "./components/MonitoringPanel";
+import PairingPanel from "./components/PairingPanel";
+import ToolsPanel from "./components/ToolsPanel";
+import { OZONE_HOST, fetchRemotePipelines } from "./ozoneClient";
 import "./App.css";
 
 // TypeScript declarations
@@ -110,15 +114,22 @@ export interface SystemStats {
 
 // Setup Wizard Types
 interface SetupConfig {
-  modelType: "api" | "local" | null;
+  modelType: "api" | "local" | "zcode" | null;
   apiProvider: "anthropic" | "openai" | "google" | "local" | "";
   apiKey: string;
   localModelPath: string;
   localModelType: "gguf" | "bitnet" | "other";
   voiceEnabled: boolean;
+  /** Voice backend — mirrors config VoiceConfig.backend. */
+  voiceBackend: "whisper_rs" | "whisper_cpp" | "api";
   whisperModelPath: string;
+  whisperCppPath: string;
+  voiceApiEndpoint: string;
   consciousnessEnabled: boolean;
 }
+
+/// Default local whisper model (ggml-base.en) — exists on this machine.
+const DEFAULT_WHISPER_MODEL = "/home/rebornbeat/ozone-models/whisper/ggml-base.en.bin";
 
 interface WhisperModelStatus {
   name: string;
@@ -227,10 +238,44 @@ function App() {
     localModelPath: "",
     localModelType: "gguf",
     voiceEnabled: false,
-    whisperModelPath: "",
+    voiceBackend: "whisper_rs",
+    whisperModelPath: DEFAULT_WHISPER_MODEL,
+    whisperCppPath: "",
+    voiceApiEndpoint: "",
     consciousnessEnabled: false,
   });
   const [whisperModelPath, setWhisperModelPath] = useState<string>("");
+  // Panel switcher: monitor | pair | tools | null. Settings and Pipelines
+  // live as core tabs (Settings tab, Library tab) — not duplicated here.
+  const [activePanel, setActivePanel] = useState<
+    "monitor" | "pair" | "tools" | null
+  >(null);
+  // Live probe: which model-role agents are registered with the host right
+  // now (drives the wizard's honest ZCode status for ANY user).
+  const [modelAgents, setModelAgents] = useState<string[]>([]);
+  useEffect(() => {
+    if (!showSetupWizard) return;
+    let cancelled = false;
+    const probe = async () => {
+      try {
+        const out = await fetchRemotePipelines();
+        if (cancelled) return;
+        setModelAgents(
+          (out.pipelines ?? [])
+            .filter((p) => (p.roles ?? ["agent"]).includes("model"))
+            .map((p) => p.name),
+        );
+      } catch {
+        if (!cancelled) setModelAgents([]);
+      }
+    };
+    probe();
+    const t = setInterval(probe, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [showSetupWizard]);
 
   // Try to connect to backend
   const tryConnect = async (): Promise<boolean> => {
@@ -264,7 +309,41 @@ function App() {
 
       if (!window.ozone) {
         console.warn("Running in browser mode - no backend API");
+        // WEB MODE: connect to the host over HTTP directly — the same
+        // backend the Electron bridge wraps. /health is the probe; while
+        // it's down the connecting screen is a REAL wait, retried until
+        // the host appears (no more infinite loop with a live backend).
         setLoading(false);
+        const probe = async (): Promise<boolean> => {
+          try {
+            const res = await fetch(`${OZONE_HOST}/health`);
+            if (res.ok) {
+              setConnectionStatus(true);
+              // Web mode still initializes store state (consciousness flag,
+              // model selection) from the live host config over HTTP.
+              try {
+                const cfgRes = await fetch(`${OZONE_HOST}/config/get`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ section: "", session_token: "" }),
+                });
+                const cfg = await cfgRes.json();
+                await initializeApp(cfg?.config ?? cfg);
+              } catch {
+                /* config optional — connection still stands */
+              }
+              return true;
+            }
+          } catch {
+            /* host not reachable yet */
+          }
+          return false;
+        };
+        if (!(await probe())) {
+          const retry = setInterval(async () => {
+            if (await probe()) clearInterval(retry);
+          }, 3000);
+        }
         return;
       }
 
@@ -306,9 +385,12 @@ function App() {
     const errors: string[] = [];
 
     if (setupStep === 0) {
-      // Model configuration
+      // Model configuration — ZCode connects via the host registry, nothing
+      // to type; api needs provider + key; local needs a model file.
       if (!setupConfig.modelType) {
         errors.push("Please select a model type");
+      } else if (setupConfig.modelType === "zcode") {
+        // valid by construction — ZCode is already connected to this host
       } else if (setupConfig.modelType === "api") {
         if (!setupConfig.apiProvider) {
           errors.push("Please select an API provider");
@@ -335,16 +417,31 @@ function App() {
 
     if (setupStep === 1) {
       if (setupConfig.voiceEnabled) {
-        if (!setupConfig.whisperModelPath?.trim()) {
-          errors.push(
-            "Please select a Whisper model file when voice input is enabled",
-          );
-        }
-        // Optional: you could add very basic file extension check here
-        else if (!/\.(bin|pt|pth|onnx)$/i.test(setupConfig.whisperModelPath)) {
-          errors.push(
-            "Selected file should have extension .bin, .pt, .pth or .onnx",
-          );
+        if (
+          setupConfig.voiceBackend === "whisper_rs" ||
+          setupConfig.voiceBackend === "whisper_cpp"
+        ) {
+          if (!setupConfig.whisperModelPath?.trim()) {
+            errors.push(
+              "Please select a Whisper model file when voice input is enabled",
+            );
+          } else if (!/\.(bin|pt|pth|onnx|ggml)$/i.test(setupConfig.whisperModelPath)) {
+            errors.push(
+              "Selected file should have extension .bin, .pt, .pth, .onnx or .ggml",
+            );
+          }
+          if (
+            setupConfig.voiceBackend === "whisper_cpp" &&
+            !setupConfig.whisperCppPath?.trim()
+          ) {
+            errors.push(
+              "whisper_cpp backend needs the whisper-cli binary path",
+            );
+          }
+        } else if (setupConfig.voiceBackend === "api") {
+          if (!setupConfig.voiceApiEndpoint?.trim()) {
+            errors.push("API voice backend needs a transcription endpoint");
+          }
         }
       }
     }
@@ -404,9 +501,21 @@ function App() {
         },
         voice: {
           enabled: setupConfig.voiceEnabled,
-          whisper_model_path: setupConfig.voiceEnabled
-            ? setupConfig.whisperModelPath
-            : undefined,
+          backend: setupConfig.voiceBackend,
+          whisper_model_path:
+            setupConfig.voiceEnabled &&
+            setupConfig.voiceBackend !== "api"
+              ? setupConfig.whisperModelPath
+              : undefined,
+          whisper_cpp_path:
+            setupConfig.voiceEnabled &&
+            setupConfig.voiceBackend === "whisper_cpp"
+              ? setupConfig.whisperCppPath
+              : undefined,
+          api_endpoint:
+            setupConfig.voiceEnabled && setupConfig.voiceBackend === "api"
+              ? setupConfig.voiceApiEndpoint
+              : undefined,
         },
         consciousness: {
           enabled: setupConfig.consciousnessEnabled,
@@ -544,6 +653,19 @@ function App() {
 
                 <div className="model-type-selection">
                   <button
+                    className={`model-type-btn ${setupConfig.modelType === "zcode" ? "selected" : ""}`}
+                    onClick={() =>
+                      setSetupConfig((prev) => ({ ...prev, modelType: "zcode" }))
+                    }
+                  >
+                    <span className="btn-icon">⚡</span>
+                    <span className="btn-title">ZCode (Connected)</span>
+                    <span className="btn-desc">
+                      ZCode serves as a model via the Ozone-Studio registry
+                    </span>
+                  </button>
+
+                  <button
                     className={`model-type-btn ${setupConfig.modelType === "api" ? "selected" : ""}`}
                     onClick={() =>
                       setSetupConfig((prev) => ({ ...prev, modelType: "api" }))
@@ -572,6 +694,36 @@ function App() {
                     </span>
                   </button>
                 </div>
+
+                {setupConfig.modelType === "zcode" && (
+                  <div className="model-config-section">
+                    {modelAgents.includes("zcode") ? (
+                      <p className="config-hint">
+                        ✓ <b>ZCode is connected</b> to this host (roles: agent +
+                        model) — model calls dispatch over the registry. Nothing
+                        to type here.
+                      </p>
+                    ) : modelAgents.length > 0 ? (
+                      <p className="config-hint">
+                        ✓ A model agent is connected:{" "}
+                        <b>{modelAgents.join(", ")}</b> — model calls dispatch
+                        over the registry.
+                      </p>
+                    ) : (
+                      <p className="config-hint">
+                        ZCode runs as a model through the <b>ZCode connector</b>{" "}
+                        — a tiny zero-dependency agent that registers this
+                        machine with the host and stays connected
+                        (auto-reconnect). Start it with:
+                        <br />
+                        <code>node tools/zcode-connector/connect.js watch</code>
+                        <br />
+                        (Node 18+). This panel turns green the moment it lands —
+                        the host and the UI don't need restarting.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {setupConfig.modelType === "api" && (
                   <div className="model-config-section">
@@ -752,26 +904,100 @@ function App() {
 
                 {setupConfig.voiceEnabled && (
                   <div className="voice-config-section">
-                    <label>Whisper Model File</label>
-                    <div className="file-input-group">
-                      <input
-                        type="text"
-                        placeholder="No file selected"
-                        value={setupConfig.whisperModelPath}
-                        readOnly
-                        onClick={handleSelectWhisperFile}
-                      />
+                    <label>Voice Backend</label>
+                    <div className="local-model-types">
                       <button
-                        className="browse-btn"
-                        onClick={handleSelectWhisperFile}
+                        className={`local-type-btn ${setupConfig.voiceBackend === "whisper_rs" ? "selected" : ""}`}
+                        onClick={() =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            voiceBackend: "whisper_rs",
+                          }))
+                        }
                       >
-                        Browse…
+                        whisper-rs (integrated)
+                      </button>
+                      <button
+                        className={`local-type-btn ${setupConfig.voiceBackend === "whisper_cpp" ? "selected" : ""}`}
+                        onClick={() =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            voiceBackend: "whisper_cpp",
+                          }))
+                        }
+                      >
+                        whisper.cpp (CLI)
+                      </button>
+                      <button
+                        className={`local-type-btn ${setupConfig.voiceBackend === "api" ? "selected" : ""}`}
+                        onClick={() =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            voiceBackend: "api",
+                          }))
+                        }
+                      >
+                        API
                       </button>
                     </div>
-                    <p className="config-hint">
-                      Select a Whisper model file (usually .bin, .pt, .pth or
-                      .onnx)
-                    </p>
+
+                    {setupConfig.voiceBackend === "api" ? (
+                      <div className="model-config-section">
+                        <label>Transcription Endpoint</label>
+                        <input
+                          type="text"
+                          placeholder="https://…/v1/audio/transcriptions"
+                          value={setupConfig.voiceApiEndpoint}
+                          onChange={(e) =>
+                            setSetupConfig((prev) => ({
+                              ...prev,
+                              voiceApiEndpoint: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <>
+                        <label>Whisper Model File</label>
+                        <div className="file-input-group">
+                          <input
+                            type="text"
+                            placeholder="No file selected"
+                            value={setupConfig.whisperModelPath}
+                            readOnly={
+                              setupConfig.whisperModelPath === DEFAULT_WHISPER_MODEL
+                            }
+                            onClick={handleSelectWhisperFile}
+                          />
+                          <button
+                            className="browse-btn"
+                            onClick={handleSelectWhisperFile}
+                          >
+                            Browse…
+                          </button>
+                        </div>
+                        <p className="config-hint">
+                          Default: ggml-base.en detected on this machine
+                          {" "}`{DEFAULT_WHISPER_MODEL}`
+                        </p>
+                        {setupConfig.voiceBackend === "whisper_cpp" && (
+                          <div className="model-config-section">
+                            <label>whisper-cli Binary Path</label>
+                            <input
+                              type="text"
+                              placeholder="/usr/local/bin/whisper-cli"
+                              value={setupConfig.whisperCppPath}
+                              onChange={(e) =>
+                                setSetupConfig((prev) => ({
+                                  ...prev,
+                                  whisperCppPath: e.target.value,
+                                }))
+                              }
+                            />
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 )}
 
@@ -851,9 +1077,11 @@ function App() {
                   <div className="summary-item">
                     <span className="summary-label">Model:</span>
                     <span className="summary-value">
-                      {setupConfig.modelType === "api"
-                        ? "API Model"
-                        : `Local ${setupConfig.localModelType.toUpperCase()}`}
+                      {setupConfig.modelType === "zcode"
+                        ? "ZCode (registry model)"
+                        : setupConfig.modelType === "api"
+                          ? "API Model"
+                          : `Local ${setupConfig.localModelType.toUpperCase()}`}
                     </span>
                   </div>
                   <div className="summary-item">
@@ -861,11 +1089,11 @@ function App() {
                     <span className="summary-value">
                       {setupConfig.voiceEnabled
                         ? `Enabled (${
-                            setupConfig.whisperModelPath
-                              ? setupConfig.whisperModelPath
-                                  .split(/[\\/]/)
-                                  .pop() // show only filename
-                              : "path missing?"
+                            setupConfig.voiceBackend === "api"
+                              ? "API backend"
+                              : setupConfig.voiceBackend === "whisper_rs"
+                                ? "whisper-rs integrated"
+                                : "whisper.cpp CLI"
                           })`
                         : "Disabled"}
                     </span>
@@ -934,19 +1162,68 @@ function App() {
       </header>
 
       <div className="app-content">
-        <MetaPortion width={30} />
+        <MetaPortion width={27} />
         <ThemeArea theme={currentTheme} />
       </div>
+
+      {activePanel && (
+        <div
+          style={{
+            maxHeight: 330,
+            overflowY: "auto",
+            borderTop: "1px solid #1e2836",
+            background: "#0e131c",
+            flex: "none",
+          }}
+        >
+          {activePanel === "monitor" && <MonitoringPanel />}
+          {activePanel === "pair" && <PairingPanel />}
+          {activePanel === "tools" && <ToolsPanel />}
+        </div>
+      )}
 
       <div
         style={{
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: "space-between",
           alignItems: "center",
-          padding: "0 12px",
+          padding: "6px 12px",
           fontSize: 12,
+          borderTop: "1px solid #1e2836",
+          background: "#0b0f18",
+          flex: "none",
         }}
       >
+        <div style={{ display: "flex", gap: 6 }}>
+          {(
+            [
+              ["monitor", "📡", "Monitor"],
+              ["pair", "📱", "Pair"],
+              ["tools", "🔧", "Tools"],
+            ] as const
+          ).map(([key, icon, label]) => (
+            <button
+              key={key}
+              onClick={() => setActivePanel(activePanel === key ? null : key)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "6px 14px",
+                fontSize: 12.5,
+                borderRadius: 10,
+                cursor: "pointer",
+                border: `1px solid ${activePanel === key ? "#2f6cb4" : "#1e2836"}`,
+                background: activePanel === key ? "#16233a" : "transparent",
+                color: activePanel === key ? "#dfe7f2" : "#8b98ab",
+                transition: "all 0.12s",
+              }}
+            >
+              <span style={{ fontSize: 14 }}>{icon}</span>
+              {label}
+            </button>
+          ))}
+        </div>
         <ConnectedAgents compact pollMs={5000} />
       </div>
       <StatusBar />

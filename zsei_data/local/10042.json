@@ -1,0 +1,88 @@
+{
+  "metadata": {
+    "container_type": "Pipeline",
+    "modality": "Unknown",
+    "created_at": 1788917105,
+    "updated_at": 1788917105,
+    "provenance": "bootstrap",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "ExperienceRetrieval",
+    "materialized_path": "/Pipelines/consciousness/experience_retrieval"
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "experienceretrieval",
+      "pipeline",
+      "consciousness",
+      "experienceretrieval",
+      "experience",
+      "retrieval"
+    ],
+    "topics": [
+      "consciousness"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "pipelines/consciousness/experience_retrieval",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

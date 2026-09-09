@@ -1,0 +1,10 @@
+/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/target/release/deps/icu_normalizer-b2226df4bfc0f9f5.d: /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/lib.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/properties.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/provider.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/uts46.rs
+
+/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/target/release/deps/libicu_normalizer-b2226df4bfc0f9f5.rlib: /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/lib.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/properties.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/provider.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/uts46.rs
+
+/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/target/release/deps/libicu_normalizer-b2226df4bfc0f9f5.rmeta: /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/lib.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/properties.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/provider.rs /home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/uts46.rs
+
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/lib.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/properties.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/provider.rs:
+/home/rebornbeat/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/icu_normalizer-2.3.0/src/uts46.rs:

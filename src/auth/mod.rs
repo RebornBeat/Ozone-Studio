@@ -309,16 +309,79 @@ impl AuthSystem {
         let mut users = self.users.write().await;
         let user = users.get_mut(&user_id)
             .ok_or_else(|| OzoneError::NotFound(format!("User {} not found", user_id)))?;
-        
+
         let mut next_id = self.next_device_id.write().await;
         let device_id = *next_id;
         *next_id += 1;
-        
+
         let mut device = device;
         device.device_id = device_id;
-        
+
         user.registered_devices.push(device);
-        
+
         Ok(device_id)
+    }
+
+    /// Create a session for a QR-paired device (see `crate::pairing`).
+    ///
+    /// The phone's approval is the factor; the paired device receives the
+    /// returned session token exactly like an Ed25519-authenticated client.
+    /// All pairing devices attach to one reserved owner so the multi-device
+    /// registry (users → devices) stays coherent without inventing users.
+    pub async fn create_pairing_session(
+        &self,
+        device_name: String,
+        device_type: DeviceType,
+    ) -> OzoneResult<Session> {
+        // Reserved marker "key" — pairing devices hold session tokens, they
+        // never authenticate by signature.
+        const PAIRING_OWNER_KEY: &[u8] = b"ozone-pairing-owner-v1";
+
+        let owner = self.get_or_create_user(PAIRING_OWNER_KEY).await?;
+        let device_id = self.get_or_create_device(&owner, PAIRING_OWNER_KEY).await?;
+
+        // Fill in the friendly name/type on the freshly created device.
+        {
+            let mut users = self.users.write().await;
+            if let Some(u) = users.get_mut(&owner.user_id) {
+                for d in u.registered_devices.iter_mut() {
+                    if d.device_id == device_id && d.device_name.starts_with("Device-") {
+                        d.device_name = device_name.clone();
+                        d.device_type = device_type.clone();
+                    }
+                }
+            }
+        }
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let mut session_token = [0u8; 32];
+        rand::thread_rng().fill_bytes(&mut session_token);
+
+        let session = Session {
+            session_id: rand::random(),
+            session_token: session_token.to_vec(),
+            token: session_token.to_vec(),
+            user_id: owner.user_id,
+            device_id,
+            created_at: now,
+            expires_at: now + self.config.session_duration_secs,
+            last_activity: now,
+            active_workspace: None,
+            active_project: None,
+        };
+
+        self.sessions.write().await.insert(session_token.to_vec(), session.clone());
+
+        tracing::info!(
+            "Pairing session created for device {} (user {})",
+            device_id,
+            owner.user_id
+        );
+
+        Ok(session)
     }
 }

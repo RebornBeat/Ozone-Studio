@@ -12,6 +12,8 @@
 
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { InjectedTab } from './themes/home_dashboard/HomeDashboard';
+import SettingsPanel from './components/SettingsPanel';
+import PipelinesPanel from './components/PipelinesPanel';
 
 // ============================================================================
 // Module Cache
@@ -126,9 +128,26 @@ export async function loadPipelineUIModule(
 ): Promise<PipelineUIModule | null> {
   if (moduleCache.has(pipelineId)) return moduleCache.get(pipelineId)!;
 
+  // Never spin forever: surface the backend's reason or time out.
+  const withTimeout = <T,>(p: Promise<T>, ms: number, what: string) =>
+    Promise.race([
+      p,
+      new Promise<never>((_, rej) =>
+        setTimeout(() => rej(new Error(`${what} timed out after ${ms / 1000}s`)), ms),
+      ),
+    ]);
+
   try {
     if (window.ozone?.pipeline?.getUIComponent) {
-      const result = await window.ozone.pipeline.getUIComponent(pipelineId);
+      console.log(`[PipelineUI ${pipelineId}] fetching component.js via bridge…`);
+      const result = await withTimeout(
+        window.ozone.pipeline.getUIComponent(pipelineId),
+        8000,
+        `UI component fetch (pipeline ${pipelineId})`,
+      );
+      console.log(
+        `[PipelineUI ${pipelineId}] response: success=${result?.success}, has_js=${!!result?.component_js}, error=${result?.error ?? "none"}`,
+      );
       if (result?.component_js) {
         const mod = evalPipelineModule(result.component_js, pipelineId);
         if (mod) {
@@ -136,9 +155,14 @@ export async function loadPipelineUIModule(
           return mod;
         }
       }
+      throw new Error(
+        result?.error ?? `No UI module found for pipeline ${pipelineId}`
+      );
     }
+    console.warn(`[PipelineUI ${pipelineId}] getUIComponent bridge unavailable`);
   } catch (e) {
     console.error(`Failed to load UI module for pipeline ${pipelineId}:`, e);
+    throw e;
   }
   return null;
 }
@@ -207,13 +231,20 @@ function createDynamicTabComponent(pipelineId: number): React.ComponentType<any>
 
 /** Create InjectedTab objects for the 4 core tabs. Always works offline. */
 export function createCoreTabs(): InjectedTab[] {
+  // Settings and Library host OUR config/registry surfaces directly —
+  // single source for each, no duplicate panels or stale component.js.
+  const nativeTabComponents: Record<string, React.ComponentType<any>> = {
+    settings: SettingsPanel,
+    library: PipelinesPanel,
+  };
+
   return CORE_TAB_DEFINITIONS.map(def => ({
     id: def.id,
     pipelineId: def.pipelineId,
     label: def.label,
     icon: def.icon,
     isCore: true,
-    component: createDynamicTabComponent(def.pipelineId),
+    component: nativeTabComponents[def.id] ?? createDynamicTabComponent(def.pipelineId),
     closeable: false,
     needsAttention: false,
   }));
@@ -281,32 +312,55 @@ export function DynamicPipelineUI({
     let mounted = true;
 
     async function load() {
-      if (!containerRef.current) return;
+      console.log(`[PipelineUI ${pipelineId}] loading module…`);
       try {
         const mod = await loadPipelineUIModule(pipelineId);
         if (!mounted) return;
 
         if (!mod) {
+          console.warn(`[PipelineUI ${pipelineId}] no module returned`);
           setError(`No UI module found for pipeline ${pipelineId}`);
           setLoading(false);
           return;
         }
 
-        const ReactLib  = await import('react');
-        const ReactDOM  = await import('react-dom/client');
+        const ReactLib = await import("react");
+        const ReactDOM = await import("react-dom/client");
+        if (!mounted) return;
 
+        // Content mounts only after loading flips false — wait one frame,
+        // then render into the now-mounted container.
+        setLoading(false);
+        await new Promise((r) => requestAnimationFrame(r));
+        await new Promise((r) => setTimeout(r, 0));
+        if (!mounted) return;
+        if (!containerRef.current) {
+          console.warn(`[PipelineUI ${pipelineId}] container not mounted after load`);
+          return;
+        }
+
+        console.log(`[PipelineUI ${pipelineId}] rendering module…`);
         const cleanup = mod.render(
           containerRef.current!,
-          { pipelineId, executePipeline, getSharedState, setSharedState, subscribeToState, onClose, initialData },
+          {
+            pipelineId,
+            executePipeline,
+            getSharedState,
+            setSharedState,
+            subscribeToState,
+            onClose,
+            initialData,
+          },
           ReactLib,
-          ReactDOM
+          ReactDOM,
         );
-        if (typeof cleanup === 'function') cleanupRef.current = cleanup;
+        console.log(`[PipelineUI ${pipelineId}] render complete`);
+        if (typeof cleanup === "function") cleanupRef.current = cleanup;
         mod.onActivate?.();
-        setLoading(false);
       } catch (e: any) {
         if (mounted) {
-          setError(e.message ?? 'Failed to load UI module');
+          console.error(`[PipelineUI ${pipelineId}] load failed:`, e);
+          setError(e.message ?? "Failed to load UI module");
           setLoading(false);
         }
       }

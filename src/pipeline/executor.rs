@@ -56,6 +56,9 @@ pub struct PipelineExecutor {
     /// spawn is the fallback convention.
     remote: Arc<crate::pipeline::remote::RemotePipelines>,
 
+    /// Monitor activity hub (dashboard feed, browser plugin, ZCode connector).
+    activity: Arc<crate::monitor::ActivityHub>,
+
     progress_map: Arc<tokio::sync::RwLock<std::collections::HashMap<String, PipelineProgress>>>,
     cancel_set: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
 }
@@ -69,6 +72,7 @@ impl PipelineExecutor {
             max_concurrent: config.max_concurrent_pipelines,
             running_count: std::sync::atomic::AtomicUsize::new(0),
             remote: Arc::new(crate::pipeline::remote::RemotePipelines::new()),
+            activity: Arc::new(crate::monitor::ActivityHub::new()),
             progress_map: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
             cancel_set: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         })
@@ -77,6 +81,11 @@ impl PipelineExecutor {
     /// Registration table for self-connecting pipelines.
     pub fn remote_pipelines(&self) -> Arc<crate::pipeline::remote::RemotePipelines> {
         self.remote.clone()
+    }
+
+    /// Monitor activity hub accessor.
+    pub fn activity_hub(&self) -> Arc<crate::monitor::ActivityHub> {
+        self.activity.clone()
     }
 
     /// Execute a pipeline
@@ -251,24 +260,34 @@ impl PipelineExecutor {
 
         let pipeline_dir = self.builtin_path.join(category).join(&pipeline_name);
 
-        let executable = if cfg!(windows) {
-            pipeline_dir.join(format!("{}.exe", pipeline_name))
-        } else {
-            pipeline_dir.join(&pipeline_name)
-        };
+        // Candidate executables, in order: binary next to the pipeline
+        // folder, crate target builds, sibling of the host binary. NEVER
+        // execute main.rs — that was an EACCES trap (source isn't runnable).
+        let name = pipeline_name.as_str();
+        let mut candidates = vec![
+            pipeline_dir.join(name),
+            pipeline_dir.join("target/release").join(name),
+            pipeline_dir.join("target/debug").join(name),
+        ];
+        if let Ok(exe_dir) = std::env::current_exe() {
+            if let Some(dir) = exe_dir.parent() {
+                candidates.push(dir.join(name));
+            }
+        }
 
-        let pipeline_path = if executable.exists() {
-            executable
-        } else {
-            let main_rs = pipeline_dir.join("main.rs");
-            if main_rs.exists() {
-                main_rs
-            } else {
+        let pipeline_path = candidates
+            .iter()
+            .find(|c| c.exists())
+            .map(|c| c.to_path_buf());
+
+        let pipeline_path = match pipeline_path {
+            Some(p) => p,
+            None => {
                 tracing::error!(
                     execution_id = %execution_id,
                     pipeline_name = %pipeline_name,
-                    path = ?pipeline_dir,
-                    "Builtin pipeline implementation not found"
+                    searched = ?candidates,
+                    "Builtin pipeline binary not found"
                 );
                 return Ok(PipelineOutput {
                     execution_id,
@@ -278,7 +297,7 @@ impl PipelineExecutor {
                         map.insert(
                             "error".into(),
                             serde_json::Value::String(format!(
-                                "Pipeline {} not found",
+                                "Pipeline {} binary not built — build its crate and place the binary in the pipelines data dir",
                                 pipeline_name
                             )),
                         );
@@ -286,7 +305,7 @@ impl PipelineExecutor {
                     },
                     success: false,
                     error: Some(format!(
-                        "Pipeline {} implementation not found",
+                        "Pipeline {} binary not built",
                         pipeline_name
                     )),
                 });

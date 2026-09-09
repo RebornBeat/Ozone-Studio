@@ -6,7 +6,9 @@
     "updated_at": 0,
     "provenance": "",
     "permissions": 0,
-    "owner_id": 0
+    "owner_id": 0,
+    "name": null,
+    "materialized_path": null
   },
   "context": {
     "categories": [],

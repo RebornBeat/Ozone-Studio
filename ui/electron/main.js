@@ -286,7 +286,60 @@ function createWindow() {
 // IPC Handlers - Communication with Rust Backend
 // ============================================================================
 
+// ── Device identity + session (Ed25519 challenge-response) ───────────────
+// The desktop is a first-class device: it holds an Ed25519 keypair in
+// userData, authenticates against /auth/challenge + /auth/authenticate,
+// and injects the session token into every backend call that carries one.
+// A rejected session clears the cache so the next call re-authenticates.
+let cachedSessionToken = null;
+
+async function ensureSessionToken() {
+  if (cachedSessionToken) return cachedSessionToken;
+  const crypto = require("crypto");
+  const fs = require("fs");
+  const keyPath = path.join(app.getPath("userData"), "device-key.pem");
+  let privateKeyPem;
+  if (fs.existsSync(keyPath)) {
+    privateKeyPem = fs.readFileSync(keyPath, "utf8");
+  } else {
+    const kp = crypto.generateKeyPairSync("ed25519");
+    privateKeyPem = kp.privateKey.export({ type: "pkcs8", format: "pem" });
+    fs.writeFileSync(keyPath, privateKeyPem);
+  }
+  const privateKey = crypto.createPrivateKey(privateKeyPem);
+  const spki = crypto
+    .createPublicKey(privateKey)
+    .export({ type: "spki", format: "der" });
+  // Raw 32-byte ed25519 public key = trailing 32 bytes of the SPKI DER.
+  const rawPub = spki.subarray(spki.length - 32).toString("hex");
+
+  const ch = await rawRequest("POST", "/auth/challenge", {
+    public_key: rawPub,
+  });
+  if (!ch || !ch.challenge) throw new Error("no challenge from host");
+  const signature = crypto
+    .sign(null, Buffer.from(ch.challenge, "hex"), privateKey)
+    .toString("hex");
+  const auth = await rawRequest("POST", "/auth/authenticate", {
+    public_key: rawPub,
+    signature,
+  });
+  if (!auth || !auth.success || !auth.session_token) {
+    throw new Error("host auth failed: " + ((auth && auth.error) || "unknown"));
+  }
+  cachedSessionToken = auth.session_token;
+  log.info(`[AUTH] desktop authenticated (device_id ${auth.device_id})`);
+  return cachedSessionToken;
+}
+
 async function backendRequest(method, path, body = null) {
+  if (body && typeof body === "object" && "session_token" in body) {
+    body.session_token = await ensureSessionToken();
+  }
+  return rawRequest(method, path, body);
+}
+
+function rawRequest(method, path, body = null) {
   const start = Date.now();
   log.info(
     `[HTTP] ${method} ${path} body=${JSON.stringify(body).slice(0, 200)}...`,
@@ -309,8 +362,16 @@ async function backendRequest(method, path, body = null) {
         const duration = Date.now() - start;
         log.info(`[HTTP OK] ${method} ${path} - ${Date.now() - start}ms`);
         try {
-          log.debug(`HTTP Response:`, JSON.parse(data));
-          resolve(JSON.parse(data));
+          const parsed = JSON.parse(data);
+          if (
+            parsed &&
+            typeof parsed.error === "string" &&
+            parsed.error.includes("Invalid session")
+          ) {
+            cachedSessionToken = null;
+          }
+          log.debug(`HTTP Response:`, parsed);
+          resolve(parsed);
         } catch (e) {
           resolve(data);
         }
@@ -488,10 +549,42 @@ ipcMain.handle(
   "pipeline:execute",
   async (event, { pipelineId, input, sessionToken }) => {
     requireConnection();
+    // Envelope contract: PipelineInput = { data, context }. The UI sends
+    // bare action objects — wrap them here so every call deserializes.
+    const hasEnvelope =
+      input && typeof input === "object" && !Array.isArray(input) && "data" in input;
+    const payload = hasEnvelope
+      ? input
+      : {
+          data: input && typeof input === "object" ? input : {},
+          context: {
+            user_id: 0,
+            device_id: 0,
+            workspace_id: null,
+            project_id: null,
+            task_context_id: null,
+            metadata: {},
+          },
+        };
     return await backendRequest("POST", "/pipeline/execute", {
       pipeline_id: pipelineId,
-      input: input,
+      input: payload,
       session_token: sessionToken || "",
+    }).then((out) => {
+      // Capture real usage in the monitor feed — skip poll-style actions so
+      // the feed stays readable.
+      const action = payload?.data?.action ?? "";
+      if (!/^(Get|List|Is|Poll)/i.test(action)) {
+        backendRequest("POST", "/monitor/activity", {
+          kind: "job",
+          level: out?.success === false ? "warn" : "info",
+          source: "desktop-ui",
+          message: `Pipeline ${pipelineId} ${action || "execute"} ${
+            out?.success === false ? "failed" : "ok"
+          }`,
+        }).catch(() => {});
+      }
+      return out;
     });
   },
 );
@@ -504,23 +597,61 @@ ipcMain.handle("pipelines:remote", async () => {
   return await backendRequest("GET", "/pipelines/remote");
 });
 
+// Monitor — activity hub + one-shot summary for the Connected-Agents panel.
+ipcMain.handle("monitor:activity", async (event, query) => {
+  requireConnection();
+  const params = new URLSearchParams();
+  if (query?.limit) params.set("limit", String(query.limit));
+  if (query?.kind) params.set("kind", query.kind);
+  const qs = params.toString();
+  return await backendRequest("GET", `/monitor/activity${qs ? `?${qs}` : ""}`);
+});
+
+ipcMain.handle("monitor:push", async (event, activity) => {
+  requireConnection();
+  return await backendRequest("POST", "/monitor/activity", activity);
+});
+
+ipcMain.handle("monitor:summary", async () => {
+  requireConnection();
+  return await backendRequest("GET", "/monitor/summary");
+});
+
+// Pipeline registration — lets ZCode / browser plugin / any agent announce
+// itself through the same surface the dashboard reads.
+ipcMain.handle("pipelines:register", async (event, registration) => {
+  requireConnection();
+  return await backendRequest("POST", "/pipelines/register", registration);
+});
+
 // Orchestration endpoint — routes to backend /orchestrate ONLY this creates tasks
 ipcMain.handle("orchestrate", async (event, request) => {
   requireConnection();
   return await backendRequest("POST", "/orchestrate", request);
 });
 
+// Generic HTTP bridges — renderer panels call the host through the main
+// process, so no cross-origin fetch from the file:// renderer (Chromium
+// Private Network Access blocks those against localhost).
+ipcMain.handle("http:post", async (event, { path, body }) => {
+  requireConnection();
+  return await backendRequest("POST", path, body ?? {});
+});
+
+ipcMain.handle("http:get", async (event, { path }) => {
+  requireConnection();
+  return await backendRequest("GET", path);
+});
+
 ipcMain.handle("pipeline:list", async () => {
   requireConnection();
+  // Real registry from the host — no hardcoded stubs.
+  const out = await backendRequest("POST", "/pipeline/registry", {
+    session_token: "",
+  });
+  const registry = out?.registry ?? [];
   return {
-    pipelines: [
-      { id: 1, name: "AuthPipeline" },
-      { id: 2, name: "ThemeLoaderPipeline" },
-      { id: 3, name: "ZSEIQueryPipeline" },
-      { id: 9, name: "PromptPipeline" },
-      { id: 10, name: "VoicePipeline" },
-      { id: 11, name: "SettingsPipeline" },
-    ],
+    pipelines: registry.map((p) => ({ id: p.pipeline_id, name: p.name })),
   };
 });
 

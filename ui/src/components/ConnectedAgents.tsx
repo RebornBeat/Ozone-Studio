@@ -7,14 +7,7 @@
  * dashboard surface of src/pipeline/remote.rs.
  */
 import React, { useEffect, useState } from "react";
-
-interface RemotePipeline {
-  pipeline_id: number;
-  name: string;
-  execute_url: string;
-  registered_at: number;
-  call_count: number;
-}
+import { AgentInfo, fetchRemotePipelines } from "../ozoneClient";
 
 interface Props {
   /** Poll interval in ms (default 5s). */
@@ -23,11 +16,31 @@ interface Props {
   compact?: boolean;
 }
 
+/** "3s ago" style label — registered_at refreshes on every heartbeat. */
+function lastSeen(registeredAt: number): string {
+  const secs = Math.max(0, Math.floor(Date.now() / 1000 - registeredAt));
+  if (secs < 5) return "now";
+  if (secs < 60) return `${secs}s ago`;
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`;
+  return `${Math.floor(secs / 3600)}h ago`;
+}
+
+function roleColor(role: string): string {
+  switch (role) {
+    case "model":
+      return "#9b59b6";
+    case "observer":
+      return "#3498db";
+    default:
+      return "#2ecc71";
+  }
+}
+
 export const ConnectedAgents: React.FC<Props> = ({
   pollMs = 5000,
   compact = false,
 }) => {
-  const [agents, setAgents] = useState<RemotePipeline[]>([]);
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [connected, setConnected] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
@@ -36,12 +49,7 @@ export const ConnectedAgents: React.FC<Props> = ({
 
     const poll = async () => {
       try {
-        const oz = (window as any).ozone;
-        if (!oz?.pipelinesRemote) {
-          setConnected(false);
-          return;
-        }
-        const result = await oz.pipelinesRemote();
+        const result = await fetchRemotePipelines();
         if (cancelled) return;
         setAgents(result?.pipelines ?? []);
         setConnected(true);
@@ -103,9 +111,10 @@ export const ConnectedAgents: React.FC<Props> = ({
             <tr style={{ textAlign: "left", opacity: 0.7 }}>
               <th style={{ padding: 4 }}>ID</th>
               <th style={{ padding: 4 }}>Name</th>
-              <th style={{ padding: 4 }}>Execute URL</th>
+              <th style={{ padding: 4 }}>Roles</th>
+              <th style={{ padding: 4 }}>Heartbeat</th>
               <th style={{ padding: 4 }}>Calls</th>
-              <th style={{ padding: 4 }}>Since</th>
+              <th style={{ padding: 4 }}>Execute URL</th>
             </tr>
           </thead>
           <tbody>
@@ -113,12 +122,43 @@ export const ConnectedAgents: React.FC<Props> = ({
               <tr key={a.pipeline_id}>
                 <td style={{ padding: 4 }}>{a.pipeline_id}</td>
                 <td style={{ padding: 4 }}>{a.name}</td>
-                <td style={{ padding: 4, fontFamily: "monospace", fontSize: 12 }}>
-                  {a.execute_url}
+                <td style={{ padding: 4 }}>
+                  {(a.roles ?? ["agent"]).map((r) => (
+                    <span
+                      key={r}
+                      style={{
+                        display: "inline-block",
+                        fontSize: 11,
+                        padding: "1px 7px",
+                        marginRight: 4,
+                        borderRadius: 8,
+                        color: roleColor(r),
+                        border: `1px solid ${roleColor(r)}`,
+                      }}
+                    >
+                      {r}
+                    </span>
+                  ))}
+                </td>
+                <td style={{ padding: 4 }}>
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background:
+                        Date.now() / 1000 - a.registered_at < 45
+                          ? "#2ecc71"
+                          : "#f39c12",
+                      marginRight: 6,
+                    }}
+                  />
+                  {lastSeen(a.registered_at)}
                 </td>
                 <td style={{ padding: 4 }}>{a.call_count}</td>
-                <td style={{ padding: 4 }}>
-                  {new Date(a.registered_at * 1000).toLocaleTimeString()}
+                <td style={{ padding: 4, fontFamily: "monospace", fontSize: 12 }}>
+                  {a.execute_url}
                 </td>
               </tr>
             ))}

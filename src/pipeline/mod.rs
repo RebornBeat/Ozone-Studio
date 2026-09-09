@@ -183,6 +183,11 @@ impl PipelineRegistry {
         self.executor.remote_pipelines()
     }
 
+    /// Monitor activity hub (delegate).
+    pub fn activity_hub(&self) -> Arc<crate::monitor::ActivityHub> {
+        self.executor.activity_hub()
+    }
+
     /// Read-only access to the executor's progress map (gRPC/dashboard use).
     pub fn progress_map(&self) -> Arc<tokio::sync::RwLock<HashMap<String, PipelineProgress>>> {
         self.executor.progress_map()

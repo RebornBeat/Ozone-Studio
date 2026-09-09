@@ -34,6 +34,17 @@ contextBridge.exposeInMainWorld("ozone", {
   // Pipeline Execution
   // ========================================================================
   pipelinesRemote: () => ipcRenderer.invoke("pipelines:remote"),
+  pipelinesRegister: (registration) =>
+    ipcRenderer.invoke("pipelines:register", registration),
+  monitorActivity: (query) => ipcRenderer.invoke("monitor:activity", query),
+  monitorPush: (activity) => ipcRenderer.invoke("monitor:push", activity),
+  monitorSummary: () => ipcRenderer.invoke("monitor:summary"),
+  // Generic host HTTP bridges (renderer never fetches cross-origin itself
+  // in the desktop app — Chromium PNA blocks file:// → localhost).
+  http: {
+    post: (path, body) => ipcRenderer.invoke("http:post", { path, body }),
+    get: (path) => ipcRenderer.invoke("http:get", { path }),
+  },
   pipeline: {
     /**
      * Execute a pipeline

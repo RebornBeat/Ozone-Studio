@@ -1,0 +1,94 @@
+[general]
+data_dir = "zsei_data"
+log_level = "info"
+setup_complete = true
+user_setup_complete = false
+
+[zsei]
+global_path = "zsei_data/global.mmap"
+local_path = "zsei_data/local"
+cache_path = "zsei_data/cache"
+ml_path = "zsei_data/ml"
+max_containers_in_memory = 10000
+mmap_enabled = true
+embedding_dimension = 384
+pipeline_index_path = "zsei_data/pipelines/index.json"
+methodology_index_path = "zsei_data/methodologies/index.json"
+blueprint_index_path = "zsei_data/blueprints/index.json"
+
+[pipelines]
+builtin_path = "pipelines"
+custom_path = "pipelines/custom"
+max_concurrent_pipelines = 10
+index_path = "zsei_data/pipelines/index.json"
+
+[tasks]
+max_queued_tasks = 100
+task_timeout_secs = 3600
+preserve_completed_tasks = true
+max_task_history = 1000
+
+[auth]
+keystore_path = "zsei_data/keystore"
+session_duration_secs = 86400
+challenge_expiry_secs = 300
+
+[integrity]
+enabled = true
+check_interval_secs = 3600
+rollback_path = "zsei_data/integrity/rollback"
+max_versions = 100
+
+[network]
+enable_p2p = true
+enable_cloud_sync = false
+p2p_port = 9090
+max_peers = 50
+enable_mdns = true
+batch_sync_interval_secs = 60
+
+[grpc]
+address = "127.0.0.1"
+port = 50051
+
+[ui]
+theme = "home_dashboard"
+default_tabs = [
+    "workspace",
+    "library",
+    "settings",
+]
+meta_portion_width_percent = 20
+
+[consciousness]
+enabled = false
+emotional_system_enabled = true
+experience_memory_enabled = true
+identity_system_enabled = true
+relationship_system_enabled = true
+ethical_system_enabled = true
+collective_enabled = false
+show_emotional_state = true
+show_decision_reasoning = true
+i_loop_interval_ms = 60000
+playback_enabled = true
+
+[models]
+model_type = "api"
+api_endpoint = "https://api.anthropic.com/v1/messages"
+api_key_env = "ANTHROPIC_API_KEY"
+api_model = "claude-sonnet-4-20250514"
+context_length = 8192
+allow_user_selection = true
+
+[[models.available_models]]
+name = "Claude Sonnet (API)"
+model_type = "api"
+identifier = "claude-sonnet-4-20250514"
+context_length = 200000
+
+[voice]
+enabled = false
+backend = "whisper_rs"
+whisper_cpp_path = "/usr/local/bin/whisper-cli"
+ffmpeg_path = "ffmpeg"

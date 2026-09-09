@@ -449,7 +449,17 @@ fn main() {
             input_json = args[i + 1].clone();
         }
     }
-    let input: WorkspaceInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    // Envelope contract: the host passes the full PipelineInput
+    // {data, context} — unwrap `data`; a bare WorkspaceInput JSON also works.
+    let value: serde_json::Value = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+        eprintln!("Parse error: {}", e);
+        std::process::exit(1);
+    });
+    let data_json = match value.get("data") {
+        Some(d) => serde_json::to_string(d).unwrap_or(input_json.clone()),
+        None => input_json.clone(),
+    };
+    let input: WorkspaceInput = serde_json::from_str(&data_json).unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });

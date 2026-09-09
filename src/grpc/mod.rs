@@ -28,6 +28,10 @@ pub struct AppState {
     pub executor_progress: Arc<
         tokio::sync::RwLock<std::collections::HashMap<String, crate::pipeline::PipelineProgress>>,
     >,
+    /// QR device pairing — the phone as authenticator (see src/pairing.rs).
+    pub pairing: Arc<crate::pairing::PairingHub>,
+    /// Registered external tools — MCP connection surface (see src/mcp.rs).
+    pub mcp: Arc<crate::mcp::McpRegistry>,
 }
 
 // ============================================================================
@@ -501,6 +505,8 @@ async fn get_config(
         Some("pipelines") => serde_json::to_value(&runtime.config.pipelines).ok(),
         Some("ui") => serde_json::to_value(&runtime.config.ui).ok(),
         Some("model") | Some("models") => serde_json::to_value(&runtime.config.models).ok(),
+        Some("consciousness") => serde_json::to_value(&runtime.config.consciousness).ok(),
+        Some("voice") => serde_json::to_value(&runtime.config.voice).ok(),
         Some(s) => {
             return Json(ConfigResponse {
                 success: false,
@@ -837,6 +843,7 @@ fn build_pipeline_registry() -> Vec<PipelineRegistryEntry> {
 
 /// Get pipeline UI component.js content
 async fn get_pipeline_ui_component(
+    State(state): State<Arc<AppState>>,
     Json(req): Json<PipelineUIComponentRequest>,
 ) -> Json<PipelineUIComponentResponse> {
     let pipeline_id = req.pipeline_id;
@@ -856,25 +863,33 @@ async fn get_pipeline_ui_component(
         }
     };
 
-    // Try to load component.js from pipeline's ui folder
+    // Try to load component.js from the pipeline's ui folder. The index's
+    // category names don't always match on-disk asset folders ("core" vs
+    // "general"), so search every known category dir; the data-dir copy
+    // (where bootstrap places it) comes first.
     let pipelines_path =
         std::env::var("OZONE_PIPELINES_PATH").unwrap_or_else(|_| "./pipelines".to_string());
+    let data_pipelines = {
+        let r = state.runtime.read().await;
+        format!("{}/pipelines", r.config.general.data_dir)
+    };
 
-    let possible_paths = [
-        format!(
-            "{}/{}/{}/ui/component.js",
-            pipelines_path, category, folder_name
-        ),
-        format!("./pipelines/{}/{}/ui/component.js", category, folder_name),
-    ];
-
-    for path in &possible_paths {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            return Json(PipelineUIComponentResponse {
-                success: true,
-                component_js: Some(content),
-                error: None,
-            });
+    let category_variants = [category, "general", "consciousness", "modalities", "shared"];
+    let bases = [data_pipelines, pipelines_path, "./pipelines".to_string()];
+    let mut tried: Vec<String> = Vec::new();
+    for base in &bases {
+        for cat in category_variants {
+            let path = format!("{}/{}/{}/ui/component.js", base, cat, folder_name);
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    return Json(PipelineUIComponentResponse {
+                        success: true,
+                        component_js: Some(content),
+                        error: None,
+                    });
+                }
+                Err(_) => tried.push(path),
+            }
         }
     }
 
@@ -882,8 +897,10 @@ async fn get_pipeline_ui_component(
         success: false,
         component_js: None,
         error: Some(format!(
-            "No UI component found for pipeline {}",
-            pipeline_id
+            "No UI component found for pipeline {} (tried {} paths, folder {:?})",
+            pipeline_id,
+            tried.len(),
+            folder_name
         )),
     })
 }
@@ -1017,6 +1034,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         runtime,
         start_time: std::time::Instant::now(),
         executor_progress: progress_map,
+        pairing: Arc::new(crate::pairing::PairingHub::new()),
+        mcp: Arc::new(crate::mcp::McpRegistry::new()),
     });
 
     let cors = CorsLayer::new()
@@ -1045,6 +1064,20 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/pipelines/remote", get(list_remote_pipelines))
         .route("/pipelines/register", post(register_remote_pipeline))
         .route("/pipelines/unregister", post(unregister_remote_pipeline))
+        // MONITOR — activity hub (dashboard feed, browser plugin, ZCode).
+        .route("/monitor/activity", get(list_activity))
+        .route("/monitor/activity", post(push_activity))
+        .route("/monitor/summary", get(monitor_summary))
+        // PAIRING — QR multi-device onboarding, the phone as authenticator.
+        .route("/pairing/start", post(start_pairing))
+        .route("/pairing/status", get(pairing_status))
+        .route("/pairing/approve", post(approve_pairing))
+        .route("/pair/:code", get(pair_page))
+        .route("/devices", get(list_devices))
+        // MCP TOOLS — external tool registration (the 90+ tool surface).
+        .route("/mcp/tools", get(mcp_list_tools))
+        .route("/mcp/tools/register", post(mcp_register_tool))
+        .route("/mcp/tools/unregister", post(mcp_unregister_tool))
         .layer(cors)
         .with_state(state);
 
@@ -1133,6 +1166,10 @@ pub struct RemotePipelineRegisterRequest {
     pub name: String,
     /// Endpoint accepting POST <PipelineInput JSON> → one JSON output object.
     pub execute_url: String,
+    /// "agent" | "model" | "observer" — models serve pipeline-9 model calls;
+    /// observers only push/consume monitor activity. Absent = ["agent"].
+    #[serde(default)]
+    pub roles: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1158,17 +1195,37 @@ pub struct RemotePipelineListResponse {
 }
 
 /// A pipeline booting elsewhere announces itself here. Latest registration
-/// for an id wins (reconnect / replacement).
+/// for an id wins (reconnect / replacement). Re-registration is the
+/// heartbeat — the dashboard reads `registered_at` as "last seen".
 async fn register_remote_pipeline(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RemotePipelineRegisterRequest>,
 ) -> Json<RemotePipelineRegisterResponse> {
     let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
+    let roles = req
+        .roles
+        .filter(|r| !r.is_empty())
+        .unwrap_or_else(|| vec!["agent".to_string()]);
     let entry = registry
         .remote_pipelines()
-        .register(req.pipeline_id, req.name, req.execute_url)
+        .register(req.pipeline_id, req.name, req.execute_url, roles)
         .await;
+    // Capture the landing in the monitor feed — one observable registry.
+    registry.activity_hub().record(
+        crate::monitor::ActivityKind::Agent,
+        crate::monitor::ActivityLevel::Ok,
+        &entry.name,
+        format!(
+            "Agent connected: {} (roles: {})",
+            entry.name,
+            entry.roles.join(", ")
+        ),
+        Some(serde_json::json!({
+            "pipeline_id": entry.pipeline_id,
+            "execute_url": entry.execute_url,
+        })),
+    );
     tracing::info!(
         pipeline_id = entry.pipeline_id,
         name = %entry.name,
@@ -1200,4 +1257,307 @@ async fn list_remote_pipelines(State(state): State<Arc<AppState>>) -> Json<Remot
     Json(RemotePipelineListResponse {
         pipelines: registry.remote_pipelines().list().await,
     })
+}
+
+// ============================================================================
+// MONITOR — activity hub endpoints (dashboard + browser plugin + ZCode)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct ActivityQuery {
+    pub limit: Option<usize>,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ActivityPush {
+    pub kind: String,     // log | agent | tool | job | bridge | external
+    pub level: String,    // info | ok | warn | error
+    pub source: String,   // who recorded it ("browser-plugin", "zcode", …)
+    pub message: String,
+    #[serde(default)]
+    pub detail: Option<serde_json::Value>,
+}
+
+fn parse_kind(s: &str) -> Option<crate::monitor::ActivityKind> {
+    serde_json::from_value(serde_json::Value::String(s.to_string())).ok()
+}
+
+async fn list_activity(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<ActivityQuery>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let hub = registry.activity_hub();
+    let kind = q.kind.as_deref().and_then(parse_kind);
+    let events = hub.recent(q.limit.unwrap_or(100), kind);
+    Json(serde_json::json!({ "events": events }))
+}
+
+/// External observers (browser plugin, ZCode connector) push activity here.
+async fn push_activity(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ActivityPush>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let hub = registry.activity_hub();
+    let kind = parse_kind(&req.kind)
+        .unwrap_or(crate::monitor::ActivityKind::External);
+    let level = serde_json::from_value::<crate::monitor::ActivityLevel>(
+        serde_json::Value::String(req.level),
+    )
+    .unwrap_or(crate::monitor::ActivityLevel::Info);
+    let event = hub.record(kind, level, &req.source, req.message, req.detail);
+    Json(serde_json::json!({ "success": true, "id": event.id }))
+}
+
+/// One-shot summary: agents + latest activity in a single call for dashboards.
+async fn monitor_summary(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let agents = registry.remote_pipelines().list().await;
+    let events = registry.activity_hub().recent(50, None);
+    Json(serde_json::json!({
+        "agents": agents,
+        "activity": events,
+    }))
+}
+
+// ============================================================================
+// PAIRING — QR multi-device onboarding, the phone as authenticator
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct PairingStartRequest {
+    /// What is asking to pair, shown to the approver ("Desktop UI", "Web …").
+    #[serde(default)]
+    pub device_hint: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PairingApproveRequest {
+    pub code: String,
+    #[serde(default)]
+    pub device_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PairingStatusQuery {
+    pub pairing_id: String,
+}
+
+async fn start_pairing(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PairingStartRequest>,
+) -> Json<serde_json::Value> {
+    let (pairing_id, code, expires_at) = state
+        .pairing
+        .start(req.device_hint.unwrap_or_else(|| "Device".into()))
+        .await;
+
+    // The QR encodes the phone-reachable approve URL on the host itself.
+    let config = {
+        let r = state.runtime.read().await;
+        r.config.grpc.clone()
+    };
+    let host = crate::pairing::pairing_public_host(&config.address);
+    let port = config.port;
+    let approve_url = format!("http://{}:{}/pair/{}", host, port, code);
+    let qr_payload = format!("ozone://pair/v1?host={}&code={}", host, code);
+
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    registry.activity_hub().record(
+        crate::monitor::ActivityKind::Bridge,
+        crate::monitor::ActivityLevel::Info,
+        "pairing",
+        format!("Pairing started — code {} (device: waiting for scan)", code),
+        None,
+    );
+
+    Json(serde_json::json!({
+        "pairing_id": pairing_id,
+        "code": code,
+        "approve_url": approve_url,
+        "qr_payload": qr_payload,
+        "expires_at": expires_at,
+    }))
+}
+
+async fn pairing_status(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<PairingStatusQuery>,
+) -> Json<serde_json::Value> {
+    let (status, token, device_id, expires_at) = state.pairing.status(&q.pairing_id).await;
+    Json(serde_json::json!({
+        "status": status,
+        "session_token": token,
+        "device_id": device_id,
+        "expires_at": expires_at,
+    }))
+}
+
+async fn approve_pairing(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PairingApproveRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let auth = runtime.auth.read().await;
+    match state
+        .pairing
+        .approve(
+            &req.code,
+            req.device_name.unwrap_or_else(|| "Paired device".into()),
+            crate::types::auth::DeviceType::Mobile,
+            &auth,
+        )
+        .await
+    {
+        Ok(device_id) => {
+            let runtime = state.runtime.read().await;
+            let registry = runtime.pipeline_registry.read().await;
+            registry.activity_hub().record(
+                crate::monitor::ActivityKind::Bridge,
+                crate::monitor::ActivityLevel::Ok,
+                "pairing",
+                format!("Device {} approved by phone — session issued", device_id),
+                None,
+            );
+            Json(serde_json::json!({ "success": true, "device_id": device_id }))
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
+    }
+}
+
+/// Phone-facing approve page (scanned from the QR).
+async fn pair_page(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(code): axum::extract::Path<String>,
+) -> axum::response::Html<String> {
+    let config = {
+        let r = state.runtime.read().await;
+        r.config.grpc.clone()
+    };
+    axum::response::Html(crate::pairing::approve_page_html(
+        &code,
+        &format!("{}:{}", config.address, config.port),
+    ))
+}
+
+/// Multi-device registry — every paired device on this host.
+async fn list_devices(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    use crate::types::auth::DeviceStatus;
+    let runtime = state.runtime.read().await;
+    let auth = runtime.auth.read().await;
+    let mut devices = Vec::new();
+    for user_id in 1..1000u64 {
+        if let Some(user) = auth.get_user(user_id).await {
+            for d in &user.registered_devices {
+                devices.push(serde_json::json!({
+                    "device_id": d.device_id,
+                    "device_name": d.device_name,
+                    "device_type": format!("{:?}", d.device_type),
+                    "registered_at": d.registered_at,
+                    "last_seen": d.last_seen,
+                    "online": matches!(d.status, DeviceStatus::Online),
+                }));
+            }
+        }
+    }
+    Json(serde_json::json!({ "devices": devices }))
+}
+
+// ============================================================================
+// MCP TOOLS — external tool registration (see src/mcp.rs)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct McpToolRegisterRequest {
+    pub name: String,
+    /// "stdio" | "http" | "sse"
+    pub transport: String,
+    /// Command+args (stdio) or URL (http/sse).
+    pub endpoint: String,
+    #[serde(default)]
+    pub capabilities: Option<Vec<String>>,
+    #[serde(default)]
+    pub server_version: Option<String>,
+}
+
+async fn mcp_list_tools(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let tools = state.mcp.list().await;
+    let tools: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "transport": t.transport.as_str(),
+                "endpoint": t.endpoint,
+                "capabilities": t.capabilities,
+                "server_version": t.server_version,
+                "registered_at": t.registered_at,
+            })
+        })
+        .collect();
+    Json(serde_json::json!({ "tools": tools }))
+}
+
+async fn mcp_register_tool(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<McpToolRegisterRequest>,
+) -> Json<serde_json::Value> {
+    let transport = match crate::mcp::McpTransport::parse(&req.transport) {
+        Some(t) => t,
+        None => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("unknown transport {} (stdio | http | sse)", req.transport),
+            }))
+        }
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let replaced = state
+        .mcp
+        .register(crate::mcp::McpTool {
+            name: req.name.clone(),
+            transport,
+            endpoint: req.endpoint.clone(),
+            capabilities: req.capabilities.unwrap_or_default(),
+            server_version: req.server_version,
+            registered_at: now,
+        })
+        .await;
+
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    registry.activity_hub().record(
+        crate::monitor::ActivityKind::Tool,
+        crate::monitor::ActivityLevel::Ok,
+        "mcp",
+        format!(
+            "Tool {} registered ({}, {})",
+            req.name, req.transport, req.endpoint
+        ),
+        None,
+    );
+
+    Json(serde_json::json!({ "success": true, "replaced": replaced }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpToolUnregisterRequest {
+    pub name: String,
+}
+
+async fn mcp_unregister_tool(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<McpToolUnregisterRequest>,
+) -> Json<serde_json::Value> {
+    let removed = state.mcp.unregister(&req.name).await;
+    Json(serde_json::json!({ "success": true, "was_registered": removed }))
 }

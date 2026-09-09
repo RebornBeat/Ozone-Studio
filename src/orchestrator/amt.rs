@@ -773,6 +773,29 @@ If no new branches apply, return: {{"branches": []}}"#,
             #[allow(unused_assignments)]
             let mut new_insights_this_pass = false;
 
+            // LEGACY PARITY: K (knowledge enrichment) + M (modal synthesis) —
+            // the same contracts the graph-native builder runs per pass, so
+            // both AMT modes see identical methodology/modal context.
+            let layer_input = self.gather_layer_input(state);
+            let knowledge = self.enrich_with_zsei_knowledge(state, &layer_input).await;
+            let synthesis = self.synthesize_modal_evidence(&layer_input);
+            let methodology_summaries_block = if knowledge.methodology_summaries.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "APPLIED METHODOLOGY CONTEXT:\n{}\n",
+                    knowledge.methodology_summaries.join("\n")
+                )
+            };
+            let cross_modal_block = if synthesis.cross_modal_summary.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "CROSS-MODAL STRUCTURE: {}\n",
+                    synthesis.cross_modal_summary
+                )
+            };
+
             // --- PHASE 1A: Intent discovery ---
             // Build context of already-known intents for deduplication
             let known_intents_json: Vec<serde_json::Value> = state
@@ -797,7 +820,7 @@ If no new branches apply, return: {{"branches": []}}"#,
         {}
 
         MODALITIES DETECTED IN CONTENT: {}
-
+{cross_modal_block}{methodology_summaries_block}
         Return ONLY valid JSON with no explanation:
         {{
             "new_intents": [
@@ -813,7 +836,9 @@ If no new branches apply, return: {{"branches": []}}"#,
                     chunk.index + 1,
                     state.processed_chunks.len(),
                     &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)],
-                    detected_modality_names.join(", ")
+                    detected_modality_names.join(", "),
+                    cross_modal_block = cross_modal_block,
+                    methodology_summaries_block = methodology_summaries_block,
                 );
 
                 let intent_input = serde_json::json!({

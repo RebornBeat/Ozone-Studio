@@ -1,0 +1,77 @@
+{
+  "context": {
+    "categories": [],
+    "embedding": null,
+    "keywords": [
+      "packages"
+    ],
+    "learned_associations": [],
+    "methodologies": [],
+    "relationships": [],
+    "topics": []
+  },
+  "hints": {
+    "access_frequency": 0,
+    "centroid": null,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "integrity_score": 1.0,
+    "last_verified": 1788917103,
+    "semantic_fingerprint": [],
+    "version_history": []
+  },
+  "metadata": {
+    "container_type": "PackageRoot",
+    "created_at": 1788917103,
+    "materialized_path": "/External/Packages",
+    "modality": "Unknown",
+    "name": "Packages",
+    "owner_id": 0,
+    "permissions": 0,
+    "provenance": "bootstrap",
+    "updated_at": 1788917103
+  },
+  "storage": {
+    "compression_type": "None",
+    "db_shard_id": null,
+    "object_store_path": null,
+    "vector_index_ref": null
+  }
+}

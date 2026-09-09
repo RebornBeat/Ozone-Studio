@@ -23,6 +23,9 @@ pub struct RemotePipeline {
     pub execute_url: String,
     pub registered_at: u64,
     pub call_count: AtomicU64,
+    /// What this connection serves: "agent" (tasks), "model" (pipeline-9
+    /// model calls), "observer" (monitor-only). Empty = "agent".
+    pub roles: Vec<String>,
 }
 
 /// Dispatch table of live remote pipelines.
@@ -53,11 +56,14 @@ impl RemotePipelines {
     }
 
     /// Register (or re-register — latest wins) a live pipeline connection.
+    /// Re-registration is the heartbeat: it refreshes `registered_at`, which
+    /// the dashboard reads as "last seen".
     pub async fn register(
         &self,
         pipeline_id: u64,
         name: String,
         execute_url: String,
+        roles: Vec<String>,
     ) -> Arc<RemotePipeline> {
         let entry = Arc::new(RemotePipeline {
             pipeline_id,
@@ -65,6 +71,7 @@ impl RemotePipelines {
             execute_url,
             registered_at: now_secs(),
             call_count: AtomicU64::new(0),
+            roles,
         });
         self.map.write().await.insert(pipeline_id, entry.clone());
         entry
@@ -89,6 +96,7 @@ impl RemotePipelines {
                 execute_url: p.execute_url.clone(),
                 registered_at: p.registered_at,
                 call_count: p.call_count.load(Ordering::Relaxed),
+                roles: p.roles.clone(),
             })
             .collect()
     }
@@ -169,6 +177,9 @@ pub struct RemotePipelineInfo {
     pub execute_url: String,
     pub registered_at: u64,
     pub call_count: u64,
+    /// "agent" | "model" | "observer" — see RemotePipeline::roles.
+    #[serde(default)]
+    pub roles: Vec<String>,
 }
 
 fn now_secs() -> u64 {
