@@ -6007,6 +6007,22 @@ ui/component.js files
   padding: 18px 20px;
   margin: 12px 14px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  /* Fill the tab's full allotted height instead of shrink-wrapping content
+     (the parent .dashboard-content is already flex:1/height:100% all the
+     way down — this was the one broken link in that chain). calc() accounts
+     for this panel's own 12px top+bottom margin. */
+  display: flex;
+  flex-direction: column;
+  height: calc(100% - 24px);
+  box-sizing: border-box;
+}
+/* Scrolling sub-region for tables/feeds inside an .opanel — put this on the
+   one block that should absorb extra vertical space while headers/cards
+   above it stay their natural height. */
+.opanel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
 }
 .opanel-head { display: flex; align-items: center; gap: 10px; }
 .opanel-title {
@@ -6076,7 +6092,7 @@ ui/component.js files
 }
 .obtn.primary:hover { filter: brightness(1.18); }
 .obtn.subtle { background: transparent; border-color: transparent; color: #6ec3ff; }
-.ofeed { max-height: 250px; overflow-y: auto; }
+.ofeed { overflow-y: auto; }
 .ofeed-row {
   display: flex; align-items: baseline; gap: 9px; padding: 7px 11px;
   border-left: 2px solid #223046; margin: 4px 0; border-radius: 4px;

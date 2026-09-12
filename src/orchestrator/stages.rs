@@ -188,6 +188,23 @@ impl PromptOrchestrator {
             .collect::<Vec<_>>()
             .join("\n");
 
+        let available_models_desc: String = if state.request.available_models.is_empty() {
+            "  (only the default configured model)".to_string()
+        } else {
+            state
+                .request
+                .available_models
+                .iter()
+                .map(|m| {
+                    format!(
+                        "  - \"{}\" (type: {}, context: {})",
+                        m.identifier, m.model_type, m.context_length
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
 
@@ -198,10 +215,16 @@ BRANCHES:
 AVAILABLE PIPELINES:
 {}
 
+AVAILABLE MODELS (for optional per-step model_override.model_identifier):
+{}
+
 METHODOLOGIES: {:?}
 
 For each step, select the most appropriate pipeline from the list.
 If no existing pipeline can handle a requirement, add it to missing_capabilities.
+Only set model_override when a step genuinely benefits from a different model
+than the default (e.g. a cheap/fast model for a small classification step) —
+omit it entirely otherwise.
 
 Return JSON:
 {{
@@ -216,7 +239,8 @@ Return JSON:
             "context_requirements": ["full_context"],
             "depends_on": [],
             "wait_for_graph_update": false,
-            "max_retries": 1
+            "max_retries": 1,
+            "model_override": null
         }}
     ],
     "missing_capabilities": ["capability1", "capability2"]
@@ -233,6 +257,7 @@ Return JSON:
                 .collect::<Vec<_>>()
                 .join("\n"),
             available_pipelines_desc,
+            available_models_desc,
             state.methodologies
         );
 
@@ -296,8 +321,33 @@ Return JSON:
                     wait_for_graph_update: false,
                     max_retries: 1,
                     timeout_ms: None,
+                    model_override: None,
                 }]
             });
+
+        // Validate each LLM-authored pipeline_id before it can travel deep
+        // into execution — an unvalidated hallucinated id previously only
+        // surfaced as a failure inside execute_inner, several stages later.
+        // 9 (the default prompt pipeline) is always valid; anything else
+        // must be a known static pipeline or a currently-registered remote.
+        for step in &mut state.blueprint_steps {
+            if step.pipeline_id == 9 {
+                continue;
+            }
+            let known_static = state
+                .available_pipelines
+                .iter()
+                .any(|p| p.pipeline_id == step.pipeline_id);
+            let live = known_static || self.executor.pipeline_exists(step.pipeline_id).await;
+            if !live {
+                tracing::warn!(
+                    "Blueprint step {} named unknown pipeline_id {} — coercing to 9",
+                    step.step_index,
+                    step.pipeline_id
+                );
+                step.pipeline_id = 9;
+            }
+        }
 
         // Store blueprint in ZSEI
         let blueprint_container = serde_json::json!({
@@ -589,6 +639,17 @@ Return JSON:
         while !step_queue.is_empty() && iterations < max_iterations {
             iterations += 1;
 
+            // Cooperative cancellation: a step already in flight (the
+            // .execute_step call below) always runs to completion — this
+            // only stops the NEXT step from starting once a user-requested
+            // cancel (TaskManager::cancel_task) has landed.
+            if let Some(task_id) = state.task_id {
+                if self.task_manager.read().await.is_cancelled(task_id).await {
+                    tracing::info!("Task {} cancelled — stopping before next step", task_id);
+                    break;
+                }
+            }
+
             // Find steps whose dependencies are satisfied
             let ready_steps: Vec<_> = step_queue
                 .iter()
@@ -601,6 +662,11 @@ Return JSON:
                 if let Some(step) = step_queue.first().cloned() {
                     let result = self.execute_step(state, step, &all_outputs).await?;
                     let output_text = self.extract_output_text(&result.output);
+                    let model_used = result
+                        .output
+                        .get("model_used")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                     all_outputs.push(output_text.clone());
                     state.step_results.push(result.clone());
                     state.step_outputs.insert(
@@ -644,6 +710,7 @@ Return JSON:
                                 Some("execute".to_string()),
                                 vec![],
                                 vec![],
+                                model_used,
                             )
                             .await;
 
@@ -659,6 +726,11 @@ Return JSON:
                 for step in ready_steps {
                     let result = self.execute_step(state, step, &all_outputs).await?;
                     let output_text = self.extract_output_text(&result.output);
+                    let model_used = result
+                        .output
+                        .get("model_used")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
                     all_outputs.push(output_text.clone());
                     state.step_results.push(result.clone());
                     state.step_outputs.insert(
@@ -702,6 +774,7 @@ Return JSON:
                                 Some("execute".to_string()),
                                 vec![],
                                 vec![],
+                                model_used,
                             )
                             .await;
 
@@ -833,12 +906,42 @@ Return JSON:
                 &state.cleaned_prompt[..state.cleaned_prompt.len().min(500)]
             );
 
-            let exec_input = serde_json::json!({
+            let mut exec_input = serde_json::json!({
                 "prompt": step_prompt,
                 "max_tokens": state.model_context_limit / 4,
                 "temperature": 0.7,
                 "action": step.action
             });
+            // Per-step model override (real multi-model routing): pipeline 9
+            // merges this onto its env-derived base config before dispatch,
+            // so this step alone can hit a different backend than the rest
+            // of the run. Resolve a bare model_identifier against the host's
+            // available_models here — the blueprint-generating LLM is only
+            // ever asked for the identifier, not full connection details, so
+            // pipeline 9 (which stays a dumb wire-protocol executor) needs
+            // those details filled in before the override reaches it.
+            if let Some(model_override) = &step.model_override {
+                let mut resolved = model_override.clone();
+                if let Some(id) = &model_override.model_identifier {
+                    if let Some(profile) = state
+                        .request
+                        .available_models
+                        .iter()
+                        .find(|m| &m.identifier == id)
+                    {
+                        resolved.model_type.get_or_insert_with(|| profile.model_type.clone());
+                        resolved.api_endpoint = resolved.api_endpoint.or_else(|| profile.api_endpoint.clone());
+                        resolved.api_key_env = resolved.api_key_env.or_else(|| profile.api_key_env.clone());
+                        resolved.api_key = resolved.api_key.or_else(|| profile.api_key.clone());
+                        resolved.wire_protocol = resolved.wire_protocol.or_else(|| profile.wire_protocol.clone());
+                        resolved.bitnet_cli_path = resolved.bitnet_cli_path.or_else(|| profile.bitnet_cli_path.clone());
+                        resolved.local_model_path = resolved.local_model_path.or_else(|| profile.local_model_path.clone());
+                    }
+                }
+                if let Ok(v) = serde_json::to_value(&resolved) {
+                    exec_input["model_override_config"] = v;
+                }
+            }
 
             let mut retries = 0;
             let mut exec_result = self
@@ -926,9 +1029,13 @@ Return JSON:
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // Complete or fail task via TaskManager
+        // Complete or fail task via TaskManager — but never override a
+        // user-requested cancellation (TaskManager::cancel_task already set
+        // status to "cancelled"; complete_task/fail_task would clobber it).
         if let Some(task_id) = state.task_id {
-            if state.final_response.is_some() {
+            if self.task_manager.read().await.is_cancelled(task_id).await {
+                // Nothing to do — status is already correct.
+            } else if state.final_response.is_some() {
                 let outputs = state
                     .step_results
                     .iter()

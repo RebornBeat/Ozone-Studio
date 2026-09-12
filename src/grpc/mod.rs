@@ -34,6 +34,35 @@ pub struct AppState {
     pub mcp: Arc<crate::mcp::McpRegistry>,
 }
 
+/// Recursively convert a `serde_json::Value` into `crate::types::Value`,
+/// preserving nested objects/arrays as `Value::Map`/`Value::Array` instead of
+/// flattening them into a stringified fallback (the previous inline match in
+/// `orchestrate()` stringified any object/array, which silently broke
+/// round-tripping structured fields like `model_config` through
+/// `PipelineInput.data`).
+fn json_to_typed_value(v: serde_json::Value) -> crate::types::Value {
+    match v {
+        serde_json::Value::Null => crate::types::Value::Null,
+        serde_json::Value::Bool(b) => crate::types::Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                crate::types::Value::Int(i)
+            } else {
+                crate::types::Value::Float(n.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::String(s) => crate::types::Value::String(s),
+        serde_json::Value::Array(arr) => {
+            crate::types::Value::Array(arr.into_iter().map(json_to_typed_value).collect())
+        }
+        serde_json::Value::Object(map) => crate::types::Value::Map(
+            map.into_iter()
+                .map(|(k, v)| (k, json_to_typed_value(v)))
+                .collect(),
+        ),
+    }
+}
+
 // ============================================================================
 // Request/Response Types
 // ============================================================================
@@ -105,6 +134,11 @@ pub struct TaskInfo {
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
     pub error: Option<String>,
+    /// Per-step detail (action, status, tokens, model_used) — populated on
+    /// the single-task lookup (get_task) for the task-detail/rewind UI;
+    /// left empty on list_tasks to keep the list view lightweight.
+    #[serde(default)]
+    pub steps: Vec<crate::task::TaskStepData>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -132,6 +166,10 @@ pub struct HealthResponse {
     pub version: String,
     pub uptime_secs: u64,
     pub active_tasks: u32,
+    /// Real libp2p connected-peer count (NetworkManager::get_status) — was
+    /// previously only faked in the UI layer via a nonexistent config field.
+    pub peer_count: usize,
+    pub p2p_enabled: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -219,6 +257,11 @@ pub struct OrchestrateResponse {
     pub clarification_points: Vec<String>,
     pub error: Option<String>,
     pub execution_time_ms: u64,
+    /// Which model actually produced `response` — lets the chat UI show
+    /// "handled by X" and reflect a per-step model switch.
+    pub model_used: Option<String>,
+    pub total_tokens_used: Option<u32>,
+    pub amt_summary: Option<serde_json::Value>,
 }
 
 // ============================================================================
@@ -268,12 +311,15 @@ pub struct PipelineUIComponentResponse {
 async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let runtime = state.runtime.read().await;
     let task_mgr = runtime.task_manager.read().await;
+    let net_status = runtime.network.read().await.get_status().await;
 
     Json(HealthResponse {
         healthy: true,
         version: env!("CARGO_PKG_VERSION").to_string(),
         uptime_secs: state.start_time.elapsed().as_secs(),
         active_tasks: task_mgr.active_count().await as u32,
+        peer_count: net_status.connected_peers,
+        p2p_enabled: net_status.enabled,
     })
 }
 
@@ -422,6 +468,7 @@ async fn get_task(
             started_at: task.started_at,
             completed_at: task.completed_at,
             error: task.error.map(|e| format!("{:?}", e)),
+            steps: task.steps,
         })),
         None => Json(None),
     }
@@ -456,10 +503,214 @@ async fn list_tasks(
                 started_at: t.started_at,
                 completed_at: t.completed_at,
                 error: t.error.map(|e| format!("{:?}", e)),
+                steps: Vec::new(),
             })
             .collect(),
         total,
     })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TaskCancelResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Cooperative cancel: marks the task "cancelled" immediately; the
+/// orchestrator's step loop (PromptOrchestrator::stage_6_to_8_execute_steps)
+/// checks this between steps and stops issuing further ones. A step already
+/// in flight when cancel lands still runs to completion — there is no
+/// mid-step interrupt, only "don't start the next one."
+async fn cancel_task(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TaskRequest>,
+) -> Json<TaskCancelResponse> {
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+    match task_mgr.cancel_task(req.task_id).await {
+        Ok(()) => Json(TaskCancelResponse {
+            success: true,
+            error: None,
+        }),
+        Err(e) => Json(TaskCancelResponse {
+            success: false,
+            error: Some(e.to_string()),
+        }),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StepRerunRequest {
+    pub task_id: u64,
+    pub step_index: u32,
+    /// Same shape as orchestrator::ModelConfigOverride / pipeline 9's
+    /// ModelOverrideConfig — forwarded through opaquely as JSON so this
+    /// endpoint doesn't need to depend on either crate's exact type.
+    pub model_override: Option<serde_json::Value>,
+    /// true: build this step's context from the ORIGINAL recorded outputs
+    /// of earlier steps (steps before step_index). false: run this step
+    /// fresh with no prior-step context, standing alone under the new model.
+    #[serde(default)]
+    pub carry_forward_context: bool,
+    #[serde(default)]
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct StepRerunResponse {
+    pub success: bool,
+    pub response: Option<String>,
+    pub tokens_used: Option<u32>,
+    pub model_used: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Rewind + rerun a single step of a completed/failed/in-progress task with
+/// a different model, picking up exactly where the original left off rather
+/// than replaying the whole orchestration. Operates directly against
+/// PipelineRegistry (via the same RegistryExecutorAdapter the orchestrator
+/// uses) — deliberately outside PromptOrchestrator's 14-stage state machine,
+/// which has no "resume at step N" entry point.
+async fn rerun_step(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<StepRerunRequest>,
+) -> Json<StepRerunResponse> {
+    fn err(msg: impl Into<String>) -> Json<StepRerunResponse> {
+        Json(StepRerunResponse {
+            success: false,
+            response: None,
+            tokens_used: None,
+            model_used: None,
+            error: Some(msg.into()),
+        })
+    }
+
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+
+    let task = match task_mgr.get_task(req.task_id).await {
+        Some(t) => t,
+        None => return err(format!("Task {} not found", req.task_id)),
+    };
+
+    let Some(blueprint_id) = task.blueprint_id else {
+        return err("Task has no blueprint to re-derive the step from");
+    };
+
+    let container = match runtime.zsei.read().await.get_container(blueprint_id).await {
+        Ok(Some(c)) => c,
+        Ok(None) => return err(format!("Blueprint {} not found", blueprint_id)),
+        Err(e) => return err(format!("Blueprint lookup failed: {}", e)),
+    };
+    let container_json = serde_json::to_value(&container).unwrap_or_default();
+    let steps = container_json
+        .get("local_state")
+        .and_then(|ls| ls.get("storage"))
+        .and_then(|s| s.get("steps"))
+        .and_then(|s| s.as_array().cloned())
+        .unwrap_or_default();
+
+    let Some(step_json) = steps
+        .iter()
+        .find(|s| s.get("step_index").and_then(|i| i.as_u64()) == Some(req.step_index as u64))
+    else {
+        return err(format!(
+            "Step {} not found in blueprint {}",
+            req.step_index, blueprint_id
+        ));
+    };
+
+    let description = step_json
+        .get("description")
+        .and_then(|d| d.as_str())
+        .unwrap_or("");
+    let action = step_json
+        .get("action")
+        .and_then(|a| a.as_str())
+        .unwrap_or("execute");
+    let pipeline_id = step_json
+        .get("pipeline_id")
+        .and_then(|p| p.as_u64())
+        .unwrap_or(9);
+
+    let context_text = if req.carry_forward_context {
+        task.steps
+            .iter()
+            .filter(|s| s.step_index < req.step_index)
+            .filter_map(|s| s.output_summary.clone())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    } else {
+        String::new()
+    };
+
+    let prompt = format!(
+        "Step {}: {}\n\nContext:\n{}",
+        req.step_index + 1,
+        description,
+        context_text
+    );
+
+    let mut exec_input = serde_json::json!({
+        "prompt": prompt,
+        "max_tokens": 2048,
+        "temperature": 0.7,
+        "action": action,
+    });
+    if let Some(mo) = &req.model_override {
+        exec_input["model_override_config"] = mo.clone();
+    }
+
+    let adapter = crate::orchestrator::RegistryExecutorAdapter {
+        registry: runtime.pipeline_registry.clone(),
+    };
+    use crate::orchestrator::PipelineExecutor;
+    let result = adapter.execute(pipeline_id, exec_input).await;
+
+    match result {
+        Ok(output) => {
+            let response_text = output
+                .get("response")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            let tokens_used = output.get("tokens_used").and_then(|v| v.as_u64()).map(|v| v as u32);
+            let model_used = output
+                .get("model_used")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            let _ = task_mgr
+                .update_step(
+                    req.task_id,
+                    req.step_index,
+                    "completed",
+                    tokens_used,
+                    response_text.as_ref().map(|r| r[..200.min(r.len())].to_string()),
+                    None,
+                    action,
+                    Some(format!(
+                        "Rerun with model override (carry_forward_context={})",
+                        req.carry_forward_context
+                    )),
+                    Vec::new(),
+                    Vec::new(),
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    model_used.clone(),
+                )
+                .await;
+
+            Json(StepRerunResponse {
+                success: true,
+                response: response_text,
+                tokens_used,
+                model_used,
+                error: None,
+            })
+        }
+        Err(e) => err(e),
+    }
 }
 
 async fn query_zsei(
@@ -507,6 +758,12 @@ async fn get_config(
         Some("model") | Some("models") => serde_json::to_value(&runtime.config.models).ok(),
         Some("consciousness") => serde_json::to_value(&runtime.config.consciousness).ok(),
         Some("voice") => serde_json::to_value(&runtime.config.voice).ok(),
+        Some("network") => serde_json::to_value(&runtime.config.network).ok(),
+        Some("general") => serde_json::to_value(&runtime.config.general).ok(),
+        Some("auth") => serde_json::to_value(&runtime.config.auth).ok(),
+        Some("integrity") => serde_json::to_value(&runtime.config.integrity).ok(),
+        Some("tasks") => serde_json::to_value(&runtime.config.tasks).ok(),
+        Some("grpc") => serde_json::to_value(&runtime.config.grpc).ok(),
         Some(s) => {
             return Json(ConfigResponse {
                 success: false,
@@ -564,12 +821,42 @@ async fn set_config(
                     "google" => {
                         Some("https://generativelanguage.googleapis.com/v1beta".to_string())
                     }
+                    "openrouter" => {
+                        Some("https://openrouter.ai/api/v1/chat/completions".to_string())
+                    }
                     _ => model_config.api_endpoint, // already Option<String>
                 };
+                // Anthropic uses its own wire format; every other canned
+                // provider here speaks OpenAI-style chat completions.
+                if matches!(v, "openai" | "google" | "openrouter") {
+                    model_config.wire_protocol = Some("chat_completions".to_string());
+                } else if v == "anthropic" {
+                    model_config.wire_protocol = Some("anthropic".to_string());
+                }
             }
             if let Some(v) = models.get("api_key").and_then(|v| v.as_str()) {
-                // you probably want to store it in env or a secure place, but for now:
-                model_config.api_key_env = Some(v.to_string()); // or however you store it
+                // Raw secret value — belongs in api_key (persisted, gitignored
+                // config.toml), never in api_key_env (that field is a NAME,
+                // e.g. "ANTHROPIC_API_KEY", not a value).
+                model_config.api_key = Some(v.to_string());
+            }
+            if let Some(v) = models.get("api_key_env").and_then(|v| v.as_str()) {
+                model_config.api_key_env = Some(v.to_string());
+            }
+            if let Some(v) = models.get("api_endpoint").and_then(|v| v.as_str()) {
+                model_config.api_endpoint = Some(v.to_string());
+            }
+            if let Some(v) = models.get("api_model").and_then(|v| v.as_str()) {
+                model_config.api_model = Some(v.to_string());
+            }
+            if let Some(v) = models.get("context_length").and_then(|v| v.as_u64()) {
+                model_config.context_length = v as usize;
+            }
+            if let Some(v) = models.get("gpu_layers") {
+                model_config.gpu_layers = v.as_u64().map(|n| n as u32);
+            }
+            if let Some(v) = models.get("allow_user_selection").and_then(|v| v.as_bool()) {
+                model_config.allow_user_selection = v;
             }
             if let Some(v) = models.get("local_model_path").and_then(|v| v.as_str()) {
                 model_config.local_model_path = Some(v.to_string());
@@ -584,6 +871,20 @@ async fn set_config(
                 model_config.bitnet_cli_path = Some(v.to_string());
             }
 
+            // available_models: discrete add/remove rather than whole-list
+            // replace — Settings and the setup wizard both write this list,
+            // and a wholesale replace risks one clobbering the other's
+            // concurrent edit on a stale fetch-then-save.
+            if let Some(v) = models.get("add_model") {
+                if let Ok(m) = serde_json::from_value::<crate::config::AvailableModel>(v.clone()) {
+                    model_config.available_models.retain(|existing| existing.identifier != m.identifier);
+                    model_config.available_models.push(m);
+                }
+            }
+            if let Some(v) = models.get("remove_model").and_then(|v| v.as_str()) {
+                model_config.available_models.retain(|m| m.identifier != v);
+            }
+
             // Re-export env BEFORE moving into runtime config, so spawned or
             // connected pipeline-9 instances pick up new settings immediately.
             for (k, v) in model_config.to_pipeline_env() {
@@ -594,8 +895,39 @@ async fn set_config(
 
         // Handle consciousness updates
         if let Some(consciousness) = updates.get("consciousness") {
-            if let Some(enabled) = consciousness.get("enabled").and_then(|v| v.as_bool()) {
-                runtime.config.consciousness.enabled = enabled;
+            let c = &mut runtime.config.consciousness;
+            if let Some(v) = consciousness.get("enabled").and_then(|v| v.as_bool()) {
+                c.enabled = v;
+            }
+            if let Some(v) = consciousness.get("emotional_system_enabled").and_then(|v| v.as_bool()) {
+                c.emotional_system_enabled = v;
+            }
+            if let Some(v) = consciousness.get("experience_memory_enabled").and_then(|v| v.as_bool()) {
+                c.experience_memory_enabled = v;
+            }
+            if let Some(v) = consciousness.get("identity_system_enabled").and_then(|v| v.as_bool()) {
+                c.identity_system_enabled = v;
+            }
+            if let Some(v) = consciousness.get("relationship_system_enabled").and_then(|v| v.as_bool()) {
+                c.relationship_system_enabled = v;
+            }
+            if let Some(v) = consciousness.get("ethical_system_enabled").and_then(|v| v.as_bool()) {
+                c.ethical_system_enabled = v;
+            }
+            if let Some(v) = consciousness.get("collective_enabled").and_then(|v| v.as_bool()) {
+                c.collective_enabled = v;
+            }
+            if let Some(v) = consciousness.get("show_emotional_state").and_then(|v| v.as_bool()) {
+                c.show_emotional_state = v;
+            }
+            if let Some(v) = consciousness.get("show_decision_reasoning").and_then(|v| v.as_bool()) {
+                c.show_decision_reasoning = v;
+            }
+            if let Some(v) = consciousness.get("i_loop_interval_ms").and_then(|v| v.as_u64()) {
+                c.i_loop_interval_ms = v;
+            }
+            if let Some(v) = consciousness.get("playback_enabled").and_then(|v| v.as_bool()) {
+                c.playback_enabled = v;
             }
         }
 
@@ -608,8 +940,27 @@ async fn set_config(
             if let Some(path) = voice.get("whisper_model_path").and_then(|v| v.as_str()) {
                 voice_config.whisper_model_path = Some(path.to_string());
             }
-            // Optional: add more fields if your wizard ever sends them
-            // e.g. backend type, model size preference, etc.
+            if let Some(v) = voice.get("backend").and_then(|v| v.as_str()) {
+                voice_config.backend = v.to_string();
+            }
+            if let Some(v) = voice.get("whisper_cpp_path").and_then(|v| v.as_str()) {
+                voice_config.whisper_cpp_path = Some(v.to_string());
+            }
+            if let Some(v) = voice.get("api_endpoint").and_then(|v| v.as_str()) {
+                voice_config.api_endpoint = Some(v.to_string());
+            }
+            if let Some(v) = voice.get("api_key").and_then(|v| v.as_str()) {
+                voice_config.api_key = Some(v.to_string());
+            }
+            if let Some(v) = voice.get("api_key_env").and_then(|v| v.as_str()) {
+                voice_config.api_key_env = Some(v.to_string());
+            }
+            if let Some(v) = voice.get("language").and_then(|v| v.as_str()) {
+                voice_config.language = Some(v.to_string());
+            }
+            if let Some(v) = voice.get("ffmpeg_path").and_then(|v| v.as_str()) {
+                voice_config.ffmpeg_path = v.to_string();
+            }
 
             runtime.config.voice = voice_config.clone();
 
@@ -617,6 +968,32 @@ async fn set_config(
             // host code needed (inherited environment).
             for (k, v) in voice_config.to_pipeline_env() {
                 std::env::set_var(&k, &v);
+            }
+        }
+
+        // Handle network updates — persisted only; NetworkManager is
+        // initialized once at boot (OzoneRuntime::new) and isn't live-
+        // reconfigured, so these need a restart to take effect (same
+        // behavior as every other section in this handler).
+        if let Some(network) = updates.get("network") {
+            let n = &mut runtime.config.network;
+            if let Some(v) = network.get("enable_p2p").and_then(|v| v.as_bool()) {
+                n.enable_p2p = v;
+            }
+            if let Some(v) = network.get("enable_cloud_sync").and_then(|v| v.as_bool()) {
+                n.enable_cloud_sync = v;
+            }
+            if let Some(v) = network.get("p2p_port").and_then(|v| v.as_u64()) {
+                n.p2p_port = v as u16;
+            }
+            if let Some(v) = network.get("max_peers").and_then(|v| v.as_u64()) {
+                n.max_peers = v as u32;
+            }
+            if let Some(v) = network.get("enable_mdns").and_then(|v| v.as_bool()) {
+                n.enable_mdns = v;
+            }
+            if let Some(v) = network.get("batch_sync_interval_secs").and_then(|v| v.as_u64()) {
+                n.batch_sync_interval_secs = v;
             }
         }
 
@@ -678,6 +1055,12 @@ async fn orchestrate(
         data.insert("workspace_id".to_string(), serde_json::json!(ws_id));
     }
     if let Some(model_cfg) = &req.model_config {
+        // Full object under "model_config" — AppRuntime::orchestrate (lib.rs)
+        // deserializes this key into OrchestrationRequest.model_config
+        // (ModelConfigOverride). Previously only "model_identifier" was
+        // flattened out here into a key nothing else read, so per-request
+        // model overrides never actually reached the orchestrator.
+        data.insert("model_config".to_string(), model_cfg.clone());
         if let Some(model_id) = model_cfg.get("model_identifier").and_then(|v| v.as_str()) {
             data.insert(
                 "model_identifier".to_string(),
@@ -689,21 +1072,7 @@ async fn orchestrate(
     let pipeline_input = crate::types::pipeline::PipelineInput {
         data: data
             .into_iter()
-            .map(|(k, v)| {
-                let val = match v {
-                    serde_json::Value::String(s) => crate::types::Value::String(s),
-                    serde_json::Value::Bool(b) => crate::types::Value::Bool(b),
-                    serde_json::Value::Number(n) => {
-                        if let Some(i) = n.as_i64() {
-                            crate::types::Value::Int(i)
-                        } else {
-                            crate::types::Value::Float(n.as_f64().unwrap_or(0.0))
-                        }
-                    }
-                    other => crate::types::Value::String(other.to_string()),
-                };
-                (k, val)
-            })
+            .map(|(k, v)| (k, json_to_typed_value(v)))
             .collect(),
         context: crate::types::pipeline::ExecutionContext {
             user_id: req.user_id,
@@ -749,6 +1118,9 @@ async fn orchestrate(
                 clarification_points: result.clarification_points,
                 error: None,
                 execution_time_ms,
+                model_used: result.model_used,
+                total_tokens_used: result.total_tokens_used,
+                amt_summary: result.amt_summary,
             })
         }
         Err(e) => {
@@ -763,6 +1135,9 @@ async fn orchestrate(
                 clarification_points: vec![],
                 error: Some(e.to_string()),
                 execution_time_ms: start.elapsed().as_millis() as u64,
+                model_used: None,
+                total_tokens_used: None,
+                amt_summary: None,
             })
         }
     }
@@ -1055,6 +1430,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/pipeline/ui-component", post(get_pipeline_ui_component))
         .route("/task/get", post(get_task))
         .route("/task/list", post(list_tasks))
+        .route("/task/cancel", post(cancel_task))
+        .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
         .route("/config/get", post(get_config))
         .route("/config/set", post(set_config))
@@ -1214,6 +1591,38 @@ async fn register_remote_pipeline(
         .remote_pipelines()
         .register(req.pipeline_id, req.name, req.execute_url, roles)
         .await;
+    // Seed the execution gate (registry.blueprints) so this id can actually
+    // be dispatched to: RegistryExecutorAdapter::execute and
+    // PipelineRegistry::execute both refuse any pipeline_id absent from that
+    // map BEFORE remote dispatch is ever attempted, and it's normally only
+    // populated at boot from the compile-time PIPELINE_INFO table (ids
+    // 1-55) — a fresh remote id like 9001 would otherwise 404 here even
+    // though RemotePipelines itself is ready to serve it.
+    let _ = registry
+        .register_custom(crate::types::pipeline::PipelineBlueprint {
+            pipeline_id: entry.pipeline_id,
+            name: entry.name.clone(),
+            version: crate::types::SemVer::default(),
+            author: Vec::new(),
+            description: format!(
+                "Remote-registered agent: {} (roles: {})",
+                entry.name,
+                entry.roles.join("+")
+            ),
+            specification: crate::types::pipeline::BlueprintSpec {
+                input_schema: crate::types::pipeline::Schema::default(),
+                output_schema: crate::types::pipeline::Schema::default(),
+                dependencies: Vec::new(),
+                sub_pipelines: Vec::new(),
+                execution_flow: crate::types::pipeline::ExecutionFlow::Sequential(Vec::new()),
+            },
+            implementations: Vec::new(),
+            content_hash: [0u8; 32],
+            peers: Vec::new(),
+            consensus_status: crate::types::pipeline::ConsensusStatus::Accepted,
+            verified_by: 0,
+        })
+        .await;
     // Capture the landing in the monitor feed — one observable registry.
     registry.activity_hub().record(
         crate::monitor::ActivityKind::Agent,
@@ -1248,6 +1657,7 @@ async fn unregister_remote_pipeline(
     let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let was_registered = registry.remote_pipelines().deregister(req.pipeline_id).await;
+    let _ = registry.unregister_custom(req.pipeline_id).await;
     Json(RemotePipelineUnregisterResponse {
         success: true,
         was_registered,

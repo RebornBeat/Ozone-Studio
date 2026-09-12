@@ -7,3 +7,6 @@
 /ui/node_modules/
 /ui/dist-electron/
 /ui/dist/
+
+# --- local config (holds persisted API keys as of Phase 3) ---
+/config.toml

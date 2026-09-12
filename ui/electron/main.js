@@ -186,14 +186,20 @@ async function monitorBackendConnection() {
 
         mainWindow.webContents.send("stats-update", {
           backendConnected: true,
-          p2pEnabled: config.p2p?.enabled ?? true,
-          peerCount: config.p2p?.peer_count ?? 0,
+          // p2pEnabled/peerCount are now real: GET /health returns
+          // p2p_enabled/peer_count straight from NetworkManager::get_status
+          // (src/grpc/mod.rs `health()`). The contribution/ZSEI fields below
+          // still have no backend source (no config.stats or endpoint exists
+          // yet) — left at their 0 fallback as an honest placeholder for
+          // that future collective-stats feature, not deleted.
+          p2pEnabled: health.p2p_enabled ?? false,
+          peerCount: health.peer_count ?? 0,
           totalContributions: config.stats?.total_contributions ?? 0,
           myContributions: config.stats?.my_contributions ?? 0,
           methodologiesShared: config.stats?.methodologies_shared ?? 0,
           blueprintsShared: config.stats?.blueprints_shared ?? 0,
           findingsShared: config.stats?.findings_shared ?? 0,
-          zseiContainers: config.stats?.zsei_containers ?? 1,
+          zseiContainers: config.stats?.zsei_containers ?? 0,
           zseiDepth: config.stats?.zsei_depth ?? 0,
           consciousnessEnabled: config.consciousness?.enabled ?? false,
           consciousnessState: config.consciousness?.enabled
@@ -436,19 +442,24 @@ ipcMain.handle("system:getStats", async () => {
 
   return {
     backendConnected: true,
-    p2pEnabled: config.p2p?.enabled ?? true,
-    peerCount: config.p2p?.peer_count ?? 0,
+    // See stats-update above: p2pEnabled/peerCount are real (GET /health);
+    // the contribution/ZSEI fields are honest 0-placeholders awaiting a
+    // real backend collective-stats endpoint.
+    p2pEnabled: health.p2p_enabled ?? false,
+    peerCount: health.peer_count ?? 0,
     totalContributions: config.stats?.total_contributions ?? 0,
     myContributions: config.stats?.my_contributions ?? 0,
     methodologiesShared: config.stats?.methodologies_shared ?? 0,
     blueprintsShared: config.stats?.blueprints_shared ?? 0,
     findingsShared: config.stats?.findings_shared ?? 0,
-    zseiContainers: config.stats?.zsei_containers ?? 1,
+    zseiContainers: config.stats?.zsei_containers ?? 0,
     zseiDepth: config.stats?.zsei_depth ?? 0,
     consciousnessEnabled: config.consciousness?.enabled ?? false,
     consciousnessState: config.consciousness?.enabled ? "Active" : undefined,
     iLoopStatus: config.consciousness?.enabled ? "Running" : undefined,
     uptime: health.uptime_secs || 0,
+    // This is the Electron UI process's own heap usage, not the Rust
+    // backend's memory — labeled as such in StatusBar.
     memoryUsage:
       (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) * 100,
     activeTaskCount: health.active_tasks || 0,
@@ -690,6 +701,17 @@ ipcMain.handle("task:cancel", async (event, taskId) => {
   requireConnection();
   return await backendRequest("POST", "/task/cancel", {
     task_id: taskId,
+    session_token: "",
+  });
+});
+
+ipcMain.handle("task:rerunStep", async (event, { taskId, stepIndex, modelOverride, carryForwardContext }) => {
+  requireConnection();
+  return await backendRequest("POST", "/task/step/rerun", {
+    task_id: taskId,
+    step_index: stepIndex,
+    model_override: modelOverride ?? null,
+    carry_forward_context: !!carryForwardContext,
     session_token: "",
   });
 });

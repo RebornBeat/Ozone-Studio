@@ -108,7 +108,7 @@ export const PipelinesPanel: React.FC = () => {
       {!connected ? (
         <div className="oempty">Host registry unreachable.</div>
       ) : (
-        <div style={{ maxHeight: 230, overflowY: "auto" }}>
+        <div className="opanel-scroll">
           <table className="otable">
             <thead>
               <tr>

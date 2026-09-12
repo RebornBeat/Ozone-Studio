@@ -1,13 +1,19 @@
 /**
  * StatusBar Component - BOTTOM status bar
- * 
+ *
  * The STATUS BAR is the soul of Ozone Studio's collective vision.
  * It prominently displays COLLECTIVE CONTRIBUTIONS to remind users
  * that every interaction builds the shared knowledge ecosystem.
- * 
+ *
+ * peerCount/p2pEnabled are real (GET /health → NetworkManager::get_status).
+ * totalContributions/methodologiesShared/blueprintsShared/findingsShared/
+ * zseiContainers/zseiDepth are still placeholders awaiting a real backend
+ * collective-stats system/endpoint — kept here intentionally as the
+ * intended future surface, always 0 until that lands.
+ *
  * Layout:
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │ [●] Online │ 👥 42 Peers │ ✨ 12,345 Contributions │ 🔍 ZSEI: 3 │ 💾 │ 
+ * │ [●] Online │ 👥 42 Peers │ ✨ 12,345 Contributions │ 🔍 ZSEI: 3 │ 💾 │
  * └─────────────────────────────────────────────────────────────────────────┘
  */
 
@@ -15,19 +21,13 @@ import React, { useEffect, useState } from 'react';
 import { useOzoneStore } from '../services/store';
 import { SystemStats } from '../App';
 
-interface ContributionBreakdown {
-  methodologies: number;
-  blueprints: number;
-  findings: number;
-}
-
 export function StatusBar() {
-  const { 
-    isConnected, 
+  const {
+    isConnected,
     systemStats,
     consciousnessEnabled,
   } = useOzoneStore();
-  
+
   // Format large numbers with commas
   const formatNumber = (num: number): string => {
     return num.toLocaleString();
@@ -57,9 +57,9 @@ export function StatusBar() {
   };
 
   const connection = getConnectionDisplay();
-  
+
   // Calculate total contributions
-  const totalContributions = systemStats.totalContributions || 
+  const totalContributions = systemStats.totalContributions ||
     (systemStats.methodologiesShared + systemStats.blueprintsShared + systemStats.findingsShared);
 
   return (
@@ -93,7 +93,7 @@ export function StatusBar() {
         <span className="status-icon">✨</span>
         <span className="status-value highlight">{formatNumber(totalContributions)}</span>
         <span className="status-label">Collective Contributions</span>
-        
+
         {/* Contribution breakdown tooltip/dropdown */}
         <div className="contribution-breakdown">
           <div className="breakdown-item">
@@ -119,7 +119,7 @@ export function StatusBar() {
         <span className="status-icon">🎯</span>
         <span className="status-value">{formatNumber(systemStats.myContributions)}</span>
         <span className="status-label">My Contributions</span>
-        
+
         {/* My contribution breakdown on hover */}
         <div className="contribution-breakdown">
           <div className="breakdown-title">Your Contributions</div>
@@ -180,9 +180,10 @@ export function StatusBar() {
       {/* System Resources (right-aligned) */}
       <div className="status-spacer" />
       
-      <div className="status-item status-memory" title="Memory usage">
+      <div className="status-item status-memory" title="UI process memory usage (not the backend)">
         <span className="status-icon">💾</span>
         <span className="status-value">{Math.round(systemStats.memoryUsage)}%</span>
+        <span className="status-label">UI Mem</span>
       </div>
 
       {/* Uptime */}

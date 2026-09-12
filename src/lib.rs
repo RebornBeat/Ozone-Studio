@@ -75,6 +75,9 @@ pub struct OrchestrationOutput {
     pub stages_completed: Vec<serde_json::Value>,
     pub needs_clarification: bool,
     pub clarification_points: Vec<String>,
+    pub model_used: Option<String>,
+    pub total_tokens_used: Option<u32>,
+    pub amt_summary: Option<serde_json::Value>,
 }
 
 /// Main Ozone Studio runtime
@@ -378,6 +381,7 @@ impl OzoneRuntime {
             processing_path: Default::default(),
             executor_model: Default::default(),
             voice_input: None,
+            available_models: self.config.models.available_models.clone(),
         };
 
         let executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
@@ -408,6 +412,12 @@ impl OzoneRuntime {
                 .collect(),
             needs_clarification: response.needs_clarification,
             clarification_points: response.clarification_points,
+            model_used: response.model_used,
+            total_tokens_used: response.total_tokens_used,
+            amt_summary: response
+                .amt_summary
+                .as_ref()
+                .and_then(|s| serde_json::to_value(s).ok()),
         })
     }
 }

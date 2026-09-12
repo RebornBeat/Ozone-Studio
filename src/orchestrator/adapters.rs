@@ -77,6 +77,15 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
 
         serde_json::to_value(&output).map_err(|e| e.to_string())
     }
+
+    async fn pipeline_exists(&self, pipeline_id: u64) -> bool {
+        self.registry
+            .read()
+            .await
+            .get_blueprint(pipeline_id)
+            .await
+            .is_some()
+    }
 }
 
 // ============================================================================

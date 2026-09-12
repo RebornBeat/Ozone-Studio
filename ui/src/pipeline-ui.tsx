@@ -14,6 +14,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { InjectedTab } from './themes/home_dashboard/HomeDashboard';
 import SettingsPanel from './components/SettingsPanel';
 import PipelinesPanel from './components/PipelinesPanel';
+import MonitoringPanel from './components/MonitoringPanel';
+import ToolsPanel from './components/ToolsPanel';
+import PairingPanel from './components/PairingPanel';
 
 // ============================================================================
 // Module Cache
@@ -201,10 +204,17 @@ export function clearModuleCache(pipelineId?: number): void {
 // ============================================================================
 
 export const CORE_TAB_DEFINITIONS = [
-  { id: 'workspace', pipelineId: 6, label: 'Workspace', icon: '📁', order: 0 },
-  { id: 'tasks',     pipelineId: 5, label: 'Tasks',     icon: '📋', order: 1 },
-  { id: 'library',   pipelineId: 7, label: 'Library',   icon: '📚', order: 2 },
-  { id: 'settings',  pipelineId: 8, label: 'Settings',  icon: '⚙️', order: 3 },
+  { id: 'workspace', pipelineId: 6,    label: 'Workspace', icon: '📁', order: 0 },
+  { id: 'tasks',     pipelineId: 5,    label: 'Tasks',     icon: '📋', order: 1 },
+  { id: 'library',   pipelineId: 7,    label: 'Library',   icon: '📚', order: 2 },
+  { id: 'settings',  pipelineId: 8,    label: 'Settings',  icon: '⚙️', order: 3 },
+  // Promoted out of the old bottom-drawer toggle mechanism — these are
+  // host-side UI surfaces, not dynamically-loaded pipeline UIs, so they get
+  // synthetic ids in the custom range (index.json's own next_custom_id
+  // starts at 1000) rather than colliding with a real pipeline id.
+  { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 4 },
+  { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 5 },
+  { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 6 },
 ] as const;
 
 export function getPipelineIcon(pipelineId: number): string {
@@ -236,6 +246,9 @@ export function createCoreTabs(): InjectedTab[] {
   const nativeTabComponents: Record<string, React.ComponentType<any>> = {
     settings: SettingsPanel,
     library: PipelinesPanel,
+    monitor: MonitoringPanel,
+    tools: ToolsPanel,
+    devices: PairingPanel,
   };
 
   return CORE_TAB_DEFINITIONS.map(def => ({

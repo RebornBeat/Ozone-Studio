@@ -136,6 +136,17 @@ contextBridge.exposeInMainWorld("ozone", {
     cancel: (taskId) => ipcRenderer.invoke("task:cancel", taskId),
 
     /**
+     * Rewind + rerun one step of a task with a different model.
+     * @param {number} taskId
+     * @param {number} stepIndex
+     * @param {object|null} modelOverride - ModelConfigOverride-shaped JSON
+     * @param {boolean} carryForwardContext - reuse earlier steps' original outputs as context
+     * @returns {Promise<{success: boolean, response?: string, tokens_used?: number, model_used?: string, error?: string}>}
+     */
+    rerunStep: (taskId, stepIndex, modelOverride, carryForwardContext) =>
+      ipcRenderer.invoke("task:rerunStep", { taskId, stepIndex, modelOverride, carryForwardContext }),
+
+    /**
      * Subscribe to task updates
      * @param {number} taskId
      * @param {function} callback

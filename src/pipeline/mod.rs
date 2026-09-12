@@ -219,4 +219,12 @@ impl PipelineRegistry {
         self.blueprints.write().await.insert(id, blueprint);
         Ok(id)
     }
+
+    /// Remove a custom pipeline from the execution gate — mirrors
+    /// register_custom, called when a remote agent deregisters so its id
+    /// doesn't linger as a phantom "known" pipeline that then fails inside
+    /// RemotePipelines::execute instead of at this gate.
+    pub async fn unregister_custom(&self, pipeline_id: PipelineID) -> bool {
+        self.blueprints.write().await.remove(&pipeline_id).is_some()
+    }
 }

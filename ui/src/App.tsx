@@ -11,9 +11,6 @@ import { MetaPortion } from "./components/MetaPortion";
 import { ThemeArea } from "./components/ThemeArea";
 import { StatusBar } from "./components/StatusBar";
 import ConnectedAgents from "./components/ConnectedAgents";
-import MonitoringPanel from "./components/MonitoringPanel";
-import PairingPanel from "./components/PairingPanel";
-import ToolsPanel from "./components/ToolsPanel";
 import { OZONE_HOST, fetchRemotePipelines } from "./ozoneClient";
 import "./App.css";
 
@@ -95,6 +92,12 @@ interface LaunchStatus {
 
 export interface SystemStats {
   backendConnected: boolean;
+  // p2pEnabled/peerCount are now real — sourced from GET /health's
+  // p2p_enabled/peer_count fields (NetworkManager::get_status). The
+  // contribution/ZSEI counters below are still placeholders: no backend
+  // field or endpoint tracks them yet (a real collective-stats system is
+  // separate, larger work) — kept in the UI as the intended future surface,
+  // not deleted, and always render as 0 until that lands.
   p2pEnabled: boolean;
   peerCount: number;
   totalContributions: number;
@@ -115,10 +118,17 @@ export interface SystemStats {
 // Setup Wizard Types
 interface SetupConfig {
   modelType: "api" | "local" | "zcode" | null;
-  apiProvider: "anthropic" | "openai" | "google" | "local" | "";
+  apiProvider: "anthropic" | "openai" | "google" | "openrouter" | "custom" | "local" | "";
+  /** Only used when apiProvider === "custom". */
+  apiEndpoint: string;
   apiKey: string;
   localModelPath: string;
   localModelType: "gguf" | "bitnet" | "other";
+  /** Only used when localModelType === "bitnet" — pipeline 9 needs both the
+   * llama.cpp-fork CLI binary AND the model file to actually run BitNet;
+   * previously only the model file was ever asked for, so selecting BitNet
+   * here was a dead end. */
+  bitnetCliPath: string;
   voiceEnabled: boolean;
   /** Voice backend — mirrors config VoiceConfig.backend. */
   voiceBackend: "whisper_rs" | "whisper_cpp" | "api";
@@ -126,6 +136,8 @@ interface SetupConfig {
   whisperCppPath: string;
   voiceApiEndpoint: string;
   consciousnessEnabled: boolean;
+  enableP2p: boolean;
+  enableMdns: boolean;
 }
 
 /// Default local whisper model (ggml-base.en) — exists on this machine.
@@ -142,6 +154,7 @@ function App() {
     isConnected,
     currentTheme,
     consciousnessEnabled,
+    p2pEnabled,
     initializeApp,
     setConnectionStatus,
     setSystemStats,
@@ -234,22 +247,25 @@ function App() {
   const [setupConfig, setSetupConfig] = useState<SetupConfig>({
     modelType: null,
     apiProvider: "",
+    apiEndpoint: "",
     apiKey: "",
     localModelPath: "",
     localModelType: "gguf",
+    bitnetCliPath: "",
     voiceEnabled: false,
     voiceBackend: "whisper_rs",
     whisperModelPath: DEFAULT_WHISPER_MODEL,
     whisperCppPath: "",
     voiceApiEndpoint: "",
     consciousnessEnabled: false,
+    enableP2p: true,
+    enableMdns: true,
   });
   const [whisperModelPath, setWhisperModelPath] = useState<string>("");
-  // Panel switcher: monitor | pair | tools | null. Settings and Pipelines
-  // live as core tabs (Settings tab, Library tab) — not duplicated here.
-  const [activePanel, setActivePanel] = useState<
-    "monitor" | "pair" | "tools" | null
-  >(null);
+  // Monitor/Tools/Devices used to live behind a bottom-drawer toggle here;
+  // they're now first-class core tabs (pipeline-ui.tsx CORE_TAB_DEFINITIONS)
+  // so they inherit the same full-height layout as Workspace/Settings
+  // instead of a cramped fixed-height strip.
   // Live probe: which model-role agents are registered with the host right
   // now (drives the wizard's honest ZCode status for ANY user).
   const [modelAgents, setModelAgents] = useState<string[]>([]);
@@ -486,18 +502,46 @@ function App() {
       const configUpdates = {
         setup_complete: true,
         models: {
-          model_type: setupConfig.modelType,
+          // "local" here maps to whichever concrete backend the user picked
+          // (bitnet/gguf/other) — pipeline 9 keys off that concrete type,
+          // not the generic "local" the wizard uses as a UI grouping.
+          model_type:
+            setupConfig.modelType === "local"
+              ? setupConfig.localModelType === "other"
+                ? "gguf"
+                : setupConfig.localModelType
+              : setupConfig.modelType,
           api_provider:
             setupConfig.modelType === "api"
               ? setupConfig.apiProvider
               : undefined,
+          api_endpoint:
+            setupConfig.modelType === "api" &&
+            setupConfig.apiProvider === "custom"
+              ? setupConfig.apiEndpoint
+              : undefined,
           api_key:
             setupConfig.modelType === "api" ? setupConfig.apiKey : undefined,
+          wire_protocol:
+            setupConfig.modelType === "api"
+              ? setupConfig.apiProvider === "anthropic"
+                ? "anthropic"
+                : "chat_completions"
+              : undefined,
           local_model_path:
             setupConfig.modelType === "local"
               ? setupConfig.localModelPath
               : undefined,
           local_model_type: setupConfig.localModelType,
+          bitnet_cli_path:
+            setupConfig.modelType === "local" &&
+            setupConfig.localModelType === "bitnet"
+              ? setupConfig.bitnetCliPath
+              : undefined,
+        },
+        network: {
+          enable_p2p: setupConfig.enableP2p,
+          enable_mdns: setupConfig.enableP2p ? setupConfig.enableMdns : false,
         },
         voice: {
           enabled: setupConfig.voiceEnabled,
@@ -765,7 +809,48 @@ function App() {
                         <span className="provider-name">Google</span>
                         <span className="provider-model">Gemini</span>
                       </button>
+                      <button
+                        className={`provider-btn ${setupConfig.apiProvider === "openrouter" ? "selected" : ""}`}
+                        onClick={() =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            apiProvider: "openrouter",
+                          }))
+                        }
+                      >
+                        <span className="provider-name">OpenRouter</span>
+                        <span className="provider-model">Many models</span>
+                      </button>
+                      <button
+                        className={`provider-btn ${setupConfig.apiProvider === "custom" ? "selected" : ""}`}
+                        onClick={() =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            apiProvider: "custom",
+                          }))
+                        }
+                      >
+                        <span className="provider-name">Custom</span>
+                        <span className="provider-model">Any OpenAI-compatible endpoint</span>
+                      </button>
                     </div>
+
+                    {setupConfig.apiProvider === "custom" && (
+                      <>
+                        <label>API Endpoint</label>
+                        <input
+                          type="text"
+                          placeholder="https://…/v1/chat/completions"
+                          value={setupConfig.apiEndpoint}
+                          onChange={(e) =>
+                            setSetupConfig((prev) => ({
+                              ...prev,
+                              apiEndpoint: e.target.value,
+                            }))
+                          }
+                        />
+                      </>
+                    )}
 
                     <label>API Key</label>
                     <input
@@ -797,6 +882,13 @@ function App() {
                     {setupConfig.apiProvider === "google" && (
                       <p className="config-hint">
                         Get your API key from aistudio.google.com
+                      </p>
+                    )}
+                    {setupConfig.apiProvider === "openrouter" && (
+                      <p className="config-hint">
+                        Get your API key from openrouter.ai/keys — pick any
+                        model identifier in Settings afterward (e.g.
+                        anthropic/claude-3.5-sonnet, deepseek/deepseek-coder).
                       </p>
                     )}
                   </div>
@@ -858,6 +950,26 @@ function App() {
                         Browse...
                       </button>
                     </div>
+                    {setupConfig.localModelType === "bitnet" && (
+                      <>
+                        <label>BitNet CLI (llama-cli from the BitNet build)</label>
+                        <input
+                          type="text"
+                          placeholder="/path/to/BitNet/build/bin/llama-cli"
+                          value={setupConfig.bitnetCliPath}
+                          onChange={(e) =>
+                            setSetupConfig((prev) => ({
+                              ...prev,
+                              bitnetCliPath: e.target.value,
+                            }))
+                          }
+                        />
+                        <p className="config-hint">
+                          BitNet needs both this CLI binary and the model file
+                          above — pipeline 9 shells out to it directly.
+                        </p>
+                      </>
+                    )}
                     <p className="config-hint">
                       {setupConfig.localModelType === "gguf" &&
                         "Recommended: Llama 3, Mistral, or Phi-3 in GGUF format"}
@@ -1057,6 +1169,47 @@ function App() {
                   💡 You can always enable or disable this later in Settings
                 </p>
 
+                <div className="consciousness-toggle" style={{ marginTop: 18 }}>
+                  <label className="toggle-label">
+                    <input
+                      type="checkbox"
+                      checked={setupConfig.enableP2p}
+                      onChange={(e) =>
+                        setSetupConfig((prev) => ({
+                          ...prev,
+                          enableP2p: e.target.checked,
+                        }))
+                      }
+                    />
+                    <span className="toggle-text">
+                      Enable P2P networking (collective knowledge sharing)
+                    </span>
+                  </label>
+                </div>
+                {setupConfig.enableP2p && (
+                  <div className="consciousness-toggle">
+                    <label className="toggle-label">
+                      <input
+                        type="checkbox"
+                        checked={setupConfig.enableMdns}
+                        onChange={(e) =>
+                          setSetupConfig((prev) => ({
+                            ...prev,
+                            enableMdns: e.target.checked,
+                          }))
+                        }
+                      />
+                      <span className="toggle-text">
+                        Enable local discovery (mDNS)
+                      </span>
+                    </label>
+                  </div>
+                )}
+                <p className="feature-note">
+                  💡 Turn this off for fully local, single-machine operation —
+                  configurable later in Settings → Network
+                </p>
+
                 <div className="setup-buttons">
                   <button className="setup-back" onClick={handleSetupBack}>
                     ← Back
@@ -1153,10 +1306,14 @@ function App() {
             </span>
           </div>
 
-          <div className="feature-badge active">
+          <div className={`feature-badge ${p2pEnabled ? "active" : "inactive"}`}>
             <span className="badge-icon">🌐</span>
             <span className="badge-label">P2P Network</span>
-            <span className="badge-status">ON</span>
+            <span className="badge-status">{p2pEnabled ? "ON" : "OFF"}</span>
+          </div>
+
+          <div className="feature-badge active" style={{ cursor: "default" }}>
+            <ConnectedAgents compact pollMs={5000} />
           </div>
         </div>
       </header>
@@ -1166,66 +1323,6 @@ function App() {
         <ThemeArea theme={currentTheme} />
       </div>
 
-      {activePanel && (
-        <div
-          style={{
-            maxHeight: 330,
-            overflowY: "auto",
-            borderTop: "1px solid #1e2836",
-            background: "#0e131c",
-            flex: "none",
-          }}
-        >
-          {activePanel === "monitor" && <MonitoringPanel />}
-          {activePanel === "pair" && <PairingPanel />}
-          {activePanel === "tools" && <ToolsPanel />}
-        </div>
-      )}
-
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          padding: "6px 12px",
-          fontSize: 12,
-          borderTop: "1px solid #1e2836",
-          background: "#0b0f18",
-          flex: "none",
-        }}
-      >
-        <div style={{ display: "flex", gap: 6 }}>
-          {(
-            [
-              ["monitor", "📡", "Monitor"],
-              ["pair", "📱", "Pair"],
-              ["tools", "🔧", "Tools"],
-            ] as const
-          ).map(([key, icon, label]) => (
-            <button
-              key={key}
-              onClick={() => setActivePanel(activePanel === key ? null : key)}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "6px 14px",
-                fontSize: 12.5,
-                borderRadius: 10,
-                cursor: "pointer",
-                border: `1px solid ${activePanel === key ? "#2f6cb4" : "#1e2836"}`,
-                background: activePanel === key ? "#16233a" : "transparent",
-                color: activePanel === key ? "#dfe7f2" : "#8b98ab",
-                transition: "all 0.12s",
-              }}
-            >
-              <span style={{ fontSize: 14 }}>{icon}</span>
-              {label}
-            </button>
-          ))}
-        </div>
-        <ConnectedAgents compact pollMs={5000} />
-      </div>
       <StatusBar />
     </div>
   );

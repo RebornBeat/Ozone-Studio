@@ -57,6 +57,11 @@ interface UIState {
     model_type: string;
     identifier: string;
   }>;
+
+  // Most recent task the chat prompt is/was running as — lets the Monitor
+  // tab's task-detail view default to "the thing I just sent" without a
+  // separate lookup. Any task can still be viewed by id there.
+  lastTaskId: number | null;
 }
 
 interface UIActions {
@@ -94,6 +99,7 @@ interface UIActions {
   setTheme: (theme: string) => void;
   setSelectedModel: (model: string) => void;
   setConsciousnessEnabled: (enabled: boolean) => void;
+  setLastTaskId: (taskId: number | null) => void;
 }
 
 // Default system stats - ALL ZEROS (no mock data!)
@@ -135,6 +141,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   activeTab: "workspace",
   selectedModel: "claude-sonnet-4-20250514",
   availableModels: [],
+  lastTaskId: null,
 
   // Actions
   initializeApp: async (config: any) => {
@@ -152,7 +159,10 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
         "claude-sonnet-4-20250514",
       availableModels: modelConfig.available_models || [],
       consciousnessEnabled: config.consciousness?.enabled ?? false,
-      p2pEnabled: config.network?.p2p_enabled ?? false,
+      // Real field name is enable_p2p (NetworkConfig, src/config/mod.rs) —
+      // this previously read a nonexistent "p2p_enabled" key and was always
+      // false regardless of actual config.
+      p2pEnabled: config.network?.enable_p2p ?? false,
     });
   },
 
@@ -400,6 +410,10 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
         .set({ models: { api_model: model } })
         .catch(console.warn);
     }
+  },
+
+  setLastTaskId: (taskId: number | null) => {
+    set({ lastTaskId: taskId });
   },
 
   setConsciousnessEnabled: (enabled: boolean) => {

@@ -40,6 +40,10 @@ interface TranscriptEntry {
   content: string;
   timestamp: number;
   emotion?: string;
+  /** Which model produced this response — real per-call data forwarded from
+   * OrchestrateResponse.model_used, not guessed. */
+  modelUsed?: string;
+  stageCount?: number;
 }
 
 export function MetaPortion({ width }: MetaPortionProps) {
@@ -50,6 +54,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
     setPromptInput,
     submitPrompt,
     executePipeline,
+    selectedModel,
+    setSelectedModel,
+    availableModels,
   } = useOzoneStore();
   
   const [voiceActive, setVoiceActive] = useState(false);
@@ -75,6 +82,43 @@ export function MetaPortion({ width }: MetaPortionProps) {
   const [voiceWaveform, setVoiceWaveform] = useState<number[]>(new Array(24).fill(0.1));
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // In-flight orchestration tracking: /orchestrate blocks until the whole
+  // run finishes, so there's no execution_id to cancel-by upfront. We poll
+  // /task/list for the newest running task right after firing the request —
+  // once found, both Stop and live step progress become available.
+  const [isRunning, setIsRunning] = useState(false);
+  const [currentTaskId, setCurrentTaskId] = useState<number | null>(null);
+  const [currentStepInfo, setCurrentStepInfo] = useState<{
+    completed: number;
+    total: number;
+    lastAction?: string;
+  } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const taskPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopTaskPolling = useCallback(() => {
+    if (taskPollRef.current) {
+      clearInterval(taskPollRef.current);
+      taskPollRef.current = null;
+    }
+  }, []);
+
+  const handleStop = async () => {
+    if (!currentTaskId || cancelling) return;
+    setCancelling(true);
+    try {
+      await (window as any).ozone?.task?.cancel?.(currentTaskId);
+    } catch (e) {
+      console.warn('Cancel request failed:', e);
+    } finally {
+      setCancelling(false);
+    }
+    // The orchestrator stops before its NEXT step once cancellation lands —
+    // a step already in flight still runs to completion, so this doesn't
+    // resolve instantly. isRunning clears itself when the orchestrate
+    // promise in handleSubmit finally settles.
+  };
 
   // Fetch actual emotional state from backend
   const fetchEmotionalState = useCallback(async () => {
@@ -424,14 +468,17 @@ export function MetaPortion({ width }: MetaPortionProps) {
     // Use the orchestrator for full 14-stage flow
     try {
       setIsSpeaking(true);
-      
+      setIsRunning(true);
+      setCurrentTaskId(null);
+      setCurrentStepInfo(null);
+
       // Get current project context from shared state if available
       const currentProjectId = (window as any).ozone?.sharedState?.selectedProjectId;
       const currentWorkspaceId = (window as any).ozone?.sharedState?.selectedWorkspaceId;
-      
+
       // Use orchestration (full flow) instead of direct pipeline call
       if ((window as any).ozone?.orchestrate) {
-        const result = await (window as any).ozone.orchestrate({
+        const orchestratePromise = (window as any).ozone.orchestrate({
           prompt: promptInput,
           project_id: currentProjectId,
           workspace_id: currentWorkspaceId,
@@ -439,13 +486,56 @@ export function MetaPortion({ width }: MetaPortionProps) {
           device_id: 1,
           consciousness_enabled: consciousnessEnabled,
           token_budget: 100000,
+          // Real per-request model selection (Phase 6 routing) — only sent
+          // when the user picked something other than the host's default.
+          model_config: selectedModel
+            ? { model_identifier: selectedModel }
+            : undefined,
         });
-        
+
+        // Find the task this request creates so Stop + step progress work
+        // while /orchestrate is still blocking on the response.
+        let foundTaskId: number | null = null;
+        taskPollRef.current = setInterval(async () => {
+          try {
+            if (!foundTaskId) {
+              const list = await (window as any).ozone?.task?.list?.();
+              const running = (list?.tasks ?? [])
+                .filter((t: any) => String(t.status ?? '').toLowerCase().includes('running')
+                  || String(t.status ?? '').toLowerCase().includes('inprogress'))
+                .sort((a: any, b: any) => (b.created_at ?? 0) - (a.created_at ?? 0));
+              if (running.length > 0) {
+                foundTaskId = running[0].task_id;
+                setCurrentTaskId(foundTaskId);
+                useOzoneStore.getState().setLastTaskId(foundTaskId);
+              }
+            } else {
+              const detail = await (window as any).ozone?.task?.status?.(foundTaskId);
+              const steps = detail?.steps ?? [];
+              if (steps.length > 0) {
+                setCurrentStepInfo({
+                  completed: steps.filter((s: any) => s.status === 'completed').length,
+                  total: steps.length,
+                  lastAction: steps[steps.length - 1]?.action,
+                });
+              }
+            }
+          } catch {
+            /* transient — keep polling */
+          }
+        }, 900);
+
+        const result = await orchestratePromise;
+        stopTaskPolling();
+        setIsRunning(false);
+        setCurrentTaskId(null);
+        setCurrentStepInfo(null);
+
         setPromptInput('');
         if (textareaRef.current) {
           textareaRef.current.style.height = 'auto';
         }
-        
+
         // Add response to transcript
         if (result.response) {
           setTranscript(prev => [...prev, {
@@ -453,9 +543,13 @@ export function MetaPortion({ width }: MetaPortionProps) {
             role: 'assistant',
             content: result.response,
             timestamp: Date.now(),
-            emotion: emotionState.primary
+            emotion: emotionState.primary,
+            modelUsed: result.model_used,
+            stageCount: Array.isArray(result.stages_completed)
+              ? result.stages_completed.length
+              : undefined,
           }]);
-          
+
           // Speak the response if voice output is enabled
           if (consciousnessEnabled) {
             await speakResponse(result.response);
@@ -579,6 +673,10 @@ export function MetaPortion({ width }: MetaPortionProps) {
       }
     } finally {
       setIsSpeaking(false);
+      stopTaskPolling();
+      setIsRunning(false);
+      setCurrentTaskId(null);
+      setCurrentStepInfo(null);
     }
   };
 
@@ -707,6 +805,16 @@ export function MetaPortion({ width }: MetaPortionProps) {
                     </span>
                   </div>
                   <div className="message-content">{entry.content}</div>
+                  {entry.role === 'assistant' && (entry.modelUsed || entry.stageCount) && (
+                    <div
+                      className="message-meta"
+                      style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}
+                    >
+                      {entry.modelUsed && <span>handled by {entry.modelUsed}</span>}
+                      {entry.modelUsed && entry.stageCount ? ' · ' : ''}
+                      {entry.stageCount ? <span>{entry.stageCount} stages</span> : ''}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -756,6 +864,37 @@ export function MetaPortion({ width }: MetaPortionProps) {
 
       {/* Prompt Input - Always visible; voice lives HERE, in the chat */}
       <div className="meta-prompt">
+        {isRunning && (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 11.5,
+              color: '#8b98ab',
+              padding: '2px 4px 6px',
+            }}
+          >
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#6ec3ff',
+                animation: 'pulse 1.2s ease-in-out infinite',
+                flex: 'none',
+              }}
+            />
+            {currentStepInfo ? (
+              <span>
+                Step {currentStepInfo.completed + 1} of {currentStepInfo.total}
+                {currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''}
+              </span>
+            ) : (
+              <span>Starting…</span>
+            )}
+          </div>
+        )}
         <form onSubmit={handleSubmit}>
           <div className={`prompt-input-wrapper ${voiceActive ? 'listening' : ''}`}>
             {voiceActive && (
@@ -791,6 +930,29 @@ export function MetaPortion({ width }: MetaPortionProps) {
             />
           </div>
           <div className="prompt-controls">
+            {availableModels.length > 0 && (
+              <select
+                className="model-picker"
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                title="Model for the next message (Phase 6 per-request routing)"
+                style={{
+                  background: '#0b1120',
+                  border: '1px solid #223046',
+                  borderRadius: 8,
+                  color: '#8b98ab',
+                  fontSize: 11,
+                  padding: '4px 6px',
+                  maxWidth: 130,
+                }}
+              >
+                {availableModels.map((m) => (
+                  <option key={m.identifier} value={m.identifier}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               className={`control-btn voice-btn ${voiceActive ? 'active' : ''}`}
@@ -803,14 +965,31 @@ export function MetaPortion({ width }: MetaPortionProps) {
             {voiceActive && (
               <span className="voice-db">level {Math.round(micLevel * 100)}%</span>
             )}
-            <button
-              type="submit"
-              className="control-btn send-btn"
-              disabled={!isConnected || !promptInput.trim()}
-              title="Send message"
-            >
-              <span className="send-arrow">→</span>
-            </button>
+            {isRunning ? (
+              <button
+                type="button"
+                className="control-btn send-btn"
+                onClick={handleStop}
+                disabled={!currentTaskId || cancelling}
+                title={
+                  currentTaskId
+                    ? 'Stop — finishes the current step, then halts'
+                    : 'Locating the running task…'
+                }
+                style={{ background: '#3a1620', borderColor: '#7a2a3a', color: '#f87171' }}
+              >
+                {cancelling ? '…' : '■'}
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="control-btn send-btn"
+                disabled={!isConnected || !promptInput.trim()}
+                title="Send message"
+              >
+                <span className="send-arrow">→</span>
+              </button>
+            )}
           </div>
         </form>
       </div>

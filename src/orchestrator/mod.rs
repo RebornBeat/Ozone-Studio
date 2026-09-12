@@ -126,6 +126,12 @@ pub struct OrchestrationRequest {
     /// so there is no double transcription in the UI flow.
     #[serde(default)]
     pub voice_input: Option<VoiceInputSpec>,
+    /// Named model profiles currently configured on the host
+    /// (OzoneConfig.models.available_models) — populated server-side
+    /// (OzoneRuntime::orchestrate), never client-supplied. Informs blueprint
+    /// generation's optional per-step model_override.
+    #[serde(default)]
+    pub available_models: Vec<crate::config::AvailableModel>,
 }
 
 /// Voice input attached to a request by non-UI callers.
@@ -148,6 +154,25 @@ pub struct ModelConfigOverride {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub context_length: Option<u32>,
+    /// Connection fields — present when this override should route to a
+    /// genuinely different backend (not just a different model name on the
+    /// currently-configured one). Mirrors the overridable subset of
+    /// config::ModelConfig; pipeline 9 merges these onto its env-derived
+    /// base config before dispatching. All optional/additive so existing
+    /// callers (which only ever set model_type/model_identifier) keep
+    /// working unchanged.
+    #[serde(default)]
+    pub api_endpoint: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub wire_protocol: Option<String>,
+    #[serde(default)]
+    pub bitnet_cli_path: Option<String>,
+    #[serde(default)]
+    pub local_model_path: Option<String>,
 }
 
 /// Orchestration response
@@ -174,6 +199,12 @@ pub struct OrchestrationResponse {
     pub needs_clarification: bool,
     /// AMT structure (for debugging/visualization)
     pub amt_summary: Option<AMTSummary>,
+    /// Which model actually produced the final response (from the last
+    /// executed step's PromptOutput.model_used) — was previously computed
+    /// per-call by pipeline 9 but discarded before reaching the client, so
+    /// the chat UI could never show "handled by X" or reflect a mid-run
+    /// model switch.
+    pub model_used: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -763,6 +794,13 @@ pub struct BlueprintStep {
     pub max_retries: u32,
     /// Timeout in milliseconds
     pub timeout_ms: Option<u64>,
+    /// Per-step model backend override — lets one orchestration run route
+    /// different steps to different model backends (e.g. BitNet for a quick
+    /// classification step, the configured API model for the final
+    /// response) without spinning up separate registered agents. Additive:
+    /// absent on any blueprint stored before this field existed.
+    #[serde(default)]
+    pub model_override: Option<ModelConfigOverride>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1071,6 +1109,12 @@ pub trait PipelineExecutor: Send + Sync {
         pipeline_id: u64,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, String>;
+
+    /// Whether `pipeline_id` would actually dispatch (builtin, self-
+    /// registered remote, or otherwise known to the registry) rather than
+    /// fail with "not found". Used to validate LLM-authored blueprint steps
+    /// before they travel deep into execution.
+    async fn pipeline_exists(&self, pipeline_id: u64) -> bool;
 }
 
 // ============================================================================
@@ -2110,6 +2154,12 @@ impl PromptOrchestrator {
                     format!("Streak: {}/5", state.validation_streak)
                 },
             }),
+            model_used: state
+                .step_results
+                .last()
+                .and_then(|r| r.output.get("model_used"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
         }
     }
 
@@ -2134,6 +2184,7 @@ impl PromptOrchestrator {
             clarification_points: state.clarification_points.clone(),
             needs_clarification: state.needs_clarification,
             amt_summary: None,
+            model_used: None,
         }
     }
 
@@ -2231,6 +2282,10 @@ mod tests {
                 }
                 _ => Ok(serde_json::json!({"success": true})),
             }
+        }
+
+        async fn pipeline_exists(&self, pipeline_id: u64) -> bool {
+            matches!(pipeline_id, 9 | 100)
         }
     }
 
@@ -2368,6 +2423,7 @@ mod tests {
             processing_path: ProcessingPathPref::default(),
             executor_model: ExecutorModelKind::default(),
             voice_input: None,
+            available_models: Vec::new(),
         };
 
         let response = orchestrator.orchestrate(request).await;

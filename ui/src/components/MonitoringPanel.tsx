@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { ActivityEvent, AgentInfo, fetchMonitorSummary } from "../ozoneClient";
+import TaskDetailPanel from "./TaskDetailPanel";
 
 interface MonitorSummary {
   agents: AgentInfo[];
@@ -181,7 +182,7 @@ export const MonitoringPanel: React.FC<{ pollMs?: number }> = ({
       {activity.length === 0 ? (
         <div className="oempty">No activity recorded.</div>
       ) : (
-        <div className="ofeed">
+        <div className="ofeed opanel-scroll">
           {activity.map((e) => (
             <div key={e.id} className={`ofeed-row ${e.level}`}>
               <span>{KIND_ICONS[e.kind] ?? "•"}</span>
@@ -192,6 +193,8 @@ export const MonitoringPanel: React.FC<{ pollMs?: number }> = ({
           ))}
         </div>
       )}
+
+      <TaskDetailPanel />
     </div>
   );
 };

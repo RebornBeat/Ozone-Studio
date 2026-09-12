@@ -507,6 +507,11 @@ pub struct TaskStepData {
     pub version_notes: Vec<StepVersionNote>,
     #[serde(default)]
     pub methodology_ids_applied: Vec<u64>,
+    /// Which model actually served this step (e.g. "bitnet:ggml-model-i2_s",
+    /// "claude-3.5-sonnet") — lets the UI show a switch marker when
+    /// consecutive steps used different backends.
+    #[serde(default)]
+    pub model_used: Option<String>,
 }
 
 /// Timeline event for task history
@@ -582,6 +587,8 @@ struct StoredTaskStep {
     version_notes: Vec<StepVersionNote>,
     #[serde(default)]
     methodology_ids_applied: Vec<u64>,
+    #[serde(default)]
+    model_used: Option<String>,
 }
 
 /// One versioned change record on a step (metrics, not fabricated scores —
@@ -1106,6 +1113,7 @@ impl TaskManager {
         stage_completed: Option<String>,
         stages_pending: Vec<String>,
         methodology_ids_applied: Vec<u64>,
+        model_used: Option<String>,
     ) -> OzoneResult<()> {
         // Recorded for provenance; per-step persistence lands with the
         // execution-store expansion.
@@ -1138,6 +1146,9 @@ impl TaskManager {
                     step.graph_ids_read = graph_ids_read;
                 }
                 step.methodology_ids_applied = methodology_ids_applied;
+                if model_used.is_some() {
+                    step.model_used = model_used.clone();
+                }
                 if let Some(note) = version_note {
                     step.version += 1;
                     step.version_notes.push(StepVersionNote {
@@ -1169,6 +1180,7 @@ impl TaskManager {
                     tokens_used: tokens_used.unwrap_or(0),
                     output_summary: output_preview,
                     error: None,
+                    model_used,
                     stages_completed: stage_completed.into_iter().collect(),
                     stages_pending,
                     current_stage: None,
@@ -1371,6 +1383,19 @@ impl TaskManager {
         tracing::info!("Cancelled task {}", task_id);
 
         Ok(())
+    }
+
+    /// Cooperative cancellation check — the orchestrator's step-execution
+    /// loop polls this between steps (not mid-step; a step already in
+    /// flight runs to completion) and stops issuing further steps once it
+    /// sees "cancelled" here, set by `cancel_task`.
+    pub async fn is_cancelled(&self, task_id: TaskID) -> bool {
+        self.tasks
+            .read()
+            .await
+            .get(&task_id)
+            .map(|t| t.status == "cancelled")
+            .unwrap_or(false)
     }
 
     /// Retry a failed task
@@ -1666,6 +1691,7 @@ impl TaskManager {
                     version: s.version,
                     version_notes: s.version_notes.clone(),
                     methodology_ids_applied: s.methodology_ids_applied.clone(),
+                    model_used: s.model_used.clone(),
                 })
                 .collect(),
             total_tokens: stored.total_tokens,

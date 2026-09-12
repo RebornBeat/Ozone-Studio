@@ -371,7 +371,15 @@ pub struct ModelConfig {
 
     /// For API models
     pub api_endpoint: Option<String>,
+    /// Name of an env var holding the key — the value is looked up from the
+    /// process environment at request time. Set this OR `api_key` below.
     pub api_key_env: Option<String>,
+    /// Raw key value persisted directly to config.toml (gitignored — see
+    /// Phase 0). When set, `to_pipeline_env()` exports it under the env var
+    /// name `api_key_env` designates, so pipeline 9's own `env::var(...)`
+    /// lookup keeps working unchanged either way.
+    #[serde(default)]
+    pub api_key: Option<String>,
     pub api_model: Option<String>,
 
     /// For local models (GGUF/ONNX)
@@ -397,15 +405,23 @@ pub struct ModelConfig {
 
 impl ModelConfig {
     /// Export the model settings as the OZONE_MODEL_* / OZONE_WIRE_PROTOCOL
-    /// environment variables the prompt pipeline (#9) reads. Only the NAME of
-    /// the API key env var crosses — the key VALUE itself is inherited by the
-    /// child from the process environment, never copied here.
+    /// environment variables the prompt pipeline (#9) reads. If `api_key` is
+    /// set, its raw value is exported here under the env var name
+    /// `api_key_env` designates — otherwise only the NAME crosses and the
+    /// value must already be present in the launching shell's environment.
     pub fn to_pipeline_env(&self) -> Vec<(String, String)> {
+        let api_key_env_name = self
+            .api_key_env
+            .clone()
+            .unwrap_or_else(|| "ANTHROPIC_API_KEY".into());
         let mut env = vec![
             ("OZONE_MODEL_TYPE".to_string(), self.model_type.clone()),
-            ("OZONE_API_KEY_ENV".to_string(), self.api_key_env.clone().unwrap_or_else(|| "ANTHROPIC_API_KEY".into())),
+            ("OZONE_API_KEY_ENV".to_string(), api_key_env_name.clone()),
             ("OZONE_CONTEXT_LENGTH".to_string(), self.context_length.to_string()),
         ];
+        if let Some(key) = &self.api_key {
+            env.push((api_key_env_name, key.clone()));
+        }
         if let Some(e) = &self.api_endpoint {
             env.push(("OZONE_API_ENDPOINT".to_string(), e.clone()));
         }
@@ -431,6 +447,7 @@ impl Default for ModelConfig {
             model_type: "api".into(),
             api_endpoint: Some("https://api.anthropic.com/v1/messages".into()),
             api_key_env: Some("ANTHROPIC_API_KEY".into()),
+            api_key: None,
             api_model: Some("claude-sonnet-4-20250514".into()),
             local_model_type: None,
             local_model_path: None,
@@ -443,6 +460,13 @@ impl Default for ModelConfig {
                     model_type: "api".into(),
                     identifier: "claude-sonnet-4-20250514".into(),
                     context_length: 200000,
+                    api_endpoint: None,
+                    api_key_env: None,
+                    api_key: None,
+                    wire_protocol: None,
+                    bitnet_cli_path: None,
+                    local_model_path: None,
+                    gpu_layers: None,
                 },
                 // Local models are added by user via UI or config
             ],
@@ -452,7 +476,10 @@ impl Default for ModelConfig {
     }
 }
 
-/// Available model configuration
+/// Available model configuration — a named, independently-dispatchable
+/// model profile. Connection fields mirror ModelConfig's overridable subset;
+/// all optional/`#[serde(default)]` so the one pre-existing default entry
+/// (name+type+identifier+context_length only) keeps deserializing fine.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AvailableModel {
     pub name: String,
@@ -461,6 +488,20 @@ pub struct AvailableModel {
     /// Model-specific context length (overrides global setting when this model is active)
     #[serde(default = "default_context_length")]
     pub context_length: usize,
+    #[serde(default)]
+    pub api_endpoint: Option<String>,
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<String>,
+    #[serde(default)]
+    pub wire_protocol: Option<String>,
+    #[serde(default)]
+    pub bitnet_cli_path: Option<String>,
+    #[serde(default)]
+    pub local_model_path: Option<String>,
+    #[serde(default)]
+    pub gpu_layers: Option<u32>,
 }
 
 fn default_context_length() -> usize {
@@ -486,6 +527,11 @@ pub struct VoiceConfig {
 
     /// API key environment variable (if using API backend)
     pub api_key_env: Option<String>,
+
+    /// Raw key value persisted directly to config.toml (gitignored). Same
+    /// convention as ModelConfig.api_key — preferred over api_key_env when set.
+    #[serde(default)]
+    pub api_key: Option<String>,
 
     /// Transcription language hint (e.g. "en"). The shipped base.en model is
     /// English-only — set this to avoid auto-detect misfires. Forwarded to
@@ -529,7 +575,9 @@ impl VoiceConfig {
         if let Some(e) = &self.api_endpoint {
             env.push(("OZONE_VOICE_API_ENDPOINT".to_string(), e.clone()));
         }
-        if let Some(k) = &self.api_key_env {
+        if let Some(key) = &self.api_key {
+            env.push(("OZONE_VOICE_API_KEY".to_string(), key.clone()));
+        } else if let Some(k) = &self.api_key_env {
             if let Ok(key) = std::env::var(k) {
                 env.push(("OZONE_VOICE_API_KEY".to_string(), key));
             }
@@ -550,6 +598,7 @@ impl Default for VoiceConfig {
             whisper_cpp_path: Some("/usr/local/bin/whisper-cli".into()),
             api_endpoint: None,
             api_key_env: None,
+            api_key: None,
             language: None,
             ffmpeg_path: default_ffmpeg_path(),
         }

@@ -89,11 +89,12 @@ export const PairingPanel: React.FC = () => {
     <div className="opanel">
       <div className="opanel-head">
         <span className="odot ok" />
-        <span className="opanel-title">Device Pairing</span>
+        <span className="opanel-title">Devices</span>
       </div>
       <p className="opanel-sub">
-        Your phone is the authenticator: scan, approve, and this device holds a
-        real session — same store as key-based logins, nothing typed anywhere.
+        Every device paired to this host, plus the pairing flow itself: your
+        phone is the authenticator — scan, approve, and this device holds a
+        real session, same store as key-based logins, nothing typed anywhere.
       </p>
 
       {phase === "idle" && (

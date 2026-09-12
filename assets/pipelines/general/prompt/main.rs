@@ -50,6 +50,25 @@ pub struct PromptInput {
     pub token_budget: Option<u32>,
     /// Pre-aggregated context string (from context_aggregation pipeline)
     pub aggregated_context: Option<String>,
+    /// Per-call backend override (real multi-model routing) — unlike
+    /// `model_override` above (just a model NAME string on the currently-
+    /// configured backend), this can redirect the call to a genuinely
+    /// different backend (e.g. bitnet for this one call, api for the rest
+    /// of the run). Wire counterpart of orchestrator::ModelConfigOverride's
+    /// connection fields.
+    pub model_override_config: Option<ModelOverrideConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelOverrideConfig {
+    pub model_type: Option<String>,
+    pub model_identifier: Option<String>,
+    pub api_endpoint: Option<String>,
+    pub api_key_env: Option<String>,
+    pub api_key: Option<String>,
+    pub wire_protocol: Option<String>,
+    pub bitnet_cli_path: Option<String>,
+    pub local_model_path: Option<String>,
 }
 
 /// Pipeline output
@@ -71,6 +90,11 @@ pub struct ModelConfig {
     pub model_type: String,  // "api", "gguf", "onnx", "bitnet"
     pub api_endpoint: Option<String>,
     pub api_key_env: Option<String>,
+    /// Raw key value — only ever populated by a per-call model_override_config
+    /// merge (see merge_override), never by load_model_config_from_env. The
+    /// base/env path keeps using api_key_env + env::var(...) unchanged.
+    #[serde(default)]
+    pub api_key: Option<String>,
     pub api_model: Option<String>,
     pub local_model_path: Option<String>,
     pub context_length: usize,
@@ -104,28 +128,74 @@ impl WireProtocol {
     }
 }
 
+/// Overlay a per-call override onto the env-derived base config. Every field
+/// is independently optional — a step can redirect just the model_type
+/// (e.g. switch to bitnet with its already-configured path) or a full
+/// different backend (new endpoint + key + wire_protocol) in one shot.
+fn merge_override(base: &ModelConfig, over: &ModelOverrideConfig) -> ModelConfig {
+    let mut merged = base.clone();
+    if let Some(v) = &over.model_type {
+        merged.model_type = v.clone();
+    }
+    if let Some(v) = &over.model_identifier {
+        merged.api_model = Some(v.clone());
+    }
+    if over.api_endpoint.is_some() {
+        merged.api_endpoint = over.api_endpoint.clone();
+    }
+    if over.api_key_env.is_some() {
+        merged.api_key_env = over.api_key_env.clone();
+    }
+    if over.api_key.is_some() {
+        merged.api_key = over.api_key.clone();
+    }
+    if over.wire_protocol.is_some() {
+        merged.wire_protocol = over.wire_protocol.clone();
+    }
+    if over.bitnet_cli_path.is_some() {
+        merged.bitnet_cli_path = over.bitnet_cli_path.clone();
+    }
+    if over.local_model_path.is_some() {
+        merged.local_model_path = over.local_model_path.clone();
+    }
+    merged
+}
+
 /// Execute the prompt pipeline
 pub async fn execute(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
+    // A per-call override (real multi-model routing) takes precedence over
+    // the process's env-derived base config for this call only — nothing
+    // process-wide is mutated, so concurrent serve-mode requests each get
+    // their own effective config.
+    let effective_owned;
+    let effective: &ModelConfig = match &input.model_override_config {
+        Some(over) => {
+            effective_owned = merge_override(config, over);
+            &effective_owned
+        }
+        None => config,
+    };
+
     // Check if prompt + context exceeds context_length
-    let estimated_tokens = estimate_tokens(&input, config);
-    let context_truncated = estimated_tokens > config.context_length;
-    
+    let estimated_tokens = estimate_tokens(&input, effective);
+    let context_truncated = estimated_tokens > effective.context_length;
+
     // Determine which model to use
-    let model_type = &config.model_type;
-    
+    let model_type = effective.model_type.clone();
+
     let mut result = match model_type.as_str() {
-        "api" => execute_api(input, config).await,
-        "gguf" => execute_gguf(input, config).await,
-        "onnx" => execute_onnx(input, config).await,
-        "bitnet" => execute_bitnet(input, config).await,
+        "api" => execute_api(input, effective).await,
+        "gguf" => execute_gguf(input, effective).await,
+        "onnx" => execute_onnx(input, effective).await,
+        "bitnet" => execute_bitnet(input, effective).await,
         _ => Err(format!("Unsupported model type: {}", model_type)),
     };
-    
+
     // Add context_truncated info to output
     if let Ok(ref mut output) = result {
         output.context_truncated = Some(context_truncated);
     }
-    
+
     result
 }
 
@@ -152,11 +222,14 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
     let endpoint = config.api_endpoint.as_ref()
         .ok_or("API endpoint not configured")?;
     
-    let api_key_env = config.api_key_env.as_ref()
-        .ok_or("API key env var not configured")?;
-    
-    let api_key = env::var(api_key_env)
-        .map_err(|_| format!("API key not found in env var: {}", api_key_env))?;
+    let api_key = if let Some(k) = &config.api_key {
+        k.clone()
+    } else {
+        let api_key_env = config.api_key_env.as_ref()
+            .ok_or("API key env var not configured")?;
+        env::var(api_key_env)
+            .map_err(|_| format!("API key not found in env var: {}", api_key_env))?
+    };
     
     // Clone: input is borrowed by the wire calls below — a by-value move
     // here would partially move it.
@@ -687,6 +760,7 @@ fn load_model_config_from_env() -> ModelConfig {
         model_type: env::var("OZONE_MODEL_TYPE").unwrap_or_else(|_| "api".into()),
         api_endpoint: env::var("OZONE_API_ENDPOINT").ok(),
         api_key_env: Some(env::var("OZONE_API_KEY_ENV").unwrap_or_else(|_| "ANTHROPIC_API_KEY".into())),
+        api_key: None,
         api_model: env::var("OZONE_API_MODEL").ok(),
         local_model_path: env::var("OZONE_LOCAL_MODEL_PATH").ok(),
         context_length: env::var("OZONE_CONTEXT_LENGTH")
@@ -720,6 +794,7 @@ fn main() {
                     stream: None,
                     token_budget: None,
                     aggregated_context: None,
+                    model_override_config: None,
                 });
             let config = load_model_config_from_env();
             let rt = tokio::runtime::Runtime::new().expect("serve runtime");
