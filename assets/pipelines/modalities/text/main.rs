@@ -6056,7 +6056,7 @@ async fn main() {
                 "success": false, "error": "serialization failed"
             }))
         });
-        ozone_serve::serve(opts, PIPELINE_ID, PIPELINE_MODALITY.to_string(), handler);
+        ozone_serve::serve(opts, PIPELINE_ID, PIPELINE_MODALITY.to_string(), vec!["agent".to_string()], handler);
     }
 
     let input: TextModalityInput =

@@ -580,6 +580,9 @@ async fn set_config(
             if let Some(v) = models.get("wire_protocol").and_then(|v| v.as_str()) {
                 model_config.wire_protocol = Some(v.to_string());
             }
+            if let Some(v) = models.get("bitnet_cli_path").and_then(|v| v.as_str()) {
+                model_config.bitnet_cli_path = Some(v.to_string());
+            }
 
             // Re-export env BEFORE moving into runtime config, so spawned or
             // connected pipeline-9 instances pick up new settings immediately.

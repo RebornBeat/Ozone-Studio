@@ -388,6 +388,11 @@ pub struct ModelConfig {
     /// "chat_completions". Unset → endpoint-sniffed (backward compatible).
     #[serde(default)]
     pub wire_protocol: Option<String>,
+
+    /// BitNet tier: path to the llama.cpp-fork CLI (BitNet i2_s kernels)
+    /// pipeline #9 spawns when model_type is "bitnet".
+    #[serde(default)]
+    pub bitnet_cli_path: Option<String>,
 }
 
 impl ModelConfig {
@@ -412,6 +417,9 @@ impl ModelConfig {
         }
         if let Some(w) = &self.wire_protocol {
             env.push(("OZONE_WIRE_PROTOCOL".to_string(), w.clone()));
+        }
+        if let Some(c) = &self.bitnet_cli_path {
+            env.push(("BITNET_CLI_PATH".to_string(), c.clone()));
         }
         env
     }
@@ -439,6 +447,7 @@ impl Default for ModelConfig {
                 // Local models are added by user via UI or config
             ],
             wire_protocol: None,
+            bitnet_cli_path: None,
         }
     }
 }

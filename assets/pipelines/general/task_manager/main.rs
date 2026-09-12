@@ -1930,7 +1930,7 @@ fn main() {
                 Err(e) => serde_json::json!({"success": false, "error": e}),
             }
         });
-        ozone_serve::serve(opts, TASK_MANAGER_PIPELINE_ID, "task_manager".to_string(), handler);
+        ozone_serve::serve(opts, TASK_MANAGER_PIPELINE_ID, "task_manager".to_string(), vec!["agent".to_string()], handler);
     }
 
     let input: TaskManagerInput = match parse_cli_input() {

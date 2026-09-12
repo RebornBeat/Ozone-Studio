@@ -517,7 +517,7 @@ fn main() {
                 Err(e) => serde_json::json!({"success": false, "error": e}),
             }
         });
-        ozone_serve::serve(opts, PIPELINE_ID, "context_viewer".to_string(), handler);
+        ozone_serve::serve(opts, PIPELINE_ID, "context_viewer".to_string(), vec!["agent".to_string()], handler);
     }
 
     let input: ContextViewerInput = match parse_cli_input() {

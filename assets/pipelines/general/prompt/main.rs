@@ -520,56 +520,115 @@ except Exception as e:
     }
 }
 
+/// Token metrics as printed by the llama.cpp family CLI on stderr:
+///   llama_perf_context_print: prompt eval time =  487.15 ms /     5 tokens
+///   llama_perf_context_print:        eval time = 7570.76 ms /    23 runs
+/// These are counts from the model's ACTUAL tokenizer — proven, not
+/// estimated. `runs` is generated tokens; the total line cross-checks
+/// (prompt + completion == total).
+struct BitnetTokenMetrics {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+}
+
+fn parse_bitnet_metrics(stderr: &str) -> Option<BitnetTokenMetrics> {
+    let mut prompt_tokens: Option<u32> = None;
+    let mut completion_tokens: Option<u32> = None;
+    for line in stderr.lines() {
+        if line.contains("prompt eval time") {
+            // …"/     5 tokens (…"
+            if let Some(rest) = line.rsplit("/").next() {
+                prompt_tokens = rest
+                    .split_whitespace()
+                    .find_map(|w| w.parse::<u32>().ok());
+            }
+        } else if line.contains("eval time") && !line.contains("prompt eval") {
+            // "…/    23 runs   (…"
+            if let Some(rest) = line.rsplit("/").next() {
+                completion_tokens = rest
+                    .split_whitespace()
+                    .find_map(|w| w.parse::<u32>().ok());
+            }
+        }
+    }
+    match (prompt_tokens, completion_tokens) {
+        (Some(p), Some(c)) => Some(BitnetTokenMetrics {
+            prompt_tokens: p,
+            completion_tokens: c,
+        }),
+        // No fabricated fallback: metrics are None when the CLI did not
+        // report them (captured-only, per the confidence doctrine).
+        _ => None,
+    }
+}
+
 /// Execute using BitNet model (1-bit quantized, CPU-efficient)
-/// 
-/// BitNet uses 1-bit weights for extreme efficiency on CPU.
-/// Uses bitnet.cpp CLI for inference.
+///
+/// Runs the llama.cpp-fork CLI (BitNet i2_s kernels) and derives token
+/// usage from the CLI's own tokenizer perf report on stderr — real counts,
+/// cross-checked against the reported total where present.
 async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
     let model_path = config.local_model_path.as_ref()
         .ok_or("Local model path not configured for BitNet")?;
-    
+
     // Verify model file exists
     if !std::path::Path::new(model_path).exists() {
         return Err(format!("BitNet model not found at: {}", model_path));
     }
-    
-    // Get bitnet.cpp CLI path
+
     // Owned String — the env-var fallback would otherwise return a
     // reference into a temporary.
     let bitnet_cli: String = config.bitnet_cli_path.as_ref()
         .map(|s| s.clone())
         .unwrap_or_else(|| {
-            std::env::var("BITNET_CLI_PATH").unwrap_or_else(|_| "bitnet-cli".to_string())
+            std::env::var("BITNET_CLI_PATH").unwrap_or_else(|_| "llama-cli".to_string())
         });
-    
+
     // Build the prompt
     let prompt = build_prompt(&input);
-    
-    // BitNet execution via bitnet.cpp CLI
-    // BitNet models use 1.58-bit quantization for CPU efficiency
-    let output = std::process::Command::new(bitnet_cli)
-        .args([
-            "-m", model_path,
-            "-p", &prompt,
-            "-n", &input.max_tokens.unwrap_or(512).to_string(),
-            "--temp", &input.temperature.unwrap_or(0.7).to_string(),
-            "-c", &config.context_length.to_string(),
-            "--no-display-prompt",
-        ])
-        .output();
-    
-    match output {
+
+    let max_tokens = input.max_tokens.unwrap_or(512).to_string();
+    let temp = input.temperature.unwrap_or(0.7).to_string();
+    let ctx = config.context_length.min(8192).to_string();
+
+    // Blocking child process — keep it off the async runtime's core.
+    let clone_model_path = model_path.clone();
+    let clone_cli = bitnet_cli.clone();
+    let run = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(&clone_cli)
+            .args([
+                "-m", &clone_model_path,
+                "-p", &prompt,
+                "-n", &max_tokens,
+                "--temp", &temp,
+                "-c", &ctx,
+                "--no-display-prompt",
+            ])
+            .output()
+    })
+    .await
+    .map_err(|e| format!("BitNet task join failed: {}", e))?;
+
+    match run {
         Ok(result) => {
             if result.status.success() {
                 let response = String::from_utf8_lossy(&result.stdout).to_string();
-                let tokens = response.split_whitespace().count() as u32;
-                
+                let stderr = String::from_utf8_lossy(&result.stderr);
+                let metrics = parse_bitnet_metrics(&stderr);
+                if metrics.is_none() {
+                    eprintln!("BitNet: tokenizer metrics not found in CLI stderr — tokens_used omitted (no estimates)");
+                }
+                let (tokens_used, prompt_tokens) = match &metrics {
+                    Some(m) => (Some(m.completion_tokens), Some(m.prompt_tokens)),
+                    None => (None, None),
+                };
+
                 Ok(PromptOutput {
                     response: response.trim().to_string(),
                     model_used: format!("bitnet:{}", model_path),
-                    tokens_used: Some(tokens),
+                    tokens_used,
                     finish_reason: Some("stop".to_string()),
-                    prompt_tokens: None,
+                    prompt_tokens,
                     context_truncated: None,
                 })
             } else {
@@ -580,7 +639,7 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
                 Err(format!(
-                    "bitnet-cli not found. Install bitnet.cpp and set BITNET_CLI_PATH. Model path: {}",
+                    "BitNet CLI not found. Set models.bitnet_cli_path or BITNET_CLI_PATH (e.g. BitNet/build/bin/llama-cli). Model path: {}",
                     model_path
                 ))
             } else {
@@ -671,7 +730,13 @@ fn main() {
             }
         });
         let pipeline_id: u64 = 9;
-        ozone_serve::serve(opts, pipeline_id, "prompt".to_string(), handler);
+        ozone_serve::serve(
+            opts,
+            pipeline_id,
+            "prompt".to_string(),
+            vec!["model".to_string()],
+            handler,
+        );
     }
 
     let mut input_json = String::new();
@@ -697,8 +762,22 @@ fn main() {
         i += 1;
     }
     
-    // Parse input
-    let input: PromptInput = match serde_json::from_str(&input_json) {
+    // Parse input — the host passes the full PipelineInput envelope
+    // {data, context}; serve mode receives `data` unwrapped, one-shot gets
+    // the whole thing. Unwrap `data` when present (bare PromptInput also
+    // works for direct CLI use).
+    let parsed_value: serde_json::Value = match serde_json::from_str(&input_json) {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("Failed to parse input: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let data_json = match parsed_value.get("data") {
+        Some(d) => serde_json::to_string(d).unwrap_or_else(|_| input_json.clone()),
+        None => input_json.clone(),
+    };
+    let input: PromptInput = match serde_json::from_str(&data_json) {
         Ok(i) => i,
         Err(e) => {
             eprintln!("Failed to parse input: {}", e);

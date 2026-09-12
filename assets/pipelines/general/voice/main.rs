@@ -621,7 +621,7 @@ fn main() {
             }
         });
         const VOICE_PIPELINE_ID: u64 = 10; // pipeline #10
-        ozone_serve::serve(opts, VOICE_PIPELINE_ID, "voice".to_string(), handler);
+        ozone_serve::serve(opts, VOICE_PIPELINE_ID, "voice".to_string(), vec!["agent".to_string()], handler);
     }
 
     let input: VoiceInput = match parse_cli_input() {

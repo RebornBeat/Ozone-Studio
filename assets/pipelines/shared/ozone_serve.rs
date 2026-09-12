@@ -55,10 +55,13 @@ pub fn serve_mode() -> Option<ServeOptions> {
 
 /// Serve `POST /execute` (body: PipelineInput JSON) until killed.
 /// `handler` receives the unwrapped `data` payload and returns the output.
+/// `roles` labels what this connection serves ("agent" | "model" | …);
+/// the host's registry and dashboards display it.
 pub fn serve(
     opts: ServeOptions,
     pipeline_id: u64,
     name: String,
+    roles: Vec<String>,
     handler: Arc<dyn Fn(serde_json::Value) -> serde_json::Value + Send + Sync>,
 ) -> ! {
     let listener =
@@ -69,13 +72,14 @@ pub fn serve(
     eprintln!("OZONE_PIPELINE_SERVING {pipeline_id} {name} {actual_port}");
 
     if let Some(url) = &opts.register_url {
-        register_with_host(url, pipeline_id, &name, actual_port);
+        register_with_host(url, pipeline_id, &name, actual_port, &roles);
         // Heartbeat: re-announce so the host's dispatch table stays current.
         let url = url.clone();
         let name = name.clone();
+        let roles = roles.clone();
         std::thread::spawn(move || loop {
             std::thread::sleep(std::time::Duration::from_secs(30));
-            register_with_host(&url, pipeline_id, &name, actual_port);
+            register_with_host(&url, pipeline_id, &name, actual_port, &roles);
         });
     }
 
@@ -169,7 +173,7 @@ fn write_response(stream: &mut TcpStream, json: &serde_json::Value) {
 }
 
 /// Minimal raw-TCP JSON POST (no deps) for host registration + heartbeat.
-fn register_with_host(register_url: &str, pipeline_id: u64, name: &str, port: u16) {
+fn register_with_host(register_url: &str, pipeline_id: u64, name: &str, port: u16, roles: &[String]) {
     // Split host:port from path BEFORE connect — ToSocketAddrs rejects a
     // trailing path component.
     let bare = register_url.trim_start_matches("http://").trim_start_matches("https://");
@@ -185,6 +189,7 @@ fn register_with_host(register_url: &str, pipeline_id: u64, name: &str, port: u1
         "pipeline_id": pipeline_id,
         "name": name,
         "execute_url": format!("http://127.0.0.1:{port}/execute"),
+        "roles": roles,
     })
     .to_string();
     let request = format!(
