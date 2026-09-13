@@ -53,6 +53,23 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
             return Err(format!("Pipeline {} not found", pipeline_id));
         }
 
+        // "_execution_context", if present, carries the caller's real
+        // ExecutionContext (user/device/workspace/project ids) — e.g. a step
+        // rerun (grpc/mod.rs rerun_step) needs the ORIGINAL task's context,
+        // not a default one, so the reran step is scoped correctly. Reserved
+        // key, stripped before the rest becomes `data`; absent → unchanged
+        // default behavior for every existing caller.
+        let (context, input) = match input {
+            serde_json::Value::Object(mut m) => {
+                let context = m
+                    .remove("_execution_context")
+                    .and_then(|v| serde_json::from_value::<ExecutionContext>(v).ok())
+                    .unwrap_or_default();
+                (context, serde_json::Value::Object(m))
+            }
+            other => (ExecutionContext::default(), other),
+        };
+
         let data: HashMap<String, crate::types::Value> = match input {
             serde_json::Value::Object(m) => {
                 m.into_iter().map(|(k, v)| (k, json_to_types_value(v))).collect()
@@ -65,17 +82,32 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
             }
         };
 
-        let pipeline_input = PipelineInput {
-            data,
-            context: ExecutionContext::default(),
-        };
+        let pipeline_input = PipelineInput { data, context };
 
         let output = registry
             .execute(pipeline_id, pipeline_input, None)
             .await
             .map_err(|e| e.to_string())?;
 
-        serde_json::to_value(&output).map_err(|e| e.to_string())
+        // PipelineOutput wraps the pipeline's own result fields under `data`
+        // (alongside execution_id/task_id/success/error, which belong to the
+        // dispatch envelope, not the pipeline's contract). Every orchestrator
+        // caller (extract_output_text, metered_execute, and every direct
+        // `.get("response")` / `.get("tokens_used")` / `.get("model_used")`
+        // site) expects the pipeline's own fields directly at the top level —
+        // returning the full wrapper here meant every one of those lookups
+        // silently missed and fell through to its default (empty response,
+        // 0 tokens), even on pipelines that ran successfully. And because
+        // `output.success`/`output.error` were never checked here, a pipeline
+        // that reported failure (e.g. "binary not built") still came back as
+        // Ok(...) to every caller instead of propagating as an Err via `?`.
+        if !output.success {
+            return Err(output
+                .error
+                .unwrap_or_else(|| format!("Pipeline {} execution failed", pipeline_id)));
+        }
+
+        serde_json::to_value(&output.data).map_err(|e| e.to_string())
     }
 
     async fn pipeline_exists(&self, pipeline_id: u64) -> bool {

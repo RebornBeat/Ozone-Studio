@@ -656,6 +656,18 @@ async fn rerun_step(
         "max_tokens": 2048,
         "temperature": 0.7,
         "action": action,
+        // Rerun under the ORIGINAL task's context (was previously always a
+        // default context — the step ran, but scoped to nobody in
+        // particular). See RegistryExecutorAdapter::execute's
+        // "_execution_context" handling.
+        "_execution_context": {
+            "user_id": task.user_id,
+            "device_id": task.device_id,
+            "workspace_id": task.workspace_id,
+            "project_id": task.project_id,
+            "task_context_id": null,
+            "metadata": {},
+        },
     });
     if let Some(mo) = &req.model_override {
         exec_input["model_override_config"] = mo.clone();
@@ -764,6 +776,21 @@ async fn get_config(
         Some("integrity") => serde_json::to_value(&runtime.config.integrity).ok(),
         Some("tasks") => serde_json::to_value(&runtime.config.tasks).ok(),
         Some("grpc") => serde_json::to_value(&runtime.config.grpc).ok(),
+        Some("k_algorithms") => {
+            // Report the live registry's actual current defaults (not just
+            // the stored config) plus available options, so the UI never
+            // shows a stale value after a runtime change.
+            let k = crate::k_registry::KAlgorithms::global();
+            let (convergence_preset, pairwise_preset) = k.current_presets();
+            let (convergence_options, pairwise_options) = k.available_presets();
+            serde_json::to_value(serde_json::json!({
+                "convergence_preset": convergence_preset,
+                "pairwise_preset": pairwise_preset,
+                "convergence_options": convergence_options,
+                "pairwise_options": pairwise_options,
+            }))
+            .ok()
+        }
         Some(s) => {
             return Json(ConfigResponse {
                 success: false,
@@ -885,6 +912,20 @@ async fn set_config(
                 model_config.available_models.retain(|m| m.identifier != v);
             }
 
+            // Multi-provider fallback chain — user-defined order + free-only
+            // gate (see ModelFallbackConfig, PromptOrchestrator::try_fallback_chain).
+            if let Some(fallback) = models.get("fallback") {
+                if let Some(order) = fallback.get("order").and_then(|v| v.as_array()) {
+                    model_config.fallback.order = order
+                        .iter()
+                        .filter_map(|v| v.as_str().map(String::from))
+                        .collect();
+                }
+                if let Some(v) = fallback.get("free_only").and_then(|v| v.as_bool()) {
+                    model_config.fallback.free_only = v;
+                }
+            }
+
             // Re-export env BEFORE moving into runtime config, so spawned or
             // connected pipeline-9 instances pick up new settings immediately.
             for (k, v) in model_config.to_pipeline_env() {
@@ -994,6 +1035,26 @@ async fn set_config(
             }
             if let Some(v) = network.get("batch_sync_interval_secs").and_then(|v| v.as_u64()) {
                 n.batch_sync_interval_secs = v;
+            }
+        }
+
+        // Handle K-ALGORITHM preset updates — applies to both the persisted
+        // config (survives restart) and the live global registry
+        // (orchestrator/amt.rs picks it up on its very next call, no
+        // restart needed). set_*_preset silently no-ops on an unknown name
+        // rather than erroring, so an invalid value here just keeps the
+        // previous default.
+        if let Some(k_alg) = updates.get("k_algorithms") {
+            let k = crate::k_registry::KAlgorithms::global();
+            if let Some(v) = k_alg.get("convergence_preset").and_then(|v| v.as_str()) {
+                if k.set_convergence_preset(v) {
+                    runtime.config.k_algorithms.convergence_preset = v.to_string();
+                }
+            }
+            if let Some(v) = k_alg.get("pairwise_preset").and_then(|v| v.as_str()) {
+                if k.set_pairwise_preset(v) {
+                    runtime.config.k_algorithms.pairwise_preset = v.to_string();
+                }
             }
         }
 
@@ -1116,7 +1177,7 @@ async fn orchestrate(
                     .collect(),
                 needs_clarification: result.needs_clarification,
                 clarification_points: result.clarification_points,
-                error: None,
+                error: result.error,
                 execution_time_ms,
                 model_used: result.model_used,
                 total_tokens_used: result.total_tokens_used,

@@ -1,1 +1,0 @@
-cargo:rustc-env=WHISPER_CPP_VERSION=1.7.1

@@ -46,7 +46,112 @@ impl PromptOrchestrator {
             stage_start.elapsed().as_millis() as u64,
         );
 
+        // Persist the completed AMT tree as a real ZSEI container — state.amt
+        // previously lived only in this transient per-request
+        // OrchestrationState and was discarded the moment orchestrate()
+        // returned; only unrelated methodology/blueprint containers were
+        // ever created, never the AMT itself, so "what did this run's
+        // intent/branch structure look like" was never answerable after the
+        // fact. Uses the same in-process StoreAccess the rest of the
+        // orchestrator already goes through (no HTTP round-trip needed,
+        // unlike pipeline 100 which is a separate process). Task Creation
+        // hasn't happened yet at this point in the stage sequence, so the
+        // container id is stashed on state and threaded into the task's
+        // metadata once the task exists (see stage_6_to_8_execute_steps).
+        if state.amt_validated {
+            if let Some(amt) = state.amt.clone() {
+                match self.persist_amt_container(state, &amt).await {
+                    Ok(id) => state.amt_container_id = Some(id),
+                    Err(e) => tracing::warn!("Failed to persist AMT container: {}", e),
+                }
+            }
+        }
+
         Ok(())
+    }
+
+    /// Write the AMT's full node/edge tree to disk (Container has no generic
+    /// slot for arbitrary nested tree content, same constraint pipeline
+    /// 100's modality graphs hit) and create a real ZSEI container
+    /// referencing it, with real keywords/topics from this run's own
+    /// extraction — not fabricated placeholders.
+    async fn persist_amt_container(
+        &self,
+        state: &OrchestrationState,
+        amt: &AMTNode,
+    ) -> Result<u64, String> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let amt_dir = format!("{}/amt", data_dir);
+        let _ = std::fs::create_dir_all(&amt_dir);
+        let file_name = format!("amt_{}_{}.json", now, amt.id);
+        let file_path = format!("{}/{}", amt_dir, file_name);
+        if let Ok(json) = serde_json::to_string_pretty(amt) {
+            std::fs::write(&file_path, json).map_err(|e| format!("Failed to write AMT tree file: {}", e))?;
+        }
+
+        let content_hash = vec![0u8; 32];
+        let container = serde_json::json!({
+            "global_state": {
+                "container_id": 0,
+                "child_count": 0,
+                "version": 1,
+                "parent_id": 0,
+                "child_ids": []
+            },
+            "local_state": {
+                "metadata": {
+                    "container_type": "Derived",
+                    "modality": "Unknown",
+                    "created_at": now,
+                    "updated_at": now,
+                    "provenance": "orchestrator:amt",
+                    "permissions": 0,
+                    "owner_id": 0,
+                    "name": amt.content.clone(),
+                    "materialized_path": null
+                },
+                "context": {
+                    "categories": [],
+                    "methodologies": amt.methodology_ids.clone(),
+                    "keywords": state.keywords.clone(),
+                    "topics": state.topics.clone(),
+                    "relationships": [],
+                    "learned_associations": [],
+                    "embedding": null
+                },
+                "storage": {
+                    "db_shard_id": null,
+                    "vector_index_ref": null,
+                    "object_store_path": format!("amt/{}", file_name),
+                    "compression_type": "None"
+                },
+                "hints": {
+                    "access_frequency": 0,
+                    "hotness_score": 0.0,
+                    "last_accessed": 0,
+                    "centroid": null,
+                    "ml_prediction_weight": 0.0
+                },
+                "integrity": {
+                    "content_hash": content_hash,
+                    "semantic_fingerprint": [],
+                    "last_verified": now,
+                    "integrity_score": 1.0,
+                    "version_history": []
+                },
+                "file_context": null,
+                "code_context": null,
+                "text_context": null,
+                "external_ref": null
+            }
+        });
+
+        self.store.create_container(0, container).await
     }
 
     /// Build the AMT by traversing the TEXT GRAPH — never by asking a model
@@ -732,6 +837,8 @@ If no new branches apply, return: {{"branches": []}}"#,
             let grew = state.branch_captures.len() != prev_branch_count;
             let convergence = crate::k_registry::KAlgorithms::global()
                 .convergence
+                .read()
+                .expect("K-ALGORITHM convergence lock poisoned")
                 .default_preset()
                 .clone();
             if (!grew && pruned == 0 && !loaded_this_pass)
@@ -1411,7 +1518,12 @@ If no new branches apply, return: {{"branches": []}}"#,
             .collect();
 
         // Pairwise pass discipline from the K-ALGORITHM registry.
-        let pairwise = crate::k_registry::KAlgorithms::global().pairwise.default_preset().clone();
+        let pairwise = crate::k_registry::KAlgorithms::global()
+            .pairwise
+            .read()
+            .expect("K-ALGORITHM pairwise lock poisoned")
+            .default_preset()
+            .clone();
         let max_pairs = pairwise.max_pairs;
         let mut pair_count = 0;
         'pairs: for i in 0..branch_list.len() {

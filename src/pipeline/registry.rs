@@ -133,15 +133,21 @@ pub fn load_pipeline_registry_from_index(index_path: &std::path::Path) -> OzoneR
                     .and_then(|f| f.as_str())
                     .unwrap_or("")
                     .to_string(),
-                category: if pipeline
-                    .get("category")
-                    .and_then(|c| c.as_str())
-                    .unwrap_or("")
-                    == "consciousness"
-                {
-                    "consciousness"
-                } else {
-                    "core"
+                // Preserve the real category string from index.json (general/
+                // modalities/consciousness/...) instead of collapsing everything
+                // non-consciousness to "core" — execute_builtin's path lookup
+                // (builtin_path.join(category).join(folder_name)) needs this to
+                // actually match the real assets/pipelines/<category>/ layout.
+                // Leaked once at load time (this only runs once, gated by
+                // RUNTIME_PIPELINE_INFO's OnceLock) to get a `&'static str` from
+                // otherwise-owned JSON content.
+                category: {
+                    let raw = pipeline
+                        .get("category")
+                        .and_then(|c| c.as_str())
+                        .unwrap_or("core");
+                    let normalized = if raw.is_empty() { "core" } else { raw };
+                    Box::leak(normalized.to_string().into_boxed_str())
                 },
                 has_ui: pipeline
                     .get("has_ui")
@@ -229,6 +235,16 @@ pub fn pipeline_is_tab(id: PipelineID) -> bool {
 /// Get all pipeline IDs
 pub fn get_all_pipeline_ids() -> Vec<PipelineID> {
     PIPELINE_INFO.keys().copied().collect()
+}
+
+/// Every pipeline id known via the runtime index (index.json) — includes
+/// modality pipelines (100+) that the compile-time PIPELINE_INFO table
+/// never covered. Empty until load_pipeline_registry_from_index has run.
+pub fn get_runtime_pipeline_ids() -> Vec<PipelineID> {
+    RUNTIME_PIPELINE_INFO
+        .get()
+        .map(|m| m.keys().copied().collect())
+        .unwrap_or_default()
 }
 
 /// Get all core pipeline IDs

@@ -13,8 +13,10 @@
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const http = require("http");
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 const fs = require("fs");
+const util = require("util");
+const execFileAsync = util.promisify(execFile);
 
 const log = require("electron-log");
 log.transports.file.level = "info";
@@ -32,6 +34,71 @@ const BACKEND_HOST = "127.0.0.1";
 const BACKEND_PORT = 50051;
 const DEV_SERVER = "http://localhost:5173";
 const AUTO_LAUNCH_DELAY_SECONDS = 5;
+
+// ============================================================================
+// Whole-app resource monitoring (UI + Rust backend, not just this Electron
+// process). The backend is very often launched manually in a separate
+// terminal (this whole dev workflow does that constantly) rather than via
+// tryLaunchBackend()'s spawn(), so backendProcess.pid is frequently null —
+// resolve the real PID by who's actually listening on BACKEND_PORT instead
+// of assuming we started it.
+// ============================================================================
+const CLK_TCK = 100; // Linux default (getconf CLK_TCK) — clock ticks/sec for /proc/[pid]/stat
+let lastBackendCpuSample = null; // { pid, totalTicks, atMs }
+
+async function findBackendPid() {
+  if (backendProcess && !backendProcess.killed && backendProcess.pid) {
+    return backendProcess.pid;
+  }
+  try {
+    // ss -ltnp output line: LISTEN 0 4096 127.0.0.1:50051 ... users:(("ozone-studio",pid=1234,fd=11))
+    const { stdout } = await execFileAsync("ss", ["-ltnp"]);
+    const line = stdout
+      .split("\n")
+      .find((l) => l.includes(`:${BACKEND_PORT} `) || l.includes(`:${BACKEND_PORT}\t`));
+    const match = line && line.match(/pid=(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  } catch {
+    return null; // ss unavailable or no permission — caller treats as "unknown"
+  }
+}
+
+/** Real RSS memory (MB) + CPU% (delta-sampled across polls) for a PID, Linux /proc. */
+function readProcStats(pid) {
+  try {
+    const statusRaw = fs.readFileSync(`/proc/${pid}/status`, "utf8");
+    const rssMatch = statusRaw.match(/VmRSS:\s+(\d+)\s+kB/);
+    const rssMb = rssMatch ? Math.round(parseInt(rssMatch[1], 10) / 1024) : null;
+
+    const statRaw = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
+    // Fields after the (possibly space-containing) comm in parens; utime=14th, stime=15th (1-indexed).
+    const afterComm = statRaw.slice(statRaw.lastIndexOf(")") + 2).split(" ");
+    const utime = parseInt(afterComm[11], 10) || 0;
+    const stime = parseInt(afterComm[12], 10) || 0;
+    const totalTicks = utime + stime;
+    const nowMs = Date.now();
+
+    let cpuPercent = null;
+    if (lastBackendCpuSample && lastBackendCpuSample.pid === pid) {
+      const tickDelta = totalTicks - lastBackendCpuSample.totalTicks;
+      const secDelta = (nowMs - lastBackendCpuSample.atMs) / 1000;
+      if (secDelta > 0) {
+        cpuPercent = Math.max(0, (tickDelta / CLK_TCK / secDelta) * 100);
+      }
+    }
+    lastBackendCpuSample = { pid, totalTicks, atMs: nowMs };
+
+    return { memoryMb: rssMb, cpuPercent };
+  } catch {
+    return { memoryMb: null, cpuPercent: null }; // process gone, or /proc unavailable (non-Linux)
+  }
+}
+
+async function getBackendResourceUsage() {
+  const pid = await findBackendPid();
+  if (!pid) return { pid: null, memoryMb: null, cpuPercent: null };
+  return { pid, ...readProcStats(pid) };
+}
 
 /**
  * Check if the backend is running via HTTP health check
@@ -183,6 +250,7 @@ async function monitorBackendConnection() {
           session_token: "",
         });
         const config = configResult.config || {};
+        const backendUsage = await getBackendResourceUsage();
 
         mainWindow.webContents.send("stats-update", {
           backendConnected: true,
@@ -207,9 +275,17 @@ async function monitorBackendConnection() {
             : undefined,
           iLoopStatus: config.consciousness?.enabled ? "Running" : undefined,
           uptime: health.uptime_secs || 0,
+          // UI (this Electron process) heap — separate from the backend,
+          // labeled distinctly in StatusBar.
           memoryUsage:
             (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) *
             100,
+          // Real Rust backend process usage (found by whoever's actually
+          // listening on BACKEND_PORT, not just processes we spawned —
+          // covers the very common case of the backend launched manually in
+          // a separate terminal, not through this Electron app).
+          backendMemoryMb: backendUsage.memoryMb,
+          backendCpuPercent: backendUsage.cpuPercent,
           activeTaskCount: health.active_tasks || 0,
         });
       } catch (e) {
@@ -407,11 +483,16 @@ function requireConnection() {
 
 // Configuration
 
-ipcMain.handle("config:get", async () => {
+ipcMain.handle("config:get", async (event, section) => {
   requireConnection();
   const result = await backendRequest("POST", "/config/get", {
+    section: section || "",
     session_token: "",
   });
+
+  // Section-scoped fetch (e.g. "k_algorithms" for its live registry state,
+  // not just the persisted value) — return as-is, no full-document reshaping.
+  if (section) return result;
 
   const fullConfig = result.config || {};
   const setupComplete = fullConfig.general?.user_setup_complete ?? false;
@@ -439,6 +520,7 @@ ipcMain.handle("system:getStats", async () => {
     session_token: "",
   });
   const config = configResult.config || {};
+  const backendUsage = await getBackendResourceUsage();
 
   return {
     backendConnected: true,
@@ -462,6 +544,10 @@ ipcMain.handle("system:getStats", async () => {
     // backend's memory — labeled as such in StatusBar.
     memoryUsage:
       (process.memoryUsage().heapUsed / process.memoryUsage().heapTotal) * 100,
+    // Real backend process usage — found by port, so this works whether the
+    // backend was launched by this app or manually in a separate terminal.
+    backendMemoryMb: backendUsage.memoryMb,
+    backendCpuPercent: backendUsage.cpuPercent,
     activeTaskCount: health.active_tasks || 0,
   };
 });

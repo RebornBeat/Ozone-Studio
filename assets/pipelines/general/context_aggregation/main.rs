@@ -42,6 +42,15 @@ pub enum ContextAggInput {
         token_budget: u32,
         project_id: Option<u64>,
         priority_order: Vec<String>,
+        /// Global consciousness state (emotional state + relevant
+        /// experiences) — a SEPARATE layer from the project-scoped container
+        /// text above, carried in its own `consciousness_context` field
+        /// rather than mixed into `context_text`, so project scoping stays
+        /// clean regardless of whether this is set. Only meaningful when the
+        /// orchestration request has consciousness_enabled=true; the caller
+        /// (orchestrator) decides, this pipeline doesn't guess.
+        #[serde(default)]
+        include_consciousness: bool,
     },
     /// Section S — reconstruct provided texts at a token limit, honoring
     /// sentence boundaries (greedy packing, ~4 chars/token). Session chunk
@@ -90,37 +99,75 @@ pub struct ContextAggOutput {
 
 // ========== ZSEI Integration ==========
 
-fn call_zsei_query(input: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let zsei_path = env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".to_string());
-    let action = input.get("query_type").and_then(|a| a.as_str()).unwrap_or("");
-    
-    match action {
-        "GetContainer" => {
-            let container_id = input.get("container_id").and_then(|c| c.as_u64()).unwrap_or(0);
-            let container_path = format!("{}/local/{}.json", zsei_path, container_id);
-            
-            if let Ok(content) = std::fs::read_to_string(&container_path) {
-                if let Ok(container) = serde_json::from_str::<serde_json::Value>(&content) {
-                    return Ok(serde_json::json!({"success": true, "containers": [container]}));
-                }
-            }
-            Ok(serde_json::json!({"success": true, "containers": []}))
-        }
-        "GetProjectContext" => {
-            let project_id = input.get("project_id").and_then(|p| p.as_u64()).unwrap_or(0);
-            let project_path = format!("{}/local/{}.json", zsei_path, project_id);
-            
-            if let Ok(content) = std::fs::read_to_string(&project_path) {
-                if let Ok(project) = serde_json::from_str::<serde_json::Value>(&content) {
-                    let file_refs = project.get("file_references").and_then(|f| f.as_array()).cloned().unwrap_or_default();
-                    let url_refs = project.get("url_references").and_then(|u| u.as_array()).cloned().unwrap_or_default();
-                    return Ok(serde_json::json!({"success": true, "project": project, "file_references": file_refs, "url_references": url_refs}));
-                }
-            }
-            Ok(serde_json::json!({"success": true, "project": null}))
-        }
-        _ => Ok(serde_json::json!({"success": true, "containers": []}))
+/// Real ZSEI access — POSTs a properly-tagged ZSEIQuery to the host's
+/// /zsei/query. Previously this pipeline read raw files directly off disk
+/// with invented action names ("GetContainersByKeywords") that matched
+/// nothing in the real ZSEIQuery enum, so every keyword-search-based action
+/// (ForStep — the one real orchestration actually uses per step) silently
+/// returned empty results on every call. ZSEIQuery has no #[serde(tag=...)],
+/// so the wire format is externally-tagged: {"VariantName": {fields...}}.
+fn ozone_host() -> String {
+    env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
     }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Fetch one container's full content by id. Returns None on any failure
+/// (not-found, host unreachable, etc.) — callers treat a miss as "no
+/// context from this source" rather than aborting the whole aggregation.
+async fn fetch_container(container_id: u64) -> Option<serde_json::Value> {
+    let result = zsei_query(serde_json::json!({"GetContainer": {"container_id": container_id}}))
+        .await
+        .ok()?;
+    result.get("Container").cloned()
+}
+
+/// Keyword search — the query real per-step context aggregation needs.
+/// Returns container ids only; caller resolves each via fetch_container.
+async fn search_containers_by_keywords(keywords: &[&str], container_type: Option<&str>) -> Vec<u64> {
+    let result = match zsei_query(serde_json::json!({
+        "SearchContainersByKeywords": {
+            "keywords": keywords,
+            "container_type": container_type,
+        }
+    }))
+    .await
+    {
+        Ok(r) => r,
+        Err(_) => return Vec::new(),
+    };
+    result
+        .get("Containers")
+        .and_then(|c| c.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default()
+}
+
+async fn fetch_project_context(project_id: u64) -> Option<serde_json::Value> {
+    let result = zsei_query(serde_json::json!({"GetProjectContext": {"project_id": project_id}}))
+        .await
+        .ok()?;
+    result.get("Container").cloned()
 }
 
 fn call_consciousness_query() -> Result<serde_json::Value, String> {
@@ -192,40 +239,78 @@ fn reconstruct_texts_at_limit(texts: &[String], token_budget: u32) -> String {
     out.trim().to_string()
 }
 
+/// Navigates the REAL Container shape (src/types/container.rs):
+/// `{global_state: {container_id, ...}, local_state: {metadata: {container_type,
+/// name}, context: {keywords}, file_context?, code_context?, text_context?}}`
+/// — the previous version assumed a flat `{container_id, container_type,
+/// name, content, semantic_summary, keywords}` shape that never matched any
+/// real container ZSEI actually produces.
 fn build_context_from_containers(containers: &[serde_json::Value], budget: u32) -> (String, Vec<ContextSource>, bool) {
     let mut context_parts: Vec<String> = Vec::new();
     let mut sources: Vec<ContextSource> = Vec::new();
     let mut total_tokens: u32 = 0;
     let mut truncated = false;
-    
+
     for container in containers {
-        let container_id = container.get("container_id").and_then(|c| c.as_u64()).unwrap_or(0);
-        let container_type = container.get("container_type").and_then(|t| t.as_str()).unwrap_or("Unknown");
-        let name = container.get("name").and_then(|n| n.as_str()).unwrap_or("Unnamed");
-        
-        let content = match container_type {
-            "FileReference" | "CodeAnalysis" => {
-                let code = container.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                let summary = container.get("semantic_summary").and_then(|s| s.as_str()).unwrap_or("");
-                if !summary.is_empty() { format!("## File: {}\n{}\n\n", name, summary) }
-                else { format!("## File: {}\n```\n{}\n```\n\n", name, &code[..code.len().min(500)]) }
+        let global = container.get("global_state");
+        let local = container.get("local_state");
+        let container_id = global
+            .and_then(|g| g.get("container_id"))
+            .and_then(|c| c.as_u64())
+            .unwrap_or(0);
+        let metadata = local.and_then(|l| l.get("metadata"));
+        let container_type = metadata
+            .and_then(|m| m.get("container_type"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("Unknown")
+            .to_string();
+        let name = metadata
+            .and_then(|m| m.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("Unnamed")
+            .to_string();
+        let keywords: Vec<String> = local
+            .and_then(|l| l.get("context"))
+            .and_then(|c| c.get("keywords"))
+            .and_then(|k| k.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+
+        let file_ctx = local.and_then(|l| l.get("file_context")).filter(|v| !v.is_null());
+        let code_ctx = local.and_then(|l| l.get("code_context")).filter(|v| !v.is_null());
+        let text_ctx = local.and_then(|l| l.get("text_context")).filter(|v| !v.is_null());
+
+        let content = if let Some(file_ctx) = file_ctx {
+            let path = file_ctx.get("file_path").and_then(|p| p.as_str()).unwrap_or(&name);
+            let summary = file_ctx.get("semantic_summary").and_then(|s| s.as_str()).unwrap_or("");
+            if !summary.is_empty() {
+                format!("## File: {}\n{}\n\n", path, summary)
+            } else {
+                format!("## File: {}\nKeywords: {}\n\n", path, keywords.join(", "))
             }
-            "URLReference" => {
-                let url = container.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                let summary = container.get("summary").and_then(|s| s.as_str()).unwrap_or("");
-                format!("## URL: {}\n{}\n\n", url, summary)
-            }
-            "TextAnalysis" => {
-                let summary = container.get("semantic_summary").and_then(|s| s.as_str()).unwrap_or("");
-                format!("## Document: {}\n{}\n\n", name, summary)
-            }
-            _ => {
-                let keywords = container.get("keywords").and_then(|k| k.as_array())
-                    .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join(", ")).unwrap_or_default();
-                format!("## {}: {}\nKeywords: {}\n\n", container_type, name, keywords)
-            }
+        } else if let Some(code_ctx) = code_ctx {
+            let functions: Vec<&str> = code_ctx
+                .get("functions")
+                .and_then(|f| f.as_array())
+                .map(|arr| arr.iter().filter_map(|f| f.get("name").and_then(|n| n.as_str())).collect())
+                .unwrap_or_default();
+            let classes: Vec<&str> = code_ctx
+                .get("classes")
+                .and_then(|c| c.as_array())
+                .map(|arr| arr.iter().filter_map(|c| c.get("name").and_then(|n| n.as_str())).collect())
+                .unwrap_or_default();
+            format!(
+                "## Code: {}\nFunctions: {}\nClasses: {}\n\n",
+                name,
+                functions.join(", "),
+                classes.join(", ")
+            )
+        } else if text_ctx.is_some() {
+            format!("## Document: {}\nKeywords: {}\n\n", name, keywords.join(", "))
+        } else {
+            format!("## {}: {}\nKeywords: {}\n\n", container_type, name, keywords.join(", "))
         };
-        
+
         let content_tokens = estimate_tokens(&content);
         if total_tokens + content_tokens > budget {
             truncated = true;
@@ -263,71 +348,77 @@ fn build_consciousness_context(data: &serde_json::Value) -> Option<Consciousness
 
 // ========== Main Execution ==========
 
+/// Resolve keyword-search hits into full container content, capped so one
+/// step's context fetch can't fan out into an unbounded number of HTTP
+/// round trips.
+const MAX_RESOLVED_CONTAINERS: usize = 8;
+
+async fn resolve_containers(ids: &[u64]) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    for &id in ids.iter().take(MAX_RESOLVED_CONTAINERS) {
+        if let Some(c) = fetch_container(id).await {
+            out.push(c);
+        }
+    }
+    out
+}
+
 pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String> {
     match input {
         ContextAggInput::ForTask { task_id, token_budget, include_consciousness, .. } => {
-            let query = serde_json::json!({"query_type": "GetContainer", "container_id": task_id});
-            let result = call_zsei_query(&query)?;
-            let containers = result.get("containers").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+            let containers = match fetch_container(task_id).await {
+                Some(c) => vec![c],
+                None => Vec::new(),
+            };
             let (context_text, sources, truncated) = build_context_from_containers(&containers, token_budget);
-            
+
             let consciousness_context = if include_consciousness.unwrap_or(true) {
                 let consciousness_data = call_consciousness_query()?;
                 build_consciousness_context(&consciousness_data)
             } else { None };
-            
+
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: if containers.is_empty() { 0.0 } else { 0.85 }, consciousness_context }), error: None })
         }
-        
+
         ContextAggInput::ForQuery { query, token_budget, container_ids, project_id } => {
             let mut all_containers: Vec<serde_json::Value> = Vec::new();
             if let Some(ids) = container_ids {
-                for id in ids {
-                    let q = serde_json::json!({"query_type": "GetContainer", "container_id": id});
-                    if let Ok(result) = call_zsei_query(&q) {
-                        if let Some(containers) = result.get("containers").and_then(|c| c.as_array()) { all_containers.extend(containers.clone()); }
-                    }
-                }
+                all_containers.extend(resolve_containers(&ids).await);
             }
             if let Some(pid) = project_id {
-                let q = serde_json::json!({"query_type": "GetProjectContext", "project_id": pid});
-                if let Ok(result) = call_zsei_query(&q) {
-                    if let Some(project) = result.get("project") { all_containers.push(project.clone()); }
+                if let Some(project) = fetch_project_context(pid).await {
+                    all_containers.push(project);
                 }
             }
             let (mut context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
             context_text = format!("Query: {}\n\n{}", query, context_text);
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None }), error: None })
         }
-        
-        ContextAggInput::ForProject { project_id, token_budget, include_files, include_urls } => {
+
+        ContextAggInput::ForProject { project_id, token_budget, include_files: _, include_urls: _ } => {
+            // File/URL reference expansion needs GetFileReferences/
+            // GetExternalReferences (real ZSEIQuery variants) — not wired up
+            // yet, so this currently returns the project container itself
+            // only. Better to under-return than to fabricate references.
             let mut all_containers: Vec<serde_json::Value> = Vec::new();
-            let q = serde_json::json!({"query_type": "GetProjectContext", "project_id": project_id});
-            if let Ok(result) = call_zsei_query(&q) {
-                if let Some(project) = result.get("project") { all_containers.push(project.clone()); }
-                if include_files.unwrap_or(true) { if let Some(refs) = result.get("file_references").and_then(|r| r.as_array()) { all_containers.extend(refs.clone()); } }
-                if include_urls.unwrap_or(true) { if let Some(refs) = result.get("url_references").and_then(|r| r.as_array()) { all_containers.extend(refs.clone()); } }
+            if let Some(project) = fetch_project_context(project_id).await {
+                all_containers.push(project);
             }
             let (context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None }), error: None })
         }
-        
+
         ContextAggInput::Custom { container_ids, token_budget, .. } => {
-            let mut all_containers: Vec<serde_json::Value> = Vec::new();
-            for id in container_ids {
-                let q = serde_json::json!({"query_type": "GetContainer", "container_id": id});
-                if let Ok(result) = call_zsei_query(&q) {
-                    if let Some(containers) = result.get("containers").and_then(|c| c.as_array()) { all_containers.extend(containers.clone()); }
-                }
-            }
+            let all_containers = resolve_containers(&container_ids).await;
             let (context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None }), error: None })
         }
-        
+
         ContextAggInput::ForBlueprint { blueprint_id, step_index, token_budget } => {
-            let q = serde_json::json!({"query_type": "GetContainer", "container_id": blueprint_id});
-            let result = call_zsei_query(&q)?;
-            let containers = result.get("containers").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+            let containers = match fetch_container(blueprint_id).await {
+                Some(c) => vec![c],
+                None => Vec::new(),
+            };
             let (context_text, sources, truncated) = build_context_from_containers(&containers, token_budget);
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: format!("Blueprint step {} context:\n{}", step_index, context_text), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None }), error: None })
         }
@@ -336,17 +427,19 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             query,
             session_context,
             token_budget,
-            project_id,
+            project_id: _,
             priority_order: _,
+            include_consciousness,
         } => {
-            // Container context (store side)…
-            let q = serde_json::json!({
-                "query_type": "GetContainersByKeywords",
-                "keywords": query.split_whitespace().take(12).collect::<Vec<_>>(),
-                "project_id": project_id,
-            });
-            let result = call_zsei_query(&q)?;
-            let containers = result.get("containers").and_then(|c| c.as_array()).cloned().unwrap_or_default();
+            // Container context (store side) — real keyword search now:
+            // search for matching ids, then resolve each to full content.
+            // (project_id scoping: SearchContainersByKeywords has no
+            // project_id filter today — see the ZSEIQuery definition; this
+            // searches host-wide until that's added. Flagged, not silently
+            // pretended to work.)
+            let keywords: Vec<&str> = query.split_whitespace().take(12).collect();
+            let ids = search_containers_by_keywords(&keywords, None).await;
+            let containers = resolve_containers(&ids).await;
             let (container_text, sources, mut truncated) =
                 build_context_from_containers(&containers, token_budget);
 
@@ -371,6 +464,18 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 }
             }
 
+            // Global consciousness — a distinct layer, never merged into
+            // context_text, so project scoping stays uncontaminated whether
+            // or not this is populated. Only fetched when the caller
+            // (orchestrator, which knows consciousness_enabled) asks for it.
+            let consciousness_context = if include_consciousness {
+                call_consciousness_query()
+                    .ok()
+                    .and_then(|data| build_consciousness_context(&data))
+            } else {
+                None
+            };
+
             Ok(ContextAggOutput {
                 success: true,
                 context: Some(AggregatedContext {
@@ -379,7 +484,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     sources,
                     truncated,
                     coverage_score: 1.0,
-                    consciousness_context: None,
+                    consciousness_context,
                 }),
                 error: None,
             })

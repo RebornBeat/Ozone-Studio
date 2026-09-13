@@ -67,6 +67,26 @@ impl PipelineRegistry {
 
         // load runtime pipeline registry from index.json
         let index_path = std::path::PathBuf::from(&config.index_path);
+        // Self-heal: installs that completed bootstrap before this file ever
+        // existed (bootstrap only runs once, gated on setup_complete) would
+        // otherwise be stuck forever with an empty runtime pipeline table —
+        // regenerate it in place rather than requiring a fresh bootstrap.
+        if !index_path.exists() {
+            if let Some(parent) = index_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let index = crate::bootstrap::BootstrapManager::get_default_pipeline_index();
+            match serde_json::to_string_pretty(&index) {
+                Ok(content) => match std::fs::write(&index_path, content) {
+                    Ok(()) => tracing::info!(
+                        "Generated missing pipeline index at {} (self-heal)",
+                        index_path.display()
+                    ),
+                    Err(e) => tracing::warn!("Failed to write pipeline index: {}", e),
+                },
+                Err(e) => tracing::warn!("Failed to serialize default pipeline index: {}", e),
+            }
+        }
         if index_path.exists() {
             if let Err(e) = registry::load_pipeline_registry_from_index(&index_path) {
                 tracing::warn!(
@@ -83,6 +103,56 @@ impl PipelineRegistry {
 
         // Load builtin pipelines into the map
         Self::load_builtin_pipelines_into(&mut blueprints_map)?;
+
+        // The compile-time PIPELINE_INFO table above only covers ids 1-55
+        // (general + consciousness). Modality pipelines (100+) and anything
+        // else index.json knows about were NEVER added to this gate map —
+        // meaning every dispatch to them (RegistryExecutorAdapter::execute /
+        // PipelineRegistry::execute, both check this map before remote-or-
+        // builtin dispatch is even attempted) has always failed with
+        // "Pipeline {id} not found", regardless of whether a builtin binary
+        // for that pipeline actually exists and would otherwise run fine.
+        // Confirmed live: pipeline 100 (text modality), called as the very
+        // first real pipeline in every orchestration's Stage 2, failing
+        // instantly on every single /orchestrate request.
+        let mut seeded_from_index = 0usize;
+        for id in registry::get_runtime_pipeline_ids() {
+            if blueprints_map.contains_key(&id) {
+                continue;
+            }
+            let (name, description) = registry::get_pipeline_info(id)
+                .map(|info| (info.name.clone(), info.description.clone()))
+                .unwrap_or_else(|| (format!("Pipeline {}", id), String::new()));
+            blueprints_map.insert(
+                id,
+                PipelineBlueprint {
+                    pipeline_id: id,
+                    name,
+                    version: crate::types::SemVer::default(),
+                    author: Vec::new(),
+                    description,
+                    specification: crate::types::pipeline::BlueprintSpec {
+                        input_schema: Schema::default(),
+                        output_schema: Schema::default(),
+                        dependencies: Vec::new(),
+                        sub_pipelines: Vec::new(),
+                        execution_flow: crate::types::pipeline::ExecutionFlow::Sequential(Vec::new()),
+                    },
+                    implementations: Vec::new(),
+                    content_hash: [0u8; 32],
+                    peers: Vec::new(),
+                    consensus_status: crate::types::pipeline::ConsensusStatus::Accepted,
+                    verified_by: 0,
+                },
+            );
+            seeded_from_index += 1;
+        }
+        if seeded_from_index > 0 {
+            tracing::info!(
+                "Seeded {} additional pipelines from index.json into the execution gate (modality pipelines etc. outside the compile-time 1-55 range)",
+                seeded_from_index
+            );
+        }
 
         tracing::info!("Loaded {} builtin pipelines", blueprints_map.len());
 

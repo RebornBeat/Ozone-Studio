@@ -214,19 +214,45 @@ impl BootstrapManager {
     fn copy_pipelines(&self) -> OzoneResult<()> {
         let src = self.assets_dir.join("pipelines");
         let dst = self.data_dir.join("pipelines");
-        self.copy_dir_recursive(&src, &dst, "pipelines")
+        self.copy_dir_recursive(&src, &dst, "pipelines")?;
+
+        // assets/pipelines/ is a tree of pipeline source crates — it has never
+        // contained an index.json of its own, so copy_dir_recursive above never
+        // produces one either. Without an index.json at dst, PipelineRegistry::new
+        // (src/pipeline/mod.rs) silently fails to load the runtime pipeline table,
+        // meaning every modality pipeline (100+) never enters the execution gate.
+        let index_path = dst.join("index.json");
+        if !index_path.exists() {
+            self.generate_default_pipeline_index(&index_path)?;
+            tracing::info!("Generated default pipeline index at {}", index_path.display());
+        }
+        Ok(())
     }
 
     fn copy_methodologies(&self) -> OzoneResult<()> {
         let src = self.assets_dir.join("methodologies");
         let dst = self.data_dir.join("methodologies");
-        self.copy_dir_recursive(&src, &dst, "methodologies")
+        self.copy_dir_recursive(&src, &dst, "methodologies")?;
+
+        let index_path = dst.join("index.json");
+        if !index_path.exists() {
+            self.generate_default_methodology_index(&index_path)?;
+            tracing::info!("Generated default methodology index at {}", index_path.display());
+        }
+        Ok(())
     }
 
     fn copy_blueprints(&self) -> OzoneResult<()> {
         let src = self.assets_dir.join("blueprints");
         let dst = self.data_dir.join("blueprints");
-        self.copy_dir_recursive(&src, &dst, "blueprints")
+        self.copy_dir_recursive(&src, &dst, "blueprints")?;
+
+        let index_path = dst.join("index.json");
+        if !index_path.exists() {
+            self.generate_default_blueprint_index(&index_path)?;
+            tracing::info!("Generated default blueprint index at {}", index_path.display());
+        }
+        Ok(())
     }
 
     /// Recursive copy helper (idempotent, logs what it does)
@@ -682,7 +708,7 @@ impl BootstrapManager {
     }
 
     /// Default pipeline index — THE SOURCE OF TRUTH for bundled pipelines
-    fn get_default_pipeline_index() -> serde_json::Value {
+    pub(crate) fn get_default_pipeline_index() -> serde_json::Value {
         use serde_json::{json, Value};
 
         let mut index = json!({
@@ -814,7 +840,7 @@ impl BootstrapManager {
     }
 
     /// Default methodology index
-    fn get_default_methodology_index() -> serde_json::Value {
+    pub(crate) fn get_default_methodology_index() -> serde_json::Value {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),
@@ -840,7 +866,7 @@ impl BootstrapManager {
     }
 
     /// Default blueprint index
-    fn get_default_blueprint_index() -> serde_json::Value {
+    pub(crate) fn get_default_blueprint_index() -> serde_json::Value {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),

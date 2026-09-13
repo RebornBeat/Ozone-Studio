@@ -3,6 +3,12 @@
 /llama.cpp/
 /target/
 
+# Each pipeline crate under assets/pipelines/ declares its own [workspace]
+# root and builds into its own local target/ — the root-anchored /target/
+# rule above never covered these, so ~11.6k build-artifact files (debug
+# fingerprints, deps, binaries) had been getting committed per pipeline.
+assets/pipelines/**/target/
+
 # --- UI ignores ---
 /ui/node_modules/
 /ui/dist-electron/

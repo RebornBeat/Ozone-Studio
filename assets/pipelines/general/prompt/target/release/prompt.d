@@ -1,1 +1,0 @@
-/home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/target/release/prompt: /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/../../shared/ozone_serve.rs /home/rebornbeat/Projects/Ozone-Studio/assets/pipelines/general/prompt/main.rs

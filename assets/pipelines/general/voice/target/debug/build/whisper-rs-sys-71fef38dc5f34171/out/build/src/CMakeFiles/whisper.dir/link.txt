@@ -1,2 +1,0 @@
-/usr/bin/ar qc libwhisper.a CMakeFiles/whisper.dir/whisper.cpp.o
-/usr/bin/ranlib libwhisper.a

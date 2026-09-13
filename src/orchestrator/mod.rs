@@ -132,6 +132,15 @@ pub struct OrchestrationRequest {
     /// generation's optional per-step model_override.
     #[serde(default)]
     pub available_models: Vec<crate::config::AvailableModel>,
+    /// User-defined multi-provider fallback chain (OzoneConfig.models.fallback)
+    /// — populated server-side, same as available_models. When a step's own
+    /// pipeline-9 call fails, execute_step walks this list of identifiers in
+    /// order (filtered to is_free entries when free_only is set) before
+    /// giving up, rather than only retrying the same backend.
+    #[serde(default)]
+    pub fallback_order: Vec<String>,
+    #[serde(default)]
+    pub fallback_free_only: bool,
 }
 
 /// Voice input attached to a request by non-UI callers.
@@ -840,29 +849,53 @@ pub struct BlueprintSubStep {
 // Model Context Limits
 // ============================================================================
 
-fn get_model_context_limit(model_identifier: &str) -> u32 {
-    match model_identifier {
-        // Claude models
-        s if s.contains("claude-3-opus") => 200000,
-        s if s.contains("claude-3-sonnet") => 200000,
-        s if s.contains("claude-3-haiku") => 200000,
-        s if s.contains("claude-sonnet-4") => 200000,
-        s if s.contains("claude-haiku-4") => 200000,
-        s if s.contains("claude-opus-4") => 200000,
-        // GPT models
-        s if s.contains("gpt-4-turbo") => 128000,
-        s if s.contains("gpt-4o") => 128000,
-        s if s.contains("gpt-4") => 8192,
-        s if s.contains("gpt-3.5") => 16385,
-        // Local models
-        s if s.contains("llama-3") => 8192,
-        s if s.contains("llama-2") => 4096,
-        s if s.contains("mistral") => 32768,
-        s if s.contains("mixtral") => 32768,
-        // BitNet models (smaller context)
-        s if s.contains("bitnet") => 4096,
-        // Default
-        _ => 100000,
+/// Resolve a model's context window strictly from what is actually
+/// registered — never a hardcoded guess about a model this system doesn't
+/// know is even present. The old version of this function hardcoded sizes
+/// for Claude/GPT/Llama/Mistral regardless of whether any of them were ever
+/// registered in config.toml's [[models.available_models]] — meaning a
+/// request naming an unregistered identifier got a made-up number with no
+/// connection to what would actually run.
+///
+/// Resolution order:
+/// 1. Exact match against a registered `available_models` entry's
+///    `identifier` — that entry's own `context_length`, since each
+///    registered model carries its own (see AvailableModel::context_length).
+/// 2. No identifier requested at all → the currently active backend's own
+///    configured context_length. This is the common case (a bare request
+///    with no model_config) and MUST take priority over any other
+///    registered entry, because the active backend is what will actually
+///    execute the request — using a different registered model's number
+///    here would reproduce the exact bug this function exists to fix, just
+///    pointed at a different model.
+/// 3. An identifier WAS requested but isn't registered → the registered
+///    OpenRouter entry (matched by its api_endpoint), since it's a flexible
+///    dynamic gateway and a more sensible catch-all than guessing — but only
+///    reached when the caller asked for something unrecognized, never for a
+///    plain unqualified request.
+/// 4. Last resort (OpenRouter itself not registered): the active backend's
+///    context_length again, since it's guaranteed real.
+fn resolve_context_limit(
+    requested_identifier: Option<&str>,
+    available_models: &[crate::config::AvailableModel],
+    active_context_length: u32,
+) -> u32 {
+    match requested_identifier {
+        None => active_context_length,
+        Some(id) => {
+            if let Some(m) = available_models.iter().find(|m| m.identifier == id) {
+                return m.context_length as u32;
+            }
+            tracing::warn!(
+                "Model '{}' requested but not found in registered available_models — falling back to OpenRouter",
+                id
+            );
+            available_models
+                .iter()
+                .find(|m| m.api_endpoint.as_deref().is_some_and(|e| e.contains("openrouter.ai")))
+                .map(|m| m.context_length as u32)
+                .unwrap_or(active_context_length)
+        }
     }
 }
 
@@ -955,6 +988,11 @@ pub(crate) struct OrchestrationState {
 
     // AMT
     amt: Option<AMTNode>,
+    /// Real ZSEI container id for the persisted AMT tree (see build_amt in
+    /// amt.rs) — None until Stage 5 successfully persists it. Threaded into
+    /// the task's metadata once Task Creation runs, so a later request can
+    /// plausibly retrieve "what AMT produced this task".
+    amt_container_id: Option<u64>,
     amt_validated: bool,
     validation_streak: u32, // Need 5 consecutive Valid for completion
     /// How the AMT was built this session (telemetry + routing record).
@@ -1171,6 +1209,17 @@ pub struct PromptOrchestrator {
     store: Arc<dyn StoreAccess>,
     task_manager: Arc<RwLock<TaskManager>>,
     pipeline_index: Arc<RwLock<Option<PipelineIndex>>>,
+    /// The server's actually-configured backend context length
+    /// (config.models.context_length) — used as the fallback for
+    /// model_context_limit when a request specifies neither an explicit
+    /// context_length override nor even a model_identifier. Previously this
+    /// fell back to a hardcoded "claude-sonnet-4" assumption (200,000 tokens)
+    /// regardless of what backend was actually configured, so a bare request
+    /// against a BitNet-configured server (real context 4096) computed
+    /// per-step max_tokens as 200000/4 = 50000 — sending BitNet's llama-cli
+    /// `-n 50000`, which is why a simple "count to 3" prompt looked hung for
+    /// many minutes instead of erroring or finishing quickly.
+    default_context_limit: u32,
 }
 
 impl PromptOrchestrator {
@@ -1179,12 +1228,14 @@ impl PromptOrchestrator {
         store: Arc<dyn StoreAccess>,
         task_manager: Arc<RwLock<TaskManager>>,
         pipeline_index: Arc<RwLock<Option<PipelineIndex>>>,
+        default_context_limit: u32,
     ) -> Self {
         Self {
             executor,
             store,
             task_manager,
             pipeline_index,
+            default_context_limit,
         }
     }
 
@@ -1230,21 +1281,46 @@ impl PromptOrchestrator {
         }
     }
 
-    /// Load pipeline index from ZSEI
+    /// Load pipeline index from the real pipeline registry.
+    ///
+    /// Previously queried ZSEI with `{"type": "GetPipelineIndex"}` — but
+    /// `ZSEIQuery` is externally-tagged (wire format `{"VariantName": {...}}`)
+    /// and has no `GetPipelineIndex` variant at all, so this always failed
+    /// and was silently swallowed by the `if let Ok(...)` below, leaving
+    /// `self.pipeline_index` permanently `None`. That meant
+    /// `get_available_pipelines()` returned an empty list in every
+    /// orchestration run ever — Stage 6's blueprint-generation prompt has
+    /// never actually told the model which pipelines exist, and per-step
+    /// `pipeline_id` selection has never had real options to choose from.
+    /// This is genuinely static registry data (populated at boot from
+    /// index.json, see src/pipeline/mod.rs), not stored container content,
+    /// so build it directly rather than round-tripping through ZSEI.
     pub async fn load_pipeline_index(&self) -> Result<(), String> {
-        // Try to load from ZSEI storage
-        let index_result = self
-            .store
-            .query(serde_json::json!({
-                "type": "GetPipelineIndex"
-            }))
-            .await;
+        let pipelines: Vec<PipelineInfo> = crate::pipeline::get_runtime_pipeline_ids()
+            .into_iter()
+            .filter_map(|id| {
+                crate::pipeline::get_pipeline_info(id).map(|info| PipelineInfo {
+                    pipeline_id: info.id,
+                    name: info.name.clone(),
+                    folder_name: info.folder_name.clone(),
+                    category: info.category.to_string(),
+                    description: info.description.clone(),
+                    modality: None,
+                    has_ui: info.has_ui,
+                    is_tab: info.is_tab,
+                    deprecated: false,
+                })
+            })
+            .collect();
 
-        if let Ok(result) = index_result {
-            if let Ok(index) = serde_json::from_value::<PipelineIndex>(result) {
-                *self.pipeline_index.write().await = Some(index);
-            }
-        }
+        let index = PipelineIndex {
+            version: 2,
+            pipeline_count: pipelines.len() as u32,
+            pipelines,
+            categories: HashMap::new(),
+            next_custom_id: 1000,
+        };
+        *self.pipeline_index.write().await = Some(index);
         Ok(())
     }
 
@@ -1268,14 +1344,22 @@ impl PromptOrchestrator {
             .model_config
             .as_ref()
             .and_then(|c| c.model_identifier.as_ref())
-            .map(|s| s.as_str())
-            .unwrap_or("claude-sonnet-4");
+            .map(|s| s.as_str());
 
+        // Context limit is resolved strictly from registered models (see
+        // resolve_context_limit) — never a hardcoded guess about a model
+        // that isn't actually registered in config.toml.
         let model_context_limit = request
             .model_config
             .as_ref()
             .and_then(|c| c.context_length)
-            .unwrap_or_else(|| get_model_context_limit(model_identifier));
+            .unwrap_or_else(|| {
+                resolve_context_limit(
+                    model_identifier,
+                    &request.available_models,
+                    self.default_context_limit,
+                )
+            });
 
         let prompt_tokens = Self::estimate_tokens(&request.prompt);
 
@@ -1308,6 +1392,7 @@ impl PromptOrchestrator {
             categories: Vec::new(),
             categories_created: 0,
             amt: None,
+            amt_container_id: None,
             amt_validated: false,
             validation_streak: 0,
             amt_build_mode: AmtBuildMode::ChunkZeroShot,
@@ -1801,6 +1886,72 @@ impl PromptOrchestrator {
         Ok(result)
     }
 
+    /// Walk the user-defined multi-provider fallback chain (config.toml's
+    /// [models.fallback], threaded through as request.fallback_order /
+    /// fallback_free_only) after a pipeline-9 call has already failed once.
+    /// Tries each registered identifier in order — filtered to is_free
+    /// entries when free_only is set — via metered_execute, stopping at the
+    /// first success. Callers pass the error from their own primary attempt
+    /// as `last_error`; if every candidate also fails, that error (or the
+    /// last candidate's) is returned. Shared by stage_3_blueprint_assignment,
+    /// stage_4_zero_shot_simulation, and execute_step — the three places
+    /// that call pipeline 9 — so a down/rate-limited/crashing default
+    /// backend (e.g. BitNet segfaulting on longer prompts) doesn't sink the
+    /// whole run when an alternative provider is configured.
+    async fn try_fallback_chain(
+        &self,
+        state: &mut OrchestrationState,
+        pipeline_id: u64,
+        mut input: serde_json::Value,
+        last_error: String,
+    ) -> Result<serde_json::Value, String> {
+        let candidates: Vec<crate::config::AvailableModel> = state
+            .request
+            .fallback_order
+            .iter()
+            .filter_map(|id| {
+                state
+                    .request
+                    .available_models
+                    .iter()
+                    .find(|m| &m.identifier == id)
+                    .cloned()
+            })
+            .filter(|m| !state.request.fallback_free_only || m.is_free)
+            .collect();
+
+        let mut result: Result<serde_json::Value, String> = Err(last_error);
+        for profile in &candidates {
+            tracing::warn!(
+                pipeline_id,
+                fallback_model = %profile.identifier,
+                error = ?result.as_ref().err(),
+                "Pipeline call failed, trying next fallback"
+            );
+            let override_cfg = ModelConfigOverride {
+                model_type: Some(profile.model_type.clone()),
+                model_identifier: Some(profile.identifier.clone()),
+                max_tokens: None,
+                temperature: None,
+                context_length: Some(profile.context_length as u32),
+                api_endpoint: profile.api_endpoint.clone(),
+                api_key_env: profile.api_key_env.clone(),
+                api_key: profile.api_key.clone(),
+                wire_protocol: profile.wire_protocol.clone(),
+                bitnet_cli_path: profile.bitnet_cli_path.clone(),
+                local_model_path: profile.local_model_path.clone(),
+            };
+            if let Ok(v) = serde_json::to_value(&override_cfg) {
+                input["model_override_config"] = v;
+            }
+            result = self.metered_execute(state, pipeline_id, input.clone()).await;
+            if result.is_ok() {
+                break;
+            }
+        }
+        result
+    }
+
     /// Orchestrator-side YES/NO confirmation — delegates to the shared
     /// K-ALGORITHM contract (k_validation); the metered oracle is the only
     /// contextual part. Strength comes from the policy (default 5). Tokens
@@ -2101,6 +2252,20 @@ impl PromptOrchestrator {
         success: bool,
         summary: &str,
     ) {
+        // Previously silent — stages_completed only reached the caller once
+        // the ENTIRE orchestrate() call returned (it's a single blocking HTTP
+        // response, not streamed), so a long-running stage (e.g. Stage 7
+        // invoking a model backend) printed nothing to the server's own
+        // terminal until everything finished or errored.
+        tracing::info!(
+            stage,
+            stage_name = name,
+            success,
+            "Stage {} ({}) completed: {}",
+            stage,
+            name,
+            summary
+        );
         state.stages.push(StageResult {
             stage,
             name: name.to_string(),
@@ -2119,6 +2284,17 @@ impl PromptOrchestrator {
         summary: &str,
         duration_ms: u64,
     ) {
+        tracing::info!(
+            stage,
+            stage_name = name,
+            success,
+            duration_ms,
+            "Stage {} ({}) completed in {}ms: {}",
+            stage,
+            name,
+            duration_ms,
+            summary
+        );
         state.stages.push(StageResult {
             stage,
             name: name.to_string(),
@@ -2408,7 +2584,7 @@ mod tests {
         let task_manager = Arc::new(tokio::sync::RwLock::new(TaskManager::new(task_config, refinement_config).unwrap()));
 
         let orchestrator =
-            PromptOrchestrator::new(executor, zsei, task_manager, Arc::new(RwLock::new(None)));
+            PromptOrchestrator::new(executor, zsei, task_manager, Arc::new(RwLock::new(None)), 200000);
 
         let request = OrchestrationRequest {
             prompt: "Hello, how are you?".to_string(),
@@ -2424,6 +2600,8 @@ mod tests {
             executor_model: ExecutorModelKind::default(),
             voice_input: None,
             available_models: Vec::new(),
+            fallback_order: Vec::new(),
+            fallback_free_only: false,
         };
 
         let response = orchestrator.orchestrate(request).await;

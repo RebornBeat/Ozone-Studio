@@ -46,6 +46,27 @@ interface TranscriptEntry {
   stageCount?: number;
 }
 
+// Per-model accent so a model switch mid-conversation is visible at a
+// glance, not just a faint text label. Matched by substring against
+// whatever model_used/model_identifier string the backend reports.
+const MODEL_STYLES: Record<string, { color: string; icon: string }> = {
+  bitnet: { color: '#22d3ee', icon: '⚡' },
+  anthropic: { color: '#fb923c', icon: '◈' },
+  claude: { color: '#fb923c', icon: '◈' },
+  openrouter: { color: '#a78bfa', icon: '◇' },
+  openai: { color: '#10b981', icon: '◆' },
+  gpt: { color: '#10b981', icon: '◆' },
+  zcode: { color: '#4ade80', icon: '❖' },
+};
+const DEFAULT_MODEL_STYLE = { color: '#6ec3ff', icon: '●' };
+function modelStyle(model?: string): { color: string; icon: string } {
+  if (!model) return DEFAULT_MODEL_STYLE;
+  const key = Object.keys(MODEL_STYLES).find((k) =>
+    model.toLowerCase().includes(k),
+  );
+  return key ? MODEL_STYLES[key] : DEFAULT_MODEL_STYLE;
+}
+
 export function MetaPortion({ width }: MetaPortionProps) {
   const {
     consciousnessEnabled,
@@ -789,34 +810,98 @@ export function MetaPortion({ width }: MetaPortionProps) {
             </div>
           ) : (
             <div className="transcript-messages">
-              {transcript.map((entry) => (
-                <div key={entry.id} className={`message ${entry.role}`}>
-                  <div className="message-header">
-                    <span className="message-author">
-                      {entry.role === 'user' ? 'You' : 'OZONE'}
-                    </span>
-                    {entry.emotion && (
-                      <span className="message-emotion" style={{ color: getEmotionColor(entry.emotion) }}>
-                        {getEmotionEmoji(entry.emotion)}
-                      </span>
-                    )}
-                    <span className="message-time">
-                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </div>
-                  <div className="message-content">{entry.content}</div>
-                  {entry.role === 'assistant' && (entry.modelUsed || entry.stageCount) && (
-                    <div
-                      className="message-meta"
-                      style={{ fontSize: 11, opacity: 0.55, marginTop: 4 }}
-                    >
-                      {entry.modelUsed && <span>handled by {entry.modelUsed}</span>}
-                      {entry.modelUsed && entry.stageCount ? ' · ' : ''}
-                      {entry.stageCount ? <span>{entry.stageCount} stages</span> : ''}
-                    </div>
-                  )}
-                </div>
-              ))}
+              {(() => {
+                let lastAssistantModel: string | undefined;
+                return transcript.map((entry) => {
+                  const ms = modelStyle(entry.modelUsed);
+                  const switched =
+                    entry.role === 'assistant' &&
+                    !!entry.modelUsed &&
+                    !!lastAssistantModel &&
+                    lastAssistantModel !== entry.modelUsed;
+                  if (entry.role === 'assistant' && entry.modelUsed) {
+                    lastAssistantModel = entry.modelUsed;
+                  }
+                  return (
+                    <React.Fragment key={entry.id}>
+                      {switched && (
+                        <div
+                          className="model-switch-divider"
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '10px 0' }}
+                        >
+                          <span style={{ flex: 1, height: 1, background: '#223046' }} />
+                          <span
+                            style={{
+                              border: `1px solid ${ms.color}`,
+                              color: ms.color,
+                              background: ms.color + '14',
+                              borderRadius: 999,
+                              fontSize: 11,
+                              padding: '3px 10px',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {ms.icon} switched to {entry.modelUsed}
+                          </span>
+                          <span style={{ flex: 1, height: 1, background: '#223046' }} />
+                        </div>
+                      )}
+                      <div className={`message ${entry.role}`}>
+                        <div className="message-header">
+                          <span className="message-author">
+                            {entry.role === 'user' ? 'You' : 'OZONE'}
+                          </span>
+                          {entry.emotion && (
+                            <span className="message-emotion" style={{ color: getEmotionColor(entry.emotion) }}>
+                              {getEmotionEmoji(entry.emotion)}
+                            </span>
+                          )}
+                          <span className="message-time">
+                            {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </div>
+                        <div
+                          className="message-content"
+                          style={
+                            entry.role === 'assistant' && entry.modelUsed
+                              ? { borderLeft: `2px solid ${ms.color}88`, paddingLeft: 10 }
+                              : undefined
+                          }
+                        >
+                          {entry.content}
+                        </div>
+                        {entry.role === 'assistant' && (entry.modelUsed || entry.stageCount) && (
+                          <div
+                            className="message-meta"
+                            style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5 }}
+                          >
+                            {entry.modelUsed && (
+                              <span
+                                style={{
+                                  border: `1px solid ${ms.color}55`,
+                                  color: ms.color,
+                                  background: ms.color + '14',
+                                  borderRadius: 999,
+                                  fontSize: 11,
+                                  padding: '2px 8px',
+                                  display: 'inline-flex',
+                                  gap: 5,
+                                  alignItems: 'center',
+                                }}
+                              >
+                                {ms.icon} {entry.modelUsed}
+                              </span>
+                            )}
+                            {entry.stageCount ? (
+                              <span style={{ fontSize: 11, opacity: 0.5 }}>{entry.stageCount} stages</span>
+                            ) : null}
+                          </div>
+                        )}
+                      </div>
+                    </React.Fragment>
+                  );
+                });
+              })()}
             </div>
           )}
         </div>

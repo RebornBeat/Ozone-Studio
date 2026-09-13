@@ -167,10 +167,12 @@ contextBridge.exposeInMainWorld("ozone", {
   // ========================================================================
   config: {
     /**
-     * Get current configuration
+     * Get current configuration. Pass a section name (e.g. "k_algorithms")
+     * to fetch just that section's live state instead of the full document.
+     * @param {string} [section]
      * @returns {Promise<object>}
      */
-    get: () => ipcRenderer.invoke("config:get"),
+    get: (section) => ipcRenderer.invoke("config:get", section),
 
     /**
      * Update configuration

@@ -127,6 +127,12 @@ pub enum ZSEIQuery {
     GetUserWorkspaces { user_id: u64 },
     GetProjects { workspace_id: ContainerID },
     GetProjectContext { project_id: ContainerID },
+    /// Fetch one container by id, full content. Previously nothing exposed
+    /// this over the public query surface — StoreAccess::get_container is
+    /// an in-process-only method, so external pipeline processes (anything
+    /// resolving a SearchContainersByKeywords hit into real content) had no
+    /// way to fetch a container at all over /zsei/query.
+    GetContainer { container_id: ContainerID },
     GetFileReferences { project_id: ContainerID },
     GetExternalReferences { project_id: ContainerID },
     

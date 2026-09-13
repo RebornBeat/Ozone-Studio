@@ -50,6 +50,41 @@ pub struct OzoneConfig {
     /// Voice configuration (for speech input)
     #[serde(default)]
     pub voice: VoiceConfig,
+
+    /// K-ALGORITHM default presets (src/k_registry.rs). Only convergence and
+    /// pairwise are exposed — validation/ordered_loop/search have no live
+    /// consumer yet, so a config knob for them would control nothing.
+    #[serde(default)]
+    pub k_algorithms: KAlgorithmConfig,
+}
+
+/// Default preset names for the K-ALGORITHM families that actually have a
+/// live consumer (orchestrator/amt.rs). Applied to the global KAlgorithms
+/// registry at boot and on /config/set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KAlgorithmConfig {
+    /// "fast" (2 passes, default) | "deep" (5 passes)
+    #[serde(default = "default_convergence_preset")]
+    pub convergence_preset: String,
+    /// "default" (window 8 / 50 pairs) | "wide" (16 / 100)
+    #[serde(default = "default_pairwise_preset")]
+    pub pairwise_preset: String,
+}
+
+fn default_convergence_preset() -> String {
+    "fast".to_string()
+}
+fn default_pairwise_preset() -> String {
+    "default".to_string()
+}
+
+impl Default for KAlgorithmConfig {
+    fn default() -> Self {
+        Self {
+            convergence_preset: default_convergence_preset(),
+            pairwise_preset: default_pairwise_preset(),
+        }
+    }
 }
 
 impl Default for OzoneConfig {
@@ -67,6 +102,7 @@ impl Default for OzoneConfig {
             consciousness: ConsciousnessConfig::default(),
             models: ModelConfig::default(),
             voice: VoiceConfig::default(),
+            k_algorithms: KAlgorithmConfig::default(),
         }
     }
 }
@@ -401,6 +437,30 @@ pub struct ModelConfig {
     /// pipeline #9 spawns when model_type is "bitnet".
     #[serde(default)]
     pub bitnet_cli_path: Option<String>,
+
+    /// User-defined multi-provider fallback chain. When a step's own
+    /// model_override fails (or none was set), the orchestrator walks this
+    /// list of `AvailableModel.identifier` values in order, trying the next
+    /// on failure, rather than giving up or blindly retrying the same
+    /// backend. Empty means today's single-backend behavior (no fallback).
+    #[serde(default)]
+    pub fallback: ModelFallbackConfig,
+}
+
+/// Ordered fallback chain across registered models/providers (company then
+/// model, per the user's preference — e.g. try Anthropic's models first,
+/// then OpenAI's, then OpenRouter's) plus a free/paid gate.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ModelFallbackConfig {
+    /// Ordered `AvailableModel.identifier` values to try in sequence.
+    #[serde(default)]
+    pub order: Vec<String>,
+    /// When true, the effective chain used at request time is `order`
+    /// filtered down to entries with `is_free == true` — set this when the
+    /// user has selected free-only, or automatically when no paid provider
+    /// has a usable key configured (no funds / no key set).
+    #[serde(default)]
+    pub free_only: bool,
 }
 
 impl ModelConfig {
@@ -467,11 +527,14 @@ impl Default for ModelConfig {
                     bitnet_cli_path: None,
                     local_model_path: None,
                     gpu_layers: None,
+                    provider: "anthropic".into(),
+                    is_free: false,
                 },
                 // Local models are added by user via UI or config
             ],
             wire_protocol: None,
             bitnet_cli_path: None,
+            fallback: ModelFallbackConfig::default(),
         }
     }
 }
@@ -502,6 +565,21 @@ pub struct AvailableModel {
     pub local_model_path: Option<String>,
     #[serde(default)]
     pub gpu_layers: Option<u32>,
+    /// Company/provider this model belongs to (e.g. "anthropic", "openai",
+    /// "z.ai", "openrouter", "bitnet") — groups entries for the user-defined
+    /// fallback order (ModelConfig::fallback) and for company-then-model
+    /// selection UI. Free-text, not an enum, since providers are added via
+    /// config, not compiled in.
+    #[serde(default)]
+    pub provider: String,
+    /// True for entries known to cost nothing per token (e.g. a local model,
+    /// or an OpenRouter entry pinned to a ":free"-suffixed model / the
+    /// "openrouter/free" router). Drives ModelConfig::fallback.free_only
+    /// filtering — OpenRouter's free lineup rotates over time, so this is a
+    /// per-entry flag the user (or a future live /models sync) sets, not a
+    /// hardcoded model list.
+    #[serde(default)]
+    pub is_free: bool,
 }
 
 fn default_context_length() -> usize {

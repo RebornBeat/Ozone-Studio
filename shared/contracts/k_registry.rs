@@ -117,6 +117,11 @@ impl<T: Clone> NamedPresets<T> {
         self.kind
     }
 
+    /// Name of the currently-selected default preset.
+    pub fn default_name(&self) -> &str {
+        &self.default
+    }
+
     pub fn names(&self) -> Vec<&str> {
         self.presets.iter().map(|(n, _)| n.as_str()).collect()
     }

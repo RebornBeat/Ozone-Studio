@@ -66,7 +66,15 @@ impl QueryProcessor {
                     Err(crate::types::OzoneError::NotFound(format!("Project {} not found", project_id)))
                 }
             }
-            
+
+            ZSEIQuery::GetContainer { container_id } => {
+                if let Some(container) = storage.load(container_id)? {
+                    Ok(ZSEIQueryResult::Container(container))
+                } else {
+                    Err(crate::types::OzoneError::NotFound(format!("Container {} not found", container_id)))
+                }
+            }
+
             ZSEIQuery::GetCategories { modality, parent_category } => {
                 let ids = self.find_categories(storage, modality, parent_category)?;
                 Ok(ZSEIQueryResult::Containers(ids))

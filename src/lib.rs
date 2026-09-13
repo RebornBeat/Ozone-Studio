@@ -78,6 +78,11 @@ pub struct OrchestrationOutput {
     pub model_used: Option<String>,
     pub total_tokens_used: Option<u32>,
     pub amt_summary: Option<serde_json::Value>,
+    /// Was silently dropped here before — build_error_response's real
+    /// message never made it past this struct even though it always existed
+    /// inside OrchestrationResponse.error, so a failed /orchestrate call
+    /// always returned error: null over HTTP with no way to know what broke.
+    pub error: Option<String>,
 }
 
 /// Main Ozone Studio runtime
@@ -141,6 +146,15 @@ impl OzoneRuntime {
         for (k, v) in config.models.to_pipeline_env() {
             std::env::set_var(&k, &v);
         }
+        // K-ALGORITHM defaults (convergence/pairwise — the only families
+        // with a live consumer today, orchestrator/amt.rs). The registry
+        // ships with hardcoded defaults ("fast"/"default"); this applies
+        // config.toml's choice on top before anything reads it.
+        {
+            let k = crate::k_registry::KAlgorithms::global();
+            k.set_convergence_preset(&config.k_algorithms.convergence_preset);
+            k.set_pairwise_preset(&config.k_algorithms.pairwise_preset);
+        }
 
         // Initialize ZSEI
         let zsei = zsei::ZSEI::new(&config.zsei)?;
@@ -149,9 +163,51 @@ impl OzoneRuntime {
 
         // --- Register artifacts as ZSEI containers (idempotent, runs every startup) ---
         {
+            // Self-heal: installs that completed bootstrap before these index
+            // files existed (bootstrap only runs once, gated on setup_complete)
+            // would otherwise silently skip all methodology/blueprint
+            // registration forever — same gap as the pipeline index, fixed the
+            // same way, since Stage 3 (Gather Methodologies) and Stage 6
+            // (Blueprint Assignment) both depend on these being registered.
+            let methodology_index_path = std::path::PathBuf::from(&config.zsei.methodology_index_path);
+            if !methodology_index_path.exists() {
+                if let Some(parent) = methodology_index_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let index = crate::bootstrap::BootstrapManager::get_default_methodology_index();
+                match serde_json::to_string_pretty(&index) {
+                    Ok(content) => match std::fs::write(&methodology_index_path, content) {
+                        Ok(()) => tracing::info!(
+                            "Generated missing methodology index at {} (self-heal)",
+                            methodology_index_path.display()
+                        ),
+                        Err(e) => tracing::warn!("Failed to write methodology index: {}", e),
+                    },
+                    Err(e) => tracing::warn!("Failed to serialize default methodology index: {}", e),
+                }
+            }
+
+            let blueprint_index_path = std::path::PathBuf::from(&config.zsei.blueprint_index_path);
+            if !blueprint_index_path.exists() {
+                if let Some(parent) = blueprint_index_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let index = crate::bootstrap::BootstrapManager::get_default_blueprint_index();
+                match serde_json::to_string_pretty(&index) {
+                    Ok(content) => match std::fs::write(&blueprint_index_path, content) {
+                        Ok(()) => tracing::info!(
+                            "Generated missing blueprint index at {} (self-heal)",
+                            blueprint_index_path.display()
+                        ),
+                        Err(e) => tracing::warn!("Failed to write blueprint index: {}", e),
+                    },
+                    Err(e) => tracing::warn!("Failed to serialize default blueprint index: {}", e),
+                }
+            }
+
             let methodology_store = crate::methodologies::store::MethodologyStore::new(
                 zsei_arc.clone(),
-                std::path::PathBuf::from(&config.zsei.methodology_index_path),
+                methodology_index_path,
             );
             if let Err(e) = methodology_store.register_all().await {
                 tracing::warn!("Methodology ZSEI registration: {}", e);
@@ -159,7 +215,7 @@ impl OzoneRuntime {
 
             let blueprint_store = crate::blueprints::store::BlueprintStore::new(
                 zsei_arc.clone(),
-                std::path::PathBuf::from(&config.zsei.blueprint_index_path),
+                blueprint_index_path,
             );
             if let Err(e) = blueprint_store.register_all().await {
                 tracing::warn!("Blueprint ZSEI registration: {}", e);
@@ -382,6 +438,8 @@ impl OzoneRuntime {
             executor_model: Default::default(),
             voice_input: None,
             available_models: self.config.models.available_models.clone(),
+            fallback_order: self.config.models.fallback.order.clone(),
+            fallback_free_only: self.config.models.fallback.free_only,
         };
 
         let executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
@@ -396,6 +454,7 @@ impl OzoneRuntime {
             zsei_adapter,
             self.task_manager.clone(),
             Arc::new(RwLock::new(None)),
+            self.config.models.context_length as u32,
         );
 
         let response = orchestrator.orchestrate(request).await;
@@ -418,6 +477,7 @@ impl OzoneRuntime {
                 .amt_summary
                 .as_ref()
                 .and_then(|s| serde_json::to_value(s).ok()),
+            error: response.error,
         })
     }
 }

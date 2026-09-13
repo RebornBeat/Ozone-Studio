@@ -135,7 +135,7 @@ impl PipelineExecutor {
                 PipelineProgress {
                     execution_id: execution_id_str.clone(),
                     pipeline_id: blueprint.pipeline_id,
-                    pipeline_name,
+                    pipeline_name: pipeline_name.clone(),
                     task_id,
                     step_index: None, // Will be set by orchestrator via set_step_context()
                     status: ProgressStatus::Running,
@@ -147,6 +147,25 @@ impl PipelineExecutor {
                 },
             );
         }
+
+        // Previously ActivityHub::record was only ever called from a handful
+        // of admin-type HTTP actions (device pairing, remote-pipeline
+        // register/unregister) — never from actual pipeline dispatch, so
+        // /monitor/activity stayed empty during real work no matter how much
+        // was running. This is the one place every dispatch path (builtin,
+        // custom, remote) funnels through, so it's the right single spot to
+        // make ordinary pipeline execution show up in the activity feed too.
+        self.activity.record(
+            crate::monitor::ActivityKind::Job,
+            crate::monitor::ActivityLevel::Info,
+            "pipeline",
+            format!("{} started", pipeline_name),
+            Some(serde_json::json!({
+                "execution_id": execution_id_str,
+                "pipeline_id": blueprint.pipeline_id,
+                "task_id": task_id,
+            })),
+        );
 
         {
             let cancelled = self.cancel_set.read().await;
@@ -190,6 +209,27 @@ impl PipelineExecutor {
                 }
             }
         }
+
+        self.activity.record(
+            crate::monitor::ActivityKind::Job,
+            if result.is_ok() {
+                crate::monitor::ActivityLevel::Ok
+            } else {
+                crate::monitor::ActivityLevel::Error
+            },
+            "pipeline",
+            format!(
+                "{} {}",
+                pipeline_name,
+                if result.is_ok() { "completed" } else { "failed" }
+            ),
+            Some(serde_json::json!({
+                "execution_id": execution_id_str,
+                "pipeline_id": blueprint.pipeline_id,
+                "task_id": task_id,
+                "error": result.as_ref().err().map(|e| e.to_string()),
+            })),
+        );
 
         // Wrap result
         match result {
@@ -243,9 +283,16 @@ impl PipelineExecutor {
         }
     }
 
-    /// Check if pipeline is builtin
+    /// Check if pipeline is builtin — anything with real registry metadata
+    /// (compile-time PIPELINE_INFO or runtime-loaded from index.json) ships
+    /// with the product and is dispatched by path lookup; ids that are NOT in
+    /// the registry are ad-hoc pipelines registered at runtime via
+    /// register_custom (e.g. through pipeline 15/PipelineCreation) and are
+    /// dispatched by name from custom_path instead. The old hardcoded
+    /// `pipeline_id <= 54` cutoff misrouted every modality pipeline (100+)
+    /// and pipeline 55 into execute_custom, where they could never resolve.
     fn is_builtin(&self, pipeline_id: PipelineID) -> bool {
-        pipeline_id <= 54 // Builtin IDs are 1-54
+        crate::pipeline::registry::get_pipeline_info(pipeline_id).is_some()
     }
 
     /// Execute a builtin pipeline
@@ -269,6 +316,19 @@ impl PipelineExecutor {
             pipeline_dir.join("target/release").join(name),
             pipeline_dir.join("target/debug").join(name),
         ];
+        // Each pipeline is its own independent workspace root under
+        // assets/pipelines/<category>/<name>/ — `cargo build --manifest-path
+        // assets/pipelines/.../Cargo.toml` places its binary in THAT crate's
+        // own target/ dir, never in builtin_path (which is only ever an empty
+        // deploy-style directory today, nothing copies into it). Anchor via
+        // CARGO_MANIFEST_DIR so this resolves regardless of the host's CWD at
+        // launch (e.g. run from target/release/).
+        let assets_pipeline_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("assets/pipelines")
+            .join(category)
+            .join(name);
+        candidates.push(assets_pipeline_dir.join("target/release").join(name));
+        candidates.push(assets_pipeline_dir.join("target/debug").join(name));
         if let Ok(exe_dir) = std::env::current_exe() {
             if let Some(dir) = exe_dir.parent() {
                 candidates.push(dir.join(name));
@@ -415,12 +475,24 @@ impl PipelineExecutor {
             cmd.arg("--task-id").arg(tid.to_string());
         }
 
-        let output = cmd.output().map_err(|e| {
-            OzoneError::PipelineError(format!(
-                "Failed to execute pipeline (execution {}): {}",
-                execution_id, e
-            ))
-        })?;
+        // Blocking child process (can run for minutes — e.g. BitNet loading
+        // its model fresh per call) — keep it off the async runtime's worker
+        // thread, same pattern the prompt pipeline itself already uses for
+        // its own BitNet subprocess call.
+        let output = tokio::task::spawn_blocking(move || cmd.output())
+            .await
+            .map_err(|e| {
+                OzoneError::PipelineError(format!(
+                    "Pipeline task join failed (execution {}): {}",
+                    execution_id, e
+                ))
+            })?
+            .map_err(|e| {
+                OzoneError::PipelineError(format!(
+                    "Failed to execute pipeline (execution {}): {}",
+                    execution_id, e
+                ))
+            })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

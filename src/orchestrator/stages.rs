@@ -12,22 +12,26 @@ impl PromptOrchestrator {
 
         // STAGE 2: Text/Prompt Normalization (attached-file graph creation
         // runs first inside, then chunk processing — files inform the AMT).
+        tracing::info!(stage = 2, "Stage 2 (Text/Prompt Normalization) starting");
         self.prompt_normalization(state).await?;
 
         // STAGE 3: Gather Methodologies (methodology set + categories ONLY —
         // no AMT construction here; that is Stage 5's job alone).
+        tracing::info!(stage = 3, "Stage 3 (Gather Methodologies) starting");
         self.gather_methodologies(state).await?;
 
         // STAGE 4 (part A): File graph classification — AFTER text processing
         // gives us keywords/topics signals, BEFORE aggregation so the
         // classified file modalities feed the root modality list. Runs ONCE.
         if !state.file_graphs.is_empty() {
+            tracing::info!(stage = 4, "Stage 4a (File Graph Classification) starting");
             self.classify_file_graphs_post_creation(state).await?;
         }
 
         // STAGE 4 (part B): Initial graph creation — BEFORE the AMT. The AMT
         // is built from the text graph, and graph state (verified modalities,
         // cross-modal edges) is part of the evidence the AMT traversal reads.
+        tracing::info!(stage = 4, "Stage 4b (Initial Graph Creation) starting");
         self.aggregate_root_modalities(state).await;
         self.create_initial_modality_graphs(state)
             .await
@@ -58,42 +62,52 @@ impl PromptOrchestrator {
         // STAGE 5: Build the AMT — graph-native traversal when the chunks
         // carry sentence nodes with grammar relationships (Path 2 / OMEX
         // native), legacy chunk zero-shot loop otherwise.
+        tracing::info!(stage = 5, "Stage 5 (Build AMT) starting");
         self.build_amt(state).await?;
 
         // If clarification needed, stop here and return to user
         if state.needs_clarification {
+            tracing::info!("Orchestration stopping early: clarification needed from user");
             return Ok(());
         }
 
         // STAGE 6: Blueprint Assignment
+        tracing::info!(stage = 6, "Stage 6 (Blueprint Assignment) starting");
         self.stage_3_blueprint_assignment(state).await?;
 
         // STAGE 7: Zero-Shot Simulation (with AMT traversal)
+        tracing::info!(stage = 7, "Stage 7 (Zero-Shot Simulation) starting — this calls the configured model backend and may take a while (e.g. BitNet loading its model fresh per call)");
         self.stage_4_zero_shot_simulation(state).await?;
 
         // STAGE 8: Consciousness Decision Gate
         if state.request.consciousness_enabled {
+            tracing::info!(stage = 8, "Stage 8 (Consciousness Gate) starting");
             self.stage_5_consciousness_gate(state).await?;
         } else {
             self.record_stage(state, 8, "Consciousness Gate", true, "Skipped (disabled)");
         }
 
         // STAGES 9-11: Context Aggregation + Task Creation + Execution
+        tracing::info!(stage = 9, "Stages 9-11 (Context Aggregation + Task Creation + Step Execution) starting");
         self.stage_6_to_8_execute_steps(state).await?;
 
         // STAGE 12: Result Collection
+        tracing::info!(stage = 12, "Stage 12 (Result Collection) starting");
         self.stage_9_result_collection(state).await?;
 
         // STAGE 13: Post-execution Consciousness
         if state.request.consciousness_enabled {
+            tracing::info!(stage = 13, "Stage 13 (Post-execution Consciousness) starting");
             self.stage_10_post_execution(state).await?;
         } else {
             self.record_stage(state, 13, "Post-execution", true, "Skipped (disabled)");
         }
 
         // STAGE 14: Response Delivery
+        tracing::info!(stage = 14, "Stage 14 (Response Delivery) starting");
         self.stage_11_response_delivery(state).await?;
 
+        tracing::info!("Orchestration complete: all 14 stages finished");
         Ok(())
     }
 
@@ -268,7 +282,10 @@ Return JSON:
             "system_context": "Generate execution blueprints. Respond with JSON only."
         });
 
-        let bp_result = self.metered_execute(state, 9, bp_input).await?;
+        let bp_result = match self.metered_execute(state, 9, bp_input.clone()).await {
+            Ok(v) => v,
+            Err(e) => self.try_fallback_chain(state, 9, bp_input, e).await?,
+        };
         let response = bp_result
             .get("response")
             .and_then(|r| r.as_str())
@@ -328,24 +345,39 @@ Return JSON:
         // Validate each LLM-authored pipeline_id before it can travel deep
         // into execution — an unvalidated hallucinated id previously only
         // surfaced as a failure inside execute_inner, several stages later.
-        // 9 (the default prompt pipeline) is always valid; anything else
-        // must be a known static pipeline or a currently-registered remote.
+        // This used to just check "is this a REGISTERED pipeline_id" (via
+        // available_pipelines / pipeline_exists) and let anything registered
+        // through — but registered is not the same as SCHEMA-COMPATIBLE: the
+        // generic input this stage builds for step execution ({prompt,
+        // max_tokens, temperature, action}, see exec_input below and
+        // build_sub_step_input in mod.rs) only matches pipeline 9's (Prompt)
+        // contract. Now that available_pipelines lists all 82 registered
+        // pipelines (including exotic modality ones — Kinematics, Radar,
+        // Haptic, CAD, etc.), the old check happily approved the LLM picking
+        // one of those for a step, and it failed several stages later with
+        // "Parse error: missing field `action`" (confirmed live) since that
+        // pipeline's own bespoke Input struct doesn't accept this shape at
+        // all. Every non-9 choice gets coerced here instead — existence in
+        // the registry was never sufficient.
         for step in &mut state.blueprint_steps {
-            if step.pipeline_id == 9 {
-                continue;
-            }
-            let known_static = state
-                .available_pipelines
-                .iter()
-                .any(|p| p.pipeline_id == step.pipeline_id);
-            let live = known_static || self.executor.pipeline_exists(step.pipeline_id).await;
-            if !live {
+            if step.pipeline_id != 9 {
                 tracing::warn!(
-                    "Blueprint step {} named unknown pipeline_id {} — coercing to 9",
+                    "Blueprint step {} named pipeline_id {} — the generic step-execution \
+                     input only matches pipeline 9's contract, coercing to 9",
                     step.step_index,
                     step.pipeline_id
                 );
                 step.pipeline_id = 9;
+            }
+            for sub_step in &mut step.sub_steps {
+                if sub_step.pipeline_id != 9 {
+                    tracing::warn!(
+                        "Blueprint sub-step {} named pipeline_id {} — coercing to 9 (same reason)",
+                        sub_step.sub_index,
+                        sub_step.pipeline_id
+                    );
+                    sub_step.pipeline_id = 9;
+                }
             }
         }
 
@@ -455,7 +487,10 @@ Return JSON:
             "system_context": "Simulate execution and predict outcomes. Respond with JSON only."
         });
 
-        let sim_result = self.metered_execute(state, 9, sim_input).await?;
+        let sim_result = match self.metered_execute(state, 9, sim_input.clone()).await {
+            Ok(v) => v,
+            Err(e) => self.try_fallback_chain(state, 9, sim_input, e).await?,
+        };
         let response = sim_result
             .get("response")
             .and_then(|r| r.as_str())
@@ -590,6 +625,14 @@ Return JSON:
         );
         if let Some(ref amt) = state.amt {
             inputs.insert("amt_intent".to_string(), serde_json::json!(amt.content));
+        }
+        // Real ZSEI container id for the persisted AMT tree (see
+        // persist_amt_container in amt.rs) — lets a later request retrieve
+        // "what AMT produced this task" via GetContainer, since the task is
+        // the first point in the stage sequence where a durable id (task_id)
+        // exists to link it against.
+        if let Some(amt_container_id) = state.amt_container_id {
+            inputs.insert("amt_container_id".to_string(), serde_json::json!(amt_container_id));
         }
 
         // Enqueue task via TaskManager
@@ -855,6 +898,10 @@ Return JSON:
                 "token_budget": state.model_context_limit / 4,
                 "project_id": state.request.project_id,
                 "priority_order": step.context_requirements,
+                // Global consciousness state is a separate, explicitly-opt-in
+                // layer (see context_aggregation's ForStep handler) — only
+                // requested when this orchestration run actually has it on.
+                "include_consciousness": state.request.consciousness_enabled,
             });
 
             let context_result = self.metered_execute(state, 21, context_input).await?;
@@ -920,6 +967,7 @@ Return JSON:
             // ever asked for the identifier, not full connection details, so
             // pipeline 9 (which stays a dumb wire-protocol executor) needs
             // those details filled in before the override reaches it.
+            let has_explicit_override = step.model_override.is_some();
             if let Some(model_override) = &step.model_override {
                 let mut resolved = model_override.clone();
                 if let Some(id) = &model_override.model_identifier {
@@ -956,6 +1004,24 @@ Return JSON:
                     .executor
                     .execute(step.pipeline_id, exec_input.clone())
                     .await;
+            }
+
+            // Multi-provider fallback chain (user-defined order in
+            // config.toml's [models.fallback]) — only for the LLM pipeline
+            // (9), and only when the blueprint didn't already pin a specific
+            // model for this step (an explicit per-step choice is respected,
+            // not overridden by a broader fallback sweep). See
+            // try_fallback_chain: walks each registered identifier in order
+            // so a step still succeeds via a different backend/provider when
+            // the default one is down, rate-limited, segfaults (as BitNet
+            // currently does on longer prompts), or the account is out of
+            // funds.
+            if let Err(e) = &exec_result {
+                if step.pipeline_id == 9 && !has_explicit_override {
+                    exec_result = self
+                        .try_fallback_chain(state, step.pipeline_id, exec_input.clone(), e.clone())
+                        .await;
+                }
             }
 
             final_output = exec_result?;

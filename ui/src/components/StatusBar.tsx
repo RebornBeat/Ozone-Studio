@@ -180,7 +180,23 @@ export function StatusBar() {
       {/* System Resources (right-aligned) */}
       <div className="status-spacer" />
       
-      <div className="status-item status-memory" title="UI process memory usage (not the backend)">
+      {(systemStats.backendMemoryMb != null || systemStats.backendCpuPercent != null) && (
+        <div
+          className="status-item status-backend-usage"
+          title="Ozone-Studio backend process (real RSS/CPU, found by port — works whether it was launched by this app or manually)"
+        >
+          <span className="status-icon">🖥️</span>
+          <span className="status-value">
+            {systemStats.backendMemoryMb != null ? `${systemStats.backendMemoryMb}MB` : '—'}
+            {systemStats.backendCpuPercent != null
+              ? ` · ${systemStats.backendCpuPercent.toFixed(0)}%`
+              : ''}
+          </span>
+          <span className="status-label">Backend</span>
+        </div>
+      )}
+
+      <div className="status-item status-memory" title="This UI (Electron) process's own memory — not the backend">
         <span className="status-icon">💾</span>
         <span className="status-value">{Math.round(systemStats.memoryUsage)}%</span>
         <span className="status-label">UI Mem</span>

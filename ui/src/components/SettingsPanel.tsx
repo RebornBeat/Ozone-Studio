@@ -14,7 +14,7 @@
  */
 import React, { useEffect, useState } from "react";
 
-type Section = "model" | "voice" | "consciousness" | "network" | "advanced";
+type Section = "model" | "voice" | "consciousness" | "network" | "algorithms" | "advanced";
 
 interface AvailableModelEntry {
   name: string;
@@ -73,6 +73,13 @@ interface NetworkCfg {
   batch_sync_interval_secs?: number;
 }
 
+interface AlgorithmsCfg {
+  convergence_preset?: string;
+  pairwise_preset?: string;
+  convergence_options?: string[];
+  pairwise_options?: string[];
+}
+
 interface AdvancedCfg {
   general?: { data_dir?: string; log_level?: string; setup_complete?: boolean };
   auth?: { session_duration_secs?: number; challenge_expiry_secs?: number };
@@ -112,6 +119,7 @@ const SECTIONS: { key: Section; label: string }[] = [
   { key: "voice", label: "Voice" },
   { key: "consciousness", label: "Consciousness" },
   { key: "network", label: "Network" },
+  { key: "algorithms", label: "Algorithms" },
   { key: "advanced", label: "Advanced" },
 ];
 
@@ -121,6 +129,7 @@ export const SettingsPanel: React.FC = () => {
   const [voice, setVoice] = useState<VoiceCfg>({});
   const [consciousness, setConsciousness] = useState<ConsciousnessCfg>({});
   const [network, setNetwork] = useState<NetworkCfg>({});
+  const [algorithms, setAlgorithms] = useState<AlgorithmsCfg>({});
   const [advanced, setAdvanced] = useState<AdvancedCfg>({});
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -143,6 +152,25 @@ export const SettingsPanel: React.FC = () => {
           grpc: cfg?.grpc,
           tasks: cfg?.tasks,
         });
+        // Separate fetch: the "k_algorithms" section reports the LIVE
+        // registry state (current default + every registered option), not
+        // just the persisted config value the bulk "" fetch above returns.
+        try {
+          const oz = (window as any).ozone;
+          const kOut = oz?.config?.get
+            ? await oz.config.get("k_algorithms")
+            : await fetch(
+                `${(window as any).OZONE_HOST_URL || "http://127.0.0.1:50051"}/config/get`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ section: "k_algorithms", session_token: "" }),
+                },
+              ).then((r) => r.json());
+          setAlgorithms(kOut?.config ?? kOut ?? {});
+        } catch {
+          // Non-fatal — algorithms tab just shows blanks if this fails.
+        }
         setLoaded(true);
       } catch (e: any) {
         setError(e?.message ?? "Failed to load config");
@@ -199,6 +227,10 @@ export const SettingsPanel: React.FC = () => {
         max_peers: network.max_peers,
         enable_mdns: network.enable_mdns,
         batch_sync_interval_secs: network.batch_sync_interval_secs,
+      },
+      k_algorithms: {
+        convergence_preset: algorithms.convergence_preset,
+        pairwise_preset: algorithms.pairwise_preset,
       },
     };
     try {
@@ -706,6 +738,59 @@ export const SettingsPanel: React.FC = () => {
                     })
                   }
                 />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {section === "algorithms" && (
+          <div className="ocards">
+            <div className="ocard">
+              <h4>🧮 K-Algorithm presets</h4>
+              <p style={{ color: "#8b98ab", fontSize: 12, margin: "0 0 12px" }}>
+                Applies live — no restart needed, the orchestrator picks it up
+                on its next AMT pass. Only convergence and pairwise are shown:
+                the other algorithm families (validation, ordered-loop, search)
+                exist in the registry but nothing reads them yet, so a control
+                for them wouldn't do anything.
+              </p>
+              <div className="ofield">
+                <label>Convergence (AMT refinement pass limit)</label>
+                <select
+                  className="oinput"
+                  value={algorithms.convergence_preset ?? ""}
+                  onChange={(e) =>
+                    setAlgorithms({ ...algorithms, convergence_preset: e.target.value })
+                  }
+                >
+                  {(algorithms.convergence_options?.length
+                    ? algorithms.convergence_options
+                    : ["fast", "deep"]
+                  ).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="ofield">
+                <label>Pairwise (branch comparison window)</label>
+                <select
+                  className="oinput"
+                  value={algorithms.pairwise_preset ?? ""}
+                  onChange={(e) =>
+                    setAlgorithms({ ...algorithms, pairwise_preset: e.target.value })
+                  }
+                >
+                  {(algorithms.pairwise_options?.length
+                    ? algorithms.pairwise_options
+                    : ["default", "wide"]
+                  ).map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>

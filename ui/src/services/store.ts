@@ -119,6 +119,8 @@ const defaultSystemStats: SystemStats = {
   iLoopStatus: undefined,
   uptime: 0,
   memoryUsage: 0,
+  backendMemoryMb: null,
+  backendCpuPercent: null,
   activeTaskCount: 0,
 };
 

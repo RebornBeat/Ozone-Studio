@@ -14,8 +14,157 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+
+// ========== ZSEI Integration (real persistence) ==========
+//
+// create_graph() previously only minted an id via generate_id() and cached
+// the graph in this process's own in-memory HashMap — but this pipeline runs
+// as a one-shot subprocess (a fresh process per invocation, confirmed by how
+// the host spawns it), so that cache was never actually reachable by any
+// later call. Nothing was ever written to ZSEI, so context_aggregation's
+// real keyword/container queries (see
+// assets/pipelines/general/context_aggregation/main.rs) had nothing to find
+// for any modality graph. Same real-ZSEI-over-HTTP pattern as that pipeline:
+// ZSEIQuery is externally-tagged (no #[serde(tag=...)]), wire format
+// {"VariantName": {fields...}}.
+fn ozone_host() -> String {
+    env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
+    }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Persist a text graph as a real ZSEI container under the root container
+/// (id 0 — the only structural root actually registered in ZSEI's mmap-backed
+/// storage today; the dedicated /Modality/Text etc. root containers bootstrap
+/// writes are local-JSON-only and not loadable via the real storage engine's
+/// load(), a separate pre-existing gap out of scope here). Returns the real
+/// ZSEI-assigned container id, which becomes this graph's graph_id — the
+/// in-memory cache's own generate_id() mint is no longer used as the id of
+/// record once this succeeds.
+///
+/// The full node/edge graph is written alongside the container as a JSON
+/// file (graphs/<container_id>.json under ZSEI's data dir) and referenced
+/// via storage.object_store_path — Container's schema has no generic slot
+/// for an arbitrary node/edge graph, and TextContext's fields (themes,
+/// concepts, arguments, tone, ...) don't have honest real values to fill
+/// from a TextAnalysisResult without fabricating structure, so text_context
+/// stays None. keywords/topics/name are real, directly from the analysis.
+async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResult, project_id: u64) -> Result<u64, String> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let keywords: Vec<String> = analysis.keywords.iter().map(|k| k.term.to_lowercase()).collect();
+    let topics: Vec<String> = analysis.topics.iter().map(|t| t.name.clone()).collect();
+    let name = format!(
+        "{:?} text graph ({} words, {} sentences)",
+        analysis.structure.document_type, analysis.word_count, analysis.sentence_count
+    );
+    let content_hash = vec![0u8; 32];
+
+    let container = serde_json::json!({
+        "global_state": {
+            "container_id": 0,
+            "child_count": 0,
+            "version": 1,
+            "parent_id": 0,
+            "child_ids": []
+        },
+        "local_state": {
+            "metadata": {
+                "container_type": "ModalityGraph",
+                "modality": "Text",
+                "created_at": now,
+                "updated_at": now,
+                "provenance": "pipeline:100",
+                "permissions": 0,
+                "owner_id": 0,
+                "name": name,
+                "materialized_path": null
+            },
+            "context": {
+                "categories": [],
+                "methodologies": [],
+                "keywords": keywords,
+                "topics": topics,
+                "relationships": [],
+                "learned_associations": [],
+                "embedding": null
+            },
+            "storage": {
+                "db_shard_id": null,
+                "vector_index_ref": null,
+                "object_store_path": format!("graphs/text_{}.json", graph.graph_id),
+                "compression_type": "None"
+            },
+            "hints": {
+                "access_frequency": 0,
+                "hotness_score": 0.0,
+                "last_accessed": 0,
+                "centroid": null,
+                "ml_prediction_weight": 0.0
+            },
+            "integrity": {
+                "content_hash": content_hash,
+                "semantic_fingerprint": [],
+                "last_verified": now,
+                "integrity_score": 1.0,
+                "version_history": []
+            },
+            "file_context": null,
+            "code_context": null,
+            "text_context": null,
+            "external_ref": null
+        }
+    });
+
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": 0, "container": container }
+    }))
+    .await?;
+
+    let container_id = result
+        .get("ContainerID")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "CreateContainer did not return a ContainerID".to_string())?;
+
+    // Best-effort: the graph's own node/edge content, referenced by
+    // storage.object_store_path above. Written under ZSEI's data dir so it
+    // sits alongside other ZSEI-managed content; a failure here doesn't fail
+    // graph creation — the container itself (with real keywords/topics) is
+    // already the part context_aggregation's searches actually use.
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let graphs_dir = format!("{}/graphs", data_dir);
+    let _ = std::fs::create_dir_all(&graphs_dir);
+    let graph_path = format!("{}/text_{}.json", graphs_dir, graph.graph_id);
+    if let Ok(json) = serde_json::to_string_pretty(graph) {
+        let _ = std::fs::write(&graph_path, json);
+    }
+
+    let _ = project_id; // not yet linked to a Project container — see report
+
+    Ok(container_id)
+}
 
 fn default_version() -> u32 {
     1
@@ -1069,14 +1218,27 @@ pub struct ProcessedChunk {
     #[serde(default)]
     pub overlap_to_next: u32,
     pub sentence_nodes: Vec<SentenceNode>,
+    // The orchestrator (src/orchestrator/mod.rs) keeps its own, structurally
+    // smaller ProcessedChunk — a separate crate with no shared type, so JSON
+    // is the only contract. It never populates these six fields at all, and
+    // without #[serde(default)] a plain missing key (not even `null`) fails
+    // deserialization outright — confirmed live: ReconstructFromChunks
+    // panicked on "missing field `paragraph_nodes`" for every orchestration
+    // run, since the orchestrator has no such field to send.
+    #[serde(default)]
     pub paragraph_nodes: Vec<ParagraphNode>,
+    #[serde(default)]
     pub section_nodes: Vec<SectionNode>,
+    #[serde(default)]
     pub document_nodes: Vec<DocumentNode>,
     pub cross_sentence_relationships: Vec<CrossSentenceRelationship>,
     pub coreference_chains: Vec<CoreferenceChain>,
     pub detected_modalities: Vec<ChunkModalityDetection>,
+    #[serde(default)]
     pub chunk_graph_id: Option<u64>,
+    #[serde(default)]
     pub prompt_start_char: usize,
+    #[serde(default)]
     pub prompt_end_char: usize,
 }
 
@@ -5530,15 +5692,38 @@ RESPOND ONLY WITH JSON."#,
             updated_at: now,
         };
 
+        // Persist to ZSEI and adopt the REAL container id as this graph's
+        // graph_id — the local generate_id() mint above only exists to give
+        // node/edge references something to key off while building the
+        // graph in memory; it was never a real, queryable identifier.
+        // Callers (the orchestrator's create_initial_modality_graphs) store
+        // whatever id comes back and use it for later GetGraph/UpdateGraph
+        // calls, so this MUST be the id ZSEI actually knows about, or
+        // "accessible between model change" stays false regardless of the
+        // rest of this fix. On persistence failure, fall back to the local
+        // mint (still cached below) rather than failing the whole analysis —
+        // the caller gets a working in-process graph_id for this run even if
+        // ZSEI is unreachable, same graceful-degradation posture the rest of
+        // this pipeline already uses for optional integrations.
+        let mut graph = graph;
+        match persist_graph_container(&graph, &analysis, project_id).await {
+            Ok(container_id) => {
+                graph.graph_id = container_id;
+            }
+            Err(e) => {
+                eprintln!("Failed to persist text graph to ZSEI (using local id only): {}", e);
+            }
+        }
+
         // Cache the graph
         {
             let mut cache = self.graph_cache.write().await;
-            cache.insert(graph_id, graph.clone());
+            cache.insert(graph.graph_id, graph.clone());
         }
 
         TextModalityOutput {
             success: true,
-            graph_id: Some(graph_id),
+            graph_id: Some(graph.graph_id),
             graph: Some(graph),
             ..Default::default()
         }

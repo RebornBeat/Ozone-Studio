@@ -16,7 +16,7 @@
 //! pipelines too); this facade assembles the families host-side with the
 //! process-global instance.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use crate::shared_contracts::k_loops::{
     ConvergencePolicy, Ordered1x1Policy, PairwisePolicy,
@@ -26,15 +26,22 @@ use crate::shared_contracts::k_validation::ValidationPolicy;
 use crate::zsei::search::SearchRegistry;
 
 /// The typed algorithm registry. One instance per process (see [`global`]).
+/// Fields are `RwLock`-wrapped so `set_default` can actually be called at
+/// runtime (config load, `/config/set`) — the registry existed with a
+/// `set_default` API long before anything could reach it through the
+/// `&'static` global. Only `convergence` and `pairwise` currently have a
+/// live consumer (`orchestrator/amt.rs`); `validation`/`ordered_loop` are
+/// wrapped for structural consistency but changing their default has no
+/// observable effect yet — not exposed in config/UI for that reason.
 pub struct KAlgorithms {
     /// `validation` presets: strength = consecutive affirmations required.
-    pub validation: NamedPresets<ValidationPolicy>,
+    pub validation: RwLock<NamedPresets<ValidationPolicy>>,
     /// `ordered_loop` presets: misses before exhaustion.
-    pub ordered_loop: NamedPresets<Ordered1x1Policy>,
+    pub ordered_loop: RwLock<NamedPresets<Ordered1x1Policy>>,
     /// `pairwise` presets: forward window + pair cap.
-    pub pairwise: NamedPresets<PairwisePolicy>,
+    pub pairwise: RwLock<NamedPresets<PairwisePolicy>>,
     /// `convergence` presets: max refinement passes.
-    pub convergence: NamedPresets<ConvergencePolicy>,
+    pub convergence: RwLock<NamedPresets<ConvergencePolicy>>,
     /// `search` strategies — trait-object family (scan/exact/…).
     pub search: Arc<SearchRegistry>,
 }
@@ -69,19 +76,64 @@ impl KAlgorithms {
         convergence.register("deep", ConvergencePolicy { max_passes: 5 });
 
         Self {
-            validation,
-            ordered_loop,
-            pairwise,
-            convergence,
+            validation: RwLock::new(validation),
+            ordered_loop: RwLock::new(ordered_loop),
+            pairwise: RwLock::new(pairwise),
+            convergence: RwLock::new(convergence),
             search: Arc::new(SearchRegistry::new()),
         }
     }
 
-    /// Process-global instance. Config overrides (CONFIG REVIEW todo) apply
-    /// on first init; selection afterwards is data-driven.
+    /// Process-global instance. Selection is data-driven at runtime via
+    /// `set_convergence_preset`/`set_pairwise_preset` (called from
+    /// OzoneConfig.k_algorithms at boot and on `/config/set`).
     pub fn global() -> &'static KAlgorithms {
         static GLOBAL: std::sync::OnceLock<KAlgorithms> = std::sync::OnceLock::new();
         GLOBAL.get_or_init(KAlgorithms::new)
+    }
+
+    /// Switch the live default convergence preset. Returns false (no-op) if
+    /// `name` isn't a registered preset — never panics.
+    pub fn set_convergence_preset(&self, name: &str) -> bool {
+        self.convergence.write().map(|mut p| p.set_default(name)).unwrap_or(false)
+    }
+
+    /// Switch the live default pairwise preset. Returns false (no-op) if
+    /// `name` isn't a registered preset.
+    pub fn set_pairwise_preset(&self, name: &str) -> bool {
+        self.pairwise.write().map(|mut p| p.set_default(name)).unwrap_or(false)
+    }
+
+    /// Current default preset names, for `/config/get` and Settings —
+    /// (convergence_default, pairwise_default).
+    pub fn current_presets(&self) -> (String, String) {
+        let convergence = self
+            .convergence
+            .read()
+            .map(|p| p.default_name().to_string())
+            .unwrap_or_else(|_| "fast".to_string());
+        let pairwise = self
+            .pairwise
+            .read()
+            .map(|p| p.default_name().to_string())
+            .unwrap_or_else(|_| "default".to_string());
+        (convergence, pairwise)
+    }
+
+    /// Every registered preset name per exposed family, for the Settings
+    /// dropdown options.
+    pub fn available_presets(&self) -> (Vec<String>, Vec<String>) {
+        let convergence = self
+            .convergence
+            .read()
+            .map(|p| p.names().into_iter().map(String::from).collect())
+            .unwrap_or_default();
+        let pairwise = self
+            .pairwise
+            .read()
+            .map(|p| p.names().into_iter().map(String::from).collect())
+            .unwrap_or_default();
+        (convergence, pairwise)
     }
 }
 
