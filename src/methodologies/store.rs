@@ -126,8 +126,24 @@ impl MethodologyStore {
     }
 
     async fn ensure_root(&self, zsei: &mut ZSEI) -> OzoneResult<()> {
-        if zsei.get_container(METHODOLOGY_ROOT_ID).await?.is_some() {
-            return Ok(());
+        // Check the container is actually the right TYPE, not just present —
+        // ZSEIStorage's generic dynamic-container allocator previously had no
+        // floor and could hand out this exact low id to an unrelated
+        // container (confirmed live: a modality graph landed on
+        // METHODOLOGY_ROOT_ID and this check's old "exists, skip" form left
+        // it corrupted indefinitely, since it never fails and never re-heals
+        // on subsequent boots). Now fixed at the allocator level
+        // (src/zsei/storage.rs), but self-heal here too in case this ever
+        // recurs from another path.
+        if let Some(existing) = zsei.get_container(METHODOLOGY_ROOT_ID).await? {
+            if existing.local_state.metadata.container_type == ContainerType::MethodologyRoot {
+                return Ok(());
+            }
+            tracing::warn!(
+                "METHODOLOGY_ROOT_ID ({}) holds a {:?} container instead of MethodologyRoot — repairing",
+                METHODOLOGY_ROOT_ID,
+                existing.local_state.metadata.container_type
+            );
         }
         let root = Container {
             global_state: GlobalState {

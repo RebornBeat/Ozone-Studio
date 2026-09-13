@@ -121,7 +121,10 @@ Three categories of pipelines:
 
 ### Modality Pipelines
 
-Specialized processors that create structural graphs from different data types:
+Specialized processors that create structural graphs from different data types.
+The original 9 "core" modalities plus 18 more added since (27 total, ids
+100-126 — a running server reports `Loaded 82 builtin pipelines` total across
+all three categories):
 
 | Pipeline | Description |
 |----------|-------------|
@@ -134,6 +137,60 @@ Specialized processors that create structural graphs from different data types:
 | **Chemistry (106)** | Molecule structure, reactions, properties |
 | **DNA (107)** | Sequence analysis, gene annotation, variants |
 | **EEG (108)** | Channel analysis, event detection, connectivity |
+| **3D Engine (109)** | AGI-first 3D scene analysis and simulation |
+| **Sound Reconstruction (110)** | Sound/vocalization reconstruction |
+| **Biology (111)** | Multi-scale biological analysis |
+| **Proteomics (112)** | Protein structure and interaction analysis |
+| **Haptic (113)** | Force and texture analysis |
+| **Thermal (114)** | Thermal imaging analysis |
+| **Depth (115)** | Depth and point cloud analysis |
+| **IMU (116)** | Inertial sensor analysis |
+| **Geospatial (117)** | Geospatial / mapping analysis |
+| **Electromagnetic (118)** | Passive EM signal analysis |
+| **BCI (119)** | Brain-computer interface decoding |
+| **Parametric CAD (120)** | Parametric CAD and B-rep analysis |
+| **Kinematics (121)** | Kinematic chain analysis |
+| **Control Systems (122)** | Control system analysis |
+| **Network Topology (123)** | Network topology analysis |
+| **Active Radar (124)** | Range-Doppler, SAR, tracking |
+| **Active Sonar (125)** | Echo, bathymetry, bioacoustics |
+| **Hyperspectral (126)** | Material and chemical mapping |
+
+### Pipeline Dispatch Mechanics
+
+Each pipeline is an **independent crate** (`assets/pipelines/<category>/<name>/`,
+its own `Cargo.toml`, its own `[workspace]` root) invoked one of two ways:
+
+- **One-shot subprocess (default)**: the host spawns the pipeline's compiled
+  binary fresh per call with `--input <json>`, reads its stdout, and exits.
+  `execute_builtin` (`src/pipeline/executor.rs`) searches for the binary at
+  `assets/pipelines/<category>/<name>/target/{release,debug}/<name>` — the
+  crate's own build output, no separate deploy/copy step needed. This is
+  wrapped in `tokio::task::spawn_blocking` so a slow pipeline (e.g. BitNet
+  loading its model) doesn't stall the host's async runtime.
+- **Serve mode (`--serve`)**: a pipeline boots as a long-running process and
+  self-registers with the host (`src/pipeline/remote.rs`), answering
+  `POST /execute` instead of being spawned per call. Used for backends worth
+  keeping warm.
+
+**The wire contract every pipeline's `main()` must honor**: the host always
+sends the full `PipelineInput` envelope, `{"data": {...the pipeline's own
+input shape...}, "context": {...}}` — never the bare input alone. A pipeline
+that parses `--input` directly as its own input type (skipping the `data`
+unwrap) will fail on every real call with a "missing field" error while
+still working under a hand-crafted direct CLI test — this exact bug was
+found and fixed in `context_aggregation`, `methodology_create`, and
+`blueprint_create` during BitNet integration testing. The correct pattern
+(see any of those three `main()` functions): parse the raw JSON, take
+`.get("data")` if present else fall back to the whole payload, then parse
+*that* as the pipeline's real input type.
+
+**The execution gate**: a pipeline id must be present in
+`PipelineRegistry.blueprints` (seeded at boot from the compile-time table
+plus `zsei_data/pipelines/index.json`, self-healing if that file is missing)
+before *any* dispatch — remote or builtin — is attempted. `is_builtin()`
+now checks real registry membership rather than a hardcoded id range, so
+every registered pipeline (not just the original 1-55) actually dispatches.
 
 ### Two-Layer Graph System
 
@@ -210,7 +267,7 @@ Benefit: Check for issues BEFORE writing any code
 
 ## Refinement Daemon
 
-Continuous system improvement through:
+Continuous system improvement through a background "meta loop," designed to:
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -225,6 +282,8 @@ Continuous system improvement through:
 ```
 
 **Principle:** Always deconstructing for reconstruction — provides more space for cross-modality insight and accurate construction.
+
+**Current implementation status:** `TaskManager::start_refinement_daemon()` (`src/task/mod.rs`) is real, working `tokio::spawn` loop code, gated by `RefinementConfig` (enabled by default, 24h interval) — but it has **zero callers anywhere in the codebase**, so it has never actually run. Its four sub-tasks exist but are threshold-check stubs today: `run_methodology_refinement` detects when a methodology's principle count exceeds a configured max and logs a suggestion (`// TODO: Implement automatic splitting via LLM`); `run_category_refinement`, `run_modality_refinement`, and `run_deduplication` are the same pattern — detect, log, no action taken. Wiring up the call site and replacing the stubs with real LLM-driven logic is open work, not yet done.
 
 ---
 
@@ -296,52 +355,90 @@ Continuous self-reflection answering questions like:
 
 ```
 ozone-studio/
-├── src/                  # Core library
-│   ├── orchestrator/     # Task orchestration
-│   ├── pipeline/         # Pipeline execution
+├── src/                  # Core library (the host binary)
+│   ├── orchestrator/     # Task orchestration (14-stage pipeline, AMT building)
+│   ├── pipeline/         # Pipeline execution (registry, dispatch, remote agents)
 │   ├── zsei/             # Knowledge fabric
 │   │   ├── storage.rs
 │   │   ├── traversal.rs
 │   │   ├── hooks.rs      # Semantic hooks
-│   │   └── bootstrap.rs  # ZSEI initialization
+│   │   └── query.rs      # ZSEIQuery processor
 │   └── types/
-├── pipelines/
-│   ├── general/          # Core pipelines (1-39)
-│   ├── consciousness/    # Meta pipelines (40-49)
-│   └── modalities/       # Data type pipelines (100-199)
+├── assets/
+│   ├── pipelines/        # Each pipeline is its OWN independent crate/workspace
+│   │   ├── general/      # Core pipelines (1-39, 50+)
+│   │   ├── consciousness/ # Meta pipelines (40-49)
+│   │   └── modalities/   # Data type pipelines (100-126, 27 total)
+│   ├── methodologies/
+│   └── blueprints/
 ├── ui/                   # Electron UI
-├── zsei_data/            # Runtime storage
-│   ├── local/
-│   │   ├── blueprints/
-│   │   └── methodologies/
-│   └── indices/
+├── zsei_data/            # Runtime storage (self-healing — regenerated on boot if missing)
+│   ├── local/            # ZSEI local state
+│   ├── pipelines/index.json
+│   ├── methodologies/index.json
+│   ├── blueprints/index.json
+│   ├── graphs/           # Persisted modality graph content
+│   └── amt/              # Persisted AMT tree content
 └── docs/
-    ├── MASTER_ALIGNMENT_REPORT.md
-    ├── MODALITY_ARCHITECTURE.md
-    └── RESTRUCTURING_INSTRUCTIONS.md
+    ├── AMT.md
+    ├── bootstrap_and_evolution.md
+    ├── CONTRACTS.md
+    ├── ecosystem_architecture.md
+    ├── introduction.md
+    ├── technical_documentation.md
+    └── vision_and_philosophy.md
 ```
 
 ### Build & Run
 
 ```bash
-# Build Rust backend
+# Build the host binary
 cargo build --release
+
+# Each pipeline under assets/pipelines/ is its OWN independent crate (own
+# Cargo.toml, own [workspace] root) — the host build above does NOT build
+# them. Build the ones you need individually, e.g.:
+cargo build --release --manifest-path assets/pipelines/general/prompt/Cargo.toml
+cargo build --release --manifest-path assets/pipelines/modalities/text/Cargo.toml
+# ...repeat per pipeline. The host discovers each pipeline's compiled binary
+# at assets/pipelines/<category>/<name>/target/{release,debug}/<name>
+# (see execute_builtin in src/pipeline/executor.rs) — no separate deploy step
+# needed once built.
 
 # Build UI
 cd ui && npm install && npm run build
 
-# Launch
+# Launch (from repo root or target/release/ — the host reads config.toml
+# relative to its CWD at launch either way)
 ./target/release/ozone-studio
 ```
 
 ### Environment Variables
 
 ```bash
-export ANTHROPIC_API_KEY=your_key  # or OPENAI_API_KEY
+# Anthropic (default) or OpenAI
+export ANTHROPIC_API_KEY=your_key   # or OPENAI_API_KEY
+
+# OpenRouter — multi-model gateway, supports both a paid dynamic router
+# ("openrouter/auto") and a free-only router ("openrouter/free")
+export OPENROUTER_API_KEY=your_key
+
+# BitNet — local, free, 1-bit quantized (see config.toml's [models] section
+# for model_type="bitnet", local_model_path, bitnet_cli_path)
+export BITNET_CLI_PATH=/path/to/BitNet/build/bin/llama-cli
+
 export OZONE_ZSEI_PATH=./zsei_data
-export OZONE_MODEL_TYPE=api        # api|gguf|onnx
+export OZONE_MODEL_TYPE=api         # api|bitnet|gguf|onnx
 export OZONE_CONSCIOUSNESS_ENABLED=false
 ```
+
+**Multi-provider fallback**: `config.toml`'s `[models.fallback]` section defines an
+ordered chain of registered models (`[[models.available_models]]` entries) tried
+in sequence when the active/preferred model fails — down, rate-limited, or (as
+discovered and fixed during BitNet integration testing) a crashing local
+backend. `[models.meta_fallback]` is a separate, not-yet-wired chain reserved
+for future detached "meta work" (see Refinement Daemon above), defaulting to
+local+free-only models.
 
 ---
 
@@ -355,9 +452,11 @@ Authentication, theme loading, ZSEI operations, task management, prompt handling
 
 Decision gate, emotional state, experience memory, reflection (I-Loop), self-model, experience playback, emotional response, consciousness sync, collective consciousness, self-awareness, relationships, and more.
 
-### Modality Pipelines (9)
+### Modality Pipelines (27)
 
-Text, Code, Image, Audio, Video, Math, Chemistry, DNA, EEG — each creating traversable structural graphs enriched with semantic understanding.
+Text, Code, Image, Audio, Video, Math, Chemistry, DNA, EEG, plus 18 more added since (3D, Sound Reconstruction, Biology, Proteomics, Haptic, Thermal, Depth, IMU, Geospatial, Electromagnetic, BCI, Parametric CAD, Kinematics, Control Systems, Network Topology, Active Radar, Active Sonar, Hyperspectral — see the full table above) — each creating traversable structural graphs enriched with semantic understanding.
+
+**Total: 82 builtin pipelines** across all three categories (confirmed by a running server's own boot log). The pipeline execution gate (`PipelineRegistry`, `src/pipeline/mod.rs`) is seeded at boot from the runtime index (`zsei_data/pipelines/index.json`, self-healing — regenerated automatically if missing) merged with the compile-time table, so all 82 are dispatchable, not just the original 55.
 
 ---
 
@@ -414,10 +513,15 @@ The system recognizes that:
 
 ## Documentation
 
-- **Master Alignment Report**: `docs/MASTER_ALIGNMENT_REPORT.md`
-- **Modality Architecture**: `docs/MODALITY_ARCHITECTURE.md`
-- **Restructuring Guide**: `docs/RESTRUCTURING_INSTRUCTIONS.md`
-- **Full Specification**: `OZONE_STUDIO_SPECIFICATION.md`
+- **Master Alignment Report**: `MASTER_ALIGNMENT_REPORT.md` (repo root)
+- **Full Specification**: `OZONE_STUDIO_SPECIFICATION.md` (repo root)
+- **AMT (Abstract Meaning Tree)**: `docs/AMT.md`
+- **Bootstrap & Evolution**: `docs/bootstrap_and_evolution.md`
+- **Contracts**: `docs/CONTRACTS.md`
+- **Ecosystem Architecture**: `docs/ecosystem_architecture.md`
+- **Introduction**: `docs/introduction.md`
+- **Technical Documentation**: `docs/technical_documentation.md`
+- **Vision & Philosophy**: `docs/vision_and_philosophy.md`
 
 ---
 
@@ -1154,48 +1258,57 @@ Verification:
 ## Modality Graph Integration
 
 Modality pipelines (Text 100, Code 101, etc.) produce structural graphs with
-nodes and edges. These graphs need to be persisted as ZSEI containers.
+nodes and edges. These graphs are persisted as ZSEI containers.
 
-### Current State and Required Integration Steps
+### Current State
 
-The traversal engine, hook processor, and container storage are correctly designed.
-The gap is in wiring modality graph output into the ZSEI container hierarchy.
+**Steps 1 and 2 below are done and verified working end-to-end** (real
+create → fetch round-trips against a running server, not just code review).
+Steps 3 and 4 remain open.
 
-**Four steps to complete alignment:**
+**Step 1: Structural root containers — done.**
+All ~40 structural roots (Modality/, Consciousness spheres, External/,
+runtime-graph roots) are created through the real mmap-backed storage engine
+via a self-heal pass that runs every boot (`src/lib.rs`, using
+`BootstrapManager::structural_root_specs()`), not gated on first-run setup.
+This replaced an earlier version that wrote these roots as local JSON files
+under a path the real storage engine never read — confirmed live during
+development: those roots were unreachable via `GetContainer`, and the
+generic container-id allocator (which also had no reserved-range floor at
+the time, separately fixed — see `src/zsei/storage.rs`, allocator now starts
+at 1000) was silently handing their exact ids out to unrelated dynamically-
+created containers. `MethodologyStore`/`BlueprintStore`/`PipelineStore`'s own
+roots are self-healing too (checked by `container_type`, not just presence,
+so a corrupted root repairs itself on next boot).
 
-**Step 1: Bootstrap creates modality root containers**
-```
-On first run, bootstrap creates:
-  /Modality/Text           (ContainerType::Modality, pipeline_id: 100)
-  /Modality/Code           (ContainerType::Modality, pipeline_id: 101)
-  /Modality/Image          (ContainerType::Modality, pipeline_id: 102)
-  ... (all 27 modalities)
-  /External/Packages       (ContainerType::Category)
-  /External/URLs           (ContainerType::Category)
-Also creates IndexReference containers for existing pipeline/methodology/blueprint JSONs.
-```
+**Step 2: Modality pipelines persist their graphs as ZSEI containers — done
+for Text (100).** `create_graph()` (`assets/pipelines/modalities/text/main.rs`)
+calls ZSEI's `CreateContainer` for real (via the same `reqwest`-to-`/zsei/query`
+pattern used by `context_aggregation`), with real keywords/topics/name from
+the analysis. The container's ZSEI-assigned id becomes the graph's `graph_id`
+(previously an unrelated in-memory counter nothing could ever look back up).
+Full node/edge content is written to `<data_dir>/graphs/text_<id>.json`,
+referenced via `storage.object_store_path` — `Container` has no generic slot
+for arbitrary nested graph structure, so large content lives on disk with a
+pointer, the same convention now used for AMT trees
+(`src/orchestrator/amt.rs`, `persist_amt_container`) and for
+methodology/blueprint content created via pipelines #12/#14. The other
+modality pipelines (Code 101, Image 102, etc.) have not been updated to this
+pattern yet.
 
-**Step 2: Modality pipelines persist their graphs as ZSEI containers**
+**Step 3 (half done): `materialized_path` field exists and is populated for
+structural roots; the fast lookup by path does not exist yet.**
 ```rust
-// After text pipeline creates a TextGraph:
-for node in &text_graph.nodes {
-    let container = Container::from_text_node(node, project_id);
-    container.parent_id = text_modality_root_id;
-    zsei.store_container(container).await?;
-}
-// Create edges as Relationship entries in the parent container
-```
-Add `store_modality_graph(graph, modality_root_id)` to ZSEI API.
-
-**Step 3: Add materialized_path to Container**
-```rust
-// Optional field on LocalState::Metadata
+// Already a real field on LocalState::Metadata (src/types/container.rs),
+// set today for structural roots (e.g. "/Methodologies", "/Blueprints") by
+// their respective ensure_root functions:
 pub materialized_path: Option<String>,
-// e.g. "/Modality/Code/rust/async"
-// Enables O(log n) get_by_path lookups
 ```
+What's still open: a real `get_by_path(&str) -> Option<Container>` operation
+— there is no reverse-lookup index from path string to container id anywhere
+in `src/zsei/`; finding a container by path today would mean a linear scan.
 
-**Step 4: Trigger semantic hooks after graph persistence**
+**Step 4 (open): Trigger semantic hooks after graph persistence**
 ```rust
 // After storing modality graph containers:
 zsei_hook_processor.on_graph_created(&mut modality_graph).await?;

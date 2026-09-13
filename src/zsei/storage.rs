@@ -80,7 +80,24 @@ impl ContainerStorage {
             index: HashMap::new(),
             local_cache: HashMap::new(),
             child_ids_cache: HashMap::new(),
-            next_id: 1, // 0 is reserved for root
+            // Structural root containers use fixed low ids (see
+            // src/types/container.rs: MODALITY_ROOT_ID=1 through
+            // CROSS_MODAL_INDEX_ROOT_ID=77) that this generic allocator has
+            // no awareness of — starting at 1 meant the very first
+            // dynamically-created container (via CreateContainer, e.g. a
+            // modality graph or a methodology/blueprint created through
+            // methodology_create/blueprint_create) got id 1, silently
+            // overwriting MODALITY_ROOT_ID's real content; the next got 2
+            // (METHODOLOGY_ROOT_ID), and so on — confirmed live this
+            // session (GetContainer on ids 1 and 2 returned unrelated
+            // ModalityGraph content instead of the real structural roots).
+            // 1000 clears the entire reserved range with headroom, matching
+            // the same floor already used by index.json's next_custom_id
+            // convention, and stays below the deterministic offset ranges
+            // (pipeline_container_id: 10000+, methodology_container_id:
+            // 30000+, blueprint_container_id: 40000+, experience_container_id:
+            // 100000+) so dynamic and hash-offset ids never collide either.
+            next_id: 1000,
             write_offset: 64, // After file header
         };
         
@@ -129,7 +146,7 @@ impl ContainerStorage {
         if is_new {
             mmap[0..8].copy_from_slice(MAGIC_BYTES);
             mmap[8..12].copy_from_slice(&FILE_VERSION.to_le_bytes());
-            mmap[12..20].copy_from_slice(&1u64.to_le_bytes()); // next_id
+            mmap[12..20].copy_from_slice(&self.next_id.to_le_bytes()); // next_id (see the reserved-range comment on the field)
             mmap[20..28].copy_from_slice(&64u64.to_le_bytes()); // write_offset
             mmap.flush().map_err(|e| OzoneError::StorageError(format!("Failed to flush: {}", e)))?;
         } else {
@@ -137,8 +154,16 @@ impl ContainerStorage {
             if &mmap[0..8] != MAGIC_BYTES {
                 return Err(OzoneError::StorageError("Invalid storage file format".into()));
             }
-            // Read next_id and write_offset
-            self.next_id = u64::from_le_bytes(mmap[12..20].try_into().unwrap());
+            // Read next_id and write_offset. Clamp against the reserved-range
+            // floor: an existing file created before this fix may have
+            // already persisted a low next_id (having walked partway through
+            // ids 1-77's structural roots) — max() here stops any further
+            // corruption on this and every future load without needing to
+            // reset the store. Already-corrupted low-id containers from
+            // before this fix are a separate, one-time repair, not something
+            // this clamp can undo.
+            let stored_next_id = u64::from_le_bytes(mmap[12..20].try_into().unwrap());
+            self.next_id = stored_next_id.max(self.next_id);
             self.write_offset = u64::from_le_bytes(mmap[20..28].try_into().unwrap());
         }
         

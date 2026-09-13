@@ -225,6 +225,78 @@ impl OzoneRuntime {
             if let Err(e) = pipeline_store.register_all().await {
                 tracing::warn!("Pipeline ZSEI registration: {}", e);
             }
+
+            // Self-heal the remaining ZSEI structural root containers
+            // (Modality, Consciousness spheres, External, runtime graph
+            // roots, etc.) — bootstrap.rs used to write these as
+            // local/<id>.json files, a path the real mmap-backed
+            // ContainerStorage engine never reads, so they were always
+            // invisible to GetContainer and their ids sat unprotected until
+            // the id-allocator fix above. METHODOLOGY_ROOT_ID /
+            // BLUEPRINT_ROOT_ID / PIPELINE_ROOT_ID are skipped — the stores
+            // just above already self-heal those with real child_ids this
+            // generic pass doesn't know how to compute. ROOT_CONTAINER_ID
+            // (0) is skipped too — ContainerStorage::ensure_root already
+            // self-heals it at the storage layer on every ZSEI::new.
+            {
+                use crate::types::container::{
+                    Container, Context, GlobalState, LocalState, Metadata, Modality,
+                    BLUEPRINT_ROOT_ID, METHODOLOGY_ROOT_ID, PIPELINE_ROOT_ID, ROOT_CONTAINER_ID,
+                };
+                let mut zsei = zsei_arc.write().await;
+                for (id, name, mat_path, container_type) in
+                    crate::bootstrap::BootstrapManager::structural_root_specs()
+                {
+                    if id == ROOT_CONTAINER_ID
+                        || id == METHODOLOGY_ROOT_ID
+                        || id == BLUEPRINT_ROOT_ID
+                        || id == PIPELINE_ROOT_ID
+                    {
+                        continue;
+                    }
+                    let needs_repair = match zsei.get_container(id).await {
+                        Ok(Some(existing)) => existing.local_state.metadata.container_type != container_type,
+                        Ok(None) => true,
+                        Err(e) => {
+                            tracing::warn!("Structural root {} lookup failed: {}", id, e);
+                            false
+                        }
+                    };
+                    if !needs_repair {
+                        continue;
+                    }
+                    let root = Container {
+                        global_state: GlobalState {
+                            container_id: id,
+                            parent_id: 0,
+                            child_ids: vec![],
+                            child_count: 0,
+                            version: 1,
+                        },
+                        local_state: LocalState {
+                            metadata: Metadata {
+                                container_type,
+                                modality: Modality::Unknown,
+                                created_at: crate::bootstrap::BootstrapManager::now(),
+                                updated_at: crate::bootstrap::BootstrapManager::now(),
+                                provenance: "bootstrap".to_string(),
+                                permissions: 0,
+                                owner_id: 0,
+                                name: Some(name.to_string()),
+                                materialized_path: Some(mat_path.to_string()),
+                            },
+                            context: Context {
+                                keywords: vec![name.to_lowercase()],
+                                ..Default::default()
+                            },
+                            ..Default::default()
+                        },
+                    };
+                    if let Err(e) = zsei.store_container(root).await {
+                        tracing::warn!("Failed to self-heal structural root {} ({}): {}", id, name, e);
+                    }
+                }
+            }
         }
 
         // Wire ZSEI into ConsciousnessStore (so experiences persist to ZSEI)
@@ -440,6 +512,8 @@ impl OzoneRuntime {
             available_models: self.config.models.available_models.clone(),
             fallback_order: self.config.models.fallback.order.clone(),
             fallback_free_only: self.config.models.fallback.free_only,
+            meta_fallback_order: self.config.models.meta_fallback.order.clone(),
+            meta_fallback_free_only: self.config.models.meta_fallback.free_only,
         };
 
         let executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {

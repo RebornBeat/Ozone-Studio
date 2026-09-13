@@ -859,8 +859,32 @@ If no new branches apply, return: {{"branches": []}}"#,
         &self,
         state: &mut OrchestrationState,
     ) -> Result<AMTNode, String> {
-        let max_outer_passes = 10;
-        let convergence_threshold = 5; // passes without new insights before done
+        // Previously hardcoded (10 / 5), completely disconnected from the
+        // K-ALGORITHM convergence preset system (config.toml's
+        // [k_algorithms] convergence_preset) — every real orchestration
+        // this session used THIS path (Mode: ChunkZeroShot in every log),
+        // never the sibling build_amt_from_graphs builder that already
+        // respects the configurable preset, so the pass cap was never
+        // actually under user control despite that system existing. Now
+        // reads the same live preset both builders should agree on.
+        let max_outer_passes = crate::k_registry::KAlgorithms::global()
+            .convergence
+            .read()
+            .expect("K-ALGORITHM convergence lock poisoned")
+            .default_preset()
+            .max_passes;
+        // Tied to the same value rather than a separate hardcoded 5: with the
+        // old pair (10 / 5), this early-exit heuristic was what actually
+        // terminated every real run this session (~6 passes observed, well
+        // under the unreachable hardcoded ceiling of 10). Left at a fixed 5
+        // while max_outer_passes became configurable, a "fast" preset
+        // (max_passes=2) would make this heuristic permanently dead code
+        // (can't accumulate 5 no-new passes in a 2-pass run) while a
+        // lower-than-5 custom preset would silently win over the user's
+        // explicit ceiling. Matching it to max_outer_passes makes the
+        // configured ceiling the sole effective governor, consistent with
+        // how the sibling build_amt_from_graphs convergence check works.
+        let convergence_threshold = max_outer_passes;
         let mut consecutive_no_new = 0u32;
         let mut node_id_counter = 1u64;
 

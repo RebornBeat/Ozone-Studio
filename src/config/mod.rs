@@ -445,6 +445,23 @@ pub struct ModelConfig {
     /// backend. Empty means today's single-backend behavior (no fallback).
     #[serde(default)]
     pub fallback: ModelFallbackConfig,
+
+    /// Fallback chain for "meta work" — drafting reusable methodologies and
+    /// blueprints (the knowledge-base layer, not answering the user's
+    /// immediate request) — kept separate from `fallback` above because meta
+    /// work doesn't need to match whatever model the user picked for
+    /// conversation; it can always run on the cheapest/most available
+    /// option. Defaults to local+free only (never a paid API), per explicit
+    /// preference: BitNet (local) first, then OpenRouter's free router.
+    #[serde(default = "default_meta_fallback")]
+    pub meta_fallback: ModelFallbackConfig,
+}
+
+fn default_meta_fallback() -> ModelFallbackConfig {
+    ModelFallbackConfig {
+        order: vec!["bitnet-i2_s".to_string(), "openrouter/free".to_string()],
+        free_only: true,
+    }
 }
 
 /// Ordered fallback chain across registered models/providers (company then
@@ -535,6 +552,7 @@ impl Default for ModelConfig {
             wire_protocol: None,
             bitnet_cli_path: None,
             fallback: ModelFallbackConfig::default(),
+            meta_fallback: default_meta_fallback(),
         }
     }
 }

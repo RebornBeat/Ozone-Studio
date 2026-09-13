@@ -282,6 +282,18 @@ Return JSON:
             "system_context": "Generate execution blueprints. Respond with JSON only."
         });
 
+        // NOTE: blueprint drafting is NOT detached "meta work" — it runs on
+        // every request as Stage 6 of execute_stages, and its output (which
+        // pipelines/steps run, in what order, with what model overrides) is
+        // exactly what answers THIS request. Routing it through
+        // try_meta_fallback_chain (as an earlier version of this code did)
+        // silently forced every request onto local+free-only models
+        // regardless of what the user actually selected for conversation —
+        // confirmed as a real misclassification, reverted. The meta_fallback
+        // config/try_meta_fallback_chain machinery stays in place (unused
+        // for now) for whenever a genuine DETACHED meta job exists — see
+        // TaskManager::start_refinement_daemon, real code but never started
+        // anywhere in this codebase.
         let bp_result = match self.metered_execute(state, 9, bp_input.clone()).await {
             Ok(v) => v,
             Err(e) => self.try_fallback_chain(state, 9, bp_input, e).await?,

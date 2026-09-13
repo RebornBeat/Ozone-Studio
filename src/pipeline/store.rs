@@ -124,8 +124,24 @@ impl PipelineStore {
             ContainerType::PipelineRoot,
         )];
         for (id, name, path, ct) in roots {
-            if zsei.get_container(id).await?.is_some() {
-                continue;
+            // Check the container is actually the right TYPE, not just
+            // present — ZSEIStorage's generic dynamic-container allocator
+            // previously had no floor and could hand out this exact low id
+            // to an unrelated container (confirmed live for
+            // METHODOLOGY_ROOT_ID/BLUEPRINT_ROOT_ID; PIPELINE_ROOT_ID is the
+            // same vulnerability). Now fixed at the allocator level
+            // (src/zsei/storage.rs), but self-heal here too in case this
+            // ever recurs from another path.
+            if let Some(existing) = zsei.get_container(id).await? {
+                if existing.local_state.metadata.container_type == ct {
+                    continue;
+                }
+                tracing::warn!(
+                    "Root container {} holds a {:?} container instead of {:?} — repairing",
+                    id,
+                    existing.local_state.metadata.container_type,
+                    ct
+                );
             }
             let root = Container {
                 global_state: GlobalState {

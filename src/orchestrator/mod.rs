@@ -141,6 +141,15 @@ pub struct OrchestrationRequest {
     pub fallback_order: Vec<String>,
     #[serde(default)]
     pub fallback_free_only: bool,
+    /// Separate fallback chain for "meta work" (drafting reusable
+    /// methodologies/blueprints — see stage_3_blueprint_assignment) —
+    /// populated server-side from OzoneConfig.models.meta_fallback, defaults
+    /// to local+free only regardless of what the user picked for
+    /// conversation.
+    #[serde(default)]
+    pub meta_fallback_order: Vec<String>,
+    #[serde(default)]
+    pub meta_fallback_free_only: bool,
 }
 
 /// Voice input attached to a request by non-UI callers.
@@ -1893,21 +1902,52 @@ impl PromptOrchestrator {
     /// entries when free_only is set — via metered_execute, stopping at the
     /// first success. Callers pass the error from their own primary attempt
     /// as `last_error`; if every candidate also fails, that error (or the
-    /// last candidate's) is returned. Shared by stage_3_blueprint_assignment,
-    /// stage_4_zero_shot_simulation, and execute_step — the three places
-    /// that call pipeline 9 — so a down/rate-limited/crashing default
+    /// last candidate's) is returned. Used by stage_4_zero_shot_simulation
+    /// and execute_step — the two places that answer the user's actual
+    /// request via pipeline 9 — so a down/rate-limited/crashing default
     /// backend (e.g. BitNet segfaulting on longer prompts) doesn't sink the
     /// whole run when an alternative provider is configured.
     async fn try_fallback_chain(
         &self,
         state: &mut OrchestrationState,
         pipeline_id: u64,
-        mut input: serde_json::Value,
+        input: serde_json::Value,
         last_error: String,
     ) -> Result<serde_json::Value, String> {
-        let candidates: Vec<crate::config::AvailableModel> = state
-            .request
-            .fallback_order
+        let order = state.request.fallback_order.clone();
+        let free_only = state.request.fallback_free_only;
+        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only)
+            .await
+    }
+
+    /// Same as `try_fallback_chain`, but walks the separate "meta work"
+    /// chain (config.toml's [models.meta_fallback]) — used for drafting
+    /// reusable methodologies/blueprints (stage_3_blueprint_assignment),
+    /// which doesn't need to match whatever model the user picked for
+    /// conversation and defaults to local+free only.
+    async fn try_meta_fallback_chain(
+        &self,
+        state: &mut OrchestrationState,
+        pipeline_id: u64,
+        input: serde_json::Value,
+        last_error: String,
+    ) -> Result<serde_json::Value, String> {
+        let order = state.request.meta_fallback_order.clone();
+        let free_only = state.request.meta_fallback_free_only;
+        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only)
+            .await
+    }
+
+    async fn walk_fallback_chain(
+        &self,
+        state: &mut OrchestrationState,
+        pipeline_id: u64,
+        mut input: serde_json::Value,
+        last_error: String,
+        order: &[String],
+        free_only: bool,
+    ) -> Result<serde_json::Value, String> {
+        let candidates: Vec<crate::config::AvailableModel> = order
             .iter()
             .filter_map(|id| {
                 state
@@ -1917,7 +1957,7 @@ impl PromptOrchestrator {
                     .find(|m| &m.identifier == id)
                     .cloned()
             })
-            .filter(|m| !state.request.fallback_free_only || m.is_free)
+            .filter(|m| !free_only || m.is_free)
             .collect();
 
         let mut result: Result<serde_json::Value, String> = Err(last_error);
@@ -2602,6 +2642,8 @@ mod tests {
             available_models: Vec::new(),
             fallback_order: Vec::new(),
             fallback_free_only: false,
+            meta_fallback_order: Vec::new(),
+            meta_fallback_free_only: false,
         };
 
         let response = orchestrator.orchestrate(request).await;

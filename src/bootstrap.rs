@@ -147,8 +147,21 @@ impl BootstrapManager {
         // 5. Copy blueprint index and built-in blueprints
         self.copy_blueprints()?;
 
-        // 6. Initialize root containers in ZSEI
-        self.create_zsei_root_containers()?;
+        // 6. ZSEI structural root containers are NOT created here anymore —
+        // this used to write them as local/<id>.json files (see the removed
+        // create_zsei_root_containers), a path the real mmap-backed
+        // ContainerStorage engine never reads (ContainerStorage::load()
+        // requires a matching entry in the mmap-derived `index`, which
+        // load_local_cache's local-JSON scan never populates). Confirmed
+        // live this session: GetContainer on these ids always returned None
+        // before the (now-fixed) id-allocator started handing their ids out
+        // to unrelated dynamically-created containers instead. ZSEI doesn't
+        // exist yet at this point in boot anyway (constructed after
+        // bootstrap::run() — see AppRuntime::new in lib.rs), so real
+        // persistence has to happen after ZSEI is up: see the structural
+        // root self-heal in lib.rs, which runs every boot (not gated on
+        // setup_complete) using BootstrapManager::structural_root_specs()
+        // below for the id/name/path/type data this function used to write.
 
         tracing::info!("Bootstrap complete!");
         Ok(())
@@ -304,13 +317,19 @@ impl BootstrapManager {
         Ok(())
     }
 
-    /// Create all structural root containers in ZSEI local storage.
-    ///
-    /// Each container is written as a JSON file to `local/<id>.json`.
-    /// Existing files are never overwritten (idempotent).
-    fn create_zsei_root_containers(&self) -> OzoneResult<()> {
-        // (id, name, materialized_path, ContainerType)
-        let containers: &[(u64, &str, &str, ContainerType)] = &[
+    /// The full set of ZSEI structural root containers this system expects
+    /// to exist: (id, name, materialized_path, ContainerType). Pure data —
+    /// no side effects. Consumed by the real self-heal in
+    /// AppRuntime::new (src/lib.rs), which persists these through
+    /// ZSEI::store_container (the real mmap-backed path) on every boot.
+    /// METHODOLOGY_ROOT_ID / BLUEPRINT_ROOT_ID / PIPELINE_ROOT_ID are
+    /// included here for completeness but are actually self-healed by their
+    /// own dedicated stores (MethodologyStore::ensure_root,
+    /// BlueprintStore::ensure_root, PipelineStore::ensure_roots) — the
+    /// lib.rs consumer skips them to avoid clobbering the richer state
+    /// (real child_ids) those stores maintain.
+    pub(crate) fn structural_root_specs() -> Vec<(u64, &'static str, &'static str, ContainerType)> {
+        vec![
             // System roots
             (ROOT_CONTAINER_ID, "Root", "/", ContainerType::Root),
             (
@@ -600,69 +619,7 @@ impl BootstrapManager {
                 "/CrossModalIndex",
                 ContainerType::CrossModalIndexRoot,
             ),
-        ];
-
-        for &(id, name, mat_path, container_type) in containers {
-            let file_path = self.data_dir.join("local").join(format!("{}.json", id));
-            if file_path.exists() {
-                continue; // idempotent — never overwrite
-            }
-
-            let container_json = serde_json::json!({
-                "metadata": {
-                    "container_type": format!("{:?}", container_type),
-                    "modality": "Unknown",
-                    "name": name,
-                    "materialized_path": mat_path,
-                    "created_at": Self::now(),
-                    "updated_at": Self::now(),
-                    "provenance": "bootstrap",
-                    "permissions": 0,
-                    "owner_id": 0
-                },
-                "context": {
-                    "categories": [],
-                    "methodologies": [],
-                    "keywords": [name.to_lowercase()],
-                    "topics": [],
-                    "relationships": [],
-                    "learned_associations": [],
-                    "embedding": null
-                },
-                "storage": {
-                    "db_shard_id": null,
-                    "vector_index_ref": null,
-                    "object_store_path": null,
-                    "compression_type": "None"
-                },
-                "hints": {
-                    "access_frequency": 0,
-                    "hotness_score": 0.0,
-                    "last_accessed": 0,
-                    "centroid": null,
-                    "ml_prediction_weight": 0.0
-                },
-                "integrity": {
-                    "content_hash": vec![0u8; 32],
-                    "semantic_fingerprint": [],
-                    "last_verified": Self::now(),
-                    "integrity_score": 1.0,
-                    "version_history": []
-                }
-            });
-
-            let content = serde_json::to_string_pretty(&container_json)
-                .map_err(|e| OzoneError::StorageError(e.to_string()))?;
-            fs::write(&file_path, content).map_err(|e| {
-                OzoneError::StorageError(format!(
-                    "Failed to write root container {} ({}): {}",
-                    id, name, e
-                ))
-            })?;
-        }
-
-        tracing::info!("Created ZSEI structural root containers");
-        Ok(())
+        ]
     }
 
     // ── Default index generators (used when assets dir is absent) ──────────
@@ -700,7 +657,7 @@ impl BootstrapManager {
         Ok(())
     }
 
-    fn now() -> u64 {
+    pub(crate) fn now() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()

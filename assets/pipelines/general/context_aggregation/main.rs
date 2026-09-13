@@ -512,7 +512,21 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
     for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); } }
-    let input: ContextAggInput = serde_json::from_str(&input_json).unwrap_or_else(|e| { eprintln!("Parse error: {}", e); std::process::exit(1); });
+    // The host passes the full PipelineInput envelope {data, context} — every
+    // real invocation from the orchestrator is wrapped this way (see
+    // RegistryExecutorAdapter::execute / invoke_pipeline). Unwrap `data` when
+    // present; a bare ContextAggInput (direct CLI use) also still works. This
+    // was previously missing here (unlike pipeline 9's and pipeline 100's
+    // main()), so every real orchestrator call failed with "missing field
+    // `action`" — the tag `main.rs` needs was nested one level under `data`,
+    // not at the top level of the envelope this parsed directly.
+    let parsed_value: serde_json::Value = serde_json::from_str(&input_json)
+        .unwrap_or_else(|e| { eprintln!("Parse error: {}", e); std::process::exit(1); });
+    let data_json = match parsed_value.get("data") {
+        Some(d) => serde_json::to_string(d).unwrap_or_else(|_| input_json.clone()),
+        None => input_json.clone(),
+    };
+    let input: ContextAggInput = serde_json::from_str(&data_json).unwrap_or_else(|e| { eprintln!("Parse error: {}", e); std::process::exit(1); });
     let rt = tokio::runtime::Runtime::new().unwrap();
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
