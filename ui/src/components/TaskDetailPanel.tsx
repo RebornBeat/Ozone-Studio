@@ -22,12 +22,23 @@ interface TaskStep {
   model_used?: string | null;
 }
 
+interface ThinkingEntry {
+  stage: string;
+  raw_response: string;
+  tokens_used?: number;
+  model_used?: string;
+  eval_tokens_per_sec?: number;
+  prompt_eval_tokens_per_sec?: number;
+  load_time_ms?: number;
+}
+
 interface TaskInfo {
   task_id: number;
   status: string;
   progress: number;
   error?: string | null;
   steps: TaskStep[];
+  thinking_log?: ThinkingEntry[];
 }
 
 async function fetchTask(taskId: number): Promise<TaskInfo | null> {
@@ -54,6 +65,7 @@ export const TaskDetailPanel: React.FC = () => {
   const [rerunModel, setRerunModel] = useState("");
   const [carryForward, setCarryForward] = useState(true);
   const [rerunning, setRerunning] = useState(false);
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
 
   const activeTaskId = taskIdInput ? Number(taskIdInput) : lastTaskId;
 
@@ -282,6 +294,62 @@ export const TaskDetailPanel: React.FC = () => {
                 })}
               </tbody>
             </table>
+          )}
+
+          {(task.thinking_log ?? []).length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <div className="ostat-label" style={{ marginBottom: 8 }}>
+                Thinking cycle ({task.thinking_log!.length} calls)
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {task.thinking_log!.map((t, i) => {
+                  const expanded = expandedThinking.has(i);
+                  return (
+                    <div
+                      key={i}
+                      style={{
+                        border: "1px solid #223046",
+                        borderRadius: 8,
+                        padding: "8px 10px",
+                        fontSize: 12,
+                      }}
+                    >
+                      <div
+                        onClick={() => {
+                          setExpandedThinking((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(i)) next.delete(i);
+                            else next.add(i);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: 8,
+                          cursor: "pointer",
+                          opacity: 0.8,
+                        }}
+                      >
+                        <span>{expanded ? "▾" : "▸"} {t.stage}</span>
+                        <span style={{ opacity: 0.6 }}>
+                          {t.model_used ? `${t.model_used} · ` : ""}
+                          {t.tokens_used != null ? `${t.tokens_used} tok` : ""}
+                          {t.eval_tokens_per_sec != null
+                            ? ` · ${t.eval_tokens_per_sec.toFixed(1)} tok/s`
+                            : ""}
+                        </span>
+                      </div>
+                      {expanded && (
+                        <div style={{ whiteSpace: "pre-wrap", marginTop: 6, opacity: 0.85 }}>
+                          {t.raw_response}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           )}
         </>
       )}

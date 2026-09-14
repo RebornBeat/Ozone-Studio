@@ -156,6 +156,15 @@ all three categories):
 | **Active Sonar (125)** | Echo, bathymetry, bioacoustics |
 | **Hyperspectral (126)** | Material and chemical mapping |
 
+**Real build status**: registration in the index above is not the same as a
+compiled, working binary. As of this writing, **Text (100)** and **Code
+(101)** are the two confirmed built and working end-to-end — Code was
+previously unbuilt (a real stdin-vs-CLI-arg parsing bug meant it had never
+successfully run once) and now does genuine AST-level parsing (functions,
+classes, imports) plus real ZSEI persistence of the resulting graph,
+verified live against a real multi-file project. The other 25 modality
+pipelines remain source-only until built and exercised the same way.
+
 ### Pipeline Dispatch Mechanics
 
 Each pipeline is an **independent crate** (`assets/pipelines/<category>/<name>/`,
@@ -281,6 +290,65 @@ Continuous system improvement through a background "meta loop," designed to:
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+**Real status, split across two separate systems**:
+
+- `TaskManager::start_refinement_daemon` (`src/task/mod.rs`) is the original
+  design above — real code, but it has no caller anywhere, so it has never
+  run, and 3 of its 4 sub-tasks (`run_category_refinement`,
+  `run_modality_refinement`, `run_deduplication`) are still stubs (they log
+  intent, e.g. "consider splitting," but don't act). `run_methodology_
+  refinement` only ever checked principle *count*, never real content.
+
+- A **separate, genuinely running methodology meta-loop**
+  (`src/orchestrator/meta_loop.rs`) now exists and is actually started at
+  boot (`lib.rs::start()`), reusing the same `RefinementConfig` (enabled/
+  interval_secs) rather than inventing a second schedule. It does real work:
+  when a live request's keyword signal matches zero methodologies (a "gap"),
+  it's recorded (`zsei_data/methodology_gaps.json`); on each interval, the
+  daemon re-checks each unresolved gap against the current methodology store
+  (this doubles as duplicate-detection — if something now covers it, the gap
+  is marked handled and skipped), and for a genuine remaining gap, makes one
+  real LLM call asking for an actual methodology draft (principles/
+  heuristics/decision_rules), rejecting the draft outright if it comes back
+  as an empty shell (no real rules), and persists a real one via the
+  `methodology_create` pipeline (12). Its own governance is captured in a
+  real, persisted, self-referential methodology ("Methodology Hygiene") —
+  check-before-create, no empty shells, and a preference for extending an
+  existing methodology over duplicating one.
+
+  This closes a real, previously total gap: **every one of the 15
+  bootstrap-seeded methodologies shipped with a name, keywords, and a
+  content-file reference that pointed at a file which had never actually
+  been written** — `principles`/`heuristics`/`decision_rules` were empty
+  everywhere, so branch discovery and blueprint generation had nothing
+  concrete to draw from regardless of which methodology matched. Real
+  content now exists for 3 of the 15 (`assets/methodologies/method_{3,4,5}_
+  *.json` — Clean Code Principles, Code Review Best Practices, Security
+  Awareness), shipped the same way every other bootstrap asset is: copied
+  into each instance's own data directory at boot by the existing
+  `copy_methodologies()` step (`src/bootstrap.rs`), so a fresh instance gets
+  this content automatically rather than needing it hand-placed. A new
+  `PromptOrchestrator::load_methodology_rules_text` helper reads a
+  methodology's real content off disk (via the same `object_store_path`
+  convention modality graphs already use) and both `enrich_with_zsei_
+  knowledge` (branch discovery) and `stage_3_blueprint_assignment`
+  (blueprint generation) now inject real "IF condition THEN action" rule
+  text into their prompts instead of bare numeric methodology IDs.
+
+  Relatedly, methodology *matching* itself was root-caused and fixed rather
+  than just capped: `find_methodologies_by_keywords` (`src/zsei/query.rs`)
+  previously matched on any single incidental keyword overlap, so a handful
+  of broadly-keyworded methodologies ("Clean Code Principles" etc.) matched
+  almost any code-related request — confirmed live, this drove a real AMT to
+  38 branches for a trivial 3-file project, none of them grounded in the
+  actual request. Fixed to require genuine overlap (more than one shared
+  keyword, or a single genuinely specific match), sorted by relevance. There
+  is deliberately **no artificial count cap** anywhere in this path (not on
+  methodologies matched, not on branches per intent) — a request that
+  genuinely touches many real concerns should surface exactly as many real
+  methodologies and branches as it needs; the fix is precision in matching,
+  not a ceiling on the result.
+
 **Principle:** Always deconstructing for reconstruction — provides more space for cross-modality insight and accurate construction.
 
 **Current implementation status:** `TaskManager::start_refinement_daemon()` (`src/task/mod.rs`) is real, working `tokio::spawn` loop code, gated by `RefinementConfig` (enabled by default, 24h interval) — but it has **zero callers anywhere in the codebase**, so it has never actually run. Its four sub-tasks exist but are threshold-check stubs today: `run_methodology_refinement` detects when a methodology's principle count exceeds a configured max and logs a suggestion (`// TODO: Implement automatic splitting via LLM`); `run_category_refinement`, `run_modality_refinement`, and `run_deduplication` are the same pattern — detect, log, no action taken. Wiring up the call site and replacing the stubs with real LLM-driven logic is open work, not yet done.
@@ -340,6 +408,41 @@ Continuous self-reflection answering questions like:
 - "Am I competent?"
 - "Am I aligned with my values?"
 - "Who am I becoming?"
+
+---
+
+## Jurisdiction-Aware Guardrails
+
+A **separate, always-on base safety layer** — deliberately not part of the
+Consciousness Extension above, because it must run whether or not
+consciousness is enabled. `stage_jurisdiction_gate` (`src/orchestrator/
+jurisdiction.rs`) runs unconditionally as its own stage, immediately after
+Input Capture, on every single orchestration request.
+
+**What's real today**: the mechanism only — a jurisdiction model (Global →
+national → local/state, keyed by a per-instance `instance_region` config
+value), a `JurisdictionRule` schema (`condition`/`action`/`scope`/`source`),
+real ZSEI persistence for rule sets (`ContainerType::JurisdictionRuleSet`,
+same `object_store_path` content-file convention as methodologies), and a
+gate that queries for and would enforce matching rules if any existed. The
+gate reports what it did on every request (`rules_loaded`, `matched`,
+`blocked`) even when the answer is zero/zero/false, rather than silently
+no-op'ing.
+
+**What's deliberately NOT here**: any actual legal content. No specific law,
+regulation, or jurisdiction's real rules are written anywhere in this
+codebase — not as code, not as config, not as a seeded data file. This is
+intentional: an LLM's best guess at what a statute says is not verified
+legal compliance, and presenting a fabricated ruleset as if it were real
+guardrails would be actively worse than having none, especially for
+contexts involving minors or other vulnerable users. **Making an instance
+actually compliant with anything requires a human to source real content
+from an authoritative, maintained legal reference and load it** as a real
+`JurisdictionRuleSet` container (`CreateContainer` via `/zsei/query`, with
+`keywords` including `"global"` and/or a region like `"us-ca"`, and its
+`object_store_path` file containing a real, sourced `JurisdictionRule[]`
+array) — the setup wizard's "Set instance location" step only records which
+region to look up later; it does not add any rules by itself.
 
 ---
 
@@ -472,6 +575,8 @@ Text, Code, Image, Audio, Video, Math, Chemistry, DNA, EEG, plus 18 more added s
 | Blueprint Search First | Reduce redundancy |
 | Methodologies with Modalities | Domain + data type specificity |
 | Zero-Shot Always Confirms | Accuracy over speed |
+| Every AMT branch gets a real step | Confirmed live: without deterministic reconciliation in `stage_3_blueprint_assignment`, a genuinely multi-intent request could collapse into one LLM-authored step, silently dropping the rest of the request with no error. Fixed by fuzzy-matching each generated step to its branch and synthesizing a step for any branch nothing addresses — no extra LLM round-trip, so it can't itself under-generate. |
+| Attached files carry real content, not just metadata | Confirmed live: file graphs were being created and classified, but only path/modality/role metadata ever reached a step's prompt — a model asked to review attached code correctly reported no code was included. Fixed by reading real file bytes off disk (`prompt_normalization`'s Step 0) and injecting them directly into `execute_step`'s context. |
 
 ---
 

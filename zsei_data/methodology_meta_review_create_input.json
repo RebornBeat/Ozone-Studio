@@ -1,0 +1,47 @@
+{
+  "data": {
+    "action": "Create",
+    "name": "Methodology Hygiene",
+    "description": "Governs how new methodologies get created and how existing ones are reviewed, so the methodology store stays a real, non-duplicated, actionable knowledge base rather than a pile of near-identical or empty-shell entries.",
+    "category_id": 0,
+    "keywords": ["methodology", "meta", "review", "hygiene", "duplication", "gap"],
+    "topics": ["methodology maintenance", "meta review"],
+    "principles": [
+      {
+        "name": "One real concern, one methodology",
+        "description": "A methodology should cover one coherent, specific concern well rather than being either a vague catch-all or an unnecessary duplicate of an existing one.",
+        "priority": 1
+      },
+      {
+        "name": "No shells",
+        "description": "A methodology with keywords and a name but no real decision_rules or heuristics is not usable — it must not be persisted as if it were.",
+        "priority": 1
+      }
+    ],
+    "heuristics": [
+      {
+        "condition": "A newly proposed methodology's keyword set overlaps more than half with an existing methodology's keyword set",
+        "action": "Prefer extending the existing methodology (add_heuristics/add_principles via Update) over creating a new, duplicate one",
+        "confidence": 0.8
+      }
+    ],
+    "decision_rules": [
+      {
+        "name": "reject-empty-shell",
+        "condition": "A methodology draft has zero decision_rules and zero heuristics",
+        "outcome": "Do not persist it — either add at least one real, concrete decision_rule/heuristic or discard the draft entirely"
+      },
+      {
+        "name": "check-before-create",
+        "condition": "Before creating a new methodology for a keyword set",
+        "outcome": "Search existing methodologies by the same keywords first (relevance-filtered, not any-overlap) and only proceed if nothing genuinely covers it already"
+      },
+      {
+        "name": "actionable-rule-required",
+        "condition": "A decision_rule's condition or action is vague or restates the methodology's own keywords rather than describing a concrete, checkable situation and a concrete response",
+        "outcome": "Rewrite it as a specific 'if X then do Y' before persisting, or drop it"
+      }
+    ]
+  },
+  "context": {}
+}

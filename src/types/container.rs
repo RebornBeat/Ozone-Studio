@@ -503,6 +503,13 @@ pub enum ContainerType {
     CrossModalIndexRoot = 242, // /CrossModalIndex/ — cross-modal link registry
     ChunkGraph = 243,          // individual chunk graph container
     FileGraph = 244,           // individual file graph container
+
+    // ── Jurisdiction-aware guardrails ────────────────────────────────────────
+    // Deliberately empty of real legal content — see JurisdictionRule's own
+    // doc comment. This is the mechanism only; a real, sourced ruleset is a
+    // separate, non-code task.
+    JurisdictionRoot = 250,     // /Jurisdiction/ root
+    JurisdictionRuleSet = 251,  // one container per jurisdiction scope+region
 }
 
 impl ContainerType {
@@ -591,6 +598,8 @@ impl ContainerType {
             Self::CrossModalIndexRoot => "CrossModalIndexRoot",
             Self::ChunkGraph => "ChunkGraph",
             Self::FileGraph => "FileGraph",
+            Self::JurisdictionRoot => "JurisdictionRoot",
+            Self::JurisdictionRuleSet => "JurisdictionRuleSet",
         }
     }
 

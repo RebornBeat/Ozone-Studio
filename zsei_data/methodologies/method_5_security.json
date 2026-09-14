@@ -1,0 +1,47 @@
+{
+  "principles": [
+    {
+      "statement": "Untrusted input must be validated or sanitized before it influences a file path, command, or query.",
+      "rationale": "Unsanitized input is the root cause of injection and path-traversal vulnerabilities.",
+      "applicability": ["code_review", "security_audit"]
+    },
+    {
+      "statement": "Secrets (API keys, passwords, tokens) must never appear as literals in source code.",
+      "rationale": "Source code is committed to history, copied, and shared far more widely and permanently than a config value or environment variable.",
+      "applicability": ["code_review", "security_audit"]
+    },
+    {
+      "statement": "Error messages returned to an external caller should not expose internal implementation details.",
+      "rationale": "Stack traces, internal paths, and query text handed back to a caller give an attacker a map of the system's internals.",
+      "applicability": ["code_review", "security_audit"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Taint tracing",
+      "description": "Trace any value that originates from user input (request body, query params, file uploads, CLI args) forward to see where it's used — especially in paths, commands, or queries.",
+      "when_to_apply": "Reviewing any code that accepts external input.",
+      "examples": []
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "User-controlled input is used to construct a file path, shell command, or database query.",
+      "action": "Verify it is validated/escaped/parameterized before use; flag it if not, naming the specific injection or traversal risk.",
+      "priority": 2,
+      "exceptions": []
+    },
+    {
+      "condition": "A secret, API key, password, or token appears as a literal value in code.",
+      "action": "Flag it — the value must be sourced from an environment variable or a config/secrets store instead.",
+      "priority": 2,
+      "exceptions": ["A clearly-labeled placeholder/example value in documentation or tests is not a real secret."]
+    },
+    {
+      "condition": "An error response sent to an external caller includes a stack trace, internal file path, or raw query text.",
+      "action": "Flag it and recommend returning a generic message while logging the detailed error only server-side.",
+      "priority": 1,
+      "exceptions": ["Verbose errors gated strictly behind a local/debug-only mode are acceptable."]
+    }
+  ]
+}

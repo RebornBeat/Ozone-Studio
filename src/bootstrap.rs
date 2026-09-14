@@ -671,10 +671,10 @@ impl BootstrapManager {
         let mut index = json!({
             "version": 2,
             "last_updated": Self::now(),
-            "pipeline_count": 80,
+            "pipeline_count": 81,
             "categories": {
                 "general":        [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,
-                                   21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,55],
+                                   21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,55,56],
                 "consciousness":  [39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54],
                 "modalities":     [100,101,102,103,104,105,106,107,108,
                                    109,110,111,112,113,114,115,116,117,118,
@@ -729,6 +729,7 @@ impl BootstrapManager {
             json!({"pipeline_id":37,"name":"LogViewer","folder_name":"log_viewer","category":"general","modality":null,"description":"View system logs","version":"0.4.0"}),
             json!({"pipeline_id":38,"name":"DeviceStatus","folder_name":"device_status","category":"general","modality":null,"description":"Device status monitoring","version":"0.4.0"}),
             json!({"pipeline_id":55,"name":"ContextViewer","folder_name":"context_viewer","category":"general","modality":null,"description":"Context Viewer — graph state surfaces, injected by TaskManager","version":"0.4.0","has_ui":true,"is_tab":false}),
+            json!({"pipeline_id":56,"name":"WebSearch","folder_name":"web_search","category":"general","modality":null,"description":"Real web search (configurable provider, disabled by default) and current date/time","version":"0.4.0"}),
         ];
         for p in general {
             pipelines.push(p);

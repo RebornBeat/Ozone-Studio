@@ -138,8 +138,20 @@ async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResul
         }
     });
 
+    // project_id, when nonzero, is used as the real parent — previously
+    // hardcoded to 0 (root) unconditionally, discarding it entirely
+    // regardless of what was passed in. ContainerType::Project/Workspace
+    // (types/container.rs) and the GetProjectContext/GetProjects query
+    // handlers (zsei/query.rs) are real and already query the actual
+    // storage engine — the missing piece was purely that nothing here ever
+    // used a given project_id as a parent. create_container degrades
+    // gracefully (query.rs:163-183) if project_id doesn't correspond to a
+    // real container: the new container still stores fine, it just isn't
+    // linked into any parent's child_ids — so this is safe even when a
+    // caller passes a project_id that doesn't (yet) exist. project_id: 0
+    // keeps today's exact root-parented default.
     let result = zsei_query(serde_json::json!({
-        "CreateContainer": { "parent_id": 0, "container": container }
+        "CreateContainer": { "parent_id": project_id, "container": container }
     }))
     .await?;
 
@@ -160,8 +172,6 @@ async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResul
     if let Ok(json) = serde_json::to_string_pretty(graph) {
         let _ = std::fs::write(&graph_path, json);
     }
-
-    let _ = project_id; // not yet linked to a Project container — see report
 
     Ok(container_id)
 }

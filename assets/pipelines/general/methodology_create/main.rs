@@ -188,13 +188,55 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             topics,
             task_id,
         } => {
+            // Stored in the canonical shape src/types/methodology.rs's
+            // Principle/Heuristic/DecisionRule use (and that
+            // PromptOrchestrator::load_methodology_rules_text, added this
+            // session, actually reads back) rather than a raw dump of this
+            // action's own PrincipleInput/HeuristicInput/DecisionRuleInput
+            // DTOs. Those DTOs use different field names for the same
+            // concepts (HeuristicInput{condition,action,confidence} vs
+            // Heuristic{when_to_apply,description,...};
+            // DecisionRuleInput{name,condition,outcome} vs
+            // DecisionRule{condition,action,...}) — dumping them directly
+            // was a real, silent bug: every heuristic and decision_rule
+            // created through this action would have been invisible to the
+            // reader (field names never matched, so every value read back
+            // as empty and got filtered out). No information is lost or
+            // invented here, only relabeled into the one shape the rest of
+            // the system actually reads.
+            let canonical_principles: Vec<serde_json::Value> = principles
+                .iter()
+                .map(|p| serde_json::json!({
+                    "statement": p.name,
+                    "rationale": p.description,
+                    "applicability": Vec::<String>::new(),
+                }))
+                .collect();
+            let canonical_heuristics: Vec<serde_json::Value> = heuristics
+                .iter()
+                .map(|h| serde_json::json!({
+                    "name": h.condition,
+                    "when_to_apply": h.condition,
+                    "description": h.action,
+                    "examples": Vec::<String>::new(),
+                }))
+                .collect();
+            let canonical_decision_rules: Vec<serde_json::Value> = decision_rules
+                .iter()
+                .map(|d| serde_json::json!({
+                    "condition": d.condition,
+                    "action": d.outcome,
+                    "priority": 5,
+                    "exceptions": Vec::<String>::new(),
+                }))
+                .collect();
             let content = serde_json::json!({
                 "name": name,
                 "description": description,
                 "category_id": category_id,
-                "principles": principles,
-                "heuristics": heuristics,
-                "decision_rules": decision_rules,
+                "principles": canonical_principles,
+                "heuristics": canonical_heuristics,
+                "decision_rules": canonical_decision_rules,
             });
             let object_store_path = write_content_file("new", &content);
             let container = build_container_json(

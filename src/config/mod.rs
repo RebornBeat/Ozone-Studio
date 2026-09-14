@@ -56,6 +56,109 @@ pub struct OzoneConfig {
     /// consumer yet, so a config knob for them would control nothing.
     #[serde(default)]
     pub k_algorithms: KAlgorithmConfig,
+
+    /// Jurisdiction-aware guardrail config. Deliberately a base safety layer,
+    /// separate from `consciousness` — the enforcement hook runs regardless
+    /// of consciousness_enabled (see stage_jurisdiction_gate). No real legal
+    /// content ships here or anywhere in this codebase; instance_region is
+    /// an opaque label an operator sets, used only to look up whatever real
+    /// JurisdictionRuleSet containers (if any) a human has actually loaded
+    /// into ZSEI for that region.
+    #[serde(default)]
+    pub jurisdiction: JurisdictionConfig,
+
+    /// Real web search (pipeline 56 — see assets/pipelines/general/
+    /// web_search). Disabled by default since it requires a real,
+    /// user-supplied API key (api_key_env) for an actual external provider —
+    /// with no key configured, the pipeline honestly reports "unavailable"
+    /// rather than fabricating results.
+    #[serde(default)]
+    pub web_search: WebSearchConfig,
+}
+
+/// See OzoneConfig::web_search's doc comment. `provider` is a label only
+/// (currently "brave" is the one real wire format the pipeline implements);
+/// `api_key_env` names the environment variable holding the real API key,
+/// mirroring ModelConfig::api_key_env's existing convention elsewhere in
+/// this file rather than inventing a new one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_web_search_provider")]
+    pub provider: String,
+    #[serde(default = "default_web_search_api_key_env")]
+    pub api_key_env: String,
+    #[serde(default = "default_web_search_endpoint")]
+    pub endpoint: String,
+}
+
+fn default_web_search_provider() -> String {
+    "brave".to_string()
+}
+fn default_web_search_api_key_env() -> String {
+    "BRAVE_SEARCH_API_KEY".to_string()
+}
+fn default_web_search_endpoint() -> String {
+    "https://api.search.brave.com/res/v1/web/search".to_string()
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            provider: default_web_search_provider(),
+            api_key_env: default_web_search_api_key_env(),
+            endpoint: default_web_search_endpoint(),
+        }
+    }
+}
+
+impl WebSearchConfig {
+    /// Same pattern as ModelConfig/VoiceConfig::to_pipeline_env — applied
+    /// once at boot via std::env::set_var (see lib.rs), inherited by every
+    /// spawned pipeline subprocess including web_search (56) itself. Does
+    /// NOT forward the actual API key value — only which env var name holds
+    /// it, so the real key only ever needs to be exported once by whoever
+    /// runs the host, same as OPENROUTER_API_KEY today.
+    pub fn to_pipeline_env(&self) -> Vec<(String, String)> {
+        vec![
+            ("OZONE_WEB_SEARCH_ENABLED".to_string(), self.enabled.to_string()),
+            ("OZONE_WEB_SEARCH_PROVIDER".to_string(), self.provider.clone()),
+            ("OZONE_WEB_SEARCH_API_KEY_ENV".to_string(), self.api_key_env.clone()),
+            ("OZONE_WEB_SEARCH_ENDPOINT".to_string(), self.endpoint.clone()),
+        ]
+    }
+}
+
+/// See OzoneConfig::jurisdiction's doc comment — mechanism only, no legal
+/// content. `instance_region` is free-form (e.g. "US-CA", "EU-DE") and
+/// intentionally not validated against any real list of jurisdictions here;
+/// it's just a lookup key into whatever real rulesets a human has loaded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JurisdictionConfig {
+    /// Master switch for the enforcement hook itself (not for any specific
+    /// rule content, which doesn't exist yet regardless of this flag).
+    #[serde(default = "default_jurisdiction_enabled")]
+    pub enabled: bool,
+    /// This instance's configured region, e.g. "US-CA". None means no
+    /// region-specific ruleset applies — only whatever is registered as
+    /// Global scope (if anything real has been loaded).
+    #[serde(default)]
+    pub instance_region: Option<String>,
+}
+
+fn default_jurisdiction_enabled() -> bool {
+    true
+}
+
+impl Default for JurisdictionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_jurisdiction_enabled(),
+            instance_region: None,
+        }
+    }
 }
 
 /// Default preset names for the K-ALGORITHM families that actually have a
@@ -103,6 +206,8 @@ impl Default for OzoneConfig {
             models: ModelConfig::default(),
             voice: VoiceConfig::default(),
             k_algorithms: KAlgorithmConfig::default(),
+            jurisdiction: JurisdictionConfig::default(),
+            web_search: WebSearchConfig::default(),
         }
     }
 }

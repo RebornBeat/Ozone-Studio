@@ -428,7 +428,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             session_context,
             token_budget,
             project_id: _,
-            priority_order: _,
+            priority_order,
             include_consciousness,
         } => {
             // Container context (store side) — real keyword search now:
@@ -437,8 +437,27 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             // project_id filter today — see the ZSEIQuery definition; this
             // searches host-wide until that's added. Flagged, not silently
             // pretended to work.)
-            let keywords: Vec<&str> = query.split_whitespace().take(12).collect();
-            let ids = search_containers_by_keywords(&keywords, None).await;
+            //
+            // priority_order carries this step's AMT-branch-derived keywords
+            // (the orchestrator's blueprint reconciliation pass extracts them
+            // from the specific branch this step addresses — see
+            // stage_3_blueprint_assignment) — previously computed and
+            // threaded through but discarded here, so every step's container
+            // search was generic (whole-prompt + step description words)
+            // regardless of which branch it targets. Given first priority so
+            // branch-specific terms survive the 12-keyword cap even when the
+            // query itself is long.
+            let mut keyword_list: Vec<&str> = priority_order.iter().map(|s| s.as_str()).collect();
+            keyword_list.truncate(12);
+            for w in query.split_whitespace() {
+                if keyword_list.len() >= 12 {
+                    break;
+                }
+                if !keyword_list.contains(&w) {
+                    keyword_list.push(w);
+                }
+            }
+            let ids = search_containers_by_keywords(&keyword_list, None).await;
             let containers = resolve_containers(&ids).await;
             let (container_text, sources, mut truncated) =
                 build_context_from_containers(&containers, token_budget);

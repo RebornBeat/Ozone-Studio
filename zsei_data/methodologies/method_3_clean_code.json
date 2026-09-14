@@ -1,0 +1,53 @@
+{
+  "principles": [
+    {
+      "statement": "Functions should do one thing and do it well.",
+      "rationale": "A function with a single responsibility is easier to name, test, and reuse; mixed responsibilities force callers to accept side effects they didn't ask for.",
+      "applicability": ["code_review", "code_creation", "refactoring"]
+    },
+    {
+      "statement": "Names should reveal intent without needing a comment to explain them.",
+      "rationale": "A reader should be able to understand what a variable or function is for from its name alone.",
+      "applicability": ["code_review", "code_creation"]
+    },
+    {
+      "statement": "Don't repeat yourself (DRY) — duplicated logic should be extracted to one place.",
+      "rationale": "Duplicated logic drifts out of sync over time; a bug fixed in one copy silently remains in the others.",
+      "applicability": ["code_review", "refactoring"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Single Responsibility Check",
+      "description": "If you can't describe what a function does in one short sentence without using 'and', it's doing too much.",
+      "when_to_apply": "Reviewing any function longer than ~15-20 lines, or any function whose name contains 'and'/'or'.",
+      "examples": ["A function named process_and_save_and_notify should likely be split into process, save, and notify."]
+    },
+    {
+      "name": "Comment Smell",
+      "description": "A comment that explains WHAT code does (rather than WHY) is a sign the code itself should be clearer.",
+      "when_to_apply": "Reviewing any inline comment.",
+      "examples": ["// increment counter above counter += 1 adds nothing; a comment explaining a non-obvious business rule is fine."]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A function has more than one clear, independent responsibility.",
+      "action": "Flag it and recommend splitting it into separate single-purpose functions.",
+      "priority": 2,
+      "exceptions": ["Trivial glue/wrapper functions that just call the split-out pieces in sequence are fine."]
+    },
+    {
+      "condition": "The same logic (not just similar-looking code, but the same rule) appears in more than one place.",
+      "action": "Recommend extracting it into a shared function, method, or module.",
+      "priority": 2,
+      "exceptions": ["Coincidental similarity between unrelated pieces of logic that happen to look alike is not duplication."]
+    },
+    {
+      "condition": "A name (variable, function, class) requires a comment to explain what it represents.",
+      "action": "Recommend renaming it to something self-explanatory instead of relying on the comment.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

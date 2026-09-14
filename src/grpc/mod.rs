@@ -139,6 +139,11 @@ pub struct TaskInfo {
     /// left empty on list_tasks to keep the list view lightweight.
     #[serde(default)]
     pub steps: Vec<crate::task::TaskStepData>,
+    /// Full "thinking cycle" for this task — see TaskData.thinking_log.
+    /// Same lightweight-list-view convention as `steps`: populated on
+    /// get_task, left empty on list_tasks.
+    #[serde(default)]
+    pub thinking_log: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -244,6 +249,14 @@ pub struct OrchestrateRequest {
     pub token_budget: Option<u32>,
     pub model_config: Option<serde_json::Value>,
     pub session_token: Option<String>,
+    /// Files attached to this prompt — confirmed missing live: AppRuntime::
+    /// orchestrate (lib.rs) already extracts an "attached_files" key from
+    /// PipelineInput.data into OrchestrationRequest.attached_files, but this
+    /// HTTP request struct had no field to receive it from a client at all,
+    /// so every attached file was silently dropped before reaching the
+    /// orchestrator regardless of what a caller sent.
+    #[serde(default)]
+    pub attached_files: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -262,6 +275,13 @@ pub struct OrchestrateResponse {
     pub model_used: Option<String>,
     pub total_tokens_used: Option<u32>,
     pub amt_summary: Option<serde_json::Value>,
+    /// Full "thinking cycle" — one entry per real LLM call made this run
+    /// (AMT-building passes, blueprint drafting, zero-shot simulation, step
+    /// execution), each carrying the FULL raw response text, not the
+    /// truncated summaries `stages_completed` carries. Lets the chat UI show
+    /// the reasoning that produced the final response, not just the answer.
+    #[serde(default)]
+    pub thinking_log: Vec<serde_json::Value>,
 }
 
 // ============================================================================
@@ -469,6 +489,7 @@ async fn get_task(
             completed_at: task.completed_at,
             error: task.error.map(|e| format!("{:?}", e)),
             steps: task.steps,
+            thinking_log: task.thinking_log,
         })),
         None => Json(None),
     }
@@ -504,6 +525,7 @@ async fn list_tasks(
                 completed_at: t.completed_at,
                 error: t.error.map(|e| format!("{:?}", e)),
                 steps: Vec::new(),
+                thinking_log: Vec::new(),
             })
             .collect(),
         total,
@@ -771,6 +793,7 @@ async fn get_config(
         Some("consciousness") => serde_json::to_value(&runtime.config.consciousness).ok(),
         Some("voice") => serde_json::to_value(&runtime.config.voice).ok(),
         Some("network") => serde_json::to_value(&runtime.config.network).ok(),
+        Some("jurisdiction") => serde_json::to_value(&runtime.config.jurisdiction).ok(),
         Some("general") => serde_json::to_value(&runtime.config.general).ok(),
         Some("auth") => serde_json::to_value(&runtime.config.auth).ok(),
         Some("integrity") => serde_json::to_value(&runtime.config.integrity).ok(),
@@ -1038,6 +1061,20 @@ async fn set_config(
             }
         }
 
+        // Jurisdiction gate config (src/orchestrator/jurisdiction.rs) — the
+        // gate itself always runs; this only controls whether it's allowed
+        // to enforce anything, and which region's ruleset it looks for.
+        // Ships with zero real rule content regardless of these values.
+        if let Some(jurisdiction) = updates.get("jurisdiction") {
+            let j = &mut runtime.config.jurisdiction;
+            if let Some(v) = jurisdiction.get("enabled").and_then(|v| v.as_bool()) {
+                j.enabled = v;
+            }
+            if let Some(v) = jurisdiction.get("instance_region").and_then(|v| v.as_str()) {
+                j.instance_region = if v.trim().is_empty() { None } else { Some(v.to_string()) };
+            }
+        }
+
         // Handle K-ALGORITHM preset updates — applies to both the persisted
         // config (survives restart) and the live global registry
         // (orchestrator/amt.rs picks it up on its very next call, no
@@ -1115,6 +1152,12 @@ async fn orchestrate(
     if let Some(ws_id) = req.workspace_id {
         data.insert("workspace_id".to_string(), serde_json::json!(ws_id));
     }
+    if !req.attached_files.is_empty() {
+        data.insert(
+            "attached_files".to_string(),
+            serde_json::Value::Array(req.attached_files.clone()),
+        );
+    }
     if let Some(model_cfg) = &req.model_config {
         // Full object under "model_config" — AppRuntime::orchestrate (lib.rs)
         // deserializes this key into OrchestrationRequest.model_config
@@ -1182,6 +1225,7 @@ async fn orchestrate(
                 model_used: result.model_used,
                 total_tokens_used: result.total_tokens_used,
                 amt_summary: result.amt_summary,
+                thinking_log: result.thinking_log,
             })
         }
         Err(e) => {
@@ -1199,6 +1243,7 @@ async fn orchestrate(
                 model_used: None,
                 total_tokens_used: None,
                 amt_summary: None,
+                thinking_log: vec![],
             })
         }
     }

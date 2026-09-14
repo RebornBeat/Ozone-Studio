@@ -426,7 +426,17 @@ impl PromptOrchestrator {
             "system_context": "File role classification. Return only valid JSON array."
         });
 
-        let result = self.metered_execute(state, 9, input).await.unwrap_or_default();
+        let result = match self.metered_execute(state, 9, input).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "File role classification LLM call failed — classified_file_graphs will be empty this run"
+                );
+                serde_json::Value::default()
+            }
+        };
+        self.record_thinking(state, "File Role Classification", &result);
         let raw = result
             .get("response")
             .and_then(|r| r.as_str())
@@ -434,28 +444,37 @@ impl PromptOrchestrator {
         let json_str = Self::extract_json_from_response(raw, '[', ']');
 
         let classifications: Vec<ClassifiedFileGraph> =
-            serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|v| {
-                    Some(ClassifiedFileGraph {
-                        file_path: v["file_path"].as_str()?.to_string(),
-                        graph_id: v["graph_id"].as_u64().or_else(|| {
-                            state
-                                .file_graphs
-                                .get(v["file_path"].as_str().unwrap_or(""))
-                                .copied()
-                        })?,
-                        modality: self.detect_file_modality(v["file_path"].as_str().unwrap_or("")),
-                        role: match v["role"].as_str().unwrap_or("raw_data") {
-                            "primary" => FileGraphRole::Primary,
-                            "supplementary" => FileGraphRole::Supplementary,
-                            _ => FileGraphRole::RawData,
-                        },
-                        reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
-                    })
+            match serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                Ok(arr) => arr,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        raw = %raw,
+                        "File role classification returned unparseable JSON — classified_file_graphs will be empty this run"
+                    );
+                    Vec::new()
+                }
+            }
+            .into_iter()
+            .filter_map(|v| {
+                Some(ClassifiedFileGraph {
+                    file_path: v["file_path"].as_str()?.to_string(),
+                    graph_id: v["graph_id"].as_u64().or_else(|| {
+                        state
+                            .file_graphs
+                            .get(v["file_path"].as_str().unwrap_or(""))
+                            .copied()
+                    })?,
+                    modality: self.detect_file_modality(v["file_path"].as_str().unwrap_or("")),
+                    role: match v["role"].as_str().unwrap_or("raw_data") {
+                        "primary" => FileGraphRole::Primary,
+                        "supplementary" => FileGraphRole::Supplementary,
+                        _ => FileGraphRole::RawData,
+                    },
+                    reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
                 })
-                .collect();
+            })
+            .collect();
 
         state.classified_file_graphs = classifications;
         Ok(())
@@ -473,16 +492,47 @@ impl PromptOrchestrator {
         processing_path: Option<ProcessingPathPref>,
         executor_model: Option<ExecutorModelKind>,
         max_chunk_tokens: Option<u32>,
+        source_file_path: Option<&str>,
     ) -> Result<serde_json::Value, String> {
+        // Each modality pipeline's Analyze variant names its content field
+        // differently — confirmed live: code modality (101) requires "code",
+        // not "text", and panicked with "missing field `code`" when it
+        // received the generic text-shaped payload every call here used
+        // unconditionally (this pipeline had never actually been exercised
+        // before). Only text (100) and code (101) are built right now —
+        // every other modality defaults to "text" as a best guess until it's
+        // built and its real Analyze contract is verified. Unrecognized
+        // extra keys (extract_entities etc., which code's Analyze doesn't
+        // declare) are silently ignored by serde, harmless either way.
+        let content_field = match pipeline_id {
+            101 => "code",
+            _ => "text",
+        };
         let mut action = serde_json::json!({
             "type": "Analyze",
-            "text": text,
             "depth": "Standard",
             "extract_entities": true,
             "extract_topics": true,
             "extract_structure": false,
             "available_modalities": available_modalities
         });
+        action[content_field] = serde_json::json!(text);
+        if pipeline_id == 101 {
+            // CodeModalityAction::Analyze's language/file_path fields are
+            // Option<String> but have no #[serde(default)] — serde still
+            // requires the key present (a JSON null deserializes to None;
+            // a missing key does not) even for Option fields lacking that
+            // attribute. Confirmed live via a second panic ("missing field
+            // `language`") right after fixing the "code" field alone.
+            // file_path is passed through for real when known — code's own
+            // detect_language checks the extension first, which is more
+            // reliable than guessing from content alone.
+            action["language"] = serde_json::Value::Null;
+            action["file_path"] = match source_file_path {
+                Some(p) => serde_json::json!(p),
+                None => serde_json::Value::Null,
+            };
+        }
         if let Some(p) = processing_path {
             action["processing_path"] = serde_json::json!(path_str(p));
         }

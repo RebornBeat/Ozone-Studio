@@ -114,7 +114,19 @@ impl PromptOrchestrator {
         }
 
         // ── Completed steps → one frame each (execution order = Sequence) ──
-        let intent_text = state
+        // Subject is THIS step's own description (a multi-branch blueprint
+        // has one step per branch — see stage_3_blueprint_assignment's
+        // reconciliation pass — so each result needs its own label).
+        // Previously every frame reused the AMT root's content as a single
+        // shared subject regardless of which step produced the output —
+        // invisible while blueprints were effectively always 1 step, but
+        // confirmed live to mislabel every step once multi-step coverage
+        // actually worked: a 2-intent request rendered as three sentences
+        // all subjected "Write a short Python function...", one of which
+        // was actually the security-checklist output. Falls back to the
+        // AMT root's content only when a step can't be found (shouldn't
+        // happen — every StepResult comes from a real blueprint step).
+        let fallback_intent_text = state
             .amt
             .as_ref()
             .map(|a| a.content.clone())
@@ -126,11 +138,17 @@ impl PromptOrchestrator {
             if output_text.trim().is_empty() {
                 continue;
             }
+            let subject = state
+                .blueprint_steps
+                .iter()
+                .find(|s| s.step_index == result.step_index)
+                .map(|s| s.description.clone())
+                .unwrap_or_else(|| fallback_intent_text.clone());
             let object: String = output_text.chars().take(220).collect();
             sentences.push(ResponseSentenceSpec {
                 granularity: "frame".to_string(),
                 frame: Some(ResponseFrame {
-                    subject: intent_text.clone(),
+                    subject,
                     verb: if first {
                         "produced".to_string()
                     } else {
@@ -288,6 +306,7 @@ Return ONLY the rendered text. No explanation. No markdown."#
                 "system_context": "Constrained surface realization. Render only what the graph contains."
             });
             if let Ok(result) = self.metered_execute(state, 9, input).await {
+                self.record_thinking(state, "Response Rendering (Tier 1)", &result);
                 if let Some(text) = result.get("response").and_then(|r| r.as_str()) {
                     let text = text.trim().to_string();
                     if !text.is_empty() && Self::validate_render_coverage(graph, &text) {

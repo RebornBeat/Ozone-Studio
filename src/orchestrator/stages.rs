@@ -10,6 +10,13 @@ impl PromptOrchestrator {
         // STAGE 1: Input Capture (already done — prompt is in request)
         self.record_stage(state, 1, "Input Capture", true, "Prompt received");
 
+        // JURISDICTION GATE: always runs, independent of consciousness_enabled
+        // — see src/orchestrator/jurisdiction.rs. A base safety layer, not
+        // part of the optional consciousness system. Ships with zero real
+        // rule content (mechanism only); see that file's own doc comment
+        // for why no legal content is fabricated here.
+        self.stage_jurisdiction_gate(state).await?;
+
         // STAGE 2: Text/Prompt Normalization (attached-file graph creation
         // runs first inside, then chunk processing — files inform the AMT).
         tracing::info!(stage = 2, "Stage 2 (Text/Prompt Normalization) starting");
@@ -191,7 +198,10 @@ impl PromptOrchestrator {
         }
 
         // No 100% match - create new blueprint
-        let amt = state.amt.as_ref().ok_or("No AMT available")?;
+        // Cloned (not borrowed) — the reconciliation pass below needs
+        // `amt.children` after several `&mut state` calls (metered_execute,
+        // record_thinking), which a borrow of state.amt can't survive.
+        let amt = state.amt.clone().ok_or("No AMT available")?;
 
         // Generate blueprint from AMT with pipeline awareness
         let available_pipelines_desc: String = state
@@ -219,11 +229,39 @@ impl PromptOrchestrator {
                 .join("\n")
         };
 
+        // Real methodology content, not bare numeric IDs — confirmed live
+        // this was a real gap: this prompt previously interpolated
+        // state.methodologies via {:?} (e.g. "[30003, 30004]"), so the model
+        // drafting the blueprint never saw what those methodologies actually
+        // require, only opaque numbers with no way to act on them. Falls
+        // back to just the name when a methodology has no real rule content
+        // file yet (most don't — see load_methodology_rules_text).
+        let methodologies_desc = if state.methodologies.is_empty() {
+            "  (none matched this request)".to_string()
+        } else {
+            let mut lines = Vec::new();
+            for &method_id in &state.methodologies {
+                if let Ok(Some(container)) = self.store.get_container(method_id).await {
+                    let name = container
+                        .get("local_state").and_then(|ls| ls.get("metadata"))
+                        .and_then(|m| m.get("name")).and_then(|n| n.as_str())
+                        .unwrap_or("Unknown");
+                    match Self::load_methodology_rules_text(&container) {
+                        Some(rules) => lines.push(format!("  - {}: {}", name, rules)),
+                        None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
+                    }
+                }
+            }
+            lines.join("\n")
+        };
+
+        let branch_count = amt.children.len();
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
 
 AMT ROOT: {}
-BRANCHES:
+BRANCHES ({branch_count} total — this AMT root represents {branch_count} distinct
+intent(s)/branch(es); the request asked for all of them, not just the first):
 {}
 
 AVAILABLE PIPELINES:
@@ -232,15 +270,25 @@ AVAILABLE PIPELINES:
 AVAILABLE MODELS (for optional per-step model_override.model_identifier):
 {}
 
-METHODOLOGIES: {:?}
+APPLICABLE METHODOLOGIES (apply these rules directly when drafting steps —
+e.g. if a rule says to flag missing tests, make sure a step actually does
+that rather than a generic "review the code" step):
+{}
 
 For each step, select the most appropriate pipeline from the list.
+IMPORTANT: every branch listed above must be addressed by at least one step —
+do not silently drop a branch just because it's independent of the others.
+If two branches are genuinely independent (parallel) asks, create a SEPARATE
+step for each rather than merging them into one step that only answers part
+of the request. Only merge branches into a single step when one pipeline call
+can genuinely and completely satisfy all of them together.
 If no existing pipeline can handle a requirement, add it to missing_capabilities.
 Only set model_override when a step genuinely benefits from a different model
 than the default (e.g. a cheap/fast model for a small classification step) —
 omit it entirely otherwise.
 
-Return JSON:
+Return JSON (this example shows two steps for two branches — use however many
+steps this AMT's branch count above actually requires, not necessarily two):
 {{
     "name": "Blueprint name",
     "description": "What this blueprint does",
@@ -249,6 +297,17 @@ Return JSON:
             "step_index": 0,
             "action": "action_name",
             "description": "What this step does",
+            "pipeline_id": 9,
+            "context_requirements": ["full_context"],
+            "depends_on": [],
+            "wait_for_graph_update": false,
+            "max_retries": 1,
+            "model_override": null
+        }},
+        {{
+            "step_index": 1,
+            "action": "action_name",
+            "description": "What this OTHER branch's step does",
             "pipeline_id": 9,
             "context_requirements": ["full_context"],
             "depends_on": [],
@@ -272,7 +331,7 @@ Return JSON:
                 .join("\n"),
             available_pipelines_desc,
             available_models_desc,
-            state.methodologies
+            methodologies_desc
         );
 
         let bp_input = serde_json::json!({
@@ -298,6 +357,7 @@ Return JSON:
             Ok(v) => v,
             Err(e) => self.try_fallback_chain(state, 9, bp_input, e).await?,
         };
+        self.record_thinking(state, "Blueprint Assignment", &bp_result);
         let response = bp_result
             .get("response")
             .and_then(|r| r.as_str())
@@ -338,6 +398,20 @@ Return JSON:
             .get("steps")
             .and_then(|s| serde_json::from_value(s.clone()).ok())
             .unwrap_or_else(|| {
+                // Confirmed live: when the blueprint LLM call comes back
+                // empty/unparseable AND real AMT branches exist, starting
+                // from this one generic catch-all step produced duplicate,
+                // overlapping answers — the reconciliation pass below still
+                // (correctly) synthesizes a step per branch since "Process
+                // the user prompt" doesn't overlap-match any specific
+                // branch, so the same request got answered twice (once
+                // generically, once per-branch). When branches exist, start
+                // empty and let reconciliation build clean per-branch steps
+                // instead; this generic fallback is only for the true
+                // last-resort case of no AMT branches at all.
+                if !amt.children.is_empty() {
+                    return Vec::new();
+                }
                 vec![BlueprintStep {
                     step_index: 0,
                     action: "execute_prompt".to_string(),
@@ -351,8 +425,16 @@ Return JSON:
                     max_retries: 1,
                     timeout_ms: None,
                     model_override: None,
+                    source_chunk_indices: Vec::new(),
                 }]
             });
+
+        // Coverage is enforced below (deterministic branch-reconciliation
+        // pass, after pipeline_id validation) rather than just logged here —
+        // confirmed live this session that logging alone wasn't enough: a
+        // genuinely multi-intent AMT repeatedly produced a 1-step blueprint
+        // (once even backed by needs_clarification=true) that silently
+        // answered only one intent, with the rest dropped with no error.
 
         // Validate each LLM-authored pipeline_id before it can travel deep
         // into execution — an unvalidated hallucinated id previously only
@@ -371,8 +453,26 @@ Return JSON:
         // pipeline's own bespoke Input struct doesn't accept this shape at
         // all. Every non-9 choice gets coerced here instead — existence in
         // the registry was never sufficient.
+        //
+        // This also happens to be the reason methodology_create (12) and
+        // blueprint_create (14) can never be picked as a workspace blueprint
+        // step today — but that's currently just a side effect of the
+        // schema-compatibility check above, not a documented policy. Make it
+        // one explicitly: by direction, these are core/meta-only operations
+        // (methodology and blueprint authoring/maintenance) and must never
+        // be directly invocable from a normal user-facing workspace
+        // request/blueprint, regardless of how this coercion logic evolves
+        // later (e.g. if per-pipeline input mapping is ever added, making
+        // other non-9 pipelines legitimately callable from a step). If that
+        // happens, 12 and 14 specifically must stay excluded.
+        //
+        // Pipeline 56 (WebSearch) is the first deliberate exception in the
+        // OTHER direction: execute_step special-cases pipeline_id 56 with
+        // its own input shape (see execute_web_search_step) instead of the
+        // generic pipeline-9 payload, so it's excluded from this coercion
+        // rather than forced to 9.
         for step in &mut state.blueprint_steps {
-            if step.pipeline_id != 9 {
+            if step.pipeline_id != 9 && step.pipeline_id != 56 {
                 tracing::warn!(
                     "Blueprint step {} named pipeline_id {} — the generic step-execution \
                      input only matches pipeline 9's contract, coercing to 9",
@@ -391,6 +491,96 @@ Return JSON:
                     sub_step.pipeline_id = 9;
                 }
             }
+        }
+
+        // DETERMINISTIC BRANCH-COVERAGE RECONCILIATION: the prompt above
+        // asks the model to address every branch, but that's advisory —
+        // confirmed live, a genuinely 3-intent request came back as a
+        // single step plus needs_clarification=true instead of concrete
+        // per-intent steps (amt.children.len() == 3 at generation time, so
+        // the model was told the real count and still punted). Trusting
+        // compliance silently drops user intents, so this pass fuzzy-matches
+        // each generated step to the branch(es) its description overlaps
+        // with, then deterministically synthesizes a step for any branch
+        // nothing plausibly addresses — no extra LLM round-trip, so it can't
+        // itself punt. This also derives real per-branch keywords/chunk
+        // scoping (previously every step's context_requirements was just
+        // the LLM's copied-verbatim "full_context" placeholder from the
+        // prompt's example, and BlueprintStep.source_chunk_indices had no
+        // other source), which execute_step's context aggregation now uses
+        // to scope container search and session-context reconstruction to
+        // this step's specific branch instead of the whole session.
+        let branch_keywords = |content: &str| -> Vec<String> {
+            content
+                .split_whitespace()
+                .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
+                .filter(|w| w.len() > 3)
+                .take(8)
+                .collect()
+        };
+        let overlaps = |branch_content: &str, step_description: &str| -> bool {
+            let a = branch_content.to_lowercase();
+            let b = step_description.to_lowercase();
+            a.contains(&b)
+                || b.contains(&a)
+                || a.split_whitespace()
+                    .filter(|w| w.len() > 4)
+                    .any(|w| b.contains(w))
+        };
+
+        for existing in state.blueprint_steps.iter_mut() {
+            if let Some(matched) = amt.children.iter().find(|c| overlaps(&c.content, &existing.description)) {
+                if existing.source_chunk_indices.is_empty() {
+                    existing.source_chunk_indices = matched.source_chunk_indices.clone();
+                }
+                if existing.context_requirements == vec!["full_context".to_string()] {
+                    existing.context_requirements = branch_keywords(&matched.content);
+                }
+            }
+        }
+
+        let mut next_step_index = state
+            .blueprint_steps
+            .iter()
+            .map(|s| s.step_index)
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0);
+        for branch in &amt.children {
+            let covered = state
+                .blueprint_steps
+                .iter()
+                .any(|s| overlaps(&branch.content, &s.description));
+            if !covered {
+                tracing::warn!(
+                    branch = %branch.content,
+                    "Branch not addressed by any generated step — synthesizing a deterministic fallback step"
+                );
+                state.blueprint_steps.push(BlueprintStep {
+                    step_index: next_step_index,
+                    action: "execute_prompt".to_string(),
+                    description: format!("Address: {}", branch.content),
+                    pipeline_id: 9,
+                    context_requirements: branch_keywords(&branch.content),
+                    loop_config: None,
+                    sub_steps: Vec::new(),
+                    depends_on: Vec::new(),
+                    wait_for_graph_update: false,
+                    max_retries: 1,
+                    timeout_ms: None,
+                    model_override: None,
+                    source_chunk_indices: branch.source_chunk_indices.clone(),
+                });
+                next_step_index += 1;
+            }
+        }
+
+        if state.blueprint_steps.len() < branch_count {
+            tracing::warn!(
+                branch_count,
+                step_count = state.blueprint_steps.len(),
+                "Blueprint still has fewer steps than AMT branches after reconciliation"
+            );
         }
 
         // Store blueprint in ZSEI
@@ -503,6 +693,7 @@ Return JSON:
             Ok(v) => v,
             Err(e) => self.try_fallback_chain(state, 9, sim_input, e).await?,
         };
+        self.record_thinking(state, "Zero-Shot Simulation", &sim_result);
         let response = sim_result
             .get("response")
             .and_then(|r| r.as_str())
@@ -869,6 +1060,100 @@ Return JSON:
         Ok(())
     }
 
+    /// Real web search for one blueprint step, with AMT-style decomposition
+    /// for genuinely multi-part queries. Query decomposition is an LLM
+    /// judgment call (same family as build_amt_layer_by_layer's intent
+    /// extraction in amt.rs) so it lives here, in the orchestrator, which
+    /// already makes real LLM calls — pipeline 56 itself stays a dumb,
+    /// honest "call the real search API or say unavailable" unit, same
+    /// design posture as every other pipeline in this codebase.
+    ///
+    /// The decomposition call always runs (cheap, small max_tokens) rather
+    /// than a heuristic guess at "is this multi-part" — if the model
+    /// judges the query already single-purpose, it returns one sub-query
+    /// and this degrades to exactly one real search call, no different
+    /// from not decomposing at all.
+    async fn execute_web_search_step(
+        &self,
+        state: &mut OrchestrationState,
+        step: &BlueprintStep,
+    ) -> Result<serde_json::Value, String> {
+        let query = step.description.clone();
+
+        // Current-date/time requests need no search or decomposition at all.
+        let lower = query.to_lowercase();
+        if (lower.contains("current date") || lower.contains("current time") || lower.contains("what time is it") || lower.contains("today's date"))
+            && lower.split_whitespace().count() < 12
+        {
+            let dt_input = serde_json::json!({"action": {"type": "CurrentDateTime"}});
+            return self.executor.execute(56, dt_input).await;
+        }
+
+        let decompose_prompt = format!(
+            r#"A user's request implies this web search need: "{}"
+
+If this is genuinely composed of multiple distinct, independently-searchable
+questions, split it into 2-4 real sub-queries. If it is already one focused
+question, return it unchanged as the only element.
+
+Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
+            query
+        );
+        let decompose_input = serde_json::json!({
+            "prompt": decompose_prompt,
+            "max_tokens": 200,
+            "temperature": 0.1,
+            "system_context": "Decompose search queries. Return only valid JSON."
+        });
+
+        let sub_queries: Vec<String> = match self.metered_execute(state, 9, decompose_input).await {
+            Ok(result) => {
+                self.record_thinking(state, "Web Search — query decomposition", &result);
+                let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let json_str = Self::extract_json_from_response(response, '{', '}');
+                serde_json::from_str::<serde_json::Value>(json_str.trim())
+                    .ok()
+                    .and_then(|v| v.get("sub_queries").cloned())
+                    .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
+                    .filter(|v| !v.is_empty())
+                    .unwrap_or_else(|| vec![query.clone()])
+            }
+            Err(_) => vec![query.clone()],
+        };
+
+        let mut all_results = Vec::new();
+        let mut any_success = false;
+        let mut last_error = None;
+        for sub_query in &sub_queries {
+            let search_input = serde_json::json!({
+                "action": {"type": "Search", "query": sub_query, "max_results": 5}
+            });
+            match self.executor.execute(56, search_input).await {
+                Ok(result) => {
+                    if result.get("success").and_then(|s| s.as_bool()) == Some(true) {
+                        any_success = true;
+                    } else {
+                        last_error = result.get("error").and_then(|e| e.as_str()).map(String::from);
+                    }
+                    all_results.push(serde_json::json!({
+                        "sub_query": sub_query,
+                        "result": result
+                    }));
+                }
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+
+        Ok(serde_json::json!({
+            "success": any_success,
+            "error": if any_success { None } else { last_error },
+            "sub_queries": sub_queries,
+            "results_by_sub_query": all_results,
+        }))
+    }
+
     /// Execute a single blueprint step (handles loops, sub-steps, retries)
     async fn execute_step(
         &self,
@@ -901,8 +1186,18 @@ Return JSON:
             // STAGE 6: Context aggregation for this step — Section S ForStep:
             // the session's own text graph (validated sentences from the chunk
             // graphs) at top priority, merged with query-scoped store context.
-            let session_context =
-                self.reconstruct_session_context(state, state.model_context_limit / 8);
+            // Scoped to this step's own AMT branch (source_chunk_indices, set
+            // by stage_3_blueprint_assignment's reconciliation pass) rather
+            // than always walking the whole session from chunk 0 — a step
+            // for one branch of a multi-branch request shouldn't pull in
+            // every other branch's text too. Falls back to the full walk
+            // when no branch scope is known (e.g. the single-step fallback
+            // blueprint).
+            let session_context = self.reconstruct_session_context(
+                state,
+                state.model_context_limit / 8,
+                &step.source_chunk_indices,
+            );
             let context_input = serde_json::json!({
                 "action": "ForStep",
                 "query": format!("{} - {}", state.cleaned_prompt, step.description),
@@ -944,6 +1239,94 @@ Return JSON:
                 step_context
             };
 
+            // Attached-file content (real bytes read from disk in
+            // prompt_normalization's Step 0) — confirmed live this was
+            // required, not optional: file_graphs/FileLayerContext only
+            // ever carried path/modality/role/graph_id metadata, so a step
+            // asking to review attached code correctly got back "no project
+            // code was actually included in the request" even though the
+            // files were detected, read, and graphed. Every step gets every
+            // attached file's content (small, real projects rarely exceed
+            // a handful of files) rather than trying to guess which
+            // branch a given file belongs to; the compaction pass right
+            // below still protects against this overflowing a small
+            // model's budget.
+            let full_context = if state.attached_file_contents.is_empty() {
+                full_context
+            } else {
+                let files_block: String = state
+                    .attached_file_contents
+                    .iter()
+                    .map(|(path, content)| format!("## File: {}\n{}\n", path, content))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!("{}\n\n{}", files_block, full_context)
+            };
+
+            // STEP-BASED SMART COMPACTION: context is deliberately never the
+            // whole project per step (branch-scoped session reconstruction
+            // above, keyword-scoped store search in context_aggregation) —
+            // but a wide-scoped branch plus several previous-step outputs
+            // can still legitimately overflow a small model's real context
+            // window. Only compact when this step's actual assembled
+            // context would exceed that budget — never unconditionally —
+            // and compact via a real LLM summarization pass rather than
+            // blind truncation, since the point is to keep what matters,
+            // not just cut it off. Falls back to truncation only if the
+            // compaction call itself fails, so an LLM outage can't hang or
+            // fail the step outright.
+            let response_reserve = state.model_context_limit / 4; // matches max_tokens below
+            let input_budget = state.model_context_limit.saturating_sub(response_reserve).max(256);
+            let estimated_input_tokens =
+                Self::estimate_tokens(&full_context) + Self::estimate_tokens(&step.description) + 128;
+            let full_context = if estimated_input_tokens > input_budget {
+                tracing::warn!(
+                    step_index = step.step_index,
+                    estimated_input_tokens,
+                    input_budget,
+                    "Step context exceeds model's context budget — compacting"
+                );
+                let target_chars = (input_budget as usize).saturating_mul(4);
+                let compact_prompt = format!(
+                    "Compress the following context to at most {} characters while preserving every \
+                     fact, requirement, or constraint relevant to this task: \"{}\". Do not add \
+                     commentary or explanation — return only the compacted context text.\n\n\
+                     CONTEXT TO COMPACT:\n{}",
+                    target_chars, step.description, full_context
+                );
+                let compact_input = serde_json::json!({
+                    "prompt": compact_prompt,
+                    "max_tokens": input_budget,
+                    "temperature": 0.2,
+                    "system_context": "Compact context losslessly for facts. Return only the compacted text, no explanation."
+                });
+                match self.metered_execute(state, 9, compact_input).await {
+                    Ok(result) => {
+                        self.record_thinking(
+                            state,
+                            &format!("Context Compaction (step {})", step.step_index),
+                            &result,
+                        );
+                        let compacted = result
+                            .get("response")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if compacted.trim().is_empty() {
+                            full_context.chars().take(target_chars).collect()
+                        } else {
+                            compacted
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Context compaction call failed — falling back to truncation");
+                        full_context.chars().take(target_chars).collect()
+                    }
+                }
+            } else {
+                full_context
+            };
+
             // Execute sub-steps first if any
             for sub_step in &step.sub_steps {
                 let sub_input = self.build_sub_step_input(state, sub_step, &full_context)?;
@@ -956,7 +1339,26 @@ Return JSON:
                 });
             }
 
-            // Execute main step
+            // Execute main step — pipeline 56 (WebSearch) gets its own
+            // input shape and its own AMT-style decomposition instead of
+            // the generic pipeline-9 payload below (see the coercion
+            // exception comment above and execute_web_search_step's own
+            // doc comment for why decomposition lives here, not in the
+            // pipeline itself).
+            if step.pipeline_id == 56 {
+                final_output = self.execute_web_search_step(state, step).await?;
+                self.record_thinking(
+                    state,
+                    &format!("Step Execution (step {})", step.step_index),
+                    &final_output,
+                );
+                if step.wait_for_graph_update {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+                total_iterations = iteration + 1;
+                break;
+            }
+
             let step_prompt = format!(
                 "Step {}: {}\n\nContext:\n{}\n\nOriginal request: {}",
                 step.step_index + 1,
@@ -1037,6 +1439,11 @@ Return JSON:
             }
 
             final_output = exec_result?;
+            self.record_thinking(
+                state,
+                &format!("Step Execution (step {})", step.step_index),
+                &final_output,
+            );
 
             // Wait for graph update if configured
             if step.wait_for_graph_update {
@@ -1237,14 +1644,29 @@ Return JSON:
     /// Section S — reconstruct the session's text graph under a token budget:
     /// validated sentence nodes from the chunk graphs (fallback: cleaned_text
     /// for chunks whose extraction produced no sentences).
+    ///
+    /// `scope_chunk_indices`, when non-empty, restricts reconstruction to
+    /// only those chunks — this is what makes per-step context genuinely
+    /// branch-scoped (each AMT branch carries its own source_chunk_indices)
+    /// rather than always walking the entire session from chunk 0 regardless
+    /// of which branch/step is currently executing. Empty means "no known
+    /// branch scope" (e.g. the single-step fallback blueprint), which walks
+    /// every chunk exactly as before. If a given scope matches no chunk at
+    /// all (stale/bad indices), falls back to the full walk rather than
+    /// silently returning nothing for that step.
     fn reconstruct_session_context(
         &self,
         state: &OrchestrationState,
         budget_tokens: u32,
+        scope_chunk_indices: &[u32],
     ) -> String {
         let budget_chars = (budget_tokens as usize).saturating_mul(4);
+        let scoped = !scope_chunk_indices.is_empty();
         let mut out = String::new();
         'outer: for chunk in &state.processed_chunks {
+            if scoped && !scope_chunk_indices.contains(&chunk.index) {
+                continue;
+            }
             if chunk.sentence_nodes.is_empty() {
                 if out.len() + chunk.cleaned_text.len() + 1 > budget_chars {
                     break 'outer;
@@ -1260,6 +1682,9 @@ Return JSON:
                 out.push_str(s.content.trim());
                 out.push('\n');
             }
+        }
+        if scoped && out.trim().is_empty() {
+            return self.reconstruct_session_context(state, budget_tokens, &[]);
         }
         out.trim().to_string()
     }

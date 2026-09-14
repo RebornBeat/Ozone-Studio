@@ -368,27 +368,47 @@ impl QueryProcessor {
     }
     
     /// Find methodologies by keywords
+    /// Confirmed live: matching on any single keyword overlap (no relevance
+    /// bar at all) let broadly-keyworded methodologies ("Clean Code
+    /// Principles", "Security Awareness" — generic enough to share a word
+    /// with almost any code-related request) match constantly, driving a
+    /// real AMT to 38 branches for a trivial 3-file project (each matched
+    /// methodology drives its own branch-discovery pass in
+    /// build_amt_layer_by_layer). The fix is a real relevance bar here, not
+    /// a count cap on the caller side — every methodology that clears the
+    /// bar is genuinely relevant and should be taken into account, however
+    /// many that turns out to be; capping an already-correct result would
+    /// silently drop applicable methodologies for a project touching many
+    /// real concerns. Scored the same way search_blueprints (below) already
+    /// does: count overlapping keywords, require more than incidental
+    /// overlap (>1 shared keyword, OR the container's ENTIRE keyword set is
+    /// a single specific term the query also asked for — a single very
+    /// specific match is real signal; a single generic one like "code" is
+    /// not, hence requiring >1 rather than trusting any lone match).
     fn find_methodologies_by_keywords(
         &self,
         storage: &ContainerStorage,
         keywords: &[String],
     ) -> OzoneResult<Vec<ContainerID>> {
-        let mut results = Vec::new();
-        
+        let mut scored: Vec<(ContainerID, usize)> = Vec::new();
+
         for id in storage.all_ids() {
             if let Some(container) = storage.load(id)? {
                 if container.local_state.metadata.container_type == ContainerType::Methodology {
-                    for keyword in keywords {
-                        if container.local_state.context.keywords.contains(keyword) {
-                            results.push(id);
-                            break;
-                        }
+                    let overlap = keywords
+                        .iter()
+                        .filter(|kw| container.local_state.context.keywords.contains(kw))
+                        .count();
+                    let container_is_specific = container.local_state.context.keywords.len() <= 2;
+                    if overlap > 1 || (overlap == 1 && container_is_specific) {
+                        scored.push((id, overlap));
                     }
                 }
             }
         }
-        
-        Ok(results)
+
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        Ok(scored.into_iter().map(|(id, _)| id).collect())
     }
     
     /// Search blueprints by task signature with proper matching

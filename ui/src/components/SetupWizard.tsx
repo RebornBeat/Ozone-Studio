@@ -32,6 +32,13 @@ interface SetupConfig {
   consciousnessEnabled: boolean;
   enableP2p: boolean;
   enableMdns: boolean;
+  /** Jurisdiction gate (src/orchestrator/jurisdiction.rs) — a real, always-on
+   * orchestration stage, but it ships with ZERO real legal content by
+   * design. This field only tells the gate which region's rule set to look
+   * for; it does not itself make the instance legally compliant with
+   * anything. */
+  jurisdictionEnabled: boolean;
+  instanceRegion: string;
 }
 
 /// Default local whisper model (ggml-base.en) — exists on this machine.
@@ -133,6 +140,8 @@ export function SetupWizard({ onComplete }: Props) {
     consciousnessEnabled: false,
     enableP2p: true,
     enableMdns: true,
+    jurisdictionEnabled: false,
+    instanceRegion: "",
   });
 
   // Live probe: which model-role agents are registered with the host right
@@ -339,6 +348,10 @@ export function SetupWizard({ onComplete }: Props) {
         },
         consciousness: {
           enabled: setupConfig.consciousnessEnabled,
+        },
+        jurisdiction: {
+          enabled: setupConfig.jurisdictionEnabled,
+          instance_region: setupConfig.instanceRegion.trim() || undefined,
         },
       };
 
@@ -925,6 +938,46 @@ export function SetupWizard({ onComplete }: Props) {
               <p className="feature-note">
                 💡 Turn this off for fully local, single-machine operation —
                 configurable later in Settings → Network
+              </p>
+
+              <div className="consciousness-toggle" style={{ marginTop: 18 }}>
+                <label className="toggle-label">
+                  <input
+                    type="checkbox"
+                    checked={setupConfig.jurisdictionEnabled}
+                    onChange={(e) =>
+                      setSetupConfig((prev) => ({
+                        ...prev,
+                        jurisdictionEnabled: e.target.checked,
+                      }))
+                    }
+                  />
+                  <span className="toggle-text">
+                    Set instance location (jurisdiction hook)
+                  </span>
+                </label>
+              </div>
+              {setupConfig.jurisdictionEnabled && (
+                <div className="form-group">
+                  <input
+                    type="text"
+                    placeholder="e.g. us-ca, us, eu"
+                    value={setupConfig.instanceRegion}
+                    onChange={(e) =>
+                      setSetupConfig((prev) => ({
+                        ...prev,
+                        instanceRegion: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+              <p className="feature-note">
+                💡 This only tells the system which region's rule set to look
+                for later — it does not add any legal rules or make this
+                instance compliant with anything on its own. Real rules must
+                be sourced and loaded separately; this is a hook for that,
+                not compliance itself.
               </p>
 
               <div className="setup-buttons">

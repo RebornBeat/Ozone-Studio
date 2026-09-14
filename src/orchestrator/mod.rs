@@ -41,6 +41,9 @@ mod response;
 mod voice;
 mod stages;
 mod graphs;
+pub mod meta_loop;
+pub mod amt_loop;
+pub mod jurisdiction;
 
 // K-ALGORITHM contracts come from the unified shared module (single
 // compilation, tests run once): crate::shared_contracts::{k_validation, k_loops}.
@@ -223,6 +226,15 @@ pub struct OrchestrationResponse {
     /// the chat UI could never show "handled by X" or reflect a mid-run
     /// model switch.
     pub model_used: Option<String>,
+    /// Full "thinking cycle" — one entry per real LLM call made during this
+    /// run (AMT-building intent/branch extraction passes, blueprint
+    /// drafting, zero-shot simulation, step execution), each carrying the
+    /// FULL raw response text (not the truncated 200-char summary
+    /// StageResult/StoredTaskStep carry). Previously every intermediate call
+    /// was discarded once its structured fields were parsed out, so only
+    /// the final step's answer ever reached the user — nothing showed the
+    /// reasoning that produced it.
+    pub thinking_log: Vec<ThinkingEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -232,6 +244,23 @@ pub struct StageResult {
     pub success: bool,
     pub duration_ms: u64,
     pub output_summary: Option<String>,
+}
+
+/// One real LLM call's full raw output, captured for the "thinking cycle"
+/// view. `eval_tokens_per_sec`/`prompt_eval_tokens_per_sec`/`load_time_ms`
+/// are BitNet-only (from llama.cpp's own perf counters, see
+/// assets/pipelines/general/prompt/main.rs's parse_bitnet_metrics) — None
+/// for API-backed calls (Anthropic/OpenAI/OpenRouter have no equivalent
+/// local timing signal; left absent rather than fabricated).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ThinkingEntry {
+    pub stage: String,
+    pub raw_response: String,
+    pub tokens_used: Option<u32>,
+    pub model_used: Option<String>,
+    pub eval_tokens_per_sec: Option<f32>,
+    pub prompt_eval_tokens_per_sec: Option<f32>,
+    pub load_time_ms: Option<f32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -819,6 +848,17 @@ pub struct BlueprintStep {
     /// absent on any blueprint stored before this field existed.
     #[serde(default)]
     pub model_override: Option<ModelConfigOverride>,
+    /// Chunk indices (from the AMT branch this step addresses) used to
+    /// scope this step's own context reconstruction — see execute_step's
+    /// session-context call and ForStep's priority_order. Populated by the
+    /// branch-reconciliation pass in stage_3_blueprint_assignment, which
+    /// matches each step to its originating branch by content overlap
+    /// rather than trusting an LLM-authored step to emit this itself (it
+    /// isn't asked to). Empty means "no known branch scope" — callers fall
+    /// back to full-session context rather than treating empty as "scope
+    /// to nothing."
+    #[serde(default)]
+    pub source_chunk_indices: Vec<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -963,6 +1003,14 @@ pub(crate) struct OrchestrationState {
     request: OrchestrationRequest,
     start_time: std::time::Instant,
     stages: Vec<StageResult>,
+    /// Accumulates one entry per real LLM call made this run — see
+    /// ThinkingEntry and OrchestrationResponse.thinking_log.
+    pub thinking_log: Vec<ThinkingEntry>,
+    /// Set by stage_jurisdiction_gate (jurisdiction.rs) — always runs,
+    /// independent of consciousness_enabled. None only if that stage
+    /// somehow never ran; Some(_) with rules_loaded: 0 is the honest
+    /// default for every instance until a human loads real content.
+    pub jurisdiction_gate_result: Option<jurisdiction::JurisdictionGateResult>,
 
     // Model context management
     model_context_limit: u32,
@@ -973,6 +1021,18 @@ pub(crate) struct OrchestrationState {
 
     // PHASE 1: FILE GRAPHS (produced before modality graphs, before classification)
     pub file_graphs: HashMap<String, u64>, // file_path → graph_id
+    /// Real file content (read from disk in prompt_normalization's attached-
+    /// file step), keyed by the same file_path as file_graphs. Confirmed
+    /// live this was the actual gap behind attached files being "seen"
+    /// (Files: 3 in Text Normalization, graphs created) but their content
+    /// never reaching any step's prompt: file_graphs/classified_file_graphs
+    /// and the AMT's FileLayerContext only ever carried path/modality/role/
+    /// graph_id metadata, never the bytes — a model asked to review the
+    /// attached code correctly reported "no project code or README was
+    /// actually included in the request" despite 3 real files having been
+    /// read and graphed. execute_step injects this directly into a step's
+    /// context so what was actually uploaded is what the model sees.
+    pub attached_file_contents: HashMap<String, String>,
     pub classified_file_graphs: Vec<ClassifiedFileGraph>, // primary/supplementary/raw roles
     pub chunk_graph_ids: Vec<u64>,         // ordered list of chunk graph IDs
 
@@ -1229,6 +1289,9 @@ pub struct PromptOrchestrator {
     /// `-n 50000`, which is why a simple "count to 3" prompt looked hung for
     /// many minutes instead of erroring or finishing quickly.
     default_context_limit: u32,
+    /// See src/orchestrator/jurisdiction.rs — base safety-layer config,
+    /// deliberately separate from the optional consciousness system.
+    jurisdiction_config: crate::config::JurisdictionConfig,
 }
 
 impl PromptOrchestrator {
@@ -1238,6 +1301,7 @@ impl PromptOrchestrator {
         task_manager: Arc<RwLock<TaskManager>>,
         pipeline_index: Arc<RwLock<Option<PipelineIndex>>>,
         default_context_limit: u32,
+        jurisdiction_config: crate::config::JurisdictionConfig,
     ) -> Self {
         Self {
             executor,
@@ -1245,6 +1309,7 @@ impl PromptOrchestrator {
             task_manager,
             pipeline_index,
             default_context_limit,
+            jurisdiction_config,
         }
     }
 
@@ -1380,10 +1445,13 @@ impl PromptOrchestrator {
             request: request.clone(),
             start_time: std::time::Instant::now(),
             stages: Vec::new(),
+            thinking_log: Vec::new(),
+            jurisdiction_gate_result: None,
             model_context_limit,
             tokens_used_so_far: prompt_tokens,
             raw_chunks: Vec::new(),
             file_graphs: HashMap::new(),
+            attached_file_contents: HashMap::new(),
             classified_file_graphs: Vec::new(),
             chunk_graph_ids: Vec::new(),
             modality_graphs: HashMap::new(),
@@ -1484,6 +1552,28 @@ impl PromptOrchestrator {
 
         let result = self.execute_stages(&mut state).await;
 
+        // Persist the full thinking cycle onto the task record, if one was
+        // created — task creation happens mid-run (Stage 9-11), before the
+        // log is complete, so it can't be set at enqueue_task time. Runs
+        // regardless of success/failure: a failed run's partial thinking log
+        // (e.g. several successful AMT passes before a later stage failed)
+        // is still real, useful content, not something to discard.
+        if let Some(task_id) = state.task_id {
+            if !state.thinking_log.is_empty() {
+                let thinking_log_json: Vec<serde_json::Value> = state
+                    .thinking_log
+                    .iter()
+                    .map(|t| serde_json::to_value(t).unwrap_or_default())
+                    .collect();
+                let _ = self
+                    .task_manager
+                    .read()
+                    .await
+                    .set_thinking_log(task_id, thinking_log_json)
+                    .await;
+            }
+        }
+
         match result {
             Ok(_) => self.build_success_response(&state),
             Err(e) => self.build_error_response(&mut state, e),
@@ -1521,14 +1611,54 @@ impl PromptOrchestrator {
 
                 let effective_pipeline = if pipeline_id == 0 { 100u64 } else { pipeline_id };
 
+                // Read the real file content from disk when a path was given
+                // (is_inline: false) — confirmed live this only ever sent
+                // content_preview before, which per AttachedFileSpec's own
+                // doc comment is capped at the first 512 bytes. Any real
+                // file (a code module, a multi-paragraph doc) beyond that
+                // was invisible to graph creation entirely, no matter its
+                // actual size. is_inline: true has no real file to read
+                // (content was provided directly, not via a path), so that
+                // case still uses content_preview as-is. Capped generously
+                // (not unbounded) so one pathological huge attachment can't
+                // hang analysis — a warning marks when that cap bites.
+                const MAX_FILE_ANALYSIS_BYTES: usize = 200_000;
+                let file_content = if file_spec.is_inline {
+                    file_spec.content_preview.clone().unwrap_or_default()
+                } else {
+                    match std::fs::read_to_string(&file_spec.file_path) {
+                        Ok(mut content) => {
+                            if content.len() > MAX_FILE_ANALYSIS_BYTES {
+                                tracing::warn!(
+                                    file_path = %file_spec.file_path,
+                                    size = content.len(),
+                                    cap = MAX_FILE_ANALYSIS_BYTES,
+                                    "Attached file exceeds analysis cap — truncating"
+                                );
+                                content.truncate(MAX_FILE_ANALYSIS_BYTES);
+                            }
+                            content
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                file_path = %file_spec.file_path,
+                                error = %e,
+                                "Could not read attached file from disk — falling back to content_preview"
+                            );
+                            file_spec.content_preview.clone().unwrap_or_default()
+                        }
+                    }
+                };
+
                 let analysis_result = self
                     .process_modality(
-                        file_spec.content_preview.as_deref().unwrap_or(""),
+                        &file_content,
                         effective_pipeline,
                         &available_modalities,
                         None,
                         None,
                         None,
+                        Some(&file_spec.file_path),
                     )
                     .await?;
 
@@ -1555,6 +1685,9 @@ impl PromptOrchestrator {
                 state
                     .file_graphs
                     .insert(file_spec.file_path.clone(), graph_id);
+                state
+                    .attached_file_contents
+                    .insert(file_spec.file_path.clone(), file_content);
             }
         }
 
@@ -2136,6 +2269,7 @@ impl PromptOrchestrator {
         });
 
         if let Ok(result) = self.metered_execute(state, 9, input).await {
+            self.record_thinking(state, "AMT Alignment Review", &result);
             let raw = result
                 .get("response")
                 .and_then(|r| r.as_str())
@@ -2214,6 +2348,54 @@ impl PromptOrchestrator {
             .or_else(|| output.get("result").and_then(|r| r.as_str()))
             .unwrap_or("")
             .to_string()
+    }
+
+    /// Record one real LLM call's full raw output into the thinking-cycle
+    /// log — see ThinkingEntry. `stage` is a short human-readable label
+    /// ("Build AMT — intent extraction", "Blueprint Assignment", etc.), not
+    /// the numeric StageResult.stage (several thinking-log entries can share
+    /// one numbered stage, e.g. multiple AMT passes within Stage 5).
+    fn record_thinking(&self, state: &mut OrchestrationState, stage: &str, output: &serde_json::Value) {
+        // Previously skipped recording entirely when the extracted text was
+        // empty — confirmed live: a real "Zero-Shot Simulation" call that
+        // consumed real, metered tokens (accounted for in
+        // total_tokens_used) vanished from thinking_log with no trace,
+        // because the underlying response text happened to be empty for
+        // that call. "Monitor and aggregate thinking from all" means every
+        // real call should show up, even ones that produced nothing —
+        // silently dropping a call is itself a fact worth seeing, not
+        // something to hide.
+        let raw_response = self.extract_output_text(output);
+        state.thinking_log.push(ThinkingEntry {
+            stage: stage.to_string(),
+            raw_response,
+            tokens_used: output.get("tokens_used").and_then(|t| t.as_u64()).map(|t| t as u32),
+            model_used: output.get("model_used").and_then(|m| m.as_str()).map(String::from),
+            eval_tokens_per_sec: output.get("eval_tokens_per_sec").and_then(|v| v.as_f64()).map(|v| v as f32),
+            prompt_eval_tokens_per_sec: output.get("prompt_eval_tokens_per_sec").and_then(|v| v.as_f64()).map(|v| v as f32),
+            load_time_ms: output.get("load_time_ms").and_then(|v| v.as_f64()).map(|v| v as f32),
+        });
+        // Real-time visibility in the server's own terminal — mirrors the
+        // stage-timing tracing pattern already established this session
+        // (record_stage/record_stage_timed), but per LLM call rather than
+        // per orchestration stage, and includes real tok/s when available
+        // (BitNet only — see ThinkingEntry's doc comment).
+        if let Some(entry) = state.thinking_log.last() {
+            if let Some(tps) = entry.eval_tokens_per_sec {
+                tracing::info!(
+                    stage = %entry.stage,
+                    tokens_used = ?entry.tokens_used,
+                    tokens_per_second = tps,
+                    "Thinking cycle: LLM call completed"
+                );
+            } else {
+                tracing::info!(
+                    stage = %entry.stage,
+                    tokens_used = ?entry.tokens_used,
+                    "Thinking cycle: LLM call completed"
+                );
+            }
+        }
     }
 
     // ========================================================================
@@ -2376,6 +2558,7 @@ impl PromptOrchestrator {
                 .and_then(|r| r.output.get("model_used"))
                 .and_then(|v| v.as_str())
                 .map(String::from),
+            thinking_log: state.thinking_log.clone(),
         }
     }
 
@@ -2401,6 +2584,7 @@ impl PromptOrchestrator {
             needs_clarification: state.needs_clarification,
             amt_summary: None,
             model_used: None,
+            thinking_log: state.thinking_log.clone(),
         }
     }
 
@@ -2623,8 +2807,14 @@ mod tests {
         };
         let task_manager = Arc::new(tokio::sync::RwLock::new(TaskManager::new(task_config, refinement_config).unwrap()));
 
-        let orchestrator =
-            PromptOrchestrator::new(executor, zsei, task_manager, Arc::new(RwLock::new(None)), 200000);
+        let orchestrator = PromptOrchestrator::new(
+            executor,
+            zsei,
+            task_manager,
+            Arc::new(RwLock::new(None)),
+            200000,
+            crate::config::JurisdictionConfig::default(),
+        );
 
         let request = OrchestrationRequest {
             prompt: "Hello, how are you?".to_string(),

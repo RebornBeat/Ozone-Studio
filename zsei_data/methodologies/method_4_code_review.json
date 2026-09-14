@@ -1,0 +1,53 @@
+{
+  "principles": [
+    {
+      "statement": "New behavior should ship with a test that would fail without it.",
+      "rationale": "A test proves the behavior exists and protects it from silent regression later.",
+      "applicability": ["code_review"]
+    },
+    {
+      "statement": "Documentation and comments are claims about behavior — they must match what the code actually does.",
+      "rationale": "A reader trusts the docstring; a mismatch between claimed and actual behavior is worse than no documentation at all, since it actively misleads.",
+      "applicability": ["code_review"]
+    },
+    {
+      "statement": "Errors should be visible, not silently swallowed.",
+      "rationale": "A caught-and-ignored exception turns a real failure into something that looks like success, making the eventual bug much harder to trace back to its cause.",
+      "applicability": ["code_review"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Diff-to-test ratio",
+      "description": "A non-trivial logic change with zero corresponding test changes is a signal to look closer, not necessarily a bug on its own.",
+      "when_to_apply": "Reviewing any change that adds or modifies control flow (branches, loops, error handling).",
+      "examples": []
+    },
+    {
+      "name": "README/behavior cross-check",
+      "description": "When a README or docstring makes a specific, checkable claim, verify it against the actual code rather than assuming it's accurate.",
+      "when_to_apply": "Reviewing or auditing documentation alongside its implementation.",
+      "examples": []
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A change introduces new logic (a new branch, function, or edge case) without a corresponding test.",
+      "action": "Flag it and request a test that covers the new behavior.",
+      "priority": 2,
+      "exceptions": ["Pure refactors with no behavior change don't need new tests, only that existing tests still pass."]
+    },
+    {
+      "condition": "A public function's documented behavior (docstring, comment, or README) differs from what the code actually does.",
+      "action": "Flag the mismatch explicitly and state which one (doc or code) appears to be correct, with reasoning.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "Error handling catches an exception and does nothing observable (no log, no re-raise, no user-facing signal).",
+      "action": "Flag it as a real risk — failures become invisible to both users and operators.",
+      "priority": 1,
+      "exceptions": ["Deliberate, commented no-op handling for a genuinely optional/best-effort operation is acceptable."]
+    }
+  ]
+}

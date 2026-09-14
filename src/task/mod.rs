@@ -477,6 +477,8 @@ pub struct TaskData {
     pub steps: Vec<TaskStepData>,
     pub total_tokens: u32,
     pub gate_result: Option<consciousness_hooks::GateDecision>,
+    #[serde(default)]
+    pub thinking_log: Vec<serde_json::Value>,
 }
 
 /// Task step data
@@ -557,6 +559,15 @@ pub(crate) struct StoredTask {
     total_tokens: u32,
     error: Option<String>,
     gate_result: Option<consciousness_hooks::GateDecision>,
+    /// Full "thinking cycle" for this task — one entry per real LLM call the
+    /// run made (AMT-building passes, blueprint drafting, zero-shot
+    /// simulation, step execution), each carrying the FULL raw response
+    /// text. Set once via `set_thinking_log` after orchestration completes
+    /// (task creation happens mid-run, before the log is complete) — see
+    /// PromptOrchestrator::orchestrate in src/orchestrator/mod.rs. Empty for
+    /// tasks created before this existed.
+    #[serde(default)]
+    thinking_log: Vec<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -804,6 +815,7 @@ impl TaskManager {
             total_tokens: 0,
             error: None,
             gate_result,
+            thinking_log: Vec::new(),
         };
 
         // Store task
@@ -1207,6 +1219,23 @@ impl TaskManager {
         Ok(())
     }
 
+    /// Persist the full "thinking cycle" onto a task record. Called once
+    /// after orchestration completes (src/orchestrator/mod.rs) — task
+    /// creation happens mid-run, before the thinking log is complete, so
+    /// this can't be set at enqueue_task time. Silently no-ops if the task
+    /// id doesn't exist (e.g. orchestration failed before task creation).
+    pub async fn set_thinking_log(
+        &self,
+        task_id: TaskID,
+        thinking_log: Vec<serde_json::Value>,
+    ) -> OzoneResult<()> {
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.get_mut(&task_id) {
+            task.thinking_log = thinking_log;
+        }
+        Ok(())
+    }
+
     /// Add log entry to task
     pub async fn add_log(
         &self,
@@ -1556,6 +1585,15 @@ impl TaskManager {
         *self.refinement_running.write().await = false;
     }
 
+    /// The configured refinement settings (interval/enabled) — exposed so
+    /// the real methodology meta-loop (src/orchestrator/meta_loop.rs, which
+    /// needs LLM-calling capability TaskManager doesn't have) can respect
+    /// the same enabled/interval_secs this daemon uses, rather than
+    /// inventing a second config surface.
+    pub fn refinement_config(&self) -> &RefinementConfig {
+        &self.refinement_config
+    }
+
     /// Methodology refinement - split complex methodologies
     async fn run_methodology_refinement(
         zsei: &Arc<dyn ZSEIAccess>,
@@ -1696,6 +1734,7 @@ impl TaskManager {
                 .collect(),
             total_tokens: stored.total_tokens,
             gate_result: stored.gate_result.clone(),
+            thinking_log: stored.thinking_log.clone(),
         }
     }
 }

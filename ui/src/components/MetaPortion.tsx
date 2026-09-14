@@ -34,6 +34,16 @@ interface ILoopState {
   insightsGenerated: number;
 }
 
+interface ThinkingEntry {
+  stage: string;
+  raw_response: string;
+  tokens_used?: number;
+  model_used?: string;
+  eval_tokens_per_sec?: number;
+  prompt_eval_tokens_per_sec?: number;
+  load_time_ms?: number;
+}
+
 interface TranscriptEntry {
   id: number;
   role: 'user' | 'assistant';
@@ -44,6 +54,11 @@ interface TranscriptEntry {
    * OrchestrateResponse.model_used, not guessed. */
   modelUsed?: string;
   stageCount?: number;
+  /** Full "thinking cycle" — one entry per real LLM call this run made
+   * (AMT-building passes, blueprint drafting, zero-shot simulation, step
+   * execution), forwarded from OrchestrateResponse.thinking_log. Empty/
+   * absent for user messages and older responses from before this existed. */
+  thinkingLog?: ThinkingEntry[];
 }
 
 // Per-model accent so a model switch mid-conversation is visible at a
@@ -100,6 +115,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
     insightsGenerated: 0,
   });
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  // Which transcript entries have their "Thinking" section expanded —
+  // collapsed by default since raw_response content can be long.
+  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
   const [voiceWaveform, setVoiceWaveform] = useState<number[]>(new Array(24).fill(0.1));
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -569,6 +587,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
             stageCount: Array.isArray(result.stages_completed)
               ? result.stages_completed.length
               : undefined,
+            thinkingLog: Array.isArray(result.thinking_log)
+              ? result.thinking_log
+              : undefined,
           }]);
 
           // Speak the response if voice output is enabled
@@ -895,6 +916,79 @@ export function MetaPortion({ width }: MetaPortionProps) {
                             {entry.stageCount ? (
                               <span style={{ fontSize: 11, opacity: 0.5 }}>{entry.stageCount} stages</span>
                             ) : null}
+                            {entry.thinkingLog && entry.thinkingLog.length > 0 && (
+                              <button
+                                onClick={() => {
+                                  setExpandedThinking(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(entry.id)) {
+                                      next.delete(entry.id);
+                                    } else {
+                                      next.add(entry.id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  opacity: 0.6,
+                                  background: 'none',
+                                  border: '1px solid #223046',
+                                  borderRadius: 999,
+                                  padding: '2px 8px',
+                                  cursor: 'pointer',
+                                  color: 'inherit',
+                                }}
+                              >
+                                {expandedThinking.has(entry.id) ? '▾' : '▸'} Thinking ({entry.thinkingLog.length})
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {entry.thinkingLog && entry.thinkingLog.length > 0 && expandedThinking.has(entry.id) && (
+                          <div
+                            className="thinking-log"
+                            style={{
+                              marginTop: 8,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                            }}
+                          >
+                            {entry.thinkingLog.map((t, i) => (
+                              <div
+                                key={i}
+                                style={{
+                                  border: '1px solid #223046',
+                                  borderRadius: 8,
+                                  padding: '8px 10px',
+                                  fontSize: 12,
+                                  background: 'rgba(255,255,255,0.02)',
+                                }}
+                              >
+                                <div
+                                  style={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    gap: 8,
+                                    opacity: 0.7,
+                                    marginBottom: 4,
+                                    fontSize: 11,
+                                  }}
+                                >
+                                  <span>{t.stage}</span>
+                                  <span>
+                                    {t.tokens_used != null ? `${t.tokens_used} tok` : ''}
+                                    {t.eval_tokens_per_sec != null
+                                      ? ` · ${t.eval_tokens_per_sec.toFixed(1)} tok/s`
+                                      : ''}
+                                  </span>
+                                </div>
+                                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                  {t.raw_response}
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>

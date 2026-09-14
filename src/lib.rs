@@ -83,6 +83,11 @@ pub struct OrchestrationOutput {
     /// inside OrchestrationResponse.error, so a failed /orchestrate call
     /// always returned error: null over HTTP with no way to know what broke.
     pub error: Option<String>,
+    /// Full "thinking cycle" — one entry per real LLM call made this run
+    /// (AMT-building passes, blueprint drafting, zero-shot simulation, step
+    /// execution), each carrying the FULL raw response text. See
+    /// orchestrator::ThinkingEntry.
+    pub thinking_log: Vec<serde_json::Value>,
 }
 
 /// Main Ozone Studio runtime
@@ -144,6 +149,13 @@ impl OzoneRuntime {
         // Prompt pipeline (#9) reads OZONE_MODEL_* / OZONE_WIRE_PROTOCOL the
         // same way (serve mode + one-shot share this config source).
         for (k, v) in config.models.to_pipeline_env() {
+            std::env::set_var(&k, &v);
+        }
+        // Web search pipeline (#56) — disabled by default; only forwards
+        // which env var NAME holds a real search API key, never a
+        // fabricated key or fabricated results (see that pipeline's own
+        // doc comment).
+        for (k, v) in config.web_search.to_pipeline_env() {
             std::env::set_var(&k, &v);
         }
         // K-ALGORITHM defaults (convergence/pairwise — the only families
@@ -364,6 +376,52 @@ impl OzoneRuntime {
             }
         });
 
+        // Start the real methodology meta-loop — previously TaskManager::
+        // start_refinement_daemon existed as real code but had zero callers
+        // anywhere, so it never ran once; that daemon's own sub-tasks were
+        // also stubs (log-only "consider splitting", no actual gap
+        // detection or methodology creation). This is a separate loop
+        // (src/orchestrator/meta_loop.rs) because drafting a genuine new
+        // methodology needs a real LLM call, which TaskManager has no way
+        // to make (it only holds ZSEI access) — PromptOrchestrator's own
+        // executor/store adapters do. Respects the same RefinementConfig
+        // (enabled/interval_secs) the dormant daemon uses.
+        {
+            let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+                Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+                    registry: runtime.read().await.pipeline_registry.clone(),
+                });
+            let store_adapter: Arc<dyn crate::orchestrator::StoreAccess> =
+                Arc::new(crate::orchestrator::ZseiStoreAdapter {
+                    zsei: runtime.read().await.zsei.clone(),
+                });
+            let refinement_config = runtime
+                .read()
+                .await
+                .task_manager
+                .read()
+                .await
+                .refinement_config()
+                .clone();
+            tokio::spawn(crate::orchestrator::meta_loop::run_methodology_meta_loop(
+                executor_adapter.clone(),
+                store_adapter.clone(),
+                refinement_config.clone(),
+            ));
+
+            // Real AMT re-expansion loop (orchestrator/amt_loop.rs) — same
+            // shape as the methodology meta-loop above, same
+            // executor/store contracts, same RefinementConfig. Reviews
+            // real re-expansion candidates recorded live by
+            // amt.rs::record_amt_reexpansion_candidate whenever a
+            // project-anchored AMT still has an unverified node.
+            tokio::spawn(crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
+                executor_adapter,
+                store_adapter,
+                refinement_config,
+            ));
+        }
+
         // Start gRPC server
         grpc::start_server(runtime).await?;
 
@@ -529,6 +587,7 @@ impl OzoneRuntime {
             self.task_manager.clone(),
             Arc::new(RwLock::new(None)),
             self.config.models.context_length as u32,
+            self.config.jurisdiction.clone(),
         );
 
         let response = orchestrator.orchestrate(request).await;
@@ -552,6 +611,11 @@ impl OzoneRuntime {
                 .as_ref()
                 .and_then(|s| serde_json::to_value(s).ok()),
             error: response.error,
+            thinking_log: response
+                .thinking_log
+                .iter()
+                .map(|t| serde_json::to_value(t).unwrap_or_default())
+                .collect(),
         })
     }
 }

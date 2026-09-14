@@ -61,7 +61,24 @@ impl PromptOrchestrator {
         if state.amt_validated {
             if let Some(amt) = state.amt.clone() {
                 match self.persist_amt_container(state, &amt).await {
-                    Ok(id) => state.amt_container_id = Some(id),
+                    Ok(id) => {
+                        state.amt_container_id = Some(id);
+                        // Real, observable re-expansion trigger: this
+                        // specific persisted AMT still has a node with no
+                        // source provenance behind it. Only meaningful for
+                        // requests actually anchored to a project — a
+                        // one-off chat AMT with no project_id has nowhere
+                        // to be "revisited" later.
+                        if let Some(project_id) = state.request.project_id {
+                            if let Some(unverified) = Self::find_unverified_node(&amt) {
+                                Self::record_amt_reexpansion_candidate(
+                                    id,
+                                    project_id,
+                                    &unverified.content,
+                                );
+                            }
+                        }
+                    }
                     Err(e) => tracing::warn!("Failed to persist AMT container: {}", e),
                 }
             }
@@ -151,7 +168,73 @@ impl PromptOrchestrator {
             }
         });
 
-        self.store.create_container(0, container).await
+        // project_id as real parent — same fix an earlier fork this session
+        // applied to text/code modality's persist_graph_container (both had
+        // this identical bug: a hardcoded 0 parent that silently discarded
+        // a real project_id, so a project's AMT never actually nested under
+        // its project container). 0 keeps today's root-parented default for
+        // requests with no project_id.
+        let parent_id = state.request.project_id.unwrap_or(0);
+        self.store.create_container(parent_id, container).await
+    }
+
+    /// Recorded when a freshly-built AMT still has an unverified node — the
+    /// real, observable signal the re-expansion loop (orchestrator/amt_loop.rs)
+    /// acts on. Mirrors record_methodology_gap's exact log-file pattern
+    /// (append, dedup, cap) rather than inventing a new store-wide scan
+    /// mechanism — StoreAccess has no "list all containers of type X"
+    /// today, only keyword search, which isn't a reliable way to enumerate
+    /// every AMT container. Best-effort: a logging failure here must never
+    /// affect the orchestration response itself.
+    fn record_amt_reexpansion_candidate(container_id: u64, project_id: u64, unverified_content: &str) {
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let path = format!("{}/amt_reexpansion_candidates.json", data_dir);
+
+        let mut candidates: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+        let already_recorded = candidates.iter().any(|c| {
+            c.get("container_id").and_then(|v| v.as_u64()) == Some(container_id)
+                && c.get("handled").and_then(|v| v.as_bool()) == Some(false)
+        });
+        if already_recorded {
+            return;
+        }
+
+        candidates.push(serde_json::json!({
+            "recorded_at": chrono::Utc::now().timestamp(),
+            "container_id": container_id,
+            "project_id": project_id,
+            "unverified_content": unverified_content.chars().take(200).collect::<String>(),
+            "handled": false,
+        }));
+
+        const MAX_CANDIDATE_LOG_ENTRIES: usize = 500;
+        if candidates.len() > MAX_CANDIDATE_LOG_ENTRIES {
+            let drop = candidates.len() - MAX_CANDIDATE_LOG_ENTRIES;
+            candidates.drain(0..drop);
+        }
+
+        if let Ok(json) = serde_json::to_string_pretty(&candidates) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+
+    /// First unverified node found via depth-first walk, if any — real
+    /// provenance-based signal (AMTNode.verified is never a fabricated
+    /// score, see its own doc comment), not a heuristic guess.
+    fn find_unverified_node(node: &AMTNode) -> Option<&AMTNode> {
+        if !node.verified {
+            return Some(node);
+        }
+        for child in &node.children {
+            if let Some(found) = Self::find_unverified_node(child) {
+                return Some(found);
+            }
+        }
+        None
     }
 
     /// Build the AMT by traversing the TEXT GRAPH — never by asking a model
@@ -675,6 +758,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                     });
 
                     if let Ok(result) = self.metered_execute(state, 9, branch_input).await {
+                        self.record_thinking(state, "Build AMT — branch discovery", &result);
                         let response =
                             result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
                         let json_str = Self::extract_json_from_response(response, '{', '}');
@@ -980,6 +1064,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                 });
 
                 if let Ok(result) = self.metered_execute(state, 9, intent_input).await {
+                    self.record_thinking(state, "Build AMT — intent extraction", &result);
                     let response = result
                         .get("response")
                         .and_then(|r| r.as_str())
@@ -1139,6 +1224,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                     });
 
                     if let Ok(result) = self.metered_execute(state, 9, branch_input).await {
+                        self.record_thinking(state, "Build AMT — branch refinement", &result);
                         let response = result
                             .get("response")
                             .and_then(|r| r.as_str())
@@ -1196,6 +1282,13 @@ If no new branches apply, return: {{"branches": []}}"#,
                                                 .contains(&bc.branch.to_lowercase()))
                                 });
 
+                                // No per-intent count limit, by explicit
+                                // direction — the real control is
+                                // find_methodologies_by_keywords' relevance
+                                // bar (zsei/query.rs): a project genuinely
+                                // touching many real concerns should get
+                                // exactly as many real branches as it needs,
+                                // not an arbitrary ceiling.
                                 if !already_exists {
                                     state.branch_captures.push(BranchCapture {
                                         branch: branch_str,
@@ -1207,7 +1300,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                                     });
                                     node_id_counter += 1;
                                     new_insights_this_pass = true;
-                                } else {
+                                } else if already_exists {
                                     // Aggregate: add methodology as additional source
                                     if let Some(existing) =
                                         state.branch_captures.iter_mut().find(|bc| {
@@ -1315,6 +1408,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                 });
 
                 if let Ok(result) = self.metered_execute(state, 9, detail_input).await {
+                    self.record_thinking(state, "Build AMT — detail extraction", &result);
                     let response = result
                         .get("response")
                         .and_then(|r| r.as_str())
@@ -1493,6 +1587,8 @@ If no new branches apply, return: {{"branches": []}}"#,
                                             .unwrap_or_default()
                                     });
 
+                                // No per-intent count limit — same reasoning
+                                // as the methodology-driven branch path above.
                                 state.branch_captures.push(BranchCapture {
                                     branch: branch_str,
                                     parent_intent: resolved_parent,
@@ -1591,6 +1687,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                 });
 
                 if let Ok(result) = self.metered_execute(state, 9, crossref_input).await {
+                    self.record_thinking(state, "Build AMT — cross-reference", &result);
                     let response = result
                         .get("response")
                         .and_then(|r| r.as_str())
@@ -1915,6 +2012,117 @@ If no new branches apply, return: {{"branches": []}}"#,
         }
     }
 
+    /// Load a methodology's real decision_rules/heuristics content off disk
+    /// (referenced by the container's storage.object_store_path, the same
+    /// convention text/code modality graphs use) and format it as short,
+    /// practical "IF condition THEN action" / "WHEN ... : ..." lines suitable
+    /// for direct injection into an LLM prompt. Returns None when no content
+    /// file exists yet (the container is keyword/name-only) rather than
+    /// fabricating rule content — most of the 15 bootstrap methodologies are
+    /// still in that state; only a few have real content written so far.
+    pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
+        let object_store_path = container
+            .get("local_state")
+            .and_then(|ls| ls.get("storage"))
+            .and_then(|s| s.get("object_store_path"))
+            .and_then(|p| p.as_str())?;
+
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let full_path = format!("{}/{}", data_dir, object_store_path);
+        let content = std::fs::read_to_string(&full_path).ok()?;
+        let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+        let mut lines: Vec<String> = Vec::new();
+
+        if let Some(rules) = parsed.get("decision_rules").and_then(|r| r.as_array()) {
+            for rule in rules.iter().take(5) {
+                let condition = rule.get("condition").and_then(|c| c.as_str()).unwrap_or("");
+                let action = rule.get("action").and_then(|a| a.as_str()).unwrap_or("");
+                if !condition.is_empty() && !action.is_empty() {
+                    lines.push(format!("IF {} THEN {}", condition, action));
+                }
+            }
+        }
+
+        if let Some(heuristics) = parsed.get("heuristics").and_then(|h| h.as_array()) {
+            for h in heuristics.iter().take(3) {
+                let when = h.get("when_to_apply").and_then(|w| w.as_str()).unwrap_or("");
+                let desc = h.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                if !when.is_empty() && !desc.is_empty() {
+                    lines.push(format!("WHEN {}: {}", when, desc));
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join(" / "))
+        }
+    }
+
+    /// Record a real, observed methodology gap — a real request's keyword
+    /// signal that matched zero methodologies — for the meta-loop
+    /// (src/orchestrator/meta_loop.rs) to later review and, if it's a real
+    /// recurring pattern rather than a one-off, draft and persist a new
+    /// methodology for. Append-only JSON array, capped and deduplicated by
+    /// near-identical keyword sets so a single busy request pattern doesn't
+    /// flood the log. Best-effort: any I/O failure here is silently
+    /// swallowed — this is an observability signal, not something that may
+    /// ever affect the orchestration response itself.
+    pub(crate) fn record_methodology_gap(keywords: &[String], topics: &[String]) {
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let path = format!("{}/methodology_gaps.json", data_dir);
+
+        let mut gaps: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+
+        let mut sorted_keywords: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
+        sorted_keywords.sort();
+        sorted_keywords.dedup();
+
+        // Dedup against near-identical existing gaps (>=half the keywords
+        // shared) rather than exact-match only — the same underlying gap
+        // shows up with slightly different keyword extraction across runs.
+        let already_recorded = gaps.iter().any(|g| {
+            let existing: Vec<String> = g
+                .get("keywords")
+                .and_then(|k| serde_json::from_value(k.clone()).ok())
+                .unwrap_or_default();
+            if existing.is_empty() || sorted_keywords.is_empty() {
+                return false;
+            }
+            let overlap = existing.iter().filter(|k| sorted_keywords.contains(k)).count();
+            let smaller = existing.len().min(sorted_keywords.len());
+            smaller > 0 && overlap * 2 >= smaller
+        });
+
+        if already_recorded {
+            return;
+        }
+
+        gaps.push(serde_json::json!({
+            "recorded_at": chrono::Utc::now().timestamp(),
+            "keywords": sorted_keywords,
+            "topics": topics,
+            "handled": false,
+        }));
+
+        // Cap total log size — a true last-resort bound on disk usage for
+        // an observability log, not a limit on methodology count itself.
+        const MAX_GAP_LOG_ENTRIES: usize = 500;
+        if gaps.len() > MAX_GAP_LOG_ENTRIES {
+            let drop = gaps.len() - MAX_GAP_LOG_ENTRIES;
+            gaps.drain(0..drop);
+        }
+
+        if let Ok(json) = serde_json::to_string_pretty(&gaps) {
+            let _ = std::fs::write(&path, json);
+        }
+    }
+
     async fn enrich_with_zsei_knowledge(
         &self,
         state: &mut OrchestrationState,
@@ -1934,7 +2142,33 @@ If no new branches apply, return: {{"branches": []}}"#,
                 .await
                 .unwrap_or_default();
 
-            for method_id in found_methods {
+            // Gap signal for the real methodology meta-loop (see
+            // src/orchestrator/meta_loop.rs): a real request with a
+            // non-trivial keyword signal (>=3 keywords — avoids recording
+            // noise from a two-word throwaway prompt) that matched NO
+            // methodology at all is exactly the case the user asked to have
+            // searched for and eventually filled. Only record on a true
+            // zero-match, not "found some but few" — a sparse-but-nonzero
+            // match is still a real match, not a gap. Best-effort: a
+            // logging failure here must never affect the orchestration
+            // response itself.
+            if found_methods.is_empty() && search_keywords.len() >= 3 {
+                Self::record_methodology_gap(&search_keywords, &layer_input.topics);
+            }
+
+            // No count limit, by explicit direction: the real fix lives in
+            // find_methodologies_by_keywords itself (zsei/query.rs) — it now
+            // requires genuine keyword overlap, not any single incidental
+            // match, and returns results sorted by relevance. Every
+            // methodology that clears that bar is real signal; a project
+            // can legitimately touch as many real concerns as it actually
+            // touches, and the methodology store is meant to grow without
+            // bound over time (bootstrap's 15 are a starting seed, not a
+            // ceiling — methodology_create can add more at any time). An
+            // earlier version of this code capped this loop at a fixed
+            // count as a blunt guardrail before the real relevance fix
+            // existed; removed now that the search itself is trustworthy.
+            for method_id in found_methods.into_iter() {
                 if !state.methodologies.contains(&method_id) {
                     if let Ok(Some(container)) = self.store.get_container(method_id).await {
                         let name = container
@@ -1954,9 +2188,33 @@ If no new branches apply, return: {{"branches": []}}"#,
 
                         state.methodologies.push(method_id);
                         knowledge.new_methodology_ids.push(method_id);
-                        knowledge.methodology_summaries.push(
-                            format!("[{}] covers: {}", name, keywords_str)
-                        );
+
+                        // Real rule content (decision_rules/heuristics), not
+                        // just the name+keywords summary — confirmed live
+                        // this was a total gap: every one of the 15
+                        // bootstrap-seeded methodologies had an
+                        // object_store_path pointing at a content file that
+                        // was never actually written anywhere, so branch
+                        // discovery only ever had a bare name + generic
+                        // keyword list to work from (explaining why matched
+                        // methodologies produced vague, generic branches
+                        // rather than anything grounded in an actual rule).
+                        // Falls back to the keyword-only summary when no
+                        // content file exists yet (most methodologies still
+                        // don't have one — this is a real, only partially
+                        // filled gap, not a claim that all 15 now do).
+                        match Self::load_methodology_rules_text(&container) {
+                            Some(rules_text) => {
+                                knowledge.methodology_summaries.push(
+                                    format!("[{}] — {}", name, rules_text)
+                                );
+                            }
+                            None => {
+                                knowledge.methodology_summaries.push(
+                                    format!("[{}] covers: {}", name, keywords_str)
+                                );
+                            }
+                        }
                     }
                 }
             }
@@ -2194,6 +2452,7 @@ If no new branches apply, return: {{"branches": []}}"#,
 
         let required_domains: Vec<String> = match self.metered_execute(state, 9, input).await {
             Ok(result) => {
+                self.record_thinking(state, "Build AMT — required domains", &result);
                 let raw = result
                     .get("response")
                     .and_then(|r| r.as_str())
@@ -2241,7 +2500,8 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Methodology synthesis. Return only valid JSON."
                 });
 
-                if let Ok(synth_result) = self.executor.execute(9, synth_input).await {
+                if let Ok(synth_result) = self.metered_execute(state, 9, synth_input).await {
+                    self.record_thinking(state, "Methodology Synthesis", &synth_result);
                     let raw = synth_result
                         .get("response")
                         .and_then(|r| r.as_str())

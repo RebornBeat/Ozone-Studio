@@ -82,6 +82,18 @@ pub struct PromptOutput {
     pub prompt_tokens: Option<u32>,
     /// Whether context was truncated due to limits
     pub context_truncated: Option<bool>,
+    /// Real generation throughput (tokens/sec) — BitNet only, from
+    /// llama.cpp's own perf counters. None for API-backed calls (Anthropic/
+    /// OpenAI/OpenRouter don't expose an equivalent local timing signal —
+    /// left absent rather than fabricated).
+    #[serde(default)]
+    pub eval_tokens_per_sec: Option<f32>,
+    #[serde(default)]
+    pub prompt_eval_tokens_per_sec: Option<f32>,
+    #[serde(default)]
+    pub load_time_ms: Option<f32>,
+    #[serde(default)]
+    pub total_time_ms: Option<f32>,
 }
 
 /// Model configuration (read from OzoneConfig)
@@ -347,6 +359,10 @@ async fn call_anthropic_api(
         finish_reason,
         prompt_tokens: result["usage"]["input_tokens"].as_u64().map(|t| t as u32),
         context_truncated: None, // Set by execute() wrapper
+        eval_tokens_per_sec: None,
+        prompt_eval_tokens_per_sec: None,
+        load_time_ms: None,
+        total_time_ms: None,
     })
 }
 
@@ -423,6 +439,10 @@ async fn call_openai_api(
         finish_reason,
         prompt_tokens: result["usage"]["prompt_tokens"].as_u64().map(|t| t as u32),
         context_truncated: None, // Set by execute() wrapper
+        eval_tokens_per_sec: None,
+        prompt_eval_tokens_per_sec: None,
+        load_time_ms: None,
+        total_time_ms: None,
     })
 }
 
@@ -472,6 +492,10 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
                     finish_reason: Some("stop".to_string()),
                     prompt_tokens: None, // Not available from CLI
                     context_truncated: None,
+                    eval_tokens_per_sec: None,
+                    prompt_eval_tokens_per_sec: None,
+                    load_time_ms: None,
+                    total_time_ms: None,
                 })
             } else {
                 let error = String::from_utf8_lossy(&result.stderr);
@@ -578,6 +602,10 @@ except Exception as e:
                     finish_reason: Some("stop".to_string()),
                     prompt_tokens: None, // Not available from Python bridge
                     context_truncated: None,
+                    eval_tokens_per_sec: None,
+                    prompt_eval_tokens_per_sec: None,
+                    load_time_ms: None,
+                    total_time_ms: None,
                 })
             } else {
                 Err(format!("Failed to parse ONNX output: {}", stdout))
@@ -602,32 +630,76 @@ except Exception as e:
 struct BitnetTokenMetrics {
     prompt_tokens: u32,
     completion_tokens: u32,
+    /// Model load time (ms) — separate from generation time. Dominates wall
+    /// time for short generations (confirmed: ~1.9s load vs ~2.5s eval for a
+    /// 19-token completion in a live test), so must never be folded into a
+    /// tokens/sec figure derived from wall-clock duration.
+    load_time_ms: Option<f32>,
+    /// Prompt-processing throughput (tokens/sec), llama.cpp's own perf
+    /// counter — not derived from wall-clock.
+    prompt_eval_tokens_per_sec: Option<f32>,
+    /// Generation throughput (tokens/sec) — the actual "tokens output per
+    /// second" figure: how fast the model generates, excluding load and
+    /// prompt-processing time.
+    eval_tokens_per_sec: Option<f32>,
+    total_time_ms: Option<f32>,
+}
+
+/// Extract the float immediately after '=' on a llama.cpp perf-print line,
+/// e.g. "...load time =    1934.35 ms" -> 1934.35.
+fn extract_ms_value(line: &str) -> Option<f32> {
+    line.split('=').nth(1)?.split_whitespace().next()?.parse::<f32>().ok()
+}
+
+/// Extract the "tokens per second" figure from a line shaped like
+/// "...(   73.50 ms per token,    13.61 tokens per second)" -> 13.61.
+fn extract_tokens_per_second(line: &str) -> Option<f32> {
+    let paren = line.split('(').nth(1)?;
+    let after_comma = paren.rsplit(',').next()?;
+    after_comma.split_whitespace().next()?.parse::<f32>().ok()
 }
 
 fn parse_bitnet_metrics(stderr: &str) -> Option<BitnetTokenMetrics> {
     let mut prompt_tokens: Option<u32> = None;
     let mut completion_tokens: Option<u32> = None;
+    let mut load_time_ms: Option<f32> = None;
+    let mut prompt_eval_tokens_per_sec: Option<f32> = None;
+    let mut eval_tokens_per_sec: Option<f32> = None;
+    let mut total_time_ms: Option<f32> = None;
+
     for line in stderr.lines() {
-        if line.contains("prompt eval time") {
-            // …"/     5 tokens (…"
+        if line.contains("load time") {
+            // "llama_perf_context_print:        load time =    1934.35 ms"
+            load_time_ms = extract_ms_value(line);
+        } else if line.contains("prompt eval time") {
+            // …"/     5 tokens (…    13.61 tokens per second)"
             if let Some(rest) = line.rsplit("/").next() {
                 prompt_tokens = rest
                     .split_whitespace()
                     .find_map(|w| w.parse::<u32>().ok());
             }
+            prompt_eval_tokens_per_sec = extract_tokens_per_second(line);
         } else if line.contains("eval time") && !line.contains("prompt eval") {
-            // "…/    23 runs   (…"
+            // "…/    23 runs   (…     7.74 tokens per second)"
             if let Some(rest) = line.rsplit("/").next() {
                 completion_tokens = rest
                     .split_whitespace()
                     .find_map(|w| w.parse::<u32>().ok());
             }
+            eval_tokens_per_sec = extract_tokens_per_second(line);
+        } else if line.contains("total time") {
+            // "llama_perf_context_print:       total time =    2614.02 ms /    21 tokens"
+            total_time_ms = extract_ms_value(line);
         }
     }
     match (prompt_tokens, completion_tokens) {
         (Some(p), Some(c)) => Some(BitnetTokenMetrics {
             prompt_tokens: p,
             completion_tokens: c,
+            load_time_ms,
+            prompt_eval_tokens_per_sec,
+            eval_tokens_per_sec,
+            total_time_ms,
         }),
         // No fabricated fallback: metrics are None when the CLI did not
         // report them (captured-only, per the confidence doctrine).
@@ -695,6 +767,17 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                     Some(m) => (Some(m.completion_tokens), Some(m.prompt_tokens)),
                     None => (None, None),
                 };
+                // Real generation throughput — llama.cpp's own perf counter,
+                // not derived from wall-clock (which would include model
+                // load time and badly skew the figure for short generations).
+                if let Some(m) = &metrics {
+                    if let Some(tps) = m.eval_tokens_per_sec {
+                        eprintln!(
+                            "BitNet generation throughput: {:.2} tokens/sec (prompt eval: {:?} tok/s, load time: {:?} ms)",
+                            tps, m.prompt_eval_tokens_per_sec, m.load_time_ms
+                        );
+                    }
+                }
 
                 Ok(PromptOutput {
                     response: response.trim().to_string(),
@@ -703,6 +786,10 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                     finish_reason: Some("stop".to_string()),
                     prompt_tokens,
                     context_truncated: None,
+                    eval_tokens_per_sec: metrics.as_ref().and_then(|m| m.eval_tokens_per_sec),
+                    prompt_eval_tokens_per_sec: metrics.as_ref().and_then(|m| m.prompt_eval_tokens_per_sec),
+                    load_time_ms: metrics.as_ref().and_then(|m| m.load_time_ms),
+                    total_time_ms: metrics.as_ref().and_then(|m| m.total_time_ms),
                 })
             } else {
                 let error = String::from_utf8_lossy(&result.stderr);

@@ -10,8 +10,159 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::path::PathBuf;
 use regex::Regex;
+
+// Same real-ZSEI-over-HTTP pattern as the text modality pipeline (100) and
+// context_aggregation (21): ZSEIQuery is externally-tagged, wire format
+// {"VariantName": {fields...}}.
+fn ozone_host() -> String {
+    env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
+    }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Persist a code graph as a real ZSEI container — this pipeline had never
+/// been built or run before this session; create_graph previously only
+/// minted a local timestamp as graph_id and returned the node/edge graph in
+/// the process's own stdout response, with nothing written to ZSEI or disk.
+/// Once that one short-lived subprocess exited, the graph was gone — any
+/// later QueryGraph/GetDependencyGraph call, or the orchestrator's own
+/// FileLayerContext.graph_id, referenced an id backed by nothing. Mirrors
+/// text modality pipeline 100's persist_graph_container exactly: real
+/// keywords/name on the container, full node/edge content alongside it as
+/// a JSON file. code_context stays None for the same honesty reason
+/// text_context does there — Container's CodeContext schema (ast_summary,
+/// call_graph, data_flow, quality_metrics, etc.) has no honest mapping from
+/// CodeAnalysisResult's simpler shape without fabricating fields; a real
+/// mapping is a separate, larger task.
+async fn persist_graph_container(
+    nodes: &[CodeGraphNode],
+    edges: &[CodeGraphEdge],
+    analysis: &CodeAnalysisResult,
+    local_graph_id: u64,
+    project_id: u64,
+) -> Result<u64, String> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let mut keywords: Vec<String> = analysis.functions.iter().map(|f| f.name.to_lowercase()).collect();
+    keywords.extend(analysis.classes.iter().map(|c| c.name.to_lowercase()));
+    keywords.extend(analysis.imports.iter().map(|i| i.module.to_lowercase()));
+    keywords.push(analysis.language.to_lowercase());
+    let name = format!(
+        "{} code graph ({}, {} lines, {} functions, {} classes)",
+        analysis.file_path.clone().unwrap_or_default(),
+        analysis.language,
+        analysis.line_count,
+        analysis.functions.len(),
+        analysis.classes.len()
+    );
+
+    let container = serde_json::json!({
+        "global_state": {
+            "container_id": 0,
+            "child_count": 0,
+            "version": 1,
+            "parent_id": 0,
+            "child_ids": []
+        },
+        "local_state": {
+            "metadata": {
+                "container_type": "ModalityGraph",
+                "modality": "Code",
+                "created_at": now,
+                "updated_at": now,
+                "provenance": "pipeline:101",
+                "permissions": 0,
+                "owner_id": 0,
+                "name": name,
+                "materialized_path": null
+            },
+            "context": {
+                "categories": [],
+                "methodologies": [],
+                "keywords": keywords,
+                "topics": vec![analysis.language.clone()],
+                "relationships": [],
+                "learned_associations": [],
+                "embedding": null
+            },
+            "storage": {
+                "db_shard_id": null,
+                "vector_index_ref": null,
+                "object_store_path": format!("graphs/code_{}.json", local_graph_id),
+                "compression_type": "None"
+            },
+            "hints": {
+                "access_frequency": 0,
+                "hotness_score": 0.0,
+                "last_accessed": 0,
+                "centroid": null,
+                "ml_prediction_weight": 0.0
+            },
+            "integrity": {
+                "content_hash": vec![0u8; 32],
+                "semantic_fingerprint": [],
+                "last_verified": now,
+                "integrity_score": 1.0,
+                "version_history": []
+            },
+            "file_context": null,
+            "code_context": null,
+            "text_context": null,
+            "external_ref": null
+        }
+    });
+
+    // project_id, when nonzero, is used as the real parent — see text
+    // modality pipeline 100's identical fix for the full rationale:
+    // ContainerType::Project/Workspace and their query handlers
+    // (zsei/query.rs) are real; the only gap was that nothing here ever
+    // used a given project_id as a parent. create_container degrades
+    // gracefully if project_id doesn't correspond to a real container, so
+    // this is safe even for a not-yet-existing project_id. 0 keeps today's
+    // root-parented default.
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": project_id, "container": container }
+    }))
+    .await?;
+
+    let container_id = result
+        .get("ContainerID")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "CreateContainer did not return a ContainerID".to_string())?;
+
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let graphs_dir = format!("{}/graphs", data_dir);
+    let _ = std::fs::create_dir_all(&graphs_dir);
+    let graph_path = format!("{}/code_{}.json", graphs_dir, local_graph_id);
+    let graph_content = serde_json::json!({ "graph_id": local_graph_id, "nodes": nodes, "edges": edges, "analysis": analysis });
+    if let Ok(json) = serde_json::to_string_pretty(&graph_content) {
+        let _ = std::fs::write(&graph_path, json);
+    }
+
+    Ok(container_id)
+}
 
 // ============================================================================
 // INPUT/OUTPUT TYPES
@@ -695,11 +846,12 @@ impl CodeModalityPipeline {
     fn detect_language(&self, code: &str, file_path: Option<&str>) -> String {
         // First try to detect from file extension
         if let Some(path) = file_path {
-            let ext = PathBuf::from(path)
+            let path_buf = PathBuf::from(path);
+            let ext = path_buf
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("");
-            
+
             match ext {
                 "rs" => return "rust".to_string(),
                 "py" => return "python".to_string(),
@@ -1253,7 +1405,7 @@ impl CodeModalityPipeline {
             node_id += 1;
         }
         
-        let graph = CodeGraph {
+        let mut graph = CodeGraph {
             graph_id,
             modality: "code".to_string(),
             nodes,
@@ -1266,10 +1418,26 @@ impl CodeModalityPipeline {
                 meta
             },
         };
-        
+
+        // Real ZSEI persistence — this pipeline had never been built or run
+        // before this session; without this, graph_id was a local timestamp
+        // backed by nothing once this one-shot subprocess exited. On
+        // persistence failure, fall back to the local mint (still a usable
+        // in-process id for this run) rather than failing the whole
+        // analysis — same graceful-degradation posture as text modality's
+        // identical call.
+        match persist_graph_container(&graph.nodes, &graph.edges, &analysis, graph.graph_id, project_id).await {
+            Ok(container_id) => {
+                graph.graph_id = container_id;
+            }
+            Err(e) => {
+                eprintln!("Failed to persist code graph to ZSEI (using local id only): {}", e);
+            }
+        }
+
         CodeModalityOutput {
             success: true,
-            graph_id: Some(graph_id),
+            graph_id: Some(graph.graph_id),
             graph: Some(graph),
             ..Default::default()
         }
@@ -1490,14 +1658,52 @@ impl CodeModalityPipeline {
 // ENTRY POINT
 // ============================================================================
 
+/// The host invokes every pipeline binary with `--input <json> --execution-id
+/// ... [--task-id ...]` (see PipelineExecutor::invoke_pipeline) — never over
+/// stdin. This crate previously read stdin directly and panicked with "EOF
+/// while parsing a value" on every real invocation (confirmed live: this
+/// pipeline had never actually been built or run before). The host also
+/// wraps whatever action payload a caller builds in a {"data": ..., "context":
+/// ...} envelope before serializing it to --input (the same contract every
+/// other pipeline's main() already unwraps — see e.g. the text modality
+/// pipeline's parse_cli_input), so that needs unwrapping too, not just the
+/// stdin-vs-args switch. Stdin is kept as a fallback for standalone/manual
+/// testing when no --input arg is given.
+fn parse_cli_input<T: serde::de::DeserializeOwned>() -> Result<T, String> {
+    let args: Vec<String> = std::env::args().collect();
+    let mut input_json: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    let raw = match input_json {
+        Some(s) => s,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| e.to_string())?;
+            buf
+        }
+    };
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let inner = v.get("data").cloned().unwrap_or(v);
+    serde_json::from_value(inner).map_err(|e| e.to_string())
+}
+
 #[tokio::main]
 async fn main() {
-    let input: CodeModalityInput = serde_json::from_reader(std::io::stdin())
-        .expect("Failed to parse input");
-    
+    let input: CodeModalityInput = parse_cli_input().expect("Failed to parse input");
+
     let pipeline = CodeModalityPipeline::new();
     let output = pipeline.execute(input).await;
-    
+
     serde_json::to_writer(std::io::stdout(), &output)
         .expect("Failed to write output");
 }
