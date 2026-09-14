@@ -479,6 +479,11 @@ pub struct TaskData {
     pub gate_result: Option<consciousness_hooks::GateDecision>,
     #[serde(default)]
     pub thinking_log: Vec<serde_json::Value>,
+    /// Real AMT structure (branches/relationships/verification) for this
+    /// task — see orchestrator::AMTSummary. Set once via `set_amt_summary`
+    /// after orchestration completes, same convention as thinking_log.
+    #[serde(default)]
+    pub amt_summary: Option<serde_json::Value>,
 }
 
 /// Task step data
@@ -568,6 +573,12 @@ pub(crate) struct StoredTask {
     /// tasks created before this existed.
     #[serde(default)]
     thinking_log: Vec<serde_json::Value>,
+    /// Real AMT structure for this task — see TaskData's field of the same
+    /// name for the full explanation. Same set-once-after-completion
+    /// convention as thinking_log. Empty for tasks created before this
+    /// existed.
+    #[serde(default)]
+    amt_summary: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -816,6 +827,7 @@ impl TaskManager {
             error: None,
             gate_result,
             thinking_log: Vec::new(),
+            amt_summary: None,
         };
 
         // Store task
@@ -1232,6 +1244,22 @@ impl TaskManager {
         let mut tasks = self.tasks.write().await;
         if let Some(task) = tasks.get_mut(&task_id) {
             task.thinking_log = thinking_log;
+        }
+        Ok(())
+    }
+
+    /// Persist the real AMT structure onto a task record — same
+    /// set-once-after-completion convention as `set_thinking_log`, for the
+    /// same reason (task creation happens mid-run, before the AMT's final
+    /// validated state is known).
+    pub async fn set_amt_summary(
+        &self,
+        task_id: TaskID,
+        amt_summary: serde_json::Value,
+    ) -> OzoneResult<()> {
+        let mut tasks = self.tasks.write().await;
+        if let Some(task) = tasks.get_mut(&task_id) {
+            task.amt_summary = Some(amt_summary);
         }
         Ok(())
     }
@@ -1735,6 +1763,7 @@ impl TaskManager {
             total_tokens: stored.total_tokens,
             gate_result: stored.gate_result.clone(),
             thinking_log: stored.thinking_log.clone(),
+            amt_summary: stored.amt_summary.clone(),
         }
     }
 }

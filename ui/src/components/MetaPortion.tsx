@@ -44,6 +44,19 @@ interface ThinkingEntry {
   load_time_ms?: number;
 }
 
+/** Real, aggregate AMT structure numbers — forwarded verbatim from
+ * OrchestrateResponse.amt_summary (src/orchestrator/mod.rs's AMTSummary).
+ * Deliberately just these 4 fields: today's backend doesn't expose
+ * per-branch names/relationships/confidence to the client, only these
+ * aggregate counts — do not fabricate a richer tree than the data
+ * actually supports. */
+interface AMTSummary {
+  total_nodes: number;
+  branch_count: number;
+  max_depth: number;
+  validation_status: string;
+}
+
 interface TranscriptEntry {
   id: number;
   role: 'user' | 'assistant';
@@ -59,6 +72,9 @@ interface TranscriptEntry {
    * execution), forwarded from OrchestrateResponse.thinking_log. Empty/
    * absent for user messages and older responses from before this existed. */
   thinkingLog?: ThinkingEntry[];
+  /** Real AMT structure stats for this response, when the run built one
+   * (absent for e.g. a clarification-only response with no AMT). */
+  amtSummary?: AMTSummary;
 }
 
 // Per-model accent so a model switch mid-conversation is visible at a
@@ -590,6 +606,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
             thinkingLog: Array.isArray(result.thinking_log)
               ? result.thinking_log
               : undefined,
+            amtSummary: result.amt_summary ?? undefined,
           }]);
 
           // Speak the response if voice output is enabled
@@ -916,6 +933,25 @@ export function MetaPortion({ width }: MetaPortionProps) {
                             {entry.stageCount ? (
                               <span style={{ fontSize: 11, opacity: 0.5 }}>{entry.stageCount} stages</span>
                             ) : null}
+                            {entry.amtSummary && (
+                              <span
+                                title={`AMT: ${entry.amtSummary.total_nodes} nodes, depth ${entry.amtSummary.max_depth}, ${entry.amtSummary.validation_status}`}
+                                style={{
+                                  fontSize: 11,
+                                  opacity: 0.6,
+                                  border: '1px solid #223046',
+                                  borderRadius: 999,
+                                  padding: '2px 8px',
+                                  display: 'inline-flex',
+                                  gap: 5,
+                                  alignItems: 'center',
+                                }}
+                              >
+                                🌳 {entry.amtSummary.branch_count} branch{entry.amtSummary.branch_count === 1 ? '' : 'es'}
+                                {' · '}depth {entry.amtSummary.max_depth}
+                                {entry.amtSummary.validation_status === 'Validated' ? ' · ✓' : ''}
+                              </span>
+                            )}
                             {entry.thinkingLog && entry.thinkingLog.length > 0 && (
                               <button
                                 onClick={() => {

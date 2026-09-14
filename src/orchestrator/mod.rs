@@ -501,6 +501,54 @@ pub struct AMTSummary {
     pub branch_count: usize,
     pub max_depth: usize,
     pub validation_status: String,
+    /// Flat list of every node in the tree (root included) — real,
+    /// non-fabricated per-node data (content/verified/confidence directly
+    /// from AMTNode) plus its relationships, previously never surfaced past
+    /// this backend struct's 4 scalar fields. Confirmed live this session
+    /// that the UI had nothing to render a real tree/relationship view
+    /// from — this closes that gap without inventing structure the data
+    /// doesn't actually have.
+    #[serde(default)]
+    pub branches: Vec<AMTBranchSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AMTBranchSummary {
+    pub id: u64,
+    pub content: String,
+    pub depth: u32,
+    pub verified: bool,
+    pub confidence: f32,
+    pub relationships: Vec<AMTRelationSummary>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AMTRelationSummary {
+    pub target_id: u64,
+    pub relation_type: String,
+    pub confidence: f32,
+}
+
+fn flatten_amt_nodes(node: &AMTNode, out: &mut Vec<AMTBranchSummary>) {
+    out.push(AMTBranchSummary {
+        id: node.id,
+        content: node.content.clone(),
+        depth: node.depth,
+        verified: node.verified,
+        confidence: node.confidence,
+        relationships: node
+            .relationships
+            .iter()
+            .map(|r| AMTRelationSummary {
+                target_id: r.target_id,
+                relation_type: format!("{:?}", r.relation_type),
+                confidence: r.confidence,
+            })
+            .collect(),
+    });
+    for child in &node.children {
+        flatten_amt_nodes(child, out);
+    }
 }
 
 // ============================================================================
@@ -859,6 +907,16 @@ pub struct BlueprintStep {
     /// to nothing."
     #[serde(default)]
     pub source_chunk_indices: Vec<u32>,
+    /// Methodology IDs relevant to this step's originating branch (from
+    /// AMTNode.methodology_ids, populated the same reconciliation pass as
+    /// source_chunk_indices above). Lets execute_step run a real, lightweight
+    /// post-generation compliance check against this branch's actual
+    /// decision_rules/heuristics — previously that content only ever reached
+    /// prompts as guidance, with nothing checking whether a step's output
+    /// actually complied. Empty means no methodology was matched to this
+    /// branch — no compliance check runs, never fabricated against nothing.
+    #[serde(default)]
+    pub methodology_ids: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1096,6 +1154,19 @@ pub(crate) struct OrchestrationState {
     available_pipelines: Vec<PipelineInfo>,
 }
 
+/// A real, lightweight post-generation check: does this step's actual output
+/// comply with the decision_rules/heuristics of the methodology matched to
+/// its branch? Previously that content only ever reached prompts as
+/// guidance (blueprint generation, branch discovery) — nothing confirmed a
+/// step's output actually followed it. One cheap LLM judgment, recorded,
+/// never blocking or retrying the step (that would be a much larger
+/// self-correction feature) — visibility, not enforcement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComplianceCheckResult {
+    pub compliant: bool,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)] // pipeline_id/iterations/sub_step_results = captured metrics
 struct StepResult {
@@ -1105,6 +1176,7 @@ struct StepResult {
     tokens_used: u32,
     iterations: u32,
     sub_step_results: Vec<SubStepResult>,
+    compliance_check: Option<ComplianceCheckResult>,
 }
 
 #[derive(Debug, Clone)]
@@ -1570,6 +1642,28 @@ impl PromptOrchestrator {
                     .read()
                     .await
                     .set_thinking_log(task_id, thinking_log_json)
+                    .await;
+            }
+            if let Some(amt) = &state.amt {
+                let mut branches = Vec::new();
+                flatten_amt_nodes(amt, &mut branches);
+                let amt_summary_json = serde_json::to_value(AMTSummary {
+                    total_nodes: amt.count_nodes(),
+                    branch_count: amt.branch_count(),
+                    max_depth: amt.max_depth(),
+                    validation_status: if state.amt_validated {
+                        "Validated".to_string()
+                    } else {
+                        format!("Streak: {}/5", state.validation_streak)
+                    },
+                    branches,
+                })
+                .unwrap_or_default();
+                let _ = self
+                    .task_manager
+                    .read()
+                    .await
+                    .set_amt_summary(task_id, amt_summary_json)
                     .await;
             }
         }
@@ -2542,15 +2636,20 @@ impl PromptOrchestrator {
             blueprints_created: state.blueprints_created,
             clarification_points: state.clarification_points.clone(),
             needs_clarification: state.needs_clarification,
-            amt_summary: state.amt.as_ref().map(|amt| AMTSummary {
-                total_nodes: amt.count_nodes(),
-                branch_count: amt.branch_count(),
-                max_depth: amt.max_depth(),
-                validation_status: if state.amt_validated {
-                    "Validated".to_string()
-                } else {
-                    format!("Streak: {}/5", state.validation_streak)
-                },
+            amt_summary: state.amt.as_ref().map(|amt| {
+                let mut branches = Vec::new();
+                flatten_amt_nodes(amt, &mut branches);
+                AMTSummary {
+                    total_nodes: amt.count_nodes(),
+                    branch_count: amt.branch_count(),
+                    max_depth: amt.max_depth(),
+                    validation_status: if state.amt_validated {
+                        "Validated".to_string()
+                    } else {
+                        format!("Streak: {}/5", state.validation_streak)
+                    },
+                    branches,
+                }
             }),
             model_used: state
                 .step_results

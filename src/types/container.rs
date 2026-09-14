@@ -28,6 +28,7 @@ pub const BLUEPRINT_ROOT_ID: ContainerID = 3;
 pub const PIPELINE_ROOT_ID: ContainerID = 4;
 pub const CONSCIOUSNESS_ROOT_ID: ContainerID = 5;
 pub const EXTERNAL_ROOT_ID: ContainerID = 6;
+pub const JURISDICTION_ROOT_ID: ContainerID = 7;
 
 // ── Core Modality Nodes (10–18) ────────────────────────────────────────────
 // One node per modality pipeline, under /Modality/

@@ -426,6 +426,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
                     timeout_ms: None,
                     model_override: None,
                     source_chunk_indices: Vec::new(),
+                    methodology_ids: Vec::new(),
                 }]
             });
 
@@ -528,13 +529,79 @@ steps this AMT's branch count above actually requires, not necessarily two):
                     .any(|w| b.contains(w))
         };
 
+        // AMTRelation (branch-to-branch cross-references, built from real
+        // state.cross_refs — see build_branch_node) was previously write-only:
+        // captured on every branch node but never read anywhere downstream.
+        // A step whose branch has a real cross-reference to another branch
+        // should see that other branch's relevant text too, not just its own
+        // chunk indices — otherwise a step can be scoped away from content
+        // its own AMT data says it's explicitly related to. Recurses because
+        // relationships live on branch-level nodes, which in multi-intent
+        // mode sit one level below the amt.children entries this
+        // reconciliation matches against (children are intent-level nodes
+        // there, branches are intent_node.children) — walking descendants
+        // finds them regardless of which tree shape applies.
+        fn collect_relationship_targets(node: &AMTNode, targets: &mut Vec<u64>) {
+            for rel in &node.relationships {
+                targets.push(rel.target_id);
+            }
+            for child in &node.children {
+                collect_relationship_targets(child, targets);
+            }
+        }
+        fn find_amt_node_by_id(node: &AMTNode, target_id: u64) -> Option<&AMTNode> {
+            if node.id == target_id {
+                return Some(node);
+            }
+            for child in &node.children {
+                if let Some(found) = find_amt_node_by_id(child, target_id) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        let related_chunk_indices = |matched: &AMTNode, root: &AMTNode| -> Vec<u32> {
+            let mut target_ids = Vec::new();
+            collect_relationship_targets(matched, &mut target_ids);
+            let mut idx = Vec::new();
+            for tid in target_ids {
+                if let Some(node) = find_amt_node_by_id(root, tid) {
+                    idx.extend(node.source_chunk_indices.iter().copied());
+                }
+            }
+            idx
+        };
+        // AMTNode.methodology_ids is only ever set on branch-level nodes
+        // (build_branch_node), not on the intent-level nodes amt.children
+        // actually are in multi-intent mode — so collect recursively from
+        // "matched" and its descendants, same reasoning as relationships
+        // above, rather than assuming matched itself carries it directly.
+        fn collect_methodology_ids(node: &AMTNode, ids: &mut Vec<u64>) {
+            for &id in &node.methodology_ids {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            for child in &node.children {
+                collect_methodology_ids(child, ids);
+            }
+        }
+
         for existing in state.blueprint_steps.iter_mut() {
             if let Some(matched) = amt.children.iter().find(|c| overlaps(&c.content, &existing.description)) {
                 if existing.source_chunk_indices.is_empty() {
                     existing.source_chunk_indices = matched.source_chunk_indices.clone();
                 }
+                for idx in related_chunk_indices(matched, &amt) {
+                    if !existing.source_chunk_indices.contains(&idx) {
+                        existing.source_chunk_indices.push(idx);
+                    }
+                }
                 if existing.context_requirements == vec!["full_context".to_string()] {
                     existing.context_requirements = branch_keywords(&matched.content);
+                }
+                if existing.methodology_ids.is_empty() {
+                    collect_methodology_ids(matched, &mut existing.methodology_ids);
                 }
             }
         }
@@ -569,7 +636,20 @@ steps this AMT's branch count above actually requires, not necessarily two):
                     max_retries: 1,
                     timeout_ms: None,
                     model_override: None,
-                    source_chunk_indices: branch.source_chunk_indices.clone(),
+                    source_chunk_indices: {
+                        let mut idx = branch.source_chunk_indices.clone();
+                        for related_idx in related_chunk_indices(branch, &amt) {
+                            if !idx.contains(&related_idx) {
+                                idx.push(related_idx);
+                            }
+                        }
+                        idx
+                    },
+                    methodology_ids: {
+                        let mut ids = Vec::new();
+                        collect_methodology_ids(branch, &mut ids);
+                        ids
+                    },
                 });
                 next_step_index += 1;
             }
@@ -1483,6 +1563,102 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
 
         state.tokens_used_so_far += tokens_used;
 
+        // Real, lightweight compliance check — only when this step's branch
+        // actually matched real methodology content (never fabricated
+        // against nothing). One cheap LLM judgment, recorded via the normal
+        // thinking-log path, never blocking/retrying the step.
+        let compliance_check = if step.methodology_ids.is_empty() {
+            None
+        } else {
+            let mut rules_text_parts = Vec::new();
+            for &method_id in &step.methodology_ids {
+                if let Ok(Some(container)) = self.store.get_container(method_id).await {
+                    if let Some(rules) = Self::load_methodology_rules_text(&container) {
+                        rules_text_parts.push(rules);
+                    }
+                }
+            }
+            if rules_text_parts.is_empty() {
+                None
+            } else {
+                let output_text = self.extract_output_text(&final_output);
+                let compliance_prompt = format!(
+                    "Decision rules for this task:\n{}\n\nOutput produced:\n{}\n\n\
+                     Does the output comply with these rules? Return ONLY valid JSON: \
+                     {{\"compliant\": true|false, \"reason\": \"brief explanation\"}}",
+                    rules_text_parts.join(" / "),
+                    &output_text[..output_text.len().min(1500)]
+                );
+                let compliance_input = serde_json::json!({
+                    "prompt": compliance_prompt,
+                    "max_tokens": 150,
+                    "temperature": 0.1,
+                    "system_context": "Judge rule compliance. Return only valid JSON, no explanation outside the JSON."
+                });
+                // A failure here (call error OR unparseable response) is a
+                // real model/network issue, not an expected "nothing to
+                // check" case — retry before giving up rather than silently
+                // continuing on the first failure. Still never blocks the
+                // step itself: after retries are exhausted, this surfaces
+                // loudly (tracing::error!) as a real, visible problem rather
+                // than being treated the same as "no methodology matched."
+                const MAX_COMPLIANCE_RETRIES: u32 = 2;
+                let mut attempt = 0;
+                let mut outcome: Option<ComplianceCheckResult> = None;
+                let mut last_error: Option<String> = None;
+                loop {
+                    match self.metered_execute(state, 9, compliance_input.clone()).await {
+                        Ok(result) => {
+                            self.record_thinking(
+                                state,
+                                &format!("Compliance Check (step {})", step.step_index),
+                                &result,
+                            );
+                            let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
+                            let json_str = Self::extract_json_from_response(raw, '{', '}');
+                            let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
+                                .ok()
+                                .and_then(|v| {
+                                    let compliant = v.get("compliant")?.as_bool()?;
+                                    let reason = v
+                                        .get("reason")
+                                        .and_then(|r| r.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    Some(ComplianceCheckResult { compliant, reason })
+                                });
+                            match parsed {
+                                Some(r) => {
+                                    outcome = Some(r);
+                                    break;
+                                }
+                                None => {
+                                    last_error = Some(format!("unparseable response: {}", raw));
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            last_error = Some(e);
+                        }
+                    }
+                    attempt += 1;
+                    if attempt > MAX_COMPLIANCE_RETRIES {
+                        break;
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(150 * attempt as u64)).await;
+                }
+                if outcome.is_none() {
+                    tracing::error!(
+                        step_index = step.step_index,
+                        attempts = attempt,
+                        error = ?last_error,
+                        "Compliance check failed after retries — real model/parsing issue, not a normal 'nothing to check' case"
+                    );
+                }
+                outcome
+            }
+        };
+
         // Fire OnStepComplete hook — living system integration
         self.on_step_complete(
             state,
@@ -1494,6 +1670,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 tokens_used,
                 iterations: total_iterations,
                 sub_step_results: sub_step_results.clone(),
+                compliance_check: compliance_check.clone(),
             },
         )
         .await;
@@ -1505,6 +1682,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             tokens_used,
             iterations: total_iterations,
             sub_step_results,
+            compliance_check,
         })
     }
 

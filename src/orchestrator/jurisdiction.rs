@@ -67,6 +67,20 @@ pub struct JurisdictionGateResult {
     pub blocked: bool,
 }
 
+/// On-disk shape for a jurisdiction content file (referenced by a
+/// JurisdictionRuleSet container's object_store_path). `disclaimer` is
+/// mandatory content, not decoration — every real content file must state,
+/// prominently and in its own words, that this is an engineering starting
+/// point drafted from cited sources and NOT verified legal compliance, NOT a
+/// substitute for qualified legal counsel. Deserialization fails (rules load
+/// as empty, never silently substituting a missing disclaimer) if this field
+/// is absent, by design — see load_jurisdiction_rules.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JurisdictionContentFile {
+    pub disclaimer: String,
+    pub rules: Vec<JurisdictionRule>,
+}
+
 impl PromptOrchestrator {
     /// Load real jurisdiction rules from ZSEI for the current instance's
     /// configured region plus Global scope. Returns an empty Vec (not an
@@ -100,8 +114,24 @@ impl PromptOrchestrator {
                     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
                     let full_path = format!("{}/{}", data_dir, object_store_path);
                     if let Ok(content) = std::fs::read_to_string(&full_path) {
-                        if let Ok(parsed) = serde_json::from_str::<Vec<JurisdictionRule>>(&content) {
-                            rules.extend(parsed);
+                        // Requires the disclaimer field (JurisdictionContentFile,
+                        // not a bare array) — a content file missing it fails to
+                        // parse and contributes zero rules rather than silently
+                        // loading undisclaimed content. This is deliberate: the
+                        // disclaimer is mandatory content, not decoration.
+                        match serde_json::from_str::<JurisdictionContentFile>(&content) {
+                            Ok(parsed) if !parsed.disclaimer.trim().is_empty() => {
+                                rules.extend(parsed.rules);
+                            }
+                            Ok(_) => {
+                                tracing::warn!(
+                                    path = %full_path,
+                                    "Jurisdiction content file has an empty disclaimer — refusing to load its rules"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(path = %full_path, error = %e, "Failed to parse jurisdiction content file");
+                            }
                         }
                     }
                 }
@@ -115,13 +145,19 @@ impl PromptOrchestrator {
     /// this is a real no-op that is still visible in the stage log rather
     /// than silently doing nothing.
     pub(crate) async fn stage_jurisdiction_gate(&self, state: &mut OrchestrationState) -> Result<(), String> {
-
-        if !self.jurisdiction_config.enabled {
-            self.record_stage(state, 0, "Jurisdiction Gate", true, "Disabled in config");
-            return Ok(());
-        }
-
-        let region = self.jurisdiction_config.instance_region.as_deref();
+        // Global (U.N.-level) scope is a hard invariant, not something any
+        // config flag can turn off — per explicit direction: "U.N. must
+        // always be applied whether location is present or not." Only the
+        // National/Local (region-specific) layer is gated by `enabled`, and
+        // only ever considered when a region is actually configured — this
+        // system never guesses a location. `enabled=false` therefore means
+        // "no region-specific enforcement yet", never "no jurisdiction
+        // enforcement at all".
+        let region = if self.jurisdiction_config.enabled {
+            self.jurisdiction_config.instance_region.as_deref()
+        } else {
+            None
+        };
         let rules = self.load_jurisdiction_rules(region).await;
 
         // Runs at Stage 1, before prompt_normalization — state.cleaned_prompt

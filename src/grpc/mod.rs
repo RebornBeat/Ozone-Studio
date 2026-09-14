@@ -144,6 +144,12 @@ pub struct TaskInfo {
     /// get_task, left empty on list_tasks.
     #[serde(default)]
     pub thinking_log: Vec<serde_json::Value>,
+    /// Real AMT structure (branches/relationships/verification) for this
+    /// task — see orchestrator::AMTSummary. Same lightweight-list-view
+    /// convention as `steps`/`thinking_log`: populated on get_task, left
+    /// empty on list_tasks.
+    #[serde(default)]
+    pub amt_summary: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -490,6 +496,7 @@ async fn get_task(
             error: task.error.map(|e| format!("{:?}", e)),
             steps: task.steps,
             thinking_log: task.thinking_log,
+            amt_summary: task.amt_summary,
         })),
         None => Json(None),
     }
@@ -526,6 +533,7 @@ async fn list_tasks(
                 error: t.error.map(|e| format!("{:?}", e)),
                 steps: Vec::new(),
                 thinking_log: Vec::new(),
+                amt_summary: None,
             })
             .collect(),
         total,

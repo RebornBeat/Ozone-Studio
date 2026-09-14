@@ -32,6 +32,7 @@ use crate::types::container::{
     EXTERNAL_ROOT_ID,
 
     EXTERNAL_URLS_ROOT_ID,
+    JURISDICTION_ROOT_ID,
 
     FILE_GRAPH_ROOT_ID,
     METHODOLOGY_ROOT_ID,
@@ -146,6 +147,14 @@ impl BootstrapManager {
 
         // 5. Copy blueprint index and built-in blueprints
         self.copy_blueprints()?;
+
+        // 5b. Copy jurisdiction assets (Global/U.N.-scope starting content —
+        // see assets/jurisdiction/README.md and src/orchestrator/jurisdiction.rs
+        // for the honesty constraints this content must follow). Same
+        // copy-from-assets-at-boot mechanism as methodologies/blueprints, so
+        // every fresh instance gets this real content, not just a manually
+        // set up dev instance.
+        self.copy_jurisdiction_content()?;
 
         // 6. ZSEI structural root containers are NOT created here anymore —
         // this used to write them as local/<id>.json files (see the removed
@@ -268,6 +277,22 @@ impl BootstrapManager {
         Ok(())
     }
 
+    /// Copy jurisdiction content assets (currently: a single Global/U.N.
+    /// starting ruleset — see assets/jurisdiction/global.json) into every
+    /// fresh instance's data dir at boot, same mechanism as methodologies/
+    /// blueprints. Just a file copy — the real ZSEI container referencing
+    /// this content (JurisdictionRuleSet, keywords: ["global"]) is created
+    /// separately (see docs/JURISDICTION_SETUP.md for the one-time command,
+    /// since container creation needs a running ZSEI instance that doesn't
+    /// exist yet at this point in boot — same reason structural roots are
+    /// self-healed later in lib.rs rather than created here).
+    fn copy_jurisdiction_content(&self) -> OzoneResult<()> {
+        let src = self.assets_dir.join("jurisdiction");
+        let dst = self.data_dir.join("jurisdiction");
+        self.copy_dir_recursive(&src, &dst, "jurisdiction")?;
+        Ok(())
+    }
+
     /// Recursive copy helper (idempotent, logs what it does)
     fn copy_dir_recursive(&self, src: &Path, dst: &Path, name: &str) -> OzoneResult<()> {
         if !src.exists() {
@@ -367,6 +392,12 @@ impl BootstrapManager {
                 "External",
                 "/External",
                 ContainerType::ExternalRoot,
+            ),
+            (
+                JURISDICTION_ROOT_ID,
+                "Jurisdiction",
+                "/Jurisdiction",
+                ContainerType::JurisdictionRoot,
             ),
             // Core modality nodes
             (

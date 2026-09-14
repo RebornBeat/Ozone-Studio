@@ -296,6 +296,32 @@ export const TaskDetailPanel: React.FC = () => {
             </table>
           )}
 
+          {(task.thinking_log ?? []).some((t: any) =>
+            typeof t?.stage === "string" && t.stage.startsWith("Build AMT"),
+          ) && (
+            <div style={{ marginTop: 16 }}>
+              <div className="ostat-label" style={{ marginBottom: 8 }}>
+                AMT activity
+              </div>
+              {/* TaskInfo (src/grpc/mod.rs) doesn't carry the structured
+                  AMTSummary (branch_count/max_depth/nodes) that the live
+                  /orchestrate response does — only thinking_log survives
+                  into a task lookup. This counts real "Build AMT ..." calls
+                  as an honest activity signal rather than fabricating a
+                  branch/tree view this data can't actually support. See
+                  MetaPortion.tsx for the real structural summary, shown
+                  right after a live orchestrate response. */}
+              <div style={{ fontSize: 12, opacity: 0.7 }}>
+                {
+                  task.thinking_log!.filter((t: any) =>
+                    typeof t?.stage === "string" && t.stage.startsWith("Build AMT"),
+                  ).length
+                }{" "}
+                AMT-building call(s) during this task — see Thinking cycle below for details.
+              </div>
+            </div>
+          )}
+
           {(task.thinking_log ?? []).length > 0 && (
             <div style={{ marginTop: 16 }}>
               <div className="ostat-label" style={{ marginBottom: 8 }}>

@@ -137,13 +137,19 @@ impl WebSearchConfig {
 /// it's just a lookup key into whatever real rulesets a human has loaded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JurisdictionConfig {
-    /// Master switch for the enforcement hook itself (not for any specific
-    /// rule content, which doesn't exist yet regardless of this flag).
+    /// Gates ONLY the National/Local (region-specific) rule layer — never
+    /// the Global (U.N.-level) layer, which is a hard invariant enforced
+    /// unconditionally by stage_jurisdiction_gate regardless of this flag
+    /// (per explicit direction: U.N. scope must always apply whether a
+    /// location is configured or not). `enabled=false` means "don't apply
+    /// region-specific rules yet", never "skip jurisdiction enforcement".
     #[serde(default = "default_jurisdiction_enabled")]
     pub enabled: bool,
     /// This instance's configured region, e.g. "US-CA". None means no
     /// region-specific ruleset applies — only whatever is registered as
-    /// Global scope (if anything real has been loaded).
+    /// Global scope (if anything real has been loaded). Never guessed or
+    /// defaulted from anything (IP geolocation, etc.) — a human sets this
+    /// explicitly or it stays None.
     #[serde(default)]
     pub instance_region: Option<String>,
 }
