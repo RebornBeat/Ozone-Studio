@@ -623,6 +623,7 @@ The system recognizes that:
 - **AMT (Abstract Meaning Tree)**: `docs/AMT.md`
 - **Bootstrap & Evolution**: `docs/bootstrap_and_evolution.md`
 - **Contracts**: `docs/CONTRACTS.md`
+- **Living Graph Status**: `docs/LIVING_GRAPH_STATUS.md` — the graph system's doctrine-vs-reality matrix: what is graphed per modality, context-object provenance, the traversal-wiring gap, and the coordination graph
 - **Ecosystem Architecture**: `docs/ecosystem_architecture.md`
 - **Introduction**: `docs/introduction.md`
 - **Technical Documentation**: `docs/technical_documentation.md`

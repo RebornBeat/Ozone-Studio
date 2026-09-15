@@ -738,7 +738,23 @@ BLUEPRINT STEPS:
 For each step, predict:
 1. What information will be needed
 2. What output will be produced
-3. Potential issues or clarifications needed
+3. Risks or failure modes (things that could go wrong when running this step — NOT questions to ask the user)
+
+`clarifications_needed` is for BLOCKING ambiguity ONLY: cases where no reasonable
+default exists and proceeding would produce something the user did not ask for
+at all (e.g. the request names a specific file/system/person that doesn't
+exist or wasn't identified, or two instructions directly contradict each
+other). This must be empty in the overwhelming majority of requests.
+
+Do NOT add a clarification for: tone/style/formality, target audience/recipient,
+language (assume the language the prompt was written in), output length or
+format details, whether to add error handling/edge cases/verification steps,
+or any other preference where a sensible default lets you proceed. Pick the
+most reasonable default silently and simulate against it — do not ask.
+
+If you would put anything in `clarifications_needed`, first ask yourself: "is
+there truly no reasonable default I could pick instead?" Only list it if the
+honest answer is yes.
 
 Return JSON:
 {{
@@ -937,6 +953,31 @@ Return JSON:
         match task_result {
             Ok(task_id) => {
                 state.task_id = Some(task_id);
+
+                // CONTEXT OBJECTS: Stage 6 assembled per-step context before
+                // a durable task id existed — persist every entry now so
+                // "what each step actually received as context" is durable,
+                // loggable, and API-obtainable (never write-only). Provenance
+                // records the real mechanism used at assembly time.
+                let task_mgr = self.task_manager.read().await;
+                for (step_idx, ctx) in &state.step_contexts {
+                    if let Err(e) = task_mgr
+                        .update_step_context(
+                            task_id,
+                            *step_idx,
+                            ctx,
+                            vec!["keyword-scan".to_string()],
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            task_id,
+                            step = *step_idx,
+                            error = %e,
+                            "Failed to persist step context object"
+                        );
+                    }
+                }
             }
             Err(e) => {
                 self.record_stage(state, 7, "Task Creation", false, &format!("Failed: {}", e));
@@ -1439,12 +1480,24 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 break;
             }
 
+            // Original request leads, background context trails and is
+            // explicitly marked optional — a weaker model that loses track
+            // of a long input tends to latch onto whatever is LAST, and
+            // background context can legitimately be long. Putting the
+            // real instruction first and telling the model outright to
+            // ignore irrelevant background avoids the model treating noisy
+            // or tangential context as the thing it's supposed to produce
+            // (confirmed live: the previous Context-before-request ordering
+            // let a step's actual output become a regurgitation of its own
+            // background context instead of a real answer).
             let step_prompt = format!(
-                "Step {}: {}\n\nContext:\n{}\n\nOriginal request: {}",
+                "Original request: {}\n\nCurrent step ({}): {}\n\n\
+                 Background context (may be empty or only partially relevant — \
+                 use what helps, ignore the rest, never treat it as the task):\n{}",
+                &state.cleaned_prompt[..state.cleaned_prompt.len().min(500)],
                 step.step_index + 1,
                 step.description,
                 full_context,
-                &state.cleaned_prompt[..state.cleaned_prompt.len().min(500)]
             );
 
             let mut exec_input = serde_json::json!({
@@ -1491,7 +1544,18 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 .execute(step.pipeline_id, exec_input.clone())
                 .await;
 
-            while exec_result.is_err() && retries < step.max_retries {
+            // Confirmed live this session (repeatedly, via the methodology
+            // meta-loop): pipeline 9 (especially OpenRouter) can return `Ok`
+            // with a genuinely empty `response` field — a real, recurring
+            // backend behavior, not a hard error. Checking only
+            // exec_result.is_err() misses this entirely: neither the retry
+            // loop nor the fallback chain below would ever trigger, and the
+            // step would silently proceed with nothing. Self::
+            // is_unusable_pipeline9_result treats "Ok but unusable" the
+            // same as a hard error, for pipeline 9 only.
+            while Self::is_unusable_pipeline9_result(step.pipeline_id, &exec_result)
+                && retries < step.max_retries
+            {
                 retries += 1;
                 tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
                 exec_result = self
@@ -1508,12 +1572,16 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // try_fallback_chain: walks each registered identifier in order
             // so a step still succeeds via a different backend/provider when
             // the default one is down, rate-limited, segfaults (as BitNet
-            // currently does on longer prompts), or the account is out of
-            // funds.
-            if let Err(e) = &exec_result {
+            // currently does on longer prompts), returns empty responses, or
+            // the account is out of funds.
+            if Self::is_unusable_pipeline9_result(step.pipeline_id, &exec_result) {
                 if step.pipeline_id == 9 && !has_explicit_override {
+                    let last_error = exec_result
+                        .clone()
+                        .err()
+                        .unwrap_or_else(|| "primary model returned an empty response".to_string());
                     exec_result = self
-                        .try_fallback_chain(state, step.pipeline_id, exec_input.clone(), e.clone())
+                        .try_fallback_chain(state, step.pipeline_id, exec_input.clone(), last_error)
                         .await;
                 }
             }

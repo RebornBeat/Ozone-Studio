@@ -98,7 +98,7 @@ impl BootstrapManager {
     /// 2. <binary_dir>/../../assets  (dev: target/release → project root)
     /// 3. <binary_dir>/assets         (production bundle)
     /// 4. ./assets                    (last resort)
-    fn resolve_assets_dir() -> PathBuf {
+    pub fn resolve_assets_dir() -> PathBuf {
         if let Ok(path) = std::env::var("OZONE_ASSETS_PATH") {
             let p = PathBuf::from(path);
             if p.exists() {
@@ -398,6 +398,12 @@ impl BootstrapManager {
                 "Jurisdiction",
                 "/Jurisdiction",
                 ContainerType::JurisdictionRoot,
+            ),
+            (
+                crate::types::container::SHARED_CONTEXT_ROOT_ID,
+                "SharedContext",
+                "/SharedContext",
+                ContainerType::SharedContextRoot,
             ),
             // Core modality nodes
             (
@@ -849,7 +855,8 @@ impl BootstrapManager {
                 {"methodology_id":12,"name":"Technical Writing","categories":["writing","documentation","clarity"],"file":"method_12_technical_writing.json"},
                 {"methodology_id":13,"name":"Exploratory Analysis","categories":["data","exploration","discovery"],"file":"method_13_exploratory.json"},
                 {"methodology_id":14,"name":"Formal Proof Methods","categories":["math","proof","formal"],"file":"method_14_formal_proof.json"},
-                {"methodology_id":15,"name":"Mathematical Rigor","categories":["math","rigor","verification"],"file":"method_15_mathematical_rigor.json"}
+                {"methodology_id":15,"name":"Mathematical Rigor","categories":["math","rigor","verification"],"file":"method_15_mathematical_rigor.json"},
+                {"methodology_id":16,"name":"Host Lifecycle Management","categories":["host_operations","deployment","recovery"],"file":"method_16_host_lifecycle.json"}
             ]
         })
     }

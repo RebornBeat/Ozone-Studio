@@ -7,7 +7,7 @@
 //! | `ordered_loop` | 1×1 loop discipline | `two-strikes` (default), `three-strikes` |
 //! | `pairwise` | pairwise passes | `default` (window 8 / 50 pairs), `wide` (16 / 100) |
 //! | `convergence` | refinement bounds | `fast` (2 passes, default), `deep` (5) |
-//! | `search` | store search strategies | `scan` (default), `exact` — trait registry, extensible |
+//! | `search` | store search strategies | `scan` (default), `scan-legacy` (preserved pre-fix behavior), `exact` — trait registry, extensible |
 //!
 //! Store backends (StoreAccess) and wire protocols (pipeline-9 adapters) have
 //! their own contracts — see docs/CONTRACTS.md.

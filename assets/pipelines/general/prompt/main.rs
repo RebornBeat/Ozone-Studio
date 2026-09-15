@@ -351,10 +351,15 @@ async fn call_anthropic_api(
     let finish_reason = result["stop_reason"]
         .as_str()
         .map(|s| s.to_string());
-    
+
+    // Report the real model the API actually used, not just the identifier
+    // requested — Anthropic's response echoes the resolved model at the top
+    // level; fall back to the requested identifier only if that's absent.
+    let actual_model = result["model"].as_str().unwrap_or(model).to_string();
+
     Ok(PromptOutput {
         response: content,
-        model_used: model.to_string(),
+        model_used: actual_model,
         tokens_used: tokens,
         finish_reason,
         prompt_tokens: result["usage"]["input_tokens"].as_u64().map(|t| t as u32),
@@ -431,10 +436,20 @@ async fn call_openai_api(
     let finish_reason = result["choices"][0]["finish_reason"]
         .as_str()
         .map(|s| s.to_string());
-    
+
+    // Report the real model that actually served this call, not just the
+    // requested identifier — this matters specifically for "auto" routing
+    // (e.g. OpenRouter's "openrouter/auto"), where the caller genuinely
+    // doesn't know in advance which underlying model will handle the
+    // request. OpenRouter's response includes the resolved model at the
+    // top level; without reading it back, model_used always echoed
+    // "openrouter/auto" regardless of what actually ran, making any
+    // per-call model switch invisible even though it was really happening.
+    let actual_model = result["model"].as_str().unwrap_or(model).to_string();
+
     Ok(PromptOutput {
         response: content,
-        model_used: model.to_string(),
+        model_used: actual_model,
         tokens_used: tokens,
         finish_reason,
         prompt_tokens: result["usage"]["prompt_tokens"].as_u64().map(|t| t as u32),
@@ -466,15 +481,29 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
     // This is a practical approach that works without complex bindings
     let llama_cli = std::env::var("LLAMA_CLI_PATH")
         .unwrap_or_else(|_| "llama-cli".to_string());
-    
+
+    // Same fix as execute_bitnet: never request more generation tokens than
+    // this model's actual context window can reasonably support, regardless
+    // of what the caller asked for (which may reflect a totally different,
+    // larger model this step originally targeted before falling back here).
+    let max_tokens = input
+        .max_tokens
+        .unwrap_or(1024)
+        .min((config.context_length / 2) as u32)
+        .to_string();
+
+    // Same anti-repetition fix as execute_bitnet (see its comment) — applies
+    // equally to any local llama.cpp-served GGUF model.
     let output = std::process::Command::new(&llama_cli)
         .args([
             "-m", model_path,
             "-p", &prompt,
-            "-n", &input.max_tokens.unwrap_or(1024).to_string(),
+            "-n", &max_tokens,
             "--temp", &input.temperature.unwrap_or(0.7).to_string(),
             "-ngl", &config.gpu_layers.unwrap_or(0).to_string(),
             "-c", &config.context_length.to_string(),
+            "--repeat-penalty", "1.3",
+            "--repeat-last-n", "1024",
             "--no-display-prompt",
         ])
         .output();
@@ -732,13 +761,45 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     // Build the prompt
     let prompt = build_prompt(&input);
 
-    let max_tokens = input.max_tokens.unwrap_or(512).to_string();
+    // Confirmed live: input.max_tokens is computed by the caller from
+    // whichever model was ORIGINALLY intended for this step (e.g.
+    // OpenRouter's 128K context / 4 = 32000) and is passed through
+    // unchanged even when the fallback chain lands on BitNet — a real,
+    // much smaller local model. Requesting -n far larger than the actual
+    // context window doesn't error, it just runs for real: at BitNet's
+    // observed ~7-9 tokens/sec on this machine, -n 32000 is a 60+ minute
+    // generation, not a hang. Cap generation to half of BitNet's real
+    // context window (the other half reserved for the prompt itself,
+    // which -c must also hold) regardless of what the caller asked for.
+    let effective_ctx = config.context_length.min(8192);
+    let max_tokens = input
+        .max_tokens
+        .unwrap_or(512)
+        .min((effective_ctx / 2) as u32)
+        .to_string();
     let temp = input.temperature.unwrap_or(0.7).to_string();
-    let ctx = config.context_length.min(8192).to_string();
+    let ctx = effective_ctx.to_string();
 
     // Blocking child process — keep it off the async runtime's core.
     let clone_model_path = model_path.clone();
     let clone_cli = bitnet_cli.clone();
+    // Confirmed live, two distinct degenerate-generation failure modes on
+    // this 1-bit quantized model:
+    // 1. Literal token repetition ("## Pipeline: Core\nKeywords: core, core,
+    //    core, ...") — the original finding this repeat-penalty was added
+    //    for, at repeat-penalty=1.1 / repeat-last-n=256.
+    // 2. STRUCTURAL pattern repetition (found later, still live at those
+    //    settings): the model hallucinates an endless list of fictional
+    //    "## Pipeline: X\nKeywords: Y" catalog entries with DIFFERENT
+    //    content each time (invented names like DataApproval, DataReview,
+    //    DataMigration — none of them real registered pipelines) — it's
+    //    extending the FORMAT of real catalog-style content in its own
+    //    background context rather than answering the actual question.
+    //    Each entry's tokens differ enough that a 256-token lookback and a
+    //    mild 1.1 penalty didn't suppress it: one real request burned
+    //    10,080 tokens and ~27 minutes almost entirely on this. Strengthened
+    //    to make the repeated structural markers ("##", "Pipeline", ":",
+    //    "Keywords") costlier across a much longer span.
     let run = tokio::task::spawn_blocking(move || {
         std::process::Command::new(&clone_cli)
             .args([
@@ -747,6 +808,8 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                 "-n", &max_tokens,
                 "--temp", &temp,
                 "-c", &ctx,
+                "--repeat-penalty", "1.3",
+                "--repeat-last-n", "1024",
                 "--no-display-prompt",
             ])
             .output()

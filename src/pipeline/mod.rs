@@ -12,7 +12,7 @@
 //! Pipeline LOGIC lives in the pipelines/ directory, not here.
 
 mod executor;
-mod registry;
+pub(crate) mod registry;
 mod store;
 
 pub mod remote;

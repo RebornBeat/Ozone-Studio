@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for New Zealand (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "NZ"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Privacy Act 2020 (in force December 1 2020, replacing the Privacy Act 1993), 13 Information Privacy Principles (IPP3A added by the Privacy Amendment Act 2025, effective May 1 2026). Official: New Zealand Legislation, https://www.legislation.govt.nz/act/public/2020/0031/latest/whole.html ; Office of the Privacy Commissioner, https://www.privacy.org.nz",
+      "retrieved_snippet": "The Privacy Act 2020 came into force on 1 December 2020, replacing the Privacy Act 1993... The Privacy Amendment Act 2025 brought into force information privacy principle (IPP) 3A from 1 May 2026, adding to the Privacy Act's set of 13 IPPs.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "NZ"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Harmful Digital Communications Act 2015 (cyberbullying/harassment, complaints via Netsafe, court remedies); Online Safety (Minimum Age and Child Safety Risk Assessment) Bill introduced to Parliament (2026). Official: New Zealand Legislation, https://www.legislation.govt.nz/act/public/2015/0063/latest/whole.html",
+      "retrieved_snippet": "The Harmful Digital Communications Act 2015 tackles how people use technology to hurt others and aims to prevent and reduce the impact of online bullying, harassment, revenge porn and other forms of abuse and intimidation... On 24 August, the Government introduced the Online Safety (Minimum Age and Child Safety Risk Assessment) Bill to Parliament.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "NZ"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Fair Trading Act 1986 (pre-purchase conduct, misleading/deceptive conduct) + Consumer Guarantees Act 1993 (post-purchase quality guarantees). Official: New Zealand Legislation, https://www.legislation.govt.nz/act/public/1986/0121/latest/DLM96908.html ; Consumer Protection NZ, https://www.consumerprotection.govt.nz/general-help/consumer-laws/fair-trading-act",
+      "retrieved_snippet": "The Consumer Guarantees Act (CGA) protects consumers... by setting minimum guarantees around safety, quality and usability... The Fair Trading Act (FTA) protects you against being misled or treated unfairly by traders or shops... the FTA covers claims about products and services before they're bought and the CGA covers the quality of those products and services after they have been bought.",
+      "official_source": true
+    }
+  ]
+}

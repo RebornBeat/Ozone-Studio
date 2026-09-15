@@ -1,0 +1,12 @@
+{
+  "disclaimer": "Drafted from real Egyptian legislation, retrieved via web search — the official primary text is in Arabic (published in Official Gazette No. 28 bis (e), 15 July 2020); English translations cited here are third-party (Andersen, ACC) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Egyptian legal counsel. Scope: National(\"EG\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel, and specifically because the cited source is a translation rather than the official Arabic text. This content will age — re-verify before relying on it. Coverage note: a real search attempt for Egypt-specific child-online-protection and consumer-protection statutes (separate from data protection) did not surface a verifiable primary source in the time available — honestly omitted rather than filled in with a guess.",
+  "rules": [
+    {
+      "scope": { "National": "EG" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 151 of 2020 Promulgating the Personal Data Protection Law — Egypt's first comprehensive data protection legislation, issued 13 July 2020, in force since mid-October 2020; Executive Regulations (PM Decree No. 816) in force since 2 November 2025. English translation: https://eg.andersen.com/wp-content/uploads/2025/06/Law-No.-151-OF-2020.pdf",
+      "official_source": false
+    }
+  ]
+}

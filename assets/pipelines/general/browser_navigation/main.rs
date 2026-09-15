@@ -197,8 +197,9 @@ fn start_virtual_display(display: &str, width: u32, height: u32, depth: u8) -> R
 }
 
 fn start_vnc(display: &str, port: u16, password: Option<&str>) -> Result<u32, String> {
-    let mut args = vec!["-display", display, "-rfbport", &port.to_string(), "-forever", "-shared", "-noxdamage"];
-    
+    let port_str = port.to_string();
+    let mut args = vec!["-display", display, "-rfbport", &port_str, "-forever", "-shared", "-noxdamage"];
+
     let child = Command::new("x11vnc").args(&args)
         .stdout(Stdio::null()).stderr(Stdio::null())
         .spawn()

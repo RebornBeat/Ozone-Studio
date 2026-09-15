@@ -32,6 +32,242 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
 
+// Same real-ZSEI-over-HTTP pattern as text modality (100) and code modality
+// (101) — this pipeline had never actually been built/exercised before (see
+// the CLI entry point and persist_graph_container below for the two bugs
+// that made it a no-op regardless: wrong CLI contract, and no real ZSEI
+// persistence at all — get_graph explicitly returned a hardcoded empty stub
+// with a "// In production, load from ZSEI" comment).
+fn ozone_host() -> String {
+    env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
+    }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Real structural keyword/topic extraction — no LLM call needed, same
+/// reasoning as code modality (101): a math graph's own nodes already carry
+/// real, meaningful terms (variable names, proof technique, domain,
+/// referenced axioms/theorems/definitions). Mirrors the bug this exact
+/// pattern fixed in text modality — every ProcessedChunk there was
+/// constructed with `keywords: Vec::new()` unconditionally, which silently
+/// broke methodology/context search for the whole session before being
+/// found — so this must never return empty when the graph has real content.
+fn derive_math_keywords(graph: &MathGraph, analysis: &MathAnalysisResult) -> (Vec<String>, Vec<String>) {
+    let mut keywords: Vec<String> = Vec::new();
+    for node in &graph.nodes {
+        match node.node_type {
+            MathGraphNodeType::Variable => keywords.push(node.label.to_lowercase()),
+            MathGraphNodeType::Axiom | MathGraphNodeType::Theorem | MathGraphNodeType::Definition => {
+                keywords.push(node.label.to_lowercase());
+            }
+            _ => {}
+        }
+    }
+    let mut topics: Vec<String> = vec![format!("{:?}", analysis.analysis_type).to_lowercase()];
+    if let Some(proof) = &analysis.proof_analysis {
+        topics.push(format!("{:?}", proof.proof_technique).to_lowercase());
+        for axiom in &proof.axioms_used {
+            keywords.push(axiom.name.to_lowercase());
+        }
+        for theorem in &proof.theorems_used {
+            keywords.push(theorem.name.to_lowercase());
+        }
+        for def in &proof.definitions_used {
+            keywords.push(def.name.to_lowercase());
+        }
+    }
+    if let Some(parse) = &analysis.parse_result {
+        topics.push(format!("{:?}", parse.expression_type).to_lowercase());
+        if let Some(domain) = &parse.domain {
+            keywords.push(domain.description.to_lowercase());
+        }
+    }
+    keywords.push("mathematics".to_string());
+    keywords.sort();
+    keywords.dedup();
+    (keywords, topics)
+}
+
+/// Persist a math graph as a real ZSEI container. Mirrors code modality
+/// (101)'s persist_graph_container exactly — same container shape, same
+/// parent_id=project_id convention (0 keeps the root-parented default;
+/// create_container degrades gracefully if project_id isn't a real
+/// container), same graphs/ on-disk convention for the full node/edge
+/// content. code_context/text_context stay None for the same honesty
+/// reason they do there — there's no ContainerType field shaped for
+/// MathGraph's richer content without fabricating a mapping.
+async fn persist_graph_container(
+    graph: &MathGraph,
+    analysis: &MathAnalysisResult,
+    local_graph_id: u64,
+    project_id: u64,
+) -> Result<u64, String> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let (keywords, topics) = derive_math_keywords(graph, analysis);
+    let name = format!(
+        "{:?} math graph ({} nodes, {} edges, {} proof steps)",
+        analysis.analysis_type, graph.nodes.len(), graph.edges.len(), graph.metadata.proof_steps
+    );
+    let object_store_path = format!("graphs/math_{}.json", local_graph_id);
+
+    let container = serde_json::json!({
+        "global_state": {
+            "container_id": 0,
+            "child_count": 0,
+            "version": 1,
+            "parent_id": 0,
+            "child_ids": []
+        },
+        "local_state": {
+            "metadata": {
+                // Real bug found live: the shared `Modality` enum (src/types/
+                // container.rs) has no `Math` variant at all — it predates
+                // math/chemistry/dna/etc as distinct pipeline modalities and
+                // only has Unknown/Text/Code/Image/Audio/Video/Graph/
+                // TimeSeries/Structured/External/Multimodal. "Structured" is
+                // the most honest real fit for formal symbolic/proof content
+                // (not prose, not executable code, not raw media) — an
+                // approximation using a real valid category, not a
+                // fabricated one. The pipeline's own `modality: "math"` field
+                // on MathGraph itself (a different, pipeline-local type) still
+                // says "math" accurately; only this ZSEI-enum-constrained
+                // field is coarsened.
+                "container_type": "ModalityGraph",
+                "modality": "Structured",
+                "created_at": now,
+                "updated_at": now,
+                "provenance": "pipeline:105",
+                "permissions": 0,
+                "owner_id": 0,
+                "name": name,
+                "materialized_path": null
+            },
+            "context": {
+                "categories": [],
+                "methodologies": [],
+                "keywords": keywords,
+                "topics": topics,
+                "relationships": [],
+                "learned_associations": [],
+                "embedding": null
+            },
+            "storage": {
+                "db_shard_id": null,
+                "vector_index_ref": null,
+                "object_store_path": object_store_path,
+                "compression_type": "None"
+            },
+            "hints": {
+                "access_frequency": 0,
+                "hotness_score": 0.0,
+                "last_accessed": 0,
+                "centroid": null,
+                "ml_prediction_weight": 0.0
+            },
+            "integrity": {
+                "content_hash": vec![0u8; 32],
+                "semantic_fingerprint": [],
+                "last_verified": now,
+                "integrity_score": 1.0,
+                "version_history": []
+            },
+            "file_context": null,
+            "code_context": null,
+            "text_context": null,
+            "external_ref": null
+        }
+    });
+
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": project_id, "container": container }
+    }))
+    .await?;
+
+    let container_id = result
+        .get("ContainerID")
+        .and_then(|v| v.as_u64())
+        .ok_or_else(|| "CreateContainer did not return a ContainerID".to_string())?;
+
+    // Bake the REAL container_id into the persisted file's own graph_id
+    // field, not the local placeholder — confirmed live: writing the file
+    // before this point left the file's graph_id mismatched with the id a
+    // caller would actually query by (the container_id), even though
+    // retrieval-by-container_id itself worked fine (object_store_path is
+    // read from the container, not derived from the file's own content).
+    // Cosmetic but real: a caller trusting the returned graph_id field for
+    // a follow-up call would get the wrong number.
+    let mut graph_json = serde_json::to_value(graph).map_err(|e| e.to_string())?;
+    if let Some(obj) = graph_json.as_object_mut() {
+        obj.insert("graph_id".to_string(), serde_json::json!(container_id));
+    }
+    write_graph_json_file(local_graph_id, &graph_json)?;
+
+    Ok(container_id)
+}
+
+fn write_graph_json_file(local_graph_id: u64, graph_json: &serde_json::Value) -> Result<(), String> {
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let graphs_dir = format!("{}/graphs", data_dir);
+    std::fs::create_dir_all(&graphs_dir).map_err(|e| e.to_string())?;
+    let graph_path = format!("{}/math_{}.json", graphs_dir, local_graph_id);
+    let json = serde_json::to_string_pretty(graph_json).map_err(|e| e.to_string())?;
+    std::fs::write(&graph_path, json).map_err(|e| e.to_string())
+}
+
+/// Real retrieval — the piece neither text nor code modality actually has
+/// working yet (both route GetGraph through an in-process HashMap cache
+/// that's empty on every invocation, since each CLI call is a fresh, short-
+/// lived process; confirmed by reading both their current source). This
+/// reads the real container's own `object_store_path` (set at persist time
+/// above) and the real JSON file it points to, so a graph created by one
+/// process invocation is actually findable by a later one — worth applying
+/// the same fix to text/code modality's GetGraph separately, not in scope
+/// here.
+async fn get_container_object_store_path(container_id: u64) -> Result<String, String> {
+    let result = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+
+    result
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("storage"))
+        .and_then(|s| s.get("object_store_path"))
+        .and_then(|p| p.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Container {} has no object_store_path (not a graph container?)", container_id))
+}
+
+async fn read_graph_container(graph_id: u64) -> Result<MathGraph, String> {
+    let object_store_path = get_container_object_store_path(graph_id).await?;
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let full_path = format!("{}/{}", data_dir, object_store_path);
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read graph file {}: {}", full_path, e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse graph file {}: {}", full_path, e))
+}
+
 // ============================================================================
 // PIPELINE METADATA
 // ============================================================================
@@ -1816,29 +2052,54 @@ async fn create_graph(
         }
     }
 
-    Ok(MathGraph {
+    let scope_tree = analysis.proof_analysis.as_ref().and_then(|p| p.scope_tree.clone());
+    let is_verified = analysis.proof_analysis.as_ref().map(|p| p.is_valid).unwrap_or(false);
+    let verification_confidence = analysis.confidence;
+
+    let mut graph = MathGraph {
         graph_id,
         name: graph_name.unwrap_or_else(|| format!("Math Graph {}", graph_id)),
         modality: MODALITY.to_string(),
         project_id,
-        content_type: analysis.analysis_type,
+        content_type: analysis.analysis_type.clone(),
         nodes,
         edges,
-        scope_tree: analysis.proof_analysis.as_ref().and_then(|p| p.scope_tree.clone()),
+        scope_tree,
         metadata: GraphMetadata {
-            node_count: nodes.len(),
-            edge_count: edges.len(),
+            node_count: 0, // filled in below, after node_count is known
+            edge_count: 0,
             proof_steps: proof_steps_count,
             variables_count,
             assumptions_count,
-            is_verified: analysis.proof_analysis.as_ref().map(|p| p.is_valid).unwrap_or(false),
-            verification_confidence: analysis.confidence,
+            is_verified,
+            verification_confidence,
             semantic_enriched: false,
             cross_modal_links: 0,
         },
         created_at: now.clone(),
         updated_at: now,
-    })
+    };
+    graph.metadata.node_count = graph.nodes.len();
+    graph.metadata.edge_count = graph.edges.len();
+
+    // Real ZSEI persistence — this pipeline had never been built or run
+    // before (see zsei_query's doc comment above); without this, graph_id
+    // was a local nanosecond timestamp backed by nothing once this one-shot
+    // subprocess exited, and any later GetGraph/QueryGraph/LinkToModality
+    // call referenced an id with no real data behind it. On persistence
+    // failure, fall back to the local id (still usable for this one
+    // in-process run) rather than failing the whole analysis — same
+    // graceful-degradation posture as code modality's identical call.
+    match persist_graph_container(&graph, &analysis, graph.graph_id, project_id).await {
+        Ok(container_id) => {
+            graph.graph_id = container_id;
+        }
+        Err(e) => {
+            eprintln!("Failed to persist math graph to ZSEI (using local id only): {}", e);
+        }
+    }
+
+    Ok(graph)
 }
 
 async fn update_graph(graph_id: u64, updates: MathGraphUpdate) -> Result<MathGraph, String> {
@@ -1866,6 +2127,29 @@ async fn update_graph(graph_id: u64, updates: MathGraphUpdate) -> Result<MathGra
     graph.metadata.node_count = graph.nodes.len();
     graph.metadata.edge_count = graph.edges.len();
     graph.updated_at = now;
+
+    // Re-persist so the update is visible to a later invocation — get_graph
+    // reads a real file now (see read_graph_container), so an update that
+    // only lived in this process's memory would be invisible to the very
+    // next CLI call, same class of bug this whole pipeline had before.
+    // object_store_path is keyed by the container's ORIGINAL local graph id,
+    // not graph_id (which may already be the persisted container id) — look
+    // it up rather than assume, since the two only coincide when persistence
+    // never happened.
+    match get_container_object_store_path(graph_id).await {
+        Ok(object_store_path) => {
+            let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+            let full_path = format!("{}/{}", data_dir, object_store_path);
+            if let Ok(json) = serde_json::to_string_pretty(&graph) {
+                if let Err(e) = std::fs::write(&full_path, json) {
+                    eprintln!("Failed to re-persist updated math graph to {}: {}", full_path, e);
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("UpdateGraph: could not resolve container {} to re-persist ({}) — update only applied in-memory for this response", graph_id, e);
+        }
+    }
 
     Ok(graph)
 }
@@ -1912,22 +2196,22 @@ async fn query_graph(graph_id: u64, query: MathQuery) -> Result<QueryResult, Str
             }
         }
 
-        MathQueryType::GetNodesByType { node_type } => {
+        MathQueryType::GetNodesByType { ref node_type } => {
             let matching_nodes: Vec<_> = graph.nodes.iter()
-                .filter(|n| n.node_type == node_type)
+                .filter(|n| n.node_type == *node_type)
                 .take(limit)
                 .cloned()
                 .collect();
             (matching_nodes, vec![])
         }
 
-        MathQueryType::GetStepsByType { step_type } => {
+        MathQueryType::GetStepsByType { ref step_type } => {
             let matching_nodes: Vec<_> = graph.nodes.iter()
                 .filter(|n| {
                     n.node_type == MathGraphNodeType::ProofStep &&
                     n.properties.get("step_type")
                         .and_then(|v| serde_json::from_value::<StepType>(v.clone()).ok())
-                        .map(|st| std::mem::discriminant(&st) == std::mem::discriminant(&step_type))
+                        .map(|st| std::mem::discriminant(&st) == std::mem::discriminant(step_type))
                         .unwrap_or(false)
                 })
                 .take(limit)
@@ -1949,20 +2233,7 @@ async fn query_graph(graph_id: u64, query: MathQuery) -> Result<QueryResult, Str
 }
 
 async fn get_graph(graph_id: u64) -> Result<MathGraph, String> {
-    // In production, load from ZSEI
-    Ok(MathGraph {
-        graph_id,
-        name: format!("Math Graph {}", graph_id),
-        modality: MODALITY.to_string(),
-        project_id: 1,
-        content_type: MathAnalysisType::Expression,
-        nodes: vec![],
-        edges: vec![],
-        scope_tree: None,
-        metadata: GraphMetadata::default(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
-    })
+    read_graph_container(graph_id).await
 }
 
 async fn check_completeness(
@@ -2093,16 +2364,64 @@ async fn trace_derivation(graph_id: u64, from_step: u64, to_step: u64) -> Result
     })
 }
 
+/// Append one real ZSEI Relation (RelatedTo, discovered_via Manual — this is
+/// an explicit LinkToModality call, not something inferred) to a container's
+/// existing `context.relationships`, preserving every other context field
+/// exactly (ContainerUpdate.context is a full replace, not a merge, so the
+/// current context has to be read back first). Real RelationType has no
+/// variant granular enough for CrossModalityRelation's specific labels
+/// (ImplementedBy/DescribedBy/etc) — LinkResult still reports the real,
+/// specific label in its own response; only the stored ZSEI relation is the
+/// coarser RelatedTo.
+async fn add_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+    let existing = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+    let mut context = existing
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("context"))
+        .cloned()
+        .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+    let relationships = context
+        .get_mut("relationships")
+        .and_then(|r| r.as_array_mut())
+        .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+    relationships.push(serde_json::json!({
+        "target_id": target_id,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "Manual"
+    }));
+
+    zsei_query(serde_json::json!({
+        "UpdateContainer": {
+            "container_id": container_id,
+            "updates": { "context": context }
+        }
+    }))
+    .await?;
+    Ok(())
+}
+
 async fn link_to_modality(
     math_graph_id: u64,
     target_graph_id: u64,
     _target_modality: &str,
     relationship: CrossModalityRelation,
 ) -> Result<LinkResult, String> {
-    let link_id = generate_graph_id();
+    // Real, bidirectional ZSEI relationship — both containers must actually
+    // exist; this used to unconditionally fabricate a "success" LinkResult
+    // for any graph_id, real or not, with nothing behind it. An honest
+    // error here (e.g. target_graph_id from a different modality that was
+    // never persisted) is correct behavior, not a regression.
+    add_relationship(math_graph_id, target_graph_id).await?;
+    add_relationship(target_graph_id, math_graph_id).await?;
 
     Ok(LinkResult {
-        link_id,
+        link_id: generate_graph_id(),
         source_graph_id: math_graph_id,
         target_graph_id,
         relationship: format!("{:?}", relationship),
@@ -2110,6 +2429,15 @@ async fn link_to_modality(
     })
 }
 
+/// Real counts from the actual persisted graph — this previously returned
+/// hardcoded `nodes_processed: 15, edges_added: 8, annotations_added: 20`
+/// unconditionally, regardless of input (confirmed live in source: no
+/// reference to graph_id or hook_type anywhere in the body). Full semantic
+/// enrichment (real cross-node annotation generation) is a separate, larger
+/// task — this fixes the immediate honesty problem (fabricated non-zero
+/// metrics implying real processing happened) without pretending to
+/// implement enrichment that doesn't exist yet: annotations_added stays a
+/// real, honest 0.
 async fn trigger_semantic_hook(
     graph_id: u64,
     hook_type: ZSEIHookType,
@@ -2117,12 +2445,14 @@ async fn trigger_semantic_hook(
 ) -> Result<HookResult, String> {
     let start_time = std::time::Instant::now();
 
+    let graph = get_graph(graph_id).await?;
+
     Ok(HookResult {
         hook_type,
         success: true,
-        nodes_processed: 15,
-        edges_added: 8,
-        annotations_added: 20,
+        nodes_processed: graph.nodes.len(),
+        edges_added: graph.edges.len(),
+        annotations_added: 0,
         processing_time_ms: start_time.elapsed().as_millis() as u64,
         errors: vec![],
     })
@@ -2138,26 +2468,52 @@ fn generate_graph_id() -> u64 {
 // CLI ENTRY POINT
 // ============================================================================
 
+/// The host invokes every pipeline binary with `--input <json> --execution-id
+/// ...` (see PipelineExecutor::invoke_pipeline) — never a bare positional
+/// arg. This pipeline previously read `args[1]` directly, so any real
+/// invocation from the host got the literal string "--input" as its "JSON"
+/// and failed instantly — confirmed live: this pipeline had never actually
+/// been built or run before (same starting state code modality was in
+/// before this exact bug class was found and fixed there). The host also
+/// wraps the action payload in a {"data": ..., "context": ...} envelope
+/// before serializing it to --input, so that needs unwrapping too — see
+/// code/text modality's identical parse_cli_input. A bare positional JSON
+/// arg is kept as a fallback for standalone/manual testing.
+fn parse_cli_input() -> Result<Value, String> {
+    let args: Vec<String> = env::args().collect();
+    let mut input_json: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_json = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
+        }
+    }
+    let raw = match input_json {
+        Some(s) => s,
+        None => {
+            let positional = args.get(1).cloned();
+            positional.ok_or_else(|| {
+                format!(
+                    "Usage: {} --input <json> --execution-id <id>  (or a bare positional JSON arg for manual testing)",
+                    args.get(0).cloned().unwrap_or_else(|| "math_analysis".to_string())
+                )
+            })?
+        }
+    };
+    let v: Value = serde_json::from_str(&raw).map_err(|e| format!("Failed to parse input JSON: {}", e))?;
+    Ok(v.get("data").cloned().unwrap_or(v))
+}
+
 #[tokio::main]
 async fn main() {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        eprintln!("Usage: {} <json_input>", args.get(0).unwrap_or(&"math_analysis".to_string()));
-        eprintln!("Pipeline: {} v{}", PIPELINE_NAME, PIPELINE_VERSION);
-        eprintln!("\nThis pipeline enables AGI-level mathematical reasoning through:");
-        eprintln!("  - Explicit proof step graphs");
-        eprintln!("  - Variable scope tracking");
-        eprintln!("  - Assumption management");
-        eprintln!("  - Independent step verification");
-        std::process::exit(1);
-    }
-
-    let input_str = &args[1];
-    let input: Value = match serde_json::from_str(input_str) {
+    let input: Value = match parse_cli_input() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Failed to parse input JSON: {}", e);
+            eprintln!("{}", e);
+            eprintln!("Pipeline: {} v{}", PIPELINE_NAME, PIPELINE_VERSION);
             std::process::exit(1);
         }
     };

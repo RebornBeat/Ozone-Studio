@@ -1,0 +1,35 @@
+{
+  "graph_id": 1789438822730410524,
+  "modality": "text",
+  "version": "0.4.0",
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_type": "Document",
+      "content": "0 words, 0 sentences, 0 paragraphs",
+      "position": null,
+      "properties": {
+        "word_count": 0,
+        "sentence_count": 0,
+        "paragraph_count": 0
+      },
+      "semantic_annotations": [],
+      "provisional": false,
+      "provisional_status": "Generated",
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "keywords": [],
+      "hotness_score": 0.5,
+      "cross_modal_refs": []
+    }
+  ],
+  "edges": [],
+  "metadata": {
+    "project_id": 0,
+    "created_at": "2026-09-15T02:20:22.730410997+00:00",
+    "document_type": "Unknown"
+  },
+  "created_at": "2026-09-15T02:20:22.730410997+00:00",
+  "updated_at": "2026-09-15T02:20:22.730410997+00:00"
+}

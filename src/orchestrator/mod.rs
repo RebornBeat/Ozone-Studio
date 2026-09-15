@@ -44,6 +44,7 @@ mod graphs;
 pub mod meta_loop;
 pub mod amt_loop;
 pub mod jurisdiction;
+pub mod jurisdiction_search;
 
 // K-ALGORITHM contracts come from the unified shared module (single
 // compilation, tests run once): crate::shared_contracts::{k_validation, k_loops}.
@@ -2169,21 +2170,77 @@ impl PromptOrchestrator {
         &self,
         state: &mut OrchestrationState,
         pipeline_id: u64,
+        input: serde_json::Value,
+        last_error: String,
+        order: &[String],
+        free_only: bool,
+    ) -> Result<serde_json::Value, String> {
+        let result = Self::walk_fallback_chain_standalone(
+            &self.executor,
+            pipeline_id,
+            input,
+            last_error,
+            &state.request.available_models,
+            order,
+            free_only,
+        )
+        .await;
+        if let Ok(v) = &result {
+            if let Some(tokens) = v.get("tokens_used").and_then(|t| t.as_u64()) {
+                state.tokens_used_so_far += tokens as u32;
+            }
+        }
+        result
+    }
+
+    /// True if `result` should be treated as "not good enough to use" for
+    /// pipeline 9 (Prompt) specifically — either a hard error, or an `Ok`
+    /// response whose `response` text field is empty/missing. Confirmed
+    /// live this session as a real, recurring backend behavior
+    /// (particularly OpenRouter): a technically-successful call that
+    /// returned nothing usable, which `result.is_err()` alone misses,
+    /// silently letting a caller proceed with empty content instead of
+    /// retrying or falling back. Only applied to pipeline 9 — other
+    /// pipelines have different success shapes where an empty string may
+    /// be entirely valid (e.g. "no entities found").
+    pub(crate) fn is_unusable_pipeline9_result(
+        pipeline_id: u64,
+        result: &Result<serde_json::Value, String>,
+    ) -> bool {
+        if pipeline_id != 9 {
+            return false;
+        }
+        match result {
+            Err(_) => true,
+            Ok(v) => v
+                .get("response")
+                .and_then(|r| r.as_str())
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true),
+        }
+    }
+
+    /// The free-function core of `walk_fallback_chain`, usable by callers
+    /// that don't have a full `OrchestrationState` (the background
+    /// methodology meta-loop and AMT re-expansion loop, both genuinely
+    /// detached background work — see meta_loop.rs/amt_loop.rs). Walks
+    /// each candidate model in `order`, filtered to free-only when
+    /// requested, applying `model_override_config` and treating an empty
+    /// pipeline-9 response the same as a hard error (see
+    /// `is_unusable_pipeline9_result`) rather than stopping the walk on a
+    /// technically-`Ok`-but-empty first candidate.
+    pub(crate) async fn walk_fallback_chain_standalone(
+        executor: &Arc<dyn PipelineExecutor>,
+        pipeline_id: u64,
         mut input: serde_json::Value,
         last_error: String,
+        available_models: &[crate::config::AvailableModel],
         order: &[String],
         free_only: bool,
     ) -> Result<serde_json::Value, String> {
         let candidates: Vec<crate::config::AvailableModel> = order
             .iter()
-            .filter_map(|id| {
-                state
-                    .request
-                    .available_models
-                    .iter()
-                    .find(|m| &m.identifier == id)
-                    .cloned()
-            })
+            .filter_map(|id| available_models.iter().find(|m| &m.identifier == id).cloned())
             .filter(|m| !free_only || m.is_free)
             .collect();
 
@@ -2211,8 +2268,8 @@ impl PromptOrchestrator {
             if let Ok(v) = serde_json::to_value(&override_cfg) {
                 input["model_override_config"] = v;
             }
-            result = self.metered_execute(state, pipeline_id, input.clone()).await;
-            if result.is_ok() {
+            result = executor.execute(pipeline_id, input.clone()).await;
+            if !Self::is_unusable_pipeline9_result(pipeline_id, &result) {
                 break;
             }
         }

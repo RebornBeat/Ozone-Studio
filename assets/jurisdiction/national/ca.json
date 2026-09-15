@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Canadian federal statutes and regulator (Office of the Privacy Commissioner of Canada, Justice Laws Website) guidance, verified via live web search against official government sources (priv.gc.ca, laws-lois.justice.gc.ca) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Canadian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Provincial law (e.g. Quebec's Law 25) is deliberately NOT included here. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "CA"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Information Protection and Electronic Documents Act (PIPEDA) — https://www.priv.gc.ca/en/privacy-topics/privacy-laws-in-canada/the-personal-information-protection-and-electronic-documents-act-pipeda/",
+      "retrieved_snippet": "PIPEDA is the federal privacy law for private-sector organizations, setting ground rules for how businesses must handle personal information in commercial activity. In force since April 2000.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CA"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Office of the Privacy Commissioner of Canada — Privacy and Kids — https://www.priv.gc.ca/en/privacy-topics/information-and-advice-for-individuals/privacy-and-kids/",
+      "retrieved_snippet": "The OPC considers children under 13 unable to meaningfully consent to data collection. Canada has no dedicated children's privacy statute yet — a Children's Privacy Code was under active public consultation as of this research, existing protection is via PIPEDA's general consent framework plus OPC guidance.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CA"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Office of the Privacy Commissioner of Canada — Consultation on the Development of a Children's Privacy Code — https://www.priv.gc.ca/en/about-the-opc/what-we-do/consultations/completed-consultations/consultation-children-code/",
+      "retrieved_snippet": "OPC ran a formal consultation (37 stakeholder submissions) on developing a dedicated children's privacy code; no such code is finalized law yet as of this research — flag as an evolving area, not settled statute.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CA"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Competition Act, R.S.C. 1985, c. C-34 — https://laws-lois.justice.gc.ca/eng/acts/c-34/",
+      "retrieved_snippet": "The Competition Act's purposes include providing consumers with competitive prices and product choices; the Competition Bureau enforces it, and it incorporates the Consumer Packaging and Labelling Act and Textile Labelling Act.",
+      "official_source": true
+    }
+  ]
+}

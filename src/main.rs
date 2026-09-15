@@ -39,7 +39,7 @@ async fn main() -> Result<(), OzoneError> {
     tracing::info!("╚═══════════════════════════════════════════════════════════════════╝");
 
     // Load configuration (creates default if not exists)
-    let config = OzoneConfig::load(&config_path)?;
+    let config = OzoneConfig::load(&config_path).await?;
 
     if config_path.exists() {
         tracing::info!("Configuration loaded from: {}", config_path.display());

@@ -1,0 +1,14 @@
+{
+  "mcp": {
+    "servers": {
+      "ozone-shared-context": {
+        "command": "node",
+        "args": ["/home/rebornbeat/Projects/Ozone-Studio/tools/ozone-shared-context/server.js"],
+        "env": {
+          "OZONE_HOST": "http://127.0.0.1:50051",
+          "OZONE_AGENT_NAME": "zcode"
+        }
+      }
+    }
+  }
+}

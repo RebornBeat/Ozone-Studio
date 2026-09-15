@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from real Israeli legislation, retrieved via web search — the only official version of this law is in Hebrew; English translations cited here are third-party (Or-Hof Law, DataGuidance) and may not perfectly reflect the current amended text. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified Israeli legal counsel. Scope: National(\"IL\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel, and specifically because the source here is a translation rather than primary official text. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "IL" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Protection of Privacy Law, 5741-1981 — one of the first privacy/data-protection statutes of its kind, confers rights to privacy and data protection. Official version is Hebrew only; English translation: https://www.dataguidance.com/sites/default/files/protection_of_privacy_law_5741-1981_-_translation_by_or-hof_law.pdf",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "IL" },
+      "condition": "minor",
+      "action": "Log",
+      "source": "Protection of Privacy Law, 5741-1981 (minors-specific rules/amendments) — reported provisions include a general duty to protect minors' privacy, restrictions on collecting information about children under 14, and requiring parental consent for sensitive information about minors under 18. Source: Law Library of Congress summary, https://stuff.coffeecode.net/www.loc.gov/law/help/online-privacy-law/israel.php",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "disclaimer": "Drafted from real South African legislation, retrieved via web search against government sources (justice.gov.za, Government Gazette references) and established legal-reference sites (saflii.org — South African Legal Information Institute) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified South African legal counsel. Scope: National(\"ZA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "ZA" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Protection of Personal Information Act (POPIA), Act 4 of 2013 — assented to 19 Nov 2013, published in Government Gazette Notice 37067 (26 Nov 2013), fully enforceable since 1 July 2021. Accessible text: https://popia.co.za/ (unofficial mirror of the Act as passed by Parliament).",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Children's Act 38 of 2005 — principal child-protection legislation, defines and criminalizes child sexual abuse/exploitation. Official text hosted by the Department of Justice and Constitutional Development: https://www.justice.gov.za/legislation/acts/2005-038%20childrensact.pdf",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "child sexual abuse material",
+      "action": "Log",
+      "source": "Film and Publications Amendment Act 11 of 2019 — makes it an offense to possess, create, produce, or contribute to child sexual abuse material online; places a positive obligation on internet service providers to act on such content.",
+      "official_source": false
+    }
+  ]
+}

@@ -108,6 +108,7 @@ impl QueryProcessor {
             ZSEIQuery::SearchContainersByKeywords {
                 keywords,
                 container_type,
+                strategy,
             } => {
                 // Unknown type names degrade to an unfiltered keyword search
                 // rather than erroring — the caller decides whether an empty
@@ -118,8 +119,10 @@ impl QueryProcessor {
                     ))
                     .ok()
                 });
-                let ids =
-                    self.search_registry.run(None, storage, &keywords, ct).await?;
+                let ids = self
+                    .search_registry
+                    .run(strategy.as_deref(), storage, &keywords, ct)
+                    .await?;
                 Ok(ZSEIQueryResult::Containers(ids))
             }
             

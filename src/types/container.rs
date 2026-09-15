@@ -29,6 +29,9 @@ pub const PIPELINE_ROOT_ID: ContainerID = 4;
 pub const CONSCIOUSNESS_ROOT_ID: ContainerID = 5;
 pub const EXTERNAL_ROOT_ID: ContainerID = 6;
 pub const JURISDICTION_ROOT_ID: ContainerID = 7;
+/// Root of the multi-agent coordination graph — mirrored notes, decisions,
+/// and file claims from the shared-context tool (src/context_mirror.rs).
+pub const SHARED_CONTEXT_ROOT_ID: ContainerID = 8;
 
 // ── Core Modality Nodes (10–18) ────────────────────────────────────────────
 // One node per modality pipeline, under /Modality/
@@ -511,6 +514,10 @@ pub enum ContainerType {
     // separate, non-code task.
     JurisdictionRoot = 250,     // /Jurisdiction/ root
     JurisdictionRuleSet = 251,  // one container per jurisdiction scope+region
+
+    // ── Multi-agent coordination (shared-context tool) ─────────────────────
+    SharedContextRoot = 252,    // /SharedContext/ root — coordination graph
+    CoordinationEvent = 253,    // one mirrored note / decision / file claim
 }
 
 impl ContainerType {
@@ -601,6 +608,8 @@ impl ContainerType {
             Self::FileGraph => "FileGraph",
             Self::JurisdictionRoot => "JurisdictionRoot",
             Self::JurisdictionRuleSet => "JurisdictionRuleSet",
+            Self::SharedContextRoot => "SharedContextRoot",
+            Self::CoordinationEvent => "CoordinationEvent",
         }
     }
 

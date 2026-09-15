@@ -57,6 +57,19 @@ pub struct JurisdictionRule {
     /// Never left as a fabricated citation — empty until a human sets it.
     #[serde(default)]
     pub source: String,
+    /// The actual text a real source returned (a search result title +
+    /// snippet, quoted/closely paraphrased — see jurisdiction_search.rs),
+    /// never elaborated on or filled in from general knowledge beyond what
+    /// was actually retrieved. `None` for hand-curated rules (e.g. the
+    /// Global UDHR/CRC set) that cite an article directly instead.
+    #[serde(default)]
+    pub retrieved_snippet: Option<String>,
+    /// Whether `source` looked like an official domain (.gov/.gouv/etc) at
+    /// retrieval time, vs. some other site — a real, checkable signal, not
+    /// a fabricated confidence score. `None` when not applicable (e.g.
+    /// hand-curated rules).
+    #[serde(default)]
+    pub official_source: Option<bool>,
 }
 
 /// Result of evaluating all loaded rules against one request.
@@ -149,8 +162,13 @@ impl PromptOrchestrator {
         // config flag can turn off — per explicit direction: "U.N. must
         // always be applied whether location is present or not." Only the
         // National/Local (region-specific) layer is gated by `enabled`, and
-        // only ever considered when a region is actually configured — this
-        // system never guesses a location. `enabled=false` therefore means
+        // only ever considered when a region is actually set —
+        // `instance_region` itself is auto-filled from real hardware
+        // signals at config load when an operator hasn't set one
+        // explicitly (see OzoneConfig::apply_hardware_region_detection);
+        // this stage just reads whatever ended up there. It stays None
+        // (so this layer is skipped) when hardware detection couldn't
+        // reach a confident answer — never a fabricated guess. `enabled=false` therefore means
         // "no region-specific enforcement yet", never "no jurisdiction
         // enforcement at all".
         let region = if self.jurisdiction_config.enabled {
@@ -159,6 +177,30 @@ impl PromptOrchestrator {
             None
         };
         let rules = self.load_jurisdiction_rules(region).await;
+
+        // If a real region is configured/detected but nothing region-specific
+        // has been loaded yet (only Global-scope rules, if any), kick off a
+        // real, search-backed attempt to populate it — see
+        // jurisdiction_search.rs for the honesty contract (real web search
+        // only, never LLM-generated legal text, Log-only action). Spawned
+        // in the background so this never adds search latency to the live
+        // request that happened to be the first one to see this region.
+        if let Some(region) = region {
+            let has_regional = rules.iter().any(|r| {
+                matches!(&r.scope, JurisdictionScope::National(n) | JurisdictionScope::Local(n) if n.eq_ignore_ascii_case(region))
+            });
+            if !has_regional {
+                let executor = self.executor.clone();
+                let store = self.store.clone();
+                let region_owned = region.to_string();
+                tokio::spawn(async move {
+                    crate::orchestrator::jurisdiction_search::populate_jurisdiction_content_for_region(
+                        executor, store, region_owned,
+                    )
+                    .await;
+                });
+            }
+        }
 
         // Runs at Stage 1, before prompt_normalization — state.cleaned_prompt
         // /keywords aren't populated yet, so this matches the raw request

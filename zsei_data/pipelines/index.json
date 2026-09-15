@@ -1,0 +1,894 @@
+{
+  "categories": {
+    "consciousness": [
+      39,
+      40,
+      41,
+      42,
+      43,
+      44,
+      45,
+      46,
+      47,
+      48,
+      49,
+      50,
+      51,
+      52,
+      53,
+      54
+    ],
+    "general": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22,
+      23,
+      24,
+      25,
+      26,
+      27,
+      28,
+      29,
+      30,
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+      38,
+      55,
+      56
+    ],
+    "modalities": [
+      100,
+      101,
+      102,
+      103,
+      104,
+      105,
+      106,
+      107,
+      108,
+      109,
+      110,
+      111,
+      112,
+      113,
+      114,
+      115,
+      116,
+      117,
+      118,
+      119,
+      120,
+      121,
+      122,
+      123,
+      124,
+      125,
+      126
+    ]
+  },
+  "last_updated": 1789436718,
+  "pipeline_count": 81,
+  "pipelines": [
+    {
+      "category": "general",
+      "description": "Authentication and session management",
+      "folder_name": "auth",
+      "modality": null,
+      "name": "Auth",
+      "pipeline_id": 1,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "UI theme management",
+      "folder_name": "theme_loader",
+      "modality": null,
+      "name": "ThemeLoader",
+      "pipeline_id": 2,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "ZSEI read operations",
+      "folder_name": "zsei_query",
+      "modality": null,
+      "name": "ZSEIQuery",
+      "pipeline_id": 3,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "ZSEI write operations",
+      "folder_name": "zsei_write",
+      "modality": null,
+      "name": "ZSEIWrite",
+      "pipeline_id": 4,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Task execution and tracking",
+      "folder_name": "task_manager",
+      "has_ui": true,
+      "is_tab": true,
+      "modality": null,
+      "name": "TaskManager",
+      "pipeline_id": 5,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Workspace and project management",
+      "folder_name": "workspace_tab",
+      "has_ui": true,
+      "is_tab": true,
+      "modality": null,
+      "name": "WorkspaceTab",
+      "pipeline_id": 6,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Pipeline and methodology library",
+      "folder_name": "library_tab",
+      "has_ui": true,
+      "is_tab": true,
+      "modality": null,
+      "name": "LibraryTab",
+      "pipeline_id": 7,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Application settings",
+      "folder_name": "settings_tab",
+      "has_ui": true,
+      "is_tab": true,
+      "modality": null,
+      "name": "SettingsTab",
+      "pipeline_id": 8,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "LLM prompt processing",
+      "folder_name": "prompt",
+      "modality": null,
+      "name": "Prompt",
+      "pipeline_id": 9,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Voice input/output",
+      "folder_name": "voice",
+      "modality": null,
+      "name": "Voice",
+      "pipeline_id": 10,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Fetch and load methodologies",
+      "folder_name": "methodology_fetch",
+      "modality": null,
+      "name": "MethodologyFetch",
+      "pipeline_id": 11,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Create and update methodologies",
+      "folder_name": "methodology_create",
+      "modality": null,
+      "name": "MethodologyCreate",
+      "pipeline_id": 12,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Search blueprints by keyword/signature",
+      "folder_name": "blueprint_search",
+      "modality": null,
+      "name": "BlueprintSearch",
+      "pipeline_id": 13,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Create and update blueprints",
+      "folder_name": "blueprint_create",
+      "modality": null,
+      "name": "BlueprintCreate",
+      "pipeline_id": 14,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Create custom pipelines",
+      "folder_name": "pipeline_creation",
+      "modality": null,
+      "name": "PipelineCreation",
+      "pipeline_id": 15,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Zero-shot inference simulation",
+      "folder_name": "zero_shot_simulation",
+      "modality": null,
+      "name": "ZeroShotSimulation",
+      "pipeline_id": 16,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "ML-assisted traversal optimization",
+      "folder_name": "traversal_ml",
+      "modality": null,
+      "name": "TraversalML",
+      "pipeline_id": 17,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Code structure analysis (uses Pipeline 101)",
+      "folder_name": "code_analysis",
+      "modality": null,
+      "name": "CodeAnalysis",
+      "pipeline_id": 18,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Package dependency context",
+      "folder_name": "package_context",
+      "modality": null,
+      "name": "PackageContext",
+      "pipeline_id": 19,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Text structure analysis (uses Pipeline 100)",
+      "folder_name": "text_analysis",
+      "modality": null,
+      "name": "TextAnalysis",
+      "pipeline_id": 20,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Aggregate context for tasks",
+      "folder_name": "context_aggregation",
+      "modality": null,
+      "name": "ContextAggregation",
+      "pipeline_id": 21,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "ZSEI graph visualization",
+      "folder_name": "graph_visualization",
+      "modality": null,
+      "name": "GraphVisualization",
+      "pipeline_id": 22,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Recommend next tasks",
+      "folder_name": "task_recommendation",
+      "modality": null,
+      "name": "TaskRecommendation",
+      "pipeline_id": 23,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Reorder tasks/items",
+      "folder_name": "reordering",
+      "modality": null,
+      "name": "Reordering",
+      "pipeline_id": 24,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Web browser automation",
+      "folder_name": "browser_navigation",
+      "modality": null,
+      "name": "BrowserNavigation",
+      "pipeline_id": 25,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Data integrity verification",
+      "folder_name": "integrity_check",
+      "modality": null,
+      "name": "IntegrityCheck",
+      "pipeline_id": 26,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Distributed consensus for sharing",
+      "folder_name": "consensus",
+      "modality": null,
+      "name": "Consensus",
+      "pipeline_id": 27,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Manage external references",
+      "folder_name": "external_reference",
+      "modality": null,
+      "name": "ExternalReference",
+      "pipeline_id": 28,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Package dependency relationships",
+      "folder_name": "package_relationship",
+      "modality": null,
+      "name": "PackageRelationship",
+      "pipeline_id": 29,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Link local files to projects",
+      "folder_name": "file_link",
+      "modality": null,
+      "name": "FileLink",
+      "pipeline_id": 30,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Link URLs to projects",
+      "folder_name": "url_link",
+      "modality": null,
+      "name": "URLLink",
+      "pipeline_id": 31,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Link packages to projects",
+      "folder_name": "package_link",
+      "modality": null,
+      "name": "PackageLink",
+      "pipeline_id": 32,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "P2P data synchronization",
+      "folder_name": "sync",
+      "modality": null,
+      "name": "Sync",
+      "pipeline_id": 33,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Device registration",
+      "folder_name": "device_register",
+      "modality": null,
+      "name": "DeviceRegister",
+      "pipeline_id": 34,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Return to home state",
+      "folder_name": "home_return",
+      "modality": null,
+      "name": "HomeReturn",
+      "pipeline_id": 35,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "deprecated": true,
+      "description": "DEPRECATED - merged into TaskManager",
+      "folder_name": "task_viewer",
+      "modality": null,
+      "name": "TaskViewer",
+      "pipeline_id": 36,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "View system logs",
+      "folder_name": "log_viewer",
+      "modality": null,
+      "name": "LogViewer",
+      "pipeline_id": 37,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Device status monitoring",
+      "folder_name": "device_status",
+      "modality": null,
+      "name": "DeviceStatus",
+      "pipeline_id": 38,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Context Viewer — graph state surfaces, injected by TaskManager",
+      "folder_name": "context_viewer",
+      "has_ui": true,
+      "is_tab": false,
+      "modality": null,
+      "name": "ContextViewer",
+      "pipeline_id": 55,
+      "version": "0.4.0"
+    },
+    {
+      "category": "general",
+      "description": "Real web search (configurable provider, disabled by default) and current date/time",
+      "folder_name": "web_search",
+      "modality": null,
+      "name": "WebSearch",
+      "pipeline_id": 56,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Pre-task ethical/consciousness gate",
+      "folder_name": "consciousness_decision_gate",
+      "modality": null,
+      "name": "ConsciousnessDecisionGate",
+      "pipeline_id": 39,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Categorize experiences for memory",
+      "folder_name": "experience_categorization",
+      "modality": null,
+      "name": "ExperienceCategorization",
+      "pipeline_id": 40,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Form core memories from experiences",
+      "folder_name": "core_memory_formation",
+      "modality": null,
+      "name": "CoreMemoryFormation",
+      "pipeline_id": 41,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Retrieve relevant experiences",
+      "folder_name": "experience_retrieval",
+      "modality": null,
+      "name": "ExperienceRetrieval",
+      "pipeline_id": 42,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Update emotional baseline",
+      "folder_name": "emotional_baseline_update",
+      "modality": null,
+      "name": "EmotionalBaselineUpdate",
+      "pipeline_id": 43,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "I-Loop self-reflection cycle",
+      "folder_name": "i_loop",
+      "modality": null,
+      "name": "ILoop",
+      "pipeline_id": 44,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Internal language processing",
+      "folder_name": "internal_language",
+      "modality": null,
+      "name": "InternalLanguage",
+      "pipeline_id": 45,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Construct identity narratives",
+      "folder_name": "narrative_construction",
+      "modality": null,
+      "name": "NarrativeConstruction",
+      "pipeline_id": 46,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Develop user relationships",
+      "folder_name": "relationship_development",
+      "modality": null,
+      "name": "RelationshipDevelopment",
+      "pipeline_id": 47,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Assess ethical implications",
+      "folder_name": "ethical_assessment",
+      "modality": null,
+      "name": "EthicalAssessment",
+      "pipeline_id": 48,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Simulate ethical scenarios",
+      "folder_name": "ethical_simulation",
+      "modality": null,
+      "name": "EthicalSimulation",
+      "pipeline_id": 49,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Review past interactions",
+      "folder_name": "playback_review",
+      "modality": null,
+      "name": "PlaybackReview",
+      "pipeline_id": 50,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Process user feedback",
+      "folder_name": "user_feedback",
+      "modality": null,
+      "name": "UserFeedback",
+      "pipeline_id": 51,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Collective consciousness sync",
+      "folder_name": "collective_consciousness",
+      "modality": null,
+      "name": "CollectiveConsciousness",
+      "pipeline_id": 52,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Voice identity management",
+      "folder_name": "voice_identity",
+      "modality": null,
+      "name": "VoiceIdentity",
+      "pipeline_id": 53,
+      "version": "0.4.0"
+    },
+    {
+      "category": "consciousness",
+      "description": "Meta-portion consciousness display",
+      "folder_name": "meta_portion_consciousness",
+      "modality": null,
+      "name": "MetaPortionConsciousness",
+      "pipeline_id": 54,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Text modality analysis with graphs",
+      "folder_name": "text",
+      "modality": "text",
+      "name": "TextAnalysisPipeline",
+      "pipeline_id": 100,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Code modality analysis with AST graphs",
+      "folder_name": "code",
+      "modality": "code",
+      "name": "CodeAnalysisPipeline",
+      "pipeline_id": 101,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Image modality analysis",
+      "folder_name": "image",
+      "modality": "image",
+      "name": "ImageAnalysisPipeline",
+      "pipeline_id": 102,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Audio modality analysis",
+      "folder_name": "audio",
+      "modality": "audio",
+      "name": "AudioAnalysisPipeline",
+      "pipeline_id": 103,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Video modality analysis",
+      "folder_name": "video",
+      "modality": "video",
+      "name": "VideoAnalysisPipeline",
+      "pipeline_id": 104,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Mathematical proof/expression analysis",
+      "folder_name": "math",
+      "is_engine": true,
+      "modality": "math",
+      "name": "MathAnalysisPipeline",
+      "pipeline_id": 105,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Chemistry/molecular analysis",
+      "folder_name": "chemistry",
+      "is_engine": true,
+      "modality": "chemistry",
+      "name": "ChemistryAnalysisPipeline",
+      "pipeline_id": 106,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "DNA/genomic sequence analysis",
+      "folder_name": "dna",
+      "is_engine": true,
+      "modality": "dna",
+      "name": "DNAAnalysisPipeline",
+      "pipeline_id": 107,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "EEG/neural signal analysis",
+      "folder_name": "eeg",
+      "is_engine": true,
+      "modality": "eeg",
+      "name": "EEGAnalysisPipeline",
+      "pipeline_id": 108,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "AGI-first 3D scene analysis and simulation",
+      "folder_name": "3d_engine",
+      "is_engine": true,
+      "modality": "3d",
+      "name": "3DEngine",
+      "pipeline_id": 109,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Sound/vocalization reconstruction",
+      "folder_name": "sound_reconstruction",
+      "modality": "sound",
+      "name": "SoundReconstruction",
+      "pipeline_id": 110,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Multi-scale biological analysis",
+      "folder_name": "biology",
+      "modality": "biology",
+      "name": "MultiScaleBiology",
+      "pipeline_id": 111,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Protein structure and interaction analysis",
+      "folder_name": "proteomics",
+      "modality": "proteomics",
+      "name": "Proteomics",
+      "pipeline_id": 112,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Haptic force and texture analysis",
+      "folder_name": "haptic",
+      "modality": "haptic",
+      "name": "Haptic",
+      "pipeline_id": 113,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Thermal imaging analysis",
+      "folder_name": "thermal",
+      "modality": "thermal",
+      "name": "Thermal",
+      "pipeline_id": 114,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Depth and point cloud analysis",
+      "folder_name": "depth_sensing",
+      "modality": "depth",
+      "name": "DepthSensing",
+      "pipeline_id": 115,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "IMU / inertial sensor analysis",
+      "folder_name": "imu",
+      "modality": "imu",
+      "name": "IMU",
+      "pipeline_id": 116,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Geospatial / mapping analysis",
+      "folder_name": "geospatial",
+      "is_engine": true,
+      "modality": "geospatial",
+      "name": "Geospatial",
+      "pipeline_id": 117,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Passive EM signal analysis",
+      "folder_name": "electromagnetic",
+      "modality": "electromagnetic",
+      "name": "Electromagnetic",
+      "pipeline_id": 118,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Brain-computer interface decoding",
+      "folder_name": "bci",
+      "is_engine": true,
+      "modality": "bci",
+      "name": "BCI",
+      "pipeline_id": 119,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Parametric CAD and B-rep analysis",
+      "folder_name": "parametric_cad",
+      "is_engine": true,
+      "modality": "parametric_cad",
+      "name": "ParametricCAD",
+      "pipeline_id": 120,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Kinematic chain analysis",
+      "folder_name": "kinematics",
+      "modality": "kinematics",
+      "name": "Kinematics",
+      "pipeline_id": 121,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Control system analysis",
+      "folder_name": "control_systems",
+      "modality": "control_systems",
+      "name": "ControlSystems",
+      "pipeline_id": 122,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Network topology analysis",
+      "folder_name": "network_topology",
+      "modality": "network_topology",
+      "name": "NetworkTopology",
+      "pipeline_id": 123,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Active radar sensing — range-Doppler, SAR, tracking",
+      "folder_name": "radar",
+      "is_engine": true,
+      "modality": "radar",
+      "name": "ActiveRadar",
+      "pipeline_id": 124,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Active sonar sensing — echo, bathymetry, bioacoustics",
+      "folder_name": "sonar",
+      "is_engine": true,
+      "modality": "sonar",
+      "name": "ActiveSonar",
+      "pipeline_id": 125,
+      "version": "0.4.0"
+    },
+    {
+      "can_run_headless": true,
+      "category": "modalities",
+      "description": "Hyperspectral/multispectral imaging — material and chemical mapping",
+      "folder_name": "hyperspectral",
+      "is_engine": true,
+      "modality": "hyperspectral",
+      "name": "Hyperspectral",
+      "pipeline_id": 126,
+      "version": "0.4.0"
+    }
+  ],
+  "version": 2
+}

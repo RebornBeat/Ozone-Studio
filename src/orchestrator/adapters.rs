@@ -226,6 +226,19 @@ impl super::StoreAccess for ZseiStoreAdapter {
             other => ZSEIQuery::SearchContainersByKeywords {
                 keywords: keywords.to_vec(),
                 container_type: other.map(String::from),
+                // JurisdictionRuleSet lookups are exact-match on a real
+                // ISO-3166-1 alpha-2 region code ("eu", "gb", ...) — the
+                // default "scan" strategy's length/stopword filter treats
+                // any 2-char keyword as noise and silently drops it,
+                // confirmed live to make every national-scope jurisdiction
+                // lookup return zero results regardless of real content
+                // existing. Every other caller keeps today's default
+                // ("scan") behavior unchanged.
+                strategy: if other == Some("JurisdictionRuleSet") {
+                    Some("exact".to_string())
+                } else {
+                    None
+                },
             },
         };
         let zsei = self.zsei.read().await;

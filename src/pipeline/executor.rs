@@ -496,9 +496,25 @@ impl PipelineExecutor {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            // Confirmed live: the prompt pipeline (and likely others) prints
+            // its real error JSON to STDOUT via println! before calling
+            // std::process::exit(1) on any recoverable failure (rate limit,
+            // network error, bad response) — stderr stays empty every time,
+            // silently hiding the actual reason behind a blank
+            // "Pipeline execution failed (non-zero exit) stderr=" log line.
+            // Capture stdout too so the real message is never discarded.
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let detail = if !stderr.trim().is_empty() {
+                stderr.to_string()
+            } else if !stdout.trim().is_empty() {
+                stdout.to_string()
+            } else {
+                String::new()
+            };
             tracing::error!(
                 execution_id = %execution_id,
                 stderr = %stderr,
+                stdout = %stdout,
                 "Pipeline execution failed (non-zero exit)"
             );
             return Ok(PipelineOutput {
@@ -506,7 +522,7 @@ impl PipelineExecutor {
                 task_id,
                 data: HashMap::new(),
                 success: false,
-                error: Some(stderr.into()),
+                error: Some(detail),
             });
         }
 

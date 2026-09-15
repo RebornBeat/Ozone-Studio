@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Singapore (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "SG"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act 2012 (PDPA), administered by the Personal Data Protection Commission (PDPC). Official: https://www.pdpc.gov.sg/organisations/regulations-decisions/personal-data-protection-act-pdpa",
+      "retrieved_snippet": "The Singapore Personal Data Protection Act 2012 (PDPA) is the data privacy law in Singapore that regulates the collection, management, and disclosure to third parties of personal data by businesses and individuals... maximum financial penalty for non-compliance could reach one million SGD, or 10% of the organization's turnover.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SG"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Code of Practice for Online Safety, issued by the Infocomm Media Development Authority (IMDA), effective July 18 2023 — requires designated Social Media Services to protect users including children from harmful content. Official: https://www.imda.gov.sg/resources/press-releases-factsheets-and-speeches/press-releases/2023/imdas-online-safety-code-comes-into-effect",
+      "retrieved_snippet": "IMDA has issued a Code of Practice for Online Safety which takes effect from 18 July 2023, requiring designated Social Media Services to enhance online safety in Singapore and curb the spread of harmful content, especially protecting children... Failure to comply with the Code may result in fines of up to SGD 1 million.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SG"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection (Fair Trading) Act (CPFTA), including Lemon Law provisions (Part III). Official ministry reference: https://www.mti.gov.sg/newsroom/public-consultation-lemon-law",
+      "retrieved_snippet": "\"Lemon laws\" refer to consumer protection laws that provide remedies for consumers against latent defects in goods... The Consumer Protection (Fair Trading) Act (CPFTA) and the Lemon Law (Part III) provide repair, replacement, price reduction, or refund — with a defect that shows up within 6 months presumed to have existed at delivery.",
+      "official_source": true
+    }
+  ]
+}

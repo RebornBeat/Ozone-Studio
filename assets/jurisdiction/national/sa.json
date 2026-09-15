@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from real Saudi Arabian legislation, retrieved via web search against official government sources (sdaia.gov.sa, mcit.gov.sa, the UN's own cybercrime document repository unodc.org) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Saudi legal counsel. Scope: National(\"SA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Note: independent reporting found in this same research indicates Saudi Arabia's Anti-Cyber Crime Law has, in practice, also been used against minors for peaceful online expression — flagged here for honesty, not resolved into a rule (this mechanism records what a real source said, not a verdict on enforcement practice).",
+  "rules": [
+    {
+      "scope": { "National": "SA" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Law (PDPL) and its Implementing Regulation — in force since 14 September 2023, overseen by the Saudi Data and Artificial Intelligence Authority (SDAIA), applies to processing of personal data of KSA residents regardless of where the processing occurs. Official regulator: https://sdaia.gov.sa/en/SDAIA/about/Pages/RegulationsAndPolicies.aspx",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "SA" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Anti-Cyber Crime Law (8 Rabi 1, 1428 / 26 March 2007) — addresses luring and exploitation of minors online; child sexual abuse is an aggravating factor under the law. Official text hosted by the Ministry of Communications and IT: https://mcit.gov.sa//sites/default/files/anti_cyber_crime_law_en_0.pdf",
+      "official_source": true
+    }
+  ]
+}

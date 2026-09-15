@@ -145,11 +145,23 @@ pub struct JurisdictionConfig {
     /// region-specific rules yet", never "skip jurisdiction enforcement".
     #[serde(default = "default_jurisdiction_enabled")]
     pub enabled: bool,
-    /// This instance's configured region, e.g. "US-CA". None means no
-    /// region-specific ruleset applies — only whatever is registered as
-    /// Global scope (if anything real has been loaded). Never guessed or
-    /// defaulted from anything (IP geolocation, etc.) — a human sets this
-    /// explicitly or it stays None.
+    /// This instance's region, e.g. "US-CA" or a bare ISO country code
+    /// like "US". None means no region-specific ruleset applies — only
+    /// whatever is registered as Global scope (if anything real has been
+    /// loaded).
+    ///
+    /// An explicit value here (set by whoever deploys the instance, via
+    /// config.toml — never exposed as an in-app end-user toggle) always
+    /// wins. When left unset, `OzoneConfig::load` auto-fills this from real
+    /// hardware/OS signals (system timezone + locale — see
+    /// `crate::hardware_region`) rather than leaving it permanently None —
+    /// per explicit direction that this must not be a manual, skippable
+    /// user setting. It is still never a blind guess: hardware detection
+    /// only fills this in when its two independent signals agree with each
+    /// other; when they disagree (confirmed to genuinely happen — a real
+    /// machine's system timezone and locale pointed at two different
+    /// countries during development) this stays None and both raw signals
+    /// are logged, since a wrong value here can BLOCK real requests.
     #[serde(default)]
     pub instance_region: Option<String>,
 }
@@ -219,18 +231,71 @@ impl Default for OzoneConfig {
 }
 
 impl OzoneConfig {
-    /// Load configuration from a TOML file
-    pub fn load(path: &Path) -> Result<Self, OzoneError> {
-        if path.exists() {
+    /// Load configuration from a TOML file. Async since hardware-region
+    /// detection now includes one real (short-timeout, non-fatal) IP
+    /// geolocation call alongside the OS signals — see
+    /// `apply_hardware_region_detection` and `crate::hardware_region`.
+    pub async fn load(path: &Path) -> Result<Self, OzoneError> {
+        let mut config = if path.exists() {
             let content = std::fs::read_to_string(path)
                 .map_err(|e| OzoneError::ConfigError(format!("Failed to read config: {}", e)))?;
             toml::from_str(&content)
-                .map_err(|e| OzoneError::ConfigError(format!("Failed to parse config: {}", e)))
+                .map_err(|e| OzoneError::ConfigError(format!("Failed to parse config: {}", e)))?
         } else {
             // Create default config
             let config = Self::default();
             config.save(path)?;
-            Ok(config)
+            config
+        };
+        config.apply_hardware_region_detection().await;
+        Ok(config)
+    }
+
+    /// Auto-fills `jurisdiction.instance_region` from real signals — system
+    /// timezone, system locale, and IP geolocation (see
+    /// `crate::hardware_region`) — when an operator hasn't explicitly set
+    /// one in config.toml. This is a deliberate reversal of this field's
+    /// original "never guessed, a human sets this explicitly or it stays
+    /// None" design — see `JurisdictionConfig`'s doc comment for why, and
+    /// for what still makes this safe: an explicit `instance_region` in
+    /// config.toml always wins (this never overwrites an operator's real
+    /// choice), and this only ever fills the field when at least two of the
+    /// (up to three) available real signals agree with each other — see
+    /// `HardwareRegionSignals::agreed_region`'s doc comment for the exact
+    /// rule. A wrong silent guess is worse than no guess for a value that
+    /// can BLOCK requests. Always logged, either way.
+    async fn apply_hardware_region_detection(&mut self) {
+        if self.jurisdiction.instance_region.is_some() {
+            tracing::info!(
+                region = ?self.jurisdiction.instance_region,
+                "Jurisdiction region: using explicit config.toml value (hardware detection not consulted)"
+            );
+            return;
+        }
+        let signals = crate::hardware_region::detect().await;
+        match signals.agreed_region() {
+            Some(region) => {
+                tracing::info!(
+                    region = %region,
+                    timezone = ?signals.timezone_name,
+                    locale = ?signals.locale_raw,
+                    ip_country = ?signals.ip_country,
+                    "Jurisdiction region: auto-detected (at least two of timezone/locale/IP agreed)"
+                );
+                self.jurisdiction.instance_region = Some(region);
+            }
+            None => {
+                tracing::warn!(
+                    timezone = ?signals.timezone_name,
+                    timezone_country = ?signals.timezone_country,
+                    locale = ?signals.locale_raw,
+                    locale_country = ?signals.locale_country,
+                    ip_country = ?signals.ip_country,
+                    "Jurisdiction region: fewer than two available signals agreed — leaving \
+                     instance_region unset (only Global/U.N.-scope rules apply). Set \
+                     [jurisdiction] instance_region explicitly in config.toml to resolve."
+                );
+            }
         }
     }
 
@@ -361,6 +426,20 @@ pub struct TaskConfig {
     pub task_timeout_secs: u64,
     pub preserve_completed_tasks: bool,
     pub max_task_history: usize,
+    /// Interval between methodology meta-loop / AMT re-expansion loop runs.
+    /// Config-driven so this never needs a rebuild to change again.
+    #[serde(default = "default_refinement_interval_secs")]
+    pub refinement_interval_secs: u64,
+    #[serde(default = "default_refinement_enabled")]
+    pub refinement_enabled: bool,
+}
+
+fn default_refinement_interval_secs() -> u64 {
+    1800 // 30 minutes
+}
+
+fn default_refinement_enabled() -> bool {
+    true
 }
 
 impl Default for TaskConfig {
@@ -370,6 +449,8 @@ impl Default for TaskConfig {
             task_timeout_secs: 3600, // 1 hour
             preserve_completed_tasks: true,
             max_task_history: 1000,
+            refinement_interval_secs: default_refinement_interval_secs(),
+            refinement_enabled: default_refinement_enabled(),
         }
     }
 }

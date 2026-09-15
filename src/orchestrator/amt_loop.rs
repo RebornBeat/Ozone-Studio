@@ -20,7 +20,8 @@
 //! the whole project's accumulated history" loop is a much larger,
 //! separate undertaking — not built here.
 
-use crate::orchestrator::{AMTNode, PipelineExecutor, StoreAccess};
+use crate::config::{AvailableModel, ModelFallbackConfig};
+use crate::orchestrator::{AMTNode, ModelConfigOverride, PipelineExecutor, StoreAccess};
 use crate::task::RefinementConfig;
 use std::sync::Arc;
 
@@ -30,6 +31,8 @@ pub async fn run_amt_reexpansion_loop(
     executor: Arc<dyn PipelineExecutor>,
     store: Arc<dyn StoreAccess>,
     config: RefinementConfig,
+    available_models: Vec<AvailableModel>,
+    meta_fallback: ModelFallbackConfig,
 ) {
     if !config.enabled {
         tracing::info!("AMT re-expansion loop disabled (RefinementConfig.enabled = false)");
@@ -45,7 +48,9 @@ pub async fn run_amt_reexpansion_loop(
         tokio::time::sleep(std::time::Duration::from_secs(config.interval_secs)).await;
 
         tracing::info!("AMT re-expansion loop: starting review pass");
-        if let Err(e) = review_amt_candidates_once(&executor, &store).await {
+        if let Err(e) =
+            review_amt_candidates_once(&executor, &store, &available_models, &meta_fallback).await
+        {
             tracing::warn!(error = %e, "AMT re-expansion loop review pass failed");
         }
         tracing::info!("AMT re-expansion loop: review pass complete");
@@ -61,6 +66,8 @@ fn candidates_log_path() -> String {
 async fn review_amt_candidates_once(
     executor: &Arc<dyn PipelineExecutor>,
     store: &Arc<dyn StoreAccess>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
 ) -> Result<(), String> {
     let path = candidates_log_path();
 
@@ -78,8 +85,18 @@ async fn review_amt_candidates_once(
         let Some(container_id) = candidate.get("container_id").and_then(|v| v.as_u64()) else {
             continue;
         };
+        let attempts_before = candidate.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
 
-        match try_reexpand_one(executor, store, container_id).await {
+        match try_reexpand_one(
+            executor,
+            store,
+            container_id,
+            attempts_before,
+            available_models,
+            meta_fallback,
+        )
+        .await
+        {
             Ok(true) => {
                 tracing::info!(container_id, "AMT re-expansion: branch deepened");
                 candidate["handled"] = serde_json::json!(true);
@@ -95,7 +112,29 @@ async fn review_amt_candidates_once(
                 any_change = true;
             }
             Err(e) => {
-                tracing::warn!(container_id, error = %e, "AMT re-expansion attempt failed — will retry next pass");
+                // Retry cap — same reasoning as the methodology meta-loop's
+                // identical fix: without one, a candidate whose LLM call
+                // keeps failing (empty/invalid response, a real observed
+                // OpenRouter behavior for some content) retries forever,
+                // burning a real API call every pass with no escalation.
+                // Persisted on the candidate itself so the count survives a
+                // restart.
+                const MAX_REEXPAND_ATTEMPTS: u64 = 10;
+                let attempts = attempts_before + 1;
+                candidate["attempts"] = serde_json::json!(attempts);
+                any_change = true;
+                if attempts >= MAX_REEXPAND_ATTEMPTS {
+                    tracing::warn!(
+                        container_id,
+                        attempts,
+                        error = %e,
+                        "AMT re-expansion exceeded max attempts — marking failed, not retrying further"
+                    );
+                    candidate["handled"] = serde_json::json!(true);
+                    candidate["outcome"] = serde_json::json!("failed_after_max_attempts");
+                } else {
+                    tracing::warn!(container_id, attempts, error = %e, "AMT re-expansion attempt failed — will retry next pass");
+                }
             }
         }
     }
@@ -111,11 +150,19 @@ async fn review_amt_candidates_once(
 
 /// Returns Ok(true) if a branch was genuinely deepened, Ok(false) if there
 /// was nothing to do (container missing, already resolved, or the model
-/// declined to add anything substantive).
+/// declined to add anything substantive). Returns Err (retriable, see the
+/// caller's attempt cap) for a real failure — including a response that
+/// was empty or not valid JSON, which previously fell through to the
+/// `{"details": []}` default and got silently treated as "the model
+/// deliberately said no more detail needed," permanently marking the
+/// candidate handled even though nothing had actually been checked.
 async fn try_reexpand_one(
     executor: &Arc<dyn PipelineExecutor>,
     store: &Arc<dyn StoreAccess>,
     container_id: u64,
+    attempts_before: u64,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
 ) -> Result<bool, String> {
     let Some(container) = store.get_container(container_id).await? else {
         return Ok(false);
@@ -157,18 +204,57 @@ If nothing substantive can be added, return: {{"details": []}}"#,
         root_content, target_content
     );
 
-    let input = serde_json::json!({
+    let mut input = serde_json::json!({
         "prompt": prompt,
         "max_tokens": 400,
         "temperature": 0.3,
         "system_context": "Deepen one analysis branch with concrete detail. Return only valid JSON."
     });
 
+    // Model fallback escalation on retry — same reasoning and shape as the
+    // methodology meta-loop's identical fix: attempt 1 (attempts_before ==
+    // 0) uses the primary/default model, attempt 2 onward escalates
+    // through the real meta_fallback chain rather than repeating a primary
+    // that keeps failing. CYCLES through fallback candidates rather than
+    // clamping to the last one — see meta_loop.rs's matching fix for the
+    // real bug this corrects (clamping got stuck retrying a single broken
+    // candidate forever instead of rotating through all of them).
+    let fallback_candidates: Vec<&AvailableModel> = meta_fallback
+        .order
+        .iter()
+        .filter_map(|id| available_models.iter().find(|m| &m.identifier == id))
+        .filter(|m| !meta_fallback.free_only || m.is_free)
+        .collect();
+    if attempts_before > 0 && !fallback_candidates.is_empty() {
+        let idx = ((attempts_before - 1) as usize) % fallback_candidates.len();
+        let profile = fallback_candidates[idx];
+        tracing::info!(container_id, fallback_model = %profile.identifier, "AMT re-expansion: escalating to fallback model");
+        let override_cfg = ModelConfigOverride {
+            model_type: Some(profile.model_type.clone()),
+            model_identifier: Some(profile.identifier.clone()),
+            max_tokens: None,
+            temperature: None,
+            context_length: Some(profile.context_length as u32),
+            api_endpoint: profile.api_endpoint.clone(),
+            api_key_env: profile.api_key_env.clone(),
+            api_key: profile.api_key.clone(),
+            wire_protocol: profile.wire_protocol.clone(),
+            bitnet_cli_path: profile.bitnet_cli_path.clone(),
+            local_model_path: profile.local_model_path.clone(),
+        };
+        if let Ok(v) = serde_json::to_value(&override_cfg) {
+            input["model_override_config"] = v;
+        }
+    }
+
     let result = executor.execute(PROMPT_PIPELINE_ID, input).await?;
-    let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+    let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
+    if response.trim().is_empty() {
+        return Err("prompt pipeline returned an empty response".to_string());
+    }
     let json_str = extract_json_object(response);
-    let parsed: serde_json::Value =
-        serde_json::from_str(json_str.trim()).unwrap_or_else(|_| serde_json::json!({"details": []}));
+    let parsed: serde_json::Value = serde_json::from_str(json_str.trim())
+        .map_err(|e| format!("draft response wasn't valid JSON: {}", e))?;
 
     let details: Vec<String> = parsed
         .get("details")

@@ -75,11 +75,62 @@ impl ZSEI {
         })
     }
     
-    /// Query ZSEI
+    /// Query ZSEI — THE graph write choke point. Every successful mutation
+    /// (create/update/delete/link) publishes a scoped GraphEvent to the
+    /// living-graph ripple (src/graph_events.rs): websockets, monitor, and
+    /// per-interest hooks all see graph changes as they happen.
     pub async fn query(&self, query: ZSEIQuery) -> OzoneResult<ZSEIQueryResult> {
-        let mut qp = self.query_processor.write().await;
-        let mut storage = self.storage.write().await;
-        qp.process(&mut storage, &self.traversal, query).await
+        // Capture write provenance BEFORE the query consumes its payload.
+        let ripple = Self::ripple_info(&query);
+        let result = {
+            let mut qp = self.query_processor.write().await;
+            let mut storage = self.storage.write().await;
+            qp.process(&mut storage, &self.traversal, query).await?
+        };
+        if let Some((event, parent_id, container_type, scope_keywords)) = ripple {
+            let container_id = match &result {
+                ZSEIQueryResult::ContainerID(id) => Some(*id),
+                _ => None,
+            };
+            if let Some(id) = container_id {
+                crate::graph_events::emit(event, id, parent_id, container_type, "zsei", scope_keywords);
+            } else if event != "created" {
+                // Non-allocating mutations (update/delete/link) carry their
+                // target id in the ripple info; success = it rippled.
+                crate::graph_events::emit(event, 0, parent_id, container_type, "zsei", scope_keywords);
+            }
+        }
+        Ok(result)
+    }
+
+    /// Extract (event, parent, type, scope_keywords) from a write query —
+    /// called pre-execution because CreateContainer moves its container.
+    fn ripple_info(query: &ZSEIQuery) -> Option<(&'static str, u64, String, Vec<String>)> {
+        use crate::types::container::ContainerType;
+        Some(match query {
+            ZSEIQuery::CreateContainer { parent_id, container } => (
+                "created",
+                *parent_id,
+                container.local_state.metadata.container_type.display_name().to_string(),
+                container.local_state.context.keywords.clone(),
+            ),
+            ZSEIQuery::UpdateContainer { container_id, .. } => {
+                ("updated", *container_id, ContainerType::default().display_name().to_string(), Vec::new())
+            }
+            ZSEIQuery::DeleteContainer { container_id } => (
+                "deleted", *container_id, ContainerType::default().display_name().to_string(), Vec::new(),
+            ),
+            ZSEIQuery::LinkFile { project_id, .. } => (
+                "linked", *project_id, "FileRef".to_string(), Vec::new(),
+            ),
+            ZSEIQuery::LinkURL { project_id, .. } => (
+                "linked", *project_id, "UrlRef".to_string(), Vec::new(),
+            ),
+            ZSEIQuery::LinkPackage { project_id, .. } => (
+                "linked", *project_id, "PackageRef".to_string(), Vec::new(),
+            ),
+            _ => return None,
+        })
     }
     
     /// Get a container by ID

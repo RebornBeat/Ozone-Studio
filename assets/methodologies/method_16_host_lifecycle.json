@@ -1,0 +1,91 @@
+{
+  "principles": [
+    {
+      "statement": "Ozone-Studio owns its lifecycle: build, restart, verify, and hand-back are learned procedures, not tribal memory in any agent's session.",
+      "rationale": "The host must be rebuildable and restartable by ANY agent (or the human) by following the stored methodology — no agent may become a load-bearing process holder.",
+      "applicability": ["host_operations", "deployment", "recovery"]
+    },
+    {
+      "statement": "The canonical data store is target/release/zsei_data — the operator's standard launch is `cd target/release && ./ozone-studio`. Working directory determines the data directory; a launch from any other directory silently uses a DIFFERENT store. Never run the host from elsewhere, and never edit store files under a running host (recreate via the API instead).",
+      "rationale": "Two launch cwds created two divergent live stores (2026-09-15: 12-task vs 41-task split). One canonical store, matching the operator's actual habit, prevents the class entirely.",
+      "applicability": ["host_operations", "restart", "data"]
+    },
+    {
+      "statement": "Build with constrained parallelism: `cargo build --release -j 2`. The host machine has 7.6GB RAM and a 4G swapfile; unbounded jobs caused real OOM restarts.",
+      "rationale": "A build that kills the machine takes the host down with it; -j 2 is the proven-safe setting.",
+      "applicability": ["host_operations", "build"]
+    },
+    {
+      "statement": "Every restart is followed by verification before work resumes: /health (healthy, uptime reset), coordination tasks still queued, agent registry repopulating, jurisdiction region detected.",
+      "rationale": "A restart without verification hides silent failures (empty registry, lost queue, failed self-heals) behind a seemingly healthy process.",
+      "applicability": ["host_operations", "restart", "verification"]
+    },
+    {
+      "statement": "Agents never hold the host process. The human (or a supervisor designated through Ozone tasks) runs the host; agents REQUEST restarts as tasks and verify after.",
+      "rationale": "An agent holding the host makes the host's life cycle depend on that agent's session — the opposite of the connect model.",
+      "applicability": ["host_operations", "governance"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Restart Request Protocol",
+      "description": "Need a restart (new binary, config change)? Create a host task titled '[host-ops] restart requested — <reason>', then notify the operator channel (monitor feed + notes). The operator restarts from the repo root; agents verify afterward.",
+      "when_to_apply": "After merging any change to src/ that alters host behavior (new endpoints, registry changes, boot logic).",
+      "examples": [
+        "New /mcp/call endpoint merged → task '[host-ops] restart requested — McpCall endpoint live' → operator: pkill ozone-studio, then ./target/release/ozone-studio from repo root → agents verify /health uptime reset + new endpoint answers."
+      ]
+    },
+    {
+      "name": "Pre-Restore Task Snapshot",
+      "description": "Coordination tasks with an assignee survive restarts as queued (reconciliation exempts them). Before ANY restart, confirm the queue: POST /task/list — queued coordination work is expected to reappear; anything else queued will honestly become 'interrupted'.",
+      "when_to_apply": "Immediately before requesting or performing a restart.",
+      "examples": [
+        "Tasks 7-11 queued → restart → task/list shows 7-11 still queued (agent work survived); an orchestrator mid-flight task would show interrupted instead."
+      ]
+    },
+    {
+      "name": "Post-Restore Verification Ladder",
+      "description": "In order: (1) curl /health → healthy + uptime < 60s; (2) GET /pipelines/remote → agents re-register within ~30s heartbeats; (3) GET /mcp/tools → ozone-shared-context self-registered within a minute of any agent session; (4) POST /task/list → coordination tasks queued; (5) boot log shows jurisdiction region detection. Only after all five is the host 'verified up'.",
+      "when_to_apply": "After every host start, without exception.",
+      "examples": [
+        "2026-09-15 restart: health ok, zcode re-registered in 30s, tool self-registered, tasks 7-11 queued, 'Jurisdiction region: auto-detected' in log — verified."
+      ]
+    },
+    {
+      "name": "Build-then-Swap",
+      "description": "cargo build --release -j 2 FIRST; only if it exits 0 does the restart happen. The running process is never killed for a binary that failed to build.",
+      "when_to_apply": "Any restart that exists to deploy new code.",
+      "examples": [
+        "Executor fix built clean (exit 0) → restart; a failed build leaves the old binary serving."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Host is down or unhealthy and no operator is present.",
+      "action": "Agents report the outage through the monitor feed and wait; they do NOT spawn long-lived host processes from their sessions. The operator runs ./target/release/ozone-studio from the repo root.",
+      "priority": 1,
+      "exceptions": [
+        "A designated supervisor task explicitly assigns a named agent to run the host for a defined maintenance window."
+      ]
+    },
+    {
+      "condition": "A merged change requires a restart to take effect.",
+      "action": "Follow Restart Request Protocol: build clean first, then task + notify, then verify with the full ladder after the operator restarts.",
+      "priority": 2,
+      "exceptions": []
+    },
+    {
+      "condition": "Repeated OOM or machine instability during build.",
+      "action": "Confirm -j 2 is set; check swap (swapon --show, 4G expected); if still unstable, stop and escalate to the operator — do not retry with higher parallelism.",
+      "priority": 2,
+      "exceptions": []
+    },
+    {
+      "condition": "Data appears missing after restart (tasks, containers).",
+      "action": "Check the working directory first: repo-root launch uses ./zsei_data; a launch from target/release uses target/release/zsei_data. Mismatched cwd is the most common cause of 'lost' data.",
+      "priority": 3,
+      "exceptions": []
+    }
+  ]
+}

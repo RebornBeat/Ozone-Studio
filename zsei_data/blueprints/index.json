@@ -1,0 +1,162 @@
+{
+  "blueprint_count": 7,
+  "blueprints": [
+    {
+      "blueprint_id": 1,
+      "file": "bp_1_general_assistant.json",
+      "input_types": [
+        "text",
+        "image",
+        "audio",
+        "video",
+        "code"
+      ],
+      "keywords": [
+        "help",
+        "explain",
+        "what is",
+        "how does",
+        "question",
+        "assist"
+      ],
+      "name": "General Assistant",
+      "output_types": [
+        "text",
+        "code"
+      ],
+      "signature_hash": "bp_general_assistant_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    },
+    {
+      "blueprint_id": 2,
+      "file": "bp_2_code_review.json",
+      "input_types": [
+        "code",
+        "file_reference"
+      ],
+      "keywords": [
+        "review",
+        "code review",
+        "analyze code",
+        "check code",
+        "audit",
+        "quality"
+      ],
+      "name": "Code Review",
+      "output_types": [
+        "code_analysis",
+        "suggestions"
+      ],
+      "signature_hash": "bp_code_review_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    },
+    {
+      "blueprint_id": 3,
+      "file": "bp_3_documentation.json",
+      "input_types": [
+        "code",
+        "text",
+        "requirements"
+      ],
+      "keywords": [
+        "document",
+        "documentation",
+        "readme",
+        "tutorial",
+        "guide",
+        "api docs"
+      ],
+      "name": "Documentation",
+      "output_types": [
+        "documentation",
+        "markdown"
+      ],
+      "signature_hash": "bp_documentation_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    },
+    {
+      "blueprint_id": 4,
+      "file": "bp_4_code_creation.json",
+      "input_types": [
+        "specification",
+        "requirements",
+        "text"
+      ],
+      "keywords": [
+        "create",
+        "generate",
+        "write code",
+        "implement",
+        "build",
+        "scaffold"
+      ],
+      "name": "Code Creation",
+      "output_types": [
+        "code",
+        "documentation"
+      ],
+      "signature_hash": "bp_code_creation_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    },
+    {
+      "blueprint_id": 6,
+      "file": "bp_6_data_analysis.json",
+      "input_types": [
+        "data",
+        "csv",
+        "json",
+        "text"
+      ],
+      "keywords": [
+        "analyze",
+        "analysis",
+        "data",
+        "statistics",
+        "chart",
+        "visualize",
+        "insights"
+      ],
+      "name": "Data Analysis",
+      "output_types": [
+        "analysis",
+        "visualization",
+        "report"
+      ],
+      "signature_hash": "bp_data_analysis_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    },
+    {
+      "blueprint_id": 7,
+      "file": "bp_7_math_proof_verification.json",
+      "input_types": [
+        "math",
+        "proof",
+        "text"
+      ],
+      "keywords": [
+        "prove",
+        "proof",
+        "verify",
+        "theorem",
+        "lemma",
+        "mathematical",
+        "formal"
+      ],
+      "name": "Mathematical Proof Verification",
+      "output_types": [
+        "verification",
+        "analysis"
+      ],
+      "signature_hash": "bp_math_proof_v2",
+      "success_rate": 1.0,
+      "use_count": 0
+    }
+  ],
+  "last_updated": 1789436717,
+  "version": 2
+}

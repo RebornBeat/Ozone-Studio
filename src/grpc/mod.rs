@@ -32,6 +32,8 @@ pub struct AppState {
     pub pairing: Arc<crate::pairing::PairingHub>,
     /// Registered external tools — MCP connection surface (see src/mcp.rs).
     pub mcp: Arc<crate::mcp::McpRegistry>,
+    /// MCP call metering per agent/day — the MCP usage budget (src/mcp.rs).
+    pub mcp_usage: Arc<crate::mcp::UsageLedger>,
 }
 
 /// Recursively convert a `serde_json::Value` into `crate::types::Value`,
@@ -134,6 +136,15 @@ pub struct TaskInfo {
     pub started_at: Option<u64>,
     pub completed_at: Option<u64>,
     pub error: Option<String>,
+    /// Coordination metadata (from inputs for /task/create tasks): what the
+    /// task IS, who it's routed to, who created it — so the API record is
+    /// self-describing without needing out-of-band context.
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub assignee: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
     /// Per-step detail (action, status, tokens, model_used) — populated on
     /// the single-task lookup (get_task) for the task-detail/rewind UI;
     /// left empty on list_tasks to keep the list view lightweight.
@@ -488,12 +499,35 @@ async fn get_task(
             task_id: task.task_id,
             blueprint_id: task.blueprint_id,
             blueprint_name: format!("Blueprint #{}", task.blueprint_id.unwrap_or(0)),
-            status: format!("{:?}", task.status),
+            // task.status is already a String (src/task/mod.rs) — Debug-
+            // formatting it here wrapped every real status value in literal
+            // quote characters (e.g. the JSON value was "\"interrupted\""
+            // instead of "interrupted"), confirmed live by the UI fork
+            // working around it defensively. Fixed at the source instead.
+            status: task.status.clone(),
             progress: task.progress,
             created_at: task.created_at,
             started_at: task.started_at,
             completed_at: task.completed_at,
             error: task.error.map(|e| format!("{:?}", e)),
+            description: task
+                .inputs
+                .as_ref()
+                .and_then(|i| i.get("prompt"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            assignee: task
+                .inputs
+                .as_ref()
+                .and_then(|i| i.get("assignee"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            created_by: task
+                .inputs
+                .as_ref()
+                .and_then(|i| i.get("source"))
+                .and_then(|v| v.as_str())
+                .map(String::from),
             steps: task.steps,
             thinking_log: task.thinking_log,
             amt_summary: task.amt_summary,
@@ -521,19 +555,36 @@ async fn list_tasks(
     Json(TaskListResponse {
         tasks: tasks
             .into_iter()
-            .map(|t| TaskInfo {
-                task_id: t.task_id,
-                blueprint_id: t.blueprint_id,
-                blueprint_name: format!("Blueprint #{}", t.blueprint_id.unwrap_or(0)),
-                status: format!("{:?}", t.status),
-                progress: t.progress,
-                created_at: t.created_at,
-                started_at: t.started_at,
-                completed_at: t.completed_at,
-                error: t.error.map(|e| format!("{:?}", e)),
-                steps: Vec::new(),
-                thinking_log: Vec::new(),
-                amt_summary: None,
+            .map(|t| {
+                // Coordination metadata surfaces straight from inputs so the
+                // task record is self-describing over the API.
+                let inputs = t.inputs.as_ref().cloned().unwrap_or(serde_json::Value::Null);
+                let coord = |key: &str| {
+                    inputs
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                };
+                let description = coord("prompt");
+                let assignee = coord("assignee");
+                let created_by = coord("source").or_else(|| coord("created_by"));
+                TaskInfo {
+                    task_id: t.task_id,
+                    blueprint_id: t.blueprint_id,
+                    blueprint_name: format!("Blueprint #{}", t.blueprint_id.unwrap_or(0)),
+                    status: t.status.clone(),
+                    progress: t.progress,
+                    created_at: t.created_at,
+                    started_at: t.started_at,
+                    completed_at: t.completed_at,
+                    error: t.error.map(|e| format!("{:?}", e)),
+                    description,
+                    assignee,
+                    created_by,
+                    steps: Vec::new(),
+                    thinking_log: Vec::new(),
+                    amt_summary: None,
+                }
             })
             .collect(),
         total,
@@ -1528,6 +1579,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         executor_progress: progress_map,
         pairing: Arc::new(crate::pairing::PairingHub::new()),
         mcp: Arc::new(crate::mcp::McpRegistry::new()),
+        mcp_usage: Arc::new(crate::mcp::UsageLedger::new()),
     });
 
     let cors = CorsLayer::new()
@@ -1572,6 +1624,17 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/mcp/tools", get(mcp_list_tools))
         .route("/mcp/tools/register", post(mcp_register_tool))
         .route("/mcp/tools/unregister", post(mcp_unregister_tool))
+        // MCP USAGE — the per-agent daily budget, enforced host-side.
+        .route("/mcp/usage", get(mcp_usage_snapshot))
+        .route("/mcp/usage", post(mcp_usage_record))
+        // THE standardized abstract MCP call — one shape for every agent
+        // and every tool.
+        .route("/mcp/call", post(mcp_call))
+        // CONTEXT MIRROR — coordination events as ZSEI graph containers.
+        .route("/context/mirror", post(mirror_context))
+        // TASK CREATE — coordination tasks from the shared-context tool;
+        // real TaskManager records, listed with every other task.
+        .route("/task/create", post(create_coordination_task))
         .layer(cors)
         .with_state(state);
 
@@ -2087,4 +2150,180 @@ async fn mcp_unregister_tool(
 ) -> Json<serde_json::Value> {
     let removed = state.mcp.unregister(&req.name).await;
     Json(serde_json::json!({ "success": true, "was_registered": removed }))
+}
+
+// ============================================================================
+// MCP USAGE — per-agent daily metering (the MCP budget, enforced host-side)
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct McpUsageRecordRequest {
+    pub agent: String,
+    pub tool: String,
+}
+
+/// Record one MCP tool call. Returns the gate decision — an over-limit
+/// agent is refused here, not by convention.
+async fn mcp_usage_record(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<McpUsageRecordRequest>,
+) -> Json<serde_json::Value> {
+    let (allowed, total_today, limit) = state.mcp_usage.record(&req.agent, &req.tool).await;
+    Json(serde_json::json!({
+        "allowed": allowed,
+        "agent": req.agent,
+        "tool": req.tool,
+        "total_today": total_today,
+        "daily_limit": limit,
+    }))
+}
+
+/// Per-agent usage snapshot: today's total, limit, remaining, per-tool.
+async fn mcp_usage_snapshot(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<McpUsageQuery>,
+) -> Json<serde_json::Value> {
+    Json(state.mcp_usage.snapshot(&q.agent).await)
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpUsageQuery {
+    pub agent: String,
+}
+
+/// THE standardized abstract MCP call — every agent, every transport, one
+/// shape (see src/mcp.rs McpCall). Metered, gated, monitor-recorded.
+async fn mcp_call(
+    State(state): State<Arc<AppState>>,
+    Json(call): Json<crate::mcp::McpCall>,
+) -> Json<crate::mcp::McpResult> {
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    let hub = registry.activity_hub();
+    let result = state
+        .mcp
+        .invoke(call, &state.mcp_usage, Some(&*hub))
+        .await;
+    Json(result)
+}
+
+// ============================================================================
+// CONTEXT MIRROR — coordination events as real ZSEI containers (task 42)
+// ============================================================================
+
+/// Mirror one coordination event (note / decision / handoff / finding /
+/// file claim) into the /SharedContext graph root. Idempotent for claims
+/// (one container per claimed path).
+async fn mirror_context(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<crate::context_mirror::MirrorRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let data_dir = runtime.config.general.data_dir.clone();
+    let zsei = runtime.zsei.read().await;
+    match crate::context_mirror::mirror(&zsei, &data_dir, &req).await {
+        Ok(container_id) => {
+            let registry = runtime.pipeline_registry.read().await;
+            registry.activity_hub().record(
+                crate::monitor::ActivityKind::Bridge,
+                crate::monitor::ActivityLevel::Info,
+                &req.agent,
+                format!("mirrored {} into graph: {}", req.kind, req.title),
+                Some(serde_json::json!({ "container_id": container_id })),
+            );
+            Json(serde_json::json!({ "success": true, "container_id": container_id }))
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
+    }
+}
+
+// ============================================================================
+// TASK CREATE — lightweight coordination tasks (shared-context handoffs)
+// Real TaskManager records: routed, tracked, listed with everything else.
+// ============================================================================
+
+#[derive(Debug, Deserialize)]
+pub struct CoordinationTaskRequest {
+    /// What the assigned agent should do.
+    pub prompt: String,
+    /// Which agent this is routed to ("zcode", "claude-code", …).
+    #[serde(default)]
+    pub assignee: Option<String>,
+    /// Who created it.
+    #[serde(default)]
+    pub created_by: Option<String>,
+    #[serde(default)]
+    pub priority: Option<String>,
+    pub session_token: String,
+}
+
+async fn create_coordination_task(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CoordinationTaskRequest>,
+) -> Json<serde_json::Value> {
+    let priority = match req.priority.as_deref() {
+        Some("high") => crate::task::TaskPriority::High,
+        Some("low") => crate::task::TaskPriority::Low,
+        _ => crate::task::TaskPriority::Normal,
+    };
+
+    let mut inputs = std::collections::HashMap::new();
+    inputs.insert("prompt".to_string(), serde_json::json!(req.prompt));
+    inputs.insert(
+        "source".to_string(),
+        serde_json::json!(req.created_by.as_deref().unwrap_or("shared-context")),
+    );
+    if let Some(a) = &req.assignee {
+        inputs.insert("assignee".to_string(), serde_json::json!(a));
+    }
+
+    let enqueue_result = {
+        let runtime = state.runtime.write().await;
+        let task_mgr = runtime.task_manager.read().await;
+        task_mgr
+            .enqueue_task(
+                None, // no blueprint — coordination task, picked up by an agent
+                inputs,
+                0, // system user
+                0, // system device
+                None,
+                None,
+                priority,
+            )
+            .await
+    }; // write guard dropped here — the feed record below takes a read lock
+
+    match enqueue_result {
+        Ok(task_id) => {
+            let runtime = state.runtime.read().await;
+            let registry = runtime.pipeline_registry.read().await;
+            registry.activity_hub().record(
+                crate::monitor::ActivityKind::Job,
+                crate::monitor::ActivityLevel::Info,
+                req.created_by.as_deref().unwrap_or("shared-context"),
+                format!(
+                    "Task {} created for {} — {}",
+                    task_id,
+                    req.assignee.as_deref().unwrap_or("any agent"),
+                    truncate_for_feed(&req.prompt, 90)
+                ),
+                None,
+            );
+            Json(serde_json::json!({
+                "success": true,
+                "task_id": task_id,
+                "assignee": req.assignee,
+                "status": "queued",
+            }))
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+fn truncate_for_feed(s: &str, max: usize) -> String {
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", &s[..s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(max)])
+    }
 }

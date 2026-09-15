@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from real, current Ecuadorian law, retrieved via web search against reputable secondary sources describing the Organic Law on the Protection of Personal Data (Ley Orgánica de Protección de Datos Personales, LOPDP, enacted 26 May 2021, fully effective 26 May 2023), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Ecuadorian legal counsel. No verifiable, specific consumer-protection provision within the LOPDP was found during this research pass — not included rather than guessed. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "EC" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Organic Law on the Protection of Personal Data (LOPDP), enacted 26 May 2021, fully effective 26 May 2023 — Ecuador's first comprehensive data protection law, modeled on GDPR, establishing requirements for consent, security measures, and transparency, including for data processed by AI systems; creates the Superintendency of Personal Data Protection as the national regulator. https://www.clym.io/regulations/organic-law-on-the-protection-of-personal-data-lopdp-ecuador"
+    },
+    {
+      "scope": { "National": "EC" },
+      "condition": "child",
+      "action": "Log",
+      "source": "LOPDP — compliance obligations vary by the type of data processed, explicitly including data of children or adolescents as a distinct sensitive category requiring particular attention alongside health and credit data. https://www.mondaq.com/data-protection/1325244/beginning-of-the-sanctioning-regime-of-the-organic-law-on-personal-data-protection"
+    }
+  ]
+}

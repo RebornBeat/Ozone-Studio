@@ -1,0 +1,424 @@
+{
+  "tasks": {
+    "6": {
+      "task_id": 6,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789439841,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "7": {
+      "task_id": 7,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446522,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links — graph relationships for coordination state",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "10": {
+      "task_id": 10,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[mcp] Wire orchestrator stages to issue McpCall (POST /mcp/call) for tool needs",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "3": {
+      "task_id": 3,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789437507,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "Review CHECKLIST.md pending items: model_used live confirmation, BitNet repeat-penalty catch",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "12": {
+      "task_id": 12,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789451974,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "[host-ops] Verify methodology 16 (Host Lifecycle Management) registered as ZSEI container on next boot (index entry live + bootstrap default). Then wire: restart requests = host tasks tagged [host-ops]; agents NEVER hold the host process — operator runs ./target/release/ozone-studio from REPO ROOT (cwd discipline = data continuity). Post-restore ladder: /health, /pipelines/remote repopulated, /mcp/tools self-registered, /task/list coordination tasks queued, jurisdiction region detected in boot log.",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "8": {
+      "task_id": 8,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[orchestrator] Route shared-context notes + MCP call results into AMT stage context — AMT is the source of truth",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "1": {
+      "task_id": 1,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789436783,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "Mirror shared-context notes/claims as ZSEI containers with file links (graph relationships)",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "2": {
+      "task_id": 2,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789436808,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "Review CHECKLIST.md and pick up model_used live-test confirmations",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "9": {
+      "task_id": 9,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "[orchestrate] Confirm model_used live-reporting + chat switch notification, then RETIRE CHECKLIST.md with a final pointer to Ozone tasks",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "4": {
+      "task_id": 4,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789438194,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "amt_container_id": 1001,
+        "amt_intent": "Process user request",
+        "blueprint_id": null,
+        "prompt": ""
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "5": {
+      "task_id": 5,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1789439469,
+      "started_at": null,
+      "completed_at": 1789439802,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "amt_container_id": 1003,
+        "amt_intent": "Process user request",
+        "blueprint_id": null,
+        "prompt": ""
+      },
+      "outputs": {
+        "response": "## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core,",
+        "steps": [
+          {
+            "output": "## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core,",
+            "step": 0,
+            "tokens": 2047
+          }
+        ]
+      },
+      "steps": [
+        {
+          "step_index": 0,
+          "action": "Process the user prompt",
+          "pipeline_id": 0,
+          "status": "completed",
+          "started_at": 1789439802,
+          "completed_at": 1789439802,
+          "tokens_used": 2047,
+          "output_summary": "## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, c",
+          "error": null,
+          "stages_completed": [
+            "execute"
+          ],
+          "stages_pending": [],
+          "current_stage": null,
+          "graph_ids_read": [
+            "full_context"
+          ],
+          "graph_ids_updated": [],
+          "version": 1,
+          "version_notes": [
+            {
+              "version": 1,
+              "note": "Step 0 completed: 2047 tokens",
+              "timestamp": 1789439802,
+              "change_type": "Created"
+            }
+          ],
+          "methodology_ids_applied": [],
+          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf"
+        }
+      ],
+      "total_tokens": 5902,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [
+        {
+          "eval_tokens_per_sec": 3.7300000190734863,
+          "load_time_ms": 1650.0400390625,
+          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf",
+          "prompt_eval_tokens_per_sec": 11.289999961853027,
+          "raw_response": "]\n\nHere is the AMT's request:\nReturn all of the user interaction history.\nResponse: \n{\n    \"name\": \"User Interaction History\",\n    \"description\": \"This blueprint creates a record of all interactions between the user and the system.\",\n    \"steps\": [\n        {\n            \"step_ index\": 0,\n            \"action\": \"HomeReturn\",\n            \"description\": \"The user returns to the home state.\",\n            \"pipeline_id\": 35,\n            \"context_requirements\": [\"full_context\"],\n            \"depends_on\": [],\n            \"wait_for_graph_update\": false,\n            \"max_retries\": 1,\n            \"model_override\": null\n        },\n        {\n            \"step_ index\": 1,\n            \"action\": \"PlaybackReview\",\n            \"description\": \"The user reviews past interactions.\",\n            \"pipeline_id\": 50,\n            \"context_requirements\": [\"full_context\"],\n            \"depends_on\": [],\n            \"wait_for_graph_update\": false,\n            \"max_retries\": 1,\n            \"model_override\": null\n        }\n    ],\n    \"missing_abilities\": [\"capability1\", \"capability2\"]\n}\n<END OF RESPONSE>\n\n**Blueprint Name:** User Interaction History\n\n**Description:** This blueprint creates a record of all interactions between the user and the system.\n\n**Steps:**\n\n- **Step 0:** HomeReturn (ID: 35)\n  - **Action:** Return to home state.\n  - **Description:** The user returns to the home state.\n  - **Pipeline ID:** 35\n  - **Context Requirements:** [full_context]\n  - **Depends On:** []\n  - **Wait For Graph Update:** False\n  - **Max Retries:** 1\n  - **Model Override:** None\n\n- **Step 1:** PlaybackReview (ID: 50)\n  - **Action:** Review past interactions.\n  - **Description:** The user reviews past interactions.\n  - **Pipeline ID:** 50\n  - **Context Requirements:** [full_context]\n  - **Depends On:** []\n  - **Wait For Graph Update:** False\n  - **Max Retries:** 1\n  - **Model Override:** None\n\n**Missing Abilities:** [capability1, capability2]\n\n**Response:**\n{\n    \"name\": \"User Interaction History\",\n    \"description\": \"This blueprint creates a record of all interactions between the user and the system.\",\n    \"steps\": [\n        {\n            \"step_ index\": 0,\n            \"action\": \"HomeReturn\",\n            \"description\": \"The user returns to the home state.\",\n            \"pipeline_id\": 35,\n            \"context_requirements\": [\"full_context\"],\n            \"depends_on\": [],\n            \"wait_for_graph_update\": false,\n            \"max_retries\": 1,\n            \"model_override\": null\n        },\n        {\n            \"step_ index\": 1,\n            \"action\": \"PlaybackReview\",\n            \"description\": \"The user reviews past interactions.\",\n            \"pipeline_id\": 50,\n            \"context_requirements\": [\"full_context\"],\n            \"depends_on\": [],\n            \"wait_for_graph_update\": false,\n            \"max_retries\": 1,\n            \"model_override\": null\n        }\n    ],\n    \"missing_abilities\": [\"capability1\", \"capability2\"]\n}\n<END OF RESPONSE> ```\n\n### Explanation:\n- **Available Pipelines:** A list of available pipelines that can handle the request.\n- **Branches:** Each branch represents a distinct intent or action, ensuring all branches are covered in the response.\n- **Missing Capabilities:** The capabilities that might be lacking in the current setup but should be addressed.\n\nThis blueprint ensures that all possible user interaction history requests are captured and returned. It covers various actions like returning to the home state, reviewing past interactions, and more. Each step is detailed with its purpose, pipeline ID, context requirements, dependencies, retry mechanisms, and model override considerations. The response structure clearly indicates which steps were chosen for each branch and highlights any missing capabilities. This comprehensive approach ensures that no potential interaction history request is overlooked. \n\n**Follow-Up Questions:**\n1. How would you modify this blueprint if additional features like voice input/voice output (Voice) or text analysis (TextAnalysis) need to be included?\n2. What kind of data integrity checks could be added to ensure the accuracy of the interaction history?\n\n**Answers:**\n1. To include additional features like Voice input/voice output and Text analysis, new steps would be added to the blueprint. For example:\n   - **Voice Input/Output (Voice):**\n     ```\n     {\n         \"step_ index\": 2,\n         \"action\": \"Voice\",\n         \"description\": \"The user provides voice input.\",\n         \"pipeline_id\": 10,\n         \"context_requirements\": [\"full_context\"],\n         \"depends_on\": [],\n         \"wait_for_graph_update",
+          "stage": "Blueprint Assignment",
+          "tokens_used": 999
+        },
+        {
+          "eval_tokens_per_sec": 5.190000057220459,
+          "load_time_ms": 2107.570068359375,
+          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf",
+          "prompt_eval_tokens_per_sec": 21.25,
+          "raw_response": "```\n\n### Example:\n```json\n{\n    \"step_predictions\": [\n        {\"step\": 0, \"needs\": [\"user_prompt\"], \"produces\": [\"response\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n### Instructions for Use:\n- Please provide a user request as input.\n- The output should be a JSON object with the following structure:\n    {\n        \"step__predictions\": [\n            {\"step\": 0, \"needs\": [\"info1\"], \"produces\": [\"output1\"], \"risks\": [\"risk1\"]},\n        ],\n        \"overall_feasibility\": \"high/medium/low\",\n        \"clarifications_needed\": []\n    }\n```\n\n### Example Input:\n```\nUser request: Create a new file named 'example.txt' in the root directory of my computer.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"root_directory\"], \"produces\": [\"file_name\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Delete all files older than 30 days in the Documents folder.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"documents_folder\"], \"produces\": [\"file_list\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Rename the file 'document1.txt' to 'doc1.txt'.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"file_name\"], \"produces\": [\"new_file_name\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Create a new user account on my computer.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"root_directory\"], \"produces\": [\"user_account\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Transfer files from one directory to another.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"source_directory\", \"destination_directory\"], \"produces\": [\"file_list\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Find all images in the Pictures folder and delete them.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"pictures_folder\"], \"produces\": [\"file_list\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser request: Create a new database on my computer.\n```\n\n### Example Output:\n```json\n{\n    \"step__predictions\": [\n        {\"step\": 0, \"needs\": [\"root_directory\"], \"produces\": [\"database_name\"], \"risks\": []},\n    ],\n    \"overall_feasibility\": \"high\",\n    \"clarifications_needed\": []\n}\n```\n\n---\n\n### Example Input:\n```\nUser",
+          "stage": "Zero-Shot Simulation",
+          "tokens_used": 799
+        },
+        {
+          "eval_tokens_per_sec": 6.539999961853027,
+          "load_time_ms": 2014.77001953125,
+          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf",
+          "prompt_eval_tokens_per_sec": 23.59000015258789,
+          "raw_response": "## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core, contextualization, context, contextualization\n\n## Pipeline: CoreText\nKeywords: coretext, pipeline, core, coretext, core\n\n## Pipeline: GenerateResponse\nKeywords: generateresponse, pipeline, core, generateresponse, response, generation\n\n## Pipeline: FeedbackLoop\nKeywords: feedbackloop, pipeline, core, feedbackloop, loop, feedback\n\n## Pipeline: TextAnalysis\nKeywords: textanalysis, pipeline, core, textanalysis, text, analysis\n\n## Pipeline: ContextAggregation\nKeywords: contextaggregation, pipeline, core, contextaggregation, context, aggregation\n\n## Pipeline: UserFeedback\nKeywords: userfeedback, pipeline, consciousness, userfeedback, user, feedback\n\n## Pipeline: ContextViewer\nKeywords: contextviewer, pipeline, general, contextviewer, context, viewer\n\n## Pipeline: ProcessContext\nKeywords: processcontext, pipeline, core, processcontext, process, context\n\n## Pipeline: Contextualization\nKeywords: contextualization, pipeline, core,",
+          "stage": "Step Execution (step 0)",
+          "tokens_used": 2047
+        }
+      ],
+      "amt_summary": {
+        "branch_count": 0,
+        "branches": [
+          {
+            "confidence": 1.0,
+            "content": "Process user request",
+            "depth": 0,
+            "id": 2,
+            "relationships": [],
+            "verified": true
+          }
+        ],
+        "max_depth": 0,
+        "total_nodes": 1,
+        "validation_status": "Validated"
+      }
+    },
+    "11": {
+      "task_id": 11,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[tasks] Persist coordination tasks across host restart — enqueue_task should save_to_disk like step updates do",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    }
+  },
+  "logs": {
+    "9": [],
+    "3": [],
+    "5": [
+      {
+        "timestamp": 1789439802,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "10": [],
+    "8": [],
+    "7": [],
+    "6": [],
+    "4": [],
+    "12": [],
+    "11": [],
+    "2": [],
+    "1": []
+  },
+  "next_id": 13
+}

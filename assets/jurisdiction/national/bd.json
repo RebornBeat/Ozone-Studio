@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Bangladesh (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "BD"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act, 2026 (Law 63 of 2026) — formally passed by Parliament in April 2026, repealing the preceding Personal Data Protection Ordinance 2025 (itself amended by the Personal Data Protection (Amendment) Ordinance, 2026, signed 5 February 2026, published March 2026). Full enforcement phases in over 18 months from gazette (~May 2027 for obligations requiring organizational readiness; most provisions take immediate effect). Summary: https://securiti.ai/bangladesh-personal-data-protection-act-overview/",
+      "retrieved_snippet": "The path to the current law involved a first draft (PDPA 2024, cabinet-approved November 2023), then the Personal Data Protection Ordinance 2025 issued by the President 6 November 2025, an amending ordinance in February 2026, and finally the permanent Act passed April 2026.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BD"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Children Act 2013 (bdlaws.minlaw.gov.bd), the general child protection statute (persons under 18 are children) — NO express online/digital-specific child-safety law found (no mandated age verification or CSAM takedown obligations for online platforms as of this search). The Telecommunication Regulatory Act 2001 contains some related provisions. Summary: https://www.advocacylegalbd.com/child-protection-laws-in-bangladesh/",
+      "retrieved_snippet": "There are no express laws or regulations in place in Bangladesh that require online platforms to implement age verification mechanisms before allowing user access; platforms are not explicitly required under existing legislation to review, report, or remove CSAM. The Children Act 2013 replaced the Children Act 1974 to create a more effective general child protection system.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BD"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumers' Right(s) Protection Act, 2009 (Act No.26 of 2009). Regulator: Directorate of National Consumer Rights Protection (DNCRP), founded 2009 by this Act, official site https://dncrp.portal.gov.bd/",
+      "retrieved_snippet": "Provides for protection of consumer rights, prevention of anti-consumer practices, and both civil and criminal remedies, with a maximum penalty of 2 lakh taka for anti-consumer activities. DNCRP is a quasi-judicial department that hears and resolves consumer complaints over goods and services.",
+      "official_source": true
+    }
+  ]
+}

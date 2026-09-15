@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from real UK legislation (UK GDPR + Data Protection Act 2018 — the retained/adapted form of EU GDPR incorporated into UK law after Brexit via the European Union (Withdrawal) Act 2018), retrieved via web search against summaries of the official legislation.gov.uk text, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UK legal counsel. Scope: National(\"GB\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "GB" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "UK GDPR + Data Protection Act 2018 — gives individuals rights over personal data (access, rectification, erasure, restriction, portability, objection, and rights around automated decision-making), broadly mirroring EU GDPR post-Brexit. Official text: https://www.legislation.gov.uk/ukpga/2018/12/contents"
+    },
+    {
+      "scope": { "National": "GB" },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "UK GDPR (retained EU law) — notification obligations to the Information Commissioner's Office (ICO) mirror the EU GDPR 72-hour breach-notification standard. Official text: https://www.legislation.gov.uk/ukpga/2018/12/contents"
+    },
+    {
+      "scope": { "National": "GB" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Public Sector Bodies (Websites and Mobile Applications) Accessibility Regulations 2018 — requires public sector websites/apps to meet WCAG 2.2 AA and publish an accessibility statement; in force since 23 September 2018 (websites) / 23 June 2021 (mobile apps). Scope: public sector bodies (central/local government, certain publicly-funded charities/NGOs), not general private-sector services. Official: https://www.gov.uk/guidance/accessibility-requirements-for-public-sector-websites-and-apps",
+      "retrieved_snippet": "The Public Sector Bodies (Websites and Mobile Applications) Accessibility Regulations of 2018 require public sector websites and mobile apps to meet WCAG 2.2 AA and publish an accessibility statement explaining how accessible their website or app is. Came into force 23 September 2018 for websites and 23 June 2021 for mobile applications.",
+      "official_source": false
+    }
+  ]
+}

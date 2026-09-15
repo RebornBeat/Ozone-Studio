@@ -519,6 +519,12 @@ pub struct TaskStepData {
     /// consecutive steps used different backends.
     #[serde(default)]
     pub model_used: Option<String>,
+    /// Context-object mirror (see StoredTaskStep.context_assembled) — the
+    /// assembled context this step received and how it was gathered.
+    #[serde(default)]
+    pub context_assembled: Option<String>,
+    #[serde(default)]
+    pub context_sources: Vec<String>,
 }
 
 /// Timeline event for task history
@@ -611,6 +617,15 @@ struct StoredTaskStep {
     methodology_ids_applied: Vec<u64>,
     #[serde(default)]
     model_used: Option<String>,
+    /// CONTEXT OBJECT (the "what did this step actually see" record —
+    /// persistent, loggable, API-obtainable; never write-only):
+    /// the assembled context text this step was given, plus provenance of
+    /// how it was gathered ("keyword-scan" today; "traversal:<mode>" once
+    /// the TraversalEngine is wired into assembly).
+    #[serde(default)]
+    context_assembled: Option<String>,
+    #[serde(default)]
+    context_sources: Vec<String>,
 }
 
 /// One versioned change record on a step (metrics, not fabricated scores —
@@ -717,6 +732,51 @@ impl TaskManager {
         if let Ok(Some(snapshot)) = self.backend.load() {
             if let Ok(mut tasks) = self.tasks.try_write() {
                 *tasks = snapshot.tasks;
+
+                // Boot-time reconciliation: a task still in a non-terminal
+                // status ("queued" or "running") when this snapshot was
+                // written can only mean the process died before it reached
+                // complete_task/fail_task/cancel_task (the only places that
+                // ever set a terminal status) — there is no clean-shutdown
+                // path that leaves a task queued/running. Mark these
+                // honestly as "interrupted" rather than silently leaving
+                // them claiming to still be in flight forever (nothing
+                // will ever resume or complete them otherwise). Real
+                // per-step progress up to the crash point is preserved
+                // (update_step/set_thinking_log/set_amt_summary now
+                // checkpoint to disk after every step, not just at the
+                // end), so an interrupted task's `steps` array honestly
+                // reflects how far it actually got.
+                let mut reconciled = 0u32;
+                for task in tasks.values_mut() {
+                    if task.status == "queued" || task.status == "running" {
+                        // Coordination tasks (created via /task/create with an
+                        // assignee) are WAITING work routed to an external
+                        // agent, not in-flight host execution — a restart
+                        // doesn't interrupt them; the agent picks them up
+                        // after boot. Everything else queued/running at
+                        // snapshot time honestly becomes "interrupted".
+                        let is_coordination = task
+                            .inputs
+                            .as_ref()
+                            .and_then(|i| i.get("assignee"))
+                            .map(|a| !a.is_null())
+                            .unwrap_or(false);
+                        if is_coordination && task.status == "queued" {
+                            continue;
+                        }
+                        task.status = "interrupted".to_string();
+                        reconciled += 1;
+                    }
+                }
+                if reconciled > 0 {
+                    tracing::warn!(
+                        count = reconciled,
+                        "Boot reconciliation: marked stranded queued/running tasks as interrupted \
+                         (process ended without a clean completion) — their recorded steps reflect \
+                         real progress up to the interruption point"
+                    );
+                }
             }
             if let Ok(mut logs) = self.logs.try_write() {
                 *logs = snapshot.logs;
@@ -1143,6 +1203,7 @@ impl TaskManager {
         // execution-store expansion.
         let _ = execution_id;
 
+        {
         let mut tasks = self.tasks.write().await;
         if let Some(task) = tasks.get_mut(&task_id) {
             if let Some(step) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
@@ -1193,6 +1254,8 @@ impl TaskManager {
                     } else {
                         pipeline_name.to_string()
                     },
+                    context_assembled: None,
+                    context_sources: Vec::new(),
                     pipeline_id: 0,
                     status: status.to_string(),
                     started_at: Some(now()),
@@ -1227,6 +1290,19 @@ impl TaskManager {
 
             task.total_tokens = task.steps.iter().map(|s| s.tokens_used).sum();
         }
+        }
+
+        // Checkpoint to disk after every step — confirmed live this session
+        // this was the actual gap behind "if it stops at a step it can
+        // always cleanly resume": this function previously only mutated the
+        // in-memory task record, so a crash mid-orchestration lost every
+        // completed step's progress even though update_step had already
+        // been called for each one — the on-disk record still showed the
+        // task exactly as it was at enqueue time. save_to_disk snapshots
+        // ALL tasks, not just this one, so this is a real (not free) write
+        // per step; acceptable since step counts per task are small and
+        // durability here is the explicit point.
+        let _ = self.save_to_disk().await;
 
         Ok(())
     }
@@ -1241,10 +1317,65 @@ impl TaskManager {
         task_id: TaskID,
         thinking_log: Vec<serde_json::Value>,
     ) -> OzoneResult<()> {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.get_mut(&task_id) {
-            task.thinking_log = thinking_log;
+        {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.get_mut(&task_id) {
+                task.thinking_log = thinking_log;
+            }
         }
+        let _ = self.save_to_disk().await;
+        Ok(())
+    }
+
+    /// Persist the CONTEXT OBJECT for one step: the assembled context that
+    /// step will actually receive, plus provenance of how it was gathered
+    /// (e.g. ["keyword-scan"] today, ["traversal:Contextual"] once the
+    /// TraversalEngine feeds assembly). Called from Stage 7 right after the
+    /// task exists — Stage 6 assembles before a durable task id exists, so
+    /// the context rides in `OrchestrationState.step_contexts` until here.
+    /// Find-or-create like update_step; a step that already has context gets
+    /// OVERWRITTEN (latest assembly wins — callers re-mirroring after a
+    /// re-assembly expect that).
+    pub async fn update_step_context(
+        &self,
+        task_id: TaskID,
+        step_index: u32,
+        context_assembled: &str,
+        context_sources: Vec<String>,
+    ) -> OzoneResult<()> {
+        {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.get_mut(&task_id) {
+                if let Some(step) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
+                    step.context_assembled = Some(context_assembled.to_string());
+                    step.context_sources = context_sources;
+                } else {
+                    task.steps.push(StoredTaskStep {
+                        step_index,
+                        action: "context-assembly".to_string(),
+                        pipeline_id: 0,
+                        status: "pending".to_string(),
+                        started_at: Some(now()),
+                        completed_at: None,
+                        tokens_used: 0,
+                        output_summary: None,
+                        error: None,
+                        stages_completed: Vec::new(),
+                        stages_pending: Vec::new(),
+                        current_stage: None,
+                        graph_ids_read: Vec::new(),
+                        graph_ids_updated: Vec::new(),
+                        version: 1,
+                        version_notes: Vec::new(),
+                        methodology_ids_applied: Vec::new(),
+                        model_used: None,
+                        context_assembled: Some(context_assembled.to_string()),
+                        context_sources,
+                    });
+                }
+            }
+        }
+        let _ = self.save_to_disk().await;
         Ok(())
     }
 
@@ -1257,10 +1388,13 @@ impl TaskManager {
         task_id: TaskID,
         amt_summary: serde_json::Value,
     ) -> OzoneResult<()> {
-        let mut tasks = self.tasks.write().await;
-        if let Some(task) = tasks.get_mut(&task_id) {
-            task.amt_summary = Some(amt_summary);
+        {
+            let mut tasks = self.tasks.write().await;
+            if let Some(task) = tasks.get_mut(&task_id) {
+                task.amt_summary = Some(amt_summary);
+            }
         }
+        let _ = self.save_to_disk().await;
         Ok(())
     }
 
@@ -1758,6 +1892,8 @@ impl TaskManager {
                     version_notes: s.version_notes.clone(),
                     methodology_ids_applied: s.methodology_ids_applied.clone(),
                     model_used: s.model_used.clone(),
+                    context_assembled: s.context_assembled.clone(),
+                    context_sources: s.context_sources.clone(),
                 })
                 .collect(),
             total_tokens: stored.total_tokens,

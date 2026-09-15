@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Brazilian federal statutes, verified via live web search against official government sources (planalto.gov.br, consumidor.gov.br, camara.leg.br) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Brazilian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "BR"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Lei Geral de Proteção de Dados Pessoais (LGPD), Lei No. 13.709/2018 — http://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/L13709.htm",
+      "retrieved_snippet": "LGPD establishes norms for the protection and processing of personal data in Brazilian national territory, protecting fundamental rights of freedom, privacy, honor and intimacy.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BR"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Estatuto Digital da Criança e do Adolescente (ECA Digital), Lei No. 15.211/2025 — https://infograficos.camara.leg.br/eca-digital/",
+      "retrieved_snippet": "First Brazilian law with specific rules/punishments for digital platforms regarding children and adolescents. Any product/service likely to be accessed by minors must guarantee priority protection, best-interest-of-the-child as parameter, and high privacy/data-protection/security levels. Became enforceable 2026-03-17.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BR"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Estatuto Digital da Criança e do Adolescente (ECA Digital), Lei No. 15.211/2025 — https://infograficos.camara.leg.br/eca-digital/",
+      "retrieved_snippet": "Platforms must adopt effective age-verification methods (not simple self-declaration) and have clear rules preventing sexual exploitation, cyberbullying, harmful-practice inducement, gambling promotion, and predatory advertising toward minors.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BR"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Código de Defesa do Consumidor, Lei No. 8.078/1990 — https://www.consumidor.gov.br/pages/conteudo/publico/102",
+      "retrieved_snippet": "Establishes norms of protection and defense of the consumer, of public order and social interest.",
+      "official_source": true
+    }
+  ]
+}

@@ -728,15 +728,27 @@ pub struct KnowledgeRef {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SentenceNode {
     pub node_id: u64,
+    // The orchestrator's mirror struct (OrchSentenceNode, src/orchestrator/
+    // mod.rs) has no node_type/position/properties/grammar_nodes fields —
+    // same cross-crate JSON-only-contract gap as ProcessedChunk's
+    // paragraph_nodes/section_nodes/document_nodes above. Confirmed live:
+    // ReconstructFromChunks panicked on "missing field `node_type`" the
+    // first time a real multi-sentence prompt actually produced non-empty
+    // sentence_nodes to round-trip (every prior test this session was too
+    // short to exercise this path).
+    #[serde(default)]
     pub node_type: GrammarNodeType,
     pub content: String,
     pub original_content: String,
+    #[serde(default)]
     pub position: TextPosition,
     pub chunk_id: u32,
     pub chunk_offset: usize,
     pub paragraph_id: Option<u64>,
     pub section_id: Option<u64>,
+    #[serde(default)]
     pub properties: GrammarProperties,
+    #[serde(default)]
     pub grammar_nodes: Vec<GrammarNode>,
     /// Grammar relationships extracted for THIS sentence (Phase 3,
     /// graph-native). Tied to the sentence node itself — grammar is local to
@@ -1462,7 +1474,7 @@ pub enum TextNodeType {
     InferredConcept,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct TextPosition {
     pub start_offset: usize,
     pub end_offset: usize,
@@ -3876,7 +3888,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
 
         // ── PHASE 4: Path 2 exclusive — construct paragraphs from the
         //       sentence graph via Stage 1 / Stage 2 ──
-        let all_processed_chunks = if use_path2 {
+        let mut all_processed_chunks = if use_path2 {
             self.construct_structure_from_graphs(all_processed_chunks)
                 .await
         } else {
@@ -3991,6 +4003,33 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
         keywords.sort_by(|a, b| b.frequency.cmp(&a.frequency));
         keywords.truncate(20);
 
+        // FALLBACK only — confirmed live this session that Path1
+        // (ChunkZeroShot, the only path any real orchestrate request has
+        // exercised) never populates sentence_nodes' grammar_relationships,
+        // so the graph-derived computation above is unconditionally empty
+        // for it, silently leaving state.keywords (src/orchestrator/mod.rs)
+        // empty for every real request and breaking methodology search,
+        // blueprint keyword search, and gap detection. Only fires when the
+        // graph genuinely produced nothing, so Path2/OMEX's real
+        // grammar-derived keywords (when present) are never overridden or
+        // double-computed. Reuses extract_keywords_from_text — the same
+        // function the standalone ExtractKeywords action already calls —
+        // gated on extract_entities since Analyze has no dedicated keyword
+        // flag; entities/keywords are the closest existing semantic pair.
+        if keywords.is_empty() && extract_entities {
+            let raw = self.extract_keywords_from_text(&cleaned_text).await;
+            keywords = raw
+                .into_iter()
+                .map(|term| Keyword {
+                    is_phrase: term.contains(' '),
+                    term,
+                    frequency: 1,
+                    relevance: 1.0,
+                })
+                .collect();
+            keywords.truncate(20);
+        }
+
         // Structure extraction is graph-native now; the rule-based form is
         // gone in full. Sections live on the chunk nodes; documents are
         // Phase-4-graph-traversal territory (not tracked here).
@@ -4001,6 +4040,26 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             has_toc: false,
             document_type: DocumentType::Unknown,
         };
+
+        // Distribute the document-level keywords/topics back down into each
+        // chunk's ProcessedChunk.keywords/topics — previously hardcoded to
+        // Vec::new() at all three process_chunk_* construction sites
+        // (path1/path2/omex) regardless of route, so every consumer reading
+        // per-chunk keywords/topics (the orchestrator's state.keywords/
+        // topics — see src/orchestrator/mod.rs's prompt_normalization —
+        // methodology search, gap detection) saw nothing for any real
+        // request this entire session, confirmed live. Assigns the same
+        // document-wide signal to every chunk: an honest approximation for
+        // a genuinely multi-chunk document (not per-chunk-precise, but real
+        // content, never fabricated), and exact for the single-chunk case
+        // that is the overwhelming majority of real requests observed this
+        // session ("Chunks: 1" in every live test so far).
+        let keyword_terms: Vec<String> = keywords.iter().map(|k| k.term.clone()).collect();
+        let topic_names: Vec<String> = topics.iter().map(|t| t.name.clone()).collect();
+        for c in all_processed_chunks.iter_mut() {
+            c.keywords = keyword_terms.clone();
+            c.topics = topic_names.clone();
+        }
 
         let analysis = TextAnalysisResult {
             word_count,
@@ -6171,7 +6230,8 @@ fn trim_to_sentence_boundary(
 // ENTRY POINT
 // ============================================================================
 
-/// Stub executor for standalone testing
+/// Stub executor for standalone testing (unit tests only — kept
+/// deterministic, never spawns a real subprocess).
 struct StubExecutor;
 
 #[async_trait::async_trait]
@@ -6182,6 +6242,85 @@ impl PipelineExecutor for StubExecutor {
         _input: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         Ok(serde_json::json!({"response": "[]"}))
+    }
+}
+
+/// Real executor for this pipeline's own internal LLM calls (keyword/topic
+/// extraction, etc.) — spawns pipeline 9's own binary directly, the exact
+/// same way the host's orchestrator invokes every pipeline, rather than
+/// calling back into the host over HTTP. The only real host-side call path,
+/// /pipeline/execute, requires a validated user session_token that a spawned
+/// subprocess has no business faking — this avoids that entirely rather than
+/// bypassing auth or inventing a new endpoint. Pipeline 9 already does
+/// complete standalone LLM dispatch (BitNet CLI / OpenRouter HTTP) with no
+/// host callback of its own, so this is reusing an already-real component
+/// as-is. `OZONE_PROMPT_PIPELINE_PATH` is set once at host boot
+/// (src/lib.rs) and inherited by every spawned pipeline subprocess
+/// (`Command` inherits the full parent environment by default). If it's
+/// unset or the binary doesn't exist, this honestly falls back to the same
+/// empty response `StubExecutor` always returned — never a fabricated
+/// success.
+struct SubprocessExecutor;
+
+#[async_trait::async_trait]
+impl PipelineExecutor for SubprocessExecutor {
+    async fn execute(
+        &self,
+        pipeline_id: u64,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        if pipeline_id != 9 {
+            // This pipeline only ever calls out to pipeline 9 (Prompt) for
+            // its own internal LLM needs — anything else has no real
+            // subprocess to spawn here.
+            return Ok(serde_json::json!({"response": "[]"}));
+        }
+
+        let path = match std::env::var("OZONE_PROMPT_PIPELINE_PATH") {
+            Ok(p) if !p.is_empty() && std::path::Path::new(&p).exists() => p,
+            other => {
+                eprintln!(
+                    "SubprocessExecutor: OZONE_PROMPT_PIPELINE_PATH not set or binary \
+                     missing (env={:?}) — internal LLM call unavailable this run",
+                    other
+                );
+                return Ok(serde_json::json!({"response": "[]"}));
+            }
+        };
+
+        // Pipeline 9's own main() accepts either the full {data, context}
+        // envelope or a bare PromptInput object directly (unwraps `data`
+        // when present, falls back to the whole value otherwise) — callers
+        // in this file already build bare PromptInput-shaped JSON for
+        // self.executor.execute(9, ...), so pass it straight through.
+        let input_json = serde_json::to_string(&input).map_err(|e| e.to_string())?;
+        let execution_id = format!(
+            "text-internal-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(&path)
+                .arg("--input")
+                .arg(&input_json)
+                .arg("--execution-id")
+                .arg(&execution_id)
+                .output()
+        })
+        .await
+        .map_err(|e| format!("internal prompt-pipeline task join failed: {}", e))?
+        .map_err(|e| format!("failed to spawn internal prompt pipeline: {}", e))?;
+
+        if !output.status.success() {
+            eprintln!(
+                "SubprocessExecutor: internal prompt pipeline exited non-zero: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return Ok(serde_json::json!({"response": "[]"}));
+        }
+
+        serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("failed to parse internal prompt pipeline output: {}", e))
     }
 }
 
@@ -6229,7 +6368,7 @@ mod k_loops;
 
 #[tokio::main]
 async fn main() {
-    let executor = Arc::new(StubExecutor);
+    let executor = Arc::new(SubprocessExecutor);
     let pipeline = Arc::new(TextModalityPipeline::new(executor));
 
     // SERVE MODE — connect-model: `--serve` boots a long-running service that

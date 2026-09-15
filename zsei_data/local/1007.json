@@ -1,0 +1,92 @@
+{
+  "metadata": {
+    "container_type": "ModalityGraph",
+    "modality": "Structured",
+    "created_at": 1789448889,
+    "updated_at": 1789448907,
+    "provenance": "pipeline:105",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Proof math graph (3 nodes, 2 edges, 1 proof steps)",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "mathematics",
+      "x"
+    ],
+    "topics": [
+      "proof",
+      "direct"
+    ],
+    "relationships": [
+      {
+        "target_id": 1006,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "Manual"
+      }
+    ],
+    "learned_associations": [],
+    "embedding": null
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "graphs/math_194202861.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 1789448889,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

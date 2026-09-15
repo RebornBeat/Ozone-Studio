@@ -1,0 +1,45 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for China (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. The official texts of these laws are in Chinese; English sources cited here are reference translations, not the authoritative text. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "CN"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Information Protection Law (PIPL), adopted August 20 2021, effective November 1 2021, 74 articles in 8 chapters. Official text is Chinese-only; reference English translation: https://www.china-briefing.com/news/the-prc-personal-information-protection-law-final-a-full-translation/",
+      "retrieved_snippet": "The PIPL was adopted on August 20, 2021, and is effective November 1, 2021. The final document consists of 74 articles in eight chapters... The official text of the Law is only available in Chinese.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CN"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Law on the Protection of Minors (revised, effective June 1 2021, dedicated online-protection chapter) + Regulation on the Protection of Minors Online, State Council, effective January 1 2024. Reference translation: https://www.chinalawtranslate.com/en/online-protection-of-minors/",
+      "retrieved_snippet": "The newly revised Minor Protection Law took effect on June 1, 2021, with a dedicated chapter on online protection... On October 16, 2023, China's State Council released the Regulation on the Protection of Minors Online, to take effect on January 1, 2024. Online products and service providers shall not offer products and services that are addictive to minors and shall reasonably limit the amount of single consumption and daily cumulative consumption of minors.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CN"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Law on Protection of Rights and Interests of Consumers (1993, amended 2013) + Implementing Regulation, effective July 1 2024. Official government portal (English): https://english.www.gov.cn/policies/latestreleases/202403/19/content_WS65f974b2c6d0868f4e8e53d1.html",
+      "retrieved_snippet": "On March 19, 2024, the State Council of the People's Republic of China unveiled the Implementing Regulation on the PRC Consumer Rights and Interests Protection Law... The regulations added provisions on operators' obligations regarding protection of the rights and interests of elderly and minors as consumers.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CN"},
+      "condition": "generative ai",
+      "action": "Log",
+      "source": "Interim Measures for the Management of Generative Artificial Intelligence Services — jointly issued by seven Chinese authorities, in force since 15 August 2023; binding on public generative AI services offered to Chinese users regardless of where the provider is based, and requires filing/registration before launch. Reference: https://aigovernance.com/policy/china-generative-ai-regulations-interim-measures",
+      "retrieved_snippet": "The Interim Measures for the Management of Generative AI Services were jointly issued by seven Chinese government authorities and came into force on 15 August 2023 — legally binding administrative rules regulating generative AI products and services offered to consumers, applicable regardless of where developed if accessible by Chinese users. Public services must file before launch.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CN"},
+      "condition": "chatbot",
+      "action": "Log",
+      "source": "Interim Measures for the Administration of AI Anthropomorphic Interactive Services — issued 10 April 2026 by the Cyberspace Administration of China and four other departments, effective 15 July 2026. Reference: https://www.twobirds.com/en/insights/2026/china/china's-new-regulations-on-ai-anthropomorphic-interactive-services",
+      "retrieved_snippet": "On April 10, 2026, the Cyberspace Administration of China and four other departments jointly issued the Interim Measures for the Administration of AI Anthropomorphic Interactive Services, taking effect July 15, 2026 — regulating AI services designed to simulate human-like interaction.",
+      "official_source": false
+    }
+  ]
+}

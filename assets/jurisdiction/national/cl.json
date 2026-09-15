@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Chilean statutes, verified via live web search against official government sources (bcn.cl — Biblioteca del Congreso Nacional, senado.cl) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Chilean law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Note: Ley 21.719 was published 2024-12-13 but only enters full force 2026-12-01 — flagged as not-yet-fully-effective at time of writing. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "CL"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley 19.628 sobre Protección de la Vida Privada — https://www.bcn.cl/leychile/navegar?idNorma=141599",
+      "retrieved_snippet": "Regulates the treatment of personal data in registries or databases by public organisms or private parties. Promulgated 1999-08-18.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CL"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Ley 21.719 (reforma de protección de datos personales) — https://www.bcn.cl/leychile/navegar?idNorma=1209272",
+      "retrieved_snippet": "Under Ley 21.719, personal data of children (under 14) and adolescents (14-18) receives reinforced protection: the minor's own consent is insufficient, verifiable parental/guardian authorization is required, treatment must follow the best-interest-of-the-child principle, and such data is classified as sensitive data. Published 2024-12-13, full force 2026-12-01.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CL"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Senado de Chile — Redes sociales: datos personales de menores de 14 años deberán contar con autorización de sus padres — https://www.senado.cl/comunicaciones/noticias/redes-sociales-datos-personales-de-menores-de-14-anos-deberan-contar-con",
+      "retrieved_snippet": "Under Ley 21.719, social media processing of personal data belonging to children under 14 requires parental authorization; data may only be used for the minor's benefit, never for commercial/advertising purposes.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CL"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Ley 19.496 sobre Protección de los Derechos de los Consumidores — https://www.bcn.cl/leychile/navegar?idNorma=61438",
+      "retrieved_snippet": "Regulates relations between providers and consumers, establishes consumer-prejudicial infractions and applicable procedures; enforced by SERNAC (Servicio Nacional del Consumidor).",
+      "official_source": true
+    }
+  ]
+}

@@ -41,6 +41,30 @@ interface TaskInfo {
   thinking_log?: ThinkingEntry[];
 }
 
+// Backend serializes task.status via format!("{:?}", String) (src/grpc/mod.rs),
+// which wraps it in literal quote characters (e.g. the JSON string value is
+// the four characters "interrupted" INCLUDING the quotes, not just
+// interrupted) — strip those defensively rather than showing them raw.
+function normalizeStatus(raw?: string | null): string {
+  if (!raw) return "";
+  return raw.replace(/^"+|"+$/g, "");
+}
+
+// "interrupted" — a real status set by boot-time reconciliation when a task
+// was left mid-flight by an unclean shutdown (src/task/mod.rs) — is
+// distinct from "failed": the task didn't error, the process just died with
+// it not yet finished. Give it its own color rather than lumping it in with
+// a generic failure so a viewer can tell "the server restarted mid-task" from
+// "this task actually failed."
+function statusColor(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "completed") return "#4ade80";
+  if (s === "failed") return "#f87171";
+  if (s === "interrupted") return "#fbbf24";
+  if (s === "cancelled") return "#94a3b8";
+  return "#93c5fd"; // queued / running / anything else in-flight
+}
+
 async function fetchTask(taskId: number): Promise<TaskInfo | null> {
   const oz = (window as any).ozone;
   if (oz?.task?.status) return oz.task.status(taskId);
@@ -133,7 +157,7 @@ export const TaskDetailPanel: React.FC = () => {
   };
 
   const isRunning = task && ["running", "queued", "inprogress"].some((s) =>
-    (task.status ?? "").toLowerCase().includes(s),
+    normalizeStatus(task.status).toLowerCase().includes(s),
   );
 
   return (
@@ -166,8 +190,17 @@ export const TaskDetailPanel: React.FC = () => {
         <>
           <div className="ostats">
             <div className="ostat">
-              <div className="ostat-num" style={{ fontSize: 13 }}>{task.status}</div>
-              <div className="ostat-label">Status</div>
+              <div className="ostat-num" style={{ fontSize: 13, color: statusColor(normalizeStatus(task.status)) }}>
+                {normalizeStatus(task.status)}
+              </div>
+              <div className="ostat-label">
+                Status
+                {normalizeStatus(task.status).toLowerCase() === "interrupted" && (
+                  <span title="The server stopped mid-task (crash or restart) before this task reached a terminal state. Its steps below reflect real progress up to that point — nothing after was lost, but nothing after ran either.">
+                    {" "}⚠︎
+                  </span>
+                )}
+              </div>
             </div>
             <div className="ostat">
               <div className="ostat-num">{Math.round((task.progress ?? 0) * 100)}%</div>

@@ -147,6 +147,22 @@ pub enum ZSEIQuery {
     SearchContainersByKeywords {
         keywords: Vec<String>,
         container_type: Option<String>,
+        /// Explicit search strategy override ("scan" default / "exact" /
+        /// "scan-legacy" — see src/zsei/search.rs's SearchRegistry). None
+        /// (the default for every existing caller) keeps today's behavior.
+        /// Added because the default "scan" strategy's keyword length/
+        /// stopword filter (src/zsei/search.rs, fixed this session for a
+        /// real false-positive substring-match bug) has an unintended side
+        /// effect: real ISO-3166-1 alpha-2 region codes ("eu", "gb", "ch",
+        /// "no", "us", ...) are exactly 2 characters and get silently
+        /// filtered out before matching ever runs — confirmed live,
+        /// jurisdiction lookups by region code returned zero results even
+        /// for containers that definitely existed with that exact keyword.
+        /// Callers doing exact short-code lookups (jurisdiction region
+        /// matching) should set this to Some("exact".into()) rather than
+        /// relying on the general-purpose fuzzy scan.
+        #[serde(default)]
+        strategy: Option<String>,
     },
 
     // Blueprint

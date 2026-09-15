@@ -1,0 +1,164 @@
+{
+  "last_updated": 1789436717,
+  "methodologies": [
+    {
+      "categories": [
+        "conversation",
+        "chat"
+      ],
+      "file": "method_1_conversational.json",
+      "methodology_id": 1,
+      "name": "Conversational Response"
+    },
+    {
+      "categories": [
+        "context",
+        "understanding"
+      ],
+      "file": "method_2_context.json",
+      "methodology_id": 2,
+      "name": "Contextual Awareness"
+    },
+    {
+      "categories": [
+        "code",
+        "development",
+        "quality"
+      ],
+      "file": "method_3_clean_code.json",
+      "methodology_id": 3,
+      "name": "Clean Code Principles"
+    },
+    {
+      "categories": [
+        "code",
+        "review",
+        "analysis"
+      ],
+      "file": "method_4_code_review.json",
+      "methodology_id": 4,
+      "name": "Code Review Best Practices"
+    },
+    {
+      "categories": [
+        "security",
+        "code",
+        "safety"
+      ],
+      "file": "method_5_security.json",
+      "methodology_id": 5,
+      "name": "Security Awareness"
+    },
+    {
+      "categories": [
+        "code",
+        "architecture",
+        "planning"
+      ],
+      "file": "method_6_impact_first.json",
+      "methodology_id": 6,
+      "name": "Impact-First Development"
+    },
+    {
+      "categories": [
+        "code",
+        "testing",
+        "quality"
+      ],
+      "file": "method_7_test_driven.json",
+      "methodology_id": 7,
+      "name": "Test-Driven Development"
+    },
+    {
+      "categories": [
+        "code",
+        "iteration",
+        "agile"
+      ],
+      "file": "method_8_incremental.json",
+      "methodology_id": 8,
+      "name": "Incremental Development"
+    },
+    {
+      "categories": [
+        "data",
+        "analysis",
+        "statistics"
+      ],
+      "file": "method_9_data_analysis.json",
+      "methodology_id": 9,
+      "name": "Data Analysis Methodology"
+    },
+    {
+      "categories": [
+        "code",
+        "api",
+        "design"
+      ],
+      "file": "method_10_api_design.json",
+      "methodology_id": 10,
+      "name": "API Design Principles"
+    },
+    {
+      "categories": [
+        "documentation",
+        "writing"
+      ],
+      "file": "method_11_documentation.json",
+      "methodology_id": 11,
+      "name": "Documentation Standards"
+    },
+    {
+      "categories": [
+        "writing",
+        "documentation",
+        "clarity"
+      ],
+      "file": "method_12_technical_writing.json",
+      "methodology_id": 12,
+      "name": "Technical Writing"
+    },
+    {
+      "categories": [
+        "data",
+        "exploration",
+        "discovery"
+      ],
+      "file": "method_13_exploratory.json",
+      "methodology_id": 13,
+      "name": "Exploratory Analysis"
+    },
+    {
+      "categories": [
+        "math",
+        "proof",
+        "formal"
+      ],
+      "file": "method_14_formal_proof.json",
+      "methodology_id": 14,
+      "name": "Formal Proof Methods"
+    },
+    {
+      "categories": [
+        "math",
+        "rigor",
+        "verification"
+      ],
+      "file": "method_15_mathematical_rigor.json",
+      "methodology_id": 15,
+      "name": "Mathematical Rigor"
+    },
+    {
+      "methodology_id": 16,
+      "name": "Host Lifecycle Management",
+      "categories": [
+        "host_operations",
+        "deployment",
+        "recovery"
+      ],
+      "file": "method_16_host_lifecycle.json"
+    }
+  ],
+  "methodology_count": 16,
+  "version": 2
+}

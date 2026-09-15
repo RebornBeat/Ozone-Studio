@@ -51,8 +51,21 @@ pub mod k_registry;
 /// MCP TOOL registry — external tool connection surface.
 pub mod mcp;
 
+/// Shared-context mirroring — coordination state as real ZSEI containers
+/// under the /SharedContext root (notes, decisions, handoffs, file claims).
+pub mod context_mirror;
+
+/// GRAPH EVENT ripple — the living-graph nervous system: every graph write
+/// publishes a scoped event; websockets, monitor, and hooks subscribe.
+pub mod graph_events;
+
 /// QR DEVICE pairing — the phone as authenticator, multi-device onboarding.
 pub mod pairing;
+
+/// Hardware/OS-derived region detection for the jurisdiction gate (real
+/// system signals only — timezone via tzdata's own zone.tab, locale via
+/// POSIX naming — never a fabricated lookup or network geolocation call).
+pub mod hardware_region;
 
 
 // Re-exports
@@ -311,6 +324,190 @@ impl OzoneRuntime {
             }
         }
 
+        // --- Register jurisdiction content as real ZSEI containers (idempotent,
+        // runs every startup) --- Found live 2026-09-15: the structural
+        // JurisdictionRoot container self-heals above, but nothing ever
+        // actually read zsei_data/jurisdiction/*.json (global.json,
+        // national/*.json) and registered them as real, queryable
+        // JurisdictionRuleSet containers — the ORIGINAL global.json
+        // container was a one-off manual creation earlier in this project's
+        // history, not a repeatable mechanism, so a fresh instance (or this
+        // dev instance after any restart that didn't happen to still hold
+        // the old in-memory/cache state) had zero real jurisdiction
+        // containers despite the content files genuinely being on disk —
+        // confirmed live via GetContainer(JURISDICTION_ROOT_ID) showing
+        // child_count: 0. Mirrors MethodologyStore::register_all's pattern
+        // (see src/methodologies/store.rs): read real content files, check
+        // for an existing container by scope keyword before creating
+        // (idempotent), never fabricate content — this only registers files
+        // that already exist on disk.
+        {
+            use crate::types::container::{
+                Container, Context, GlobalState, IntegrityData, LocalState, Metadata, Modality,
+                StoragePointers, TraversalHints, ContainerType, JURISDICTION_ROOT_ID,
+            };
+
+            let jurisdiction_dir = std::path::PathBuf::from(&config.general.data_dir).join("jurisdiction");
+
+            // Self-heal the copy itself, not just the container registration —
+            // confirmed live 2026-09-15: bootstrap's copy_jurisdiction_content()
+            // only ever runs once, gated on setup_complete, so a data_dir that
+            // was set up before newer jurisdiction/national/*.json files
+            // existed (or one reached via a different CWD than earlier boots —
+            // this exact scenario, when the host was launched from the repo
+            // root instead of target/release, so a naive relative "assets/"
+            // path would silently resolve to nothing — confirmed live,
+            // target/release/assets/ genuinely does not exist) silently never
+            // receives them, same class of gap the methodology/blueprint
+            // index self-heal above already solves. Uses the same
+            // CWD-independent resolver bootstrap.rs already relies on, not a
+            // relative path. Mirrors assets/jurisdiction/ into
+            // <data_dir>/jurisdiction/, additive only — never deletes a file
+            // that's only in the data dir (e.g. one a human added directly).
+            let real_assets_jurisdiction_dir =
+                crate::bootstrap::BootstrapManager::resolve_assets_dir().join("jurisdiction");
+            if let Ok(entries) = std::fs::read_dir(&real_assets_jurisdiction_dir) {
+                let _ = std::fs::create_dir_all(&jurisdiction_dir);
+                for entry in entries.flatten() {
+                    let src_path = entry.path();
+                    let file_name = entry.file_name();
+                    if src_path.is_dir() {
+                        let dst_subdir = jurisdiction_dir.join(&file_name);
+                        let _ = std::fs::create_dir_all(&dst_subdir);
+                        if let Ok(sub_entries) = std::fs::read_dir(&src_path) {
+                            for sub in sub_entries.flatten() {
+                                let dst = dst_subdir.join(sub.file_name());
+                                if !dst.exists() {
+                                    if let Err(e) = std::fs::copy(sub.path(), &dst) {
+                                        tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy");
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        let dst = jurisdiction_dir.join(&file_name);
+                        if !dst.exists() {
+                            if let Err(e) = std::fs::copy(&src_path, &dst) {
+                                tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy");
+                            }
+                        }
+                    }
+                }
+            }
+
+            // scope keyword -> path relative to data_dir, e.g. "global" ->
+            // "jurisdiction/global.json", "us" -> "jurisdiction/national/us.json"
+            let mut candidates: Vec<(String, std::path::PathBuf)> = Vec::new();
+            let global_file = jurisdiction_dir.join("global.json");
+            if global_file.exists() {
+                candidates.push(("global".to_string(), std::path::PathBuf::from("jurisdiction/global.json")));
+            }
+            let national_dir = jurisdiction_dir.join("national");
+            if let Ok(entries) = std::fs::read_dir(&national_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            candidates.push((
+                                stem.to_lowercase(),
+                                std::path::PathBuf::from("jurisdiction/national")
+                                    .join(format!("{}.json", stem)),
+                            ));
+                        }
+                    }
+                }
+            }
+
+            if !candidates.is_empty() {
+                let mut zsei = zsei_arc.write().await;
+
+                // Existing registered scopes, so re-running this on every
+                // boot never creates duplicates.
+                let mut already_registered: std::collections::HashSet<String> =
+                    std::collections::HashSet::new();
+                if let Ok(Some(root)) = zsei.get_container(JURISDICTION_ROOT_ID).await {
+                    for child_id in &root.global_state.child_ids {
+                        if let Ok(Some(child)) = zsei.get_container(*child_id).await {
+                            for kw in &child.local_state.context.keywords {
+                                already_registered.insert(kw.clone());
+                            }
+                        }
+                    }
+                }
+
+                let mut registered = 0usize;
+                for (scope, rel_path) in candidates {
+                    if already_registered.contains(&scope) {
+                        continue;
+                    }
+                    let container = Container {
+                        global_state: GlobalState {
+                            container_id: 0, // overwritten by CreateContainer
+                            parent_id: JURISDICTION_ROOT_ID,
+                            child_ids: vec![],
+                            child_count: 0,
+                            version: 1,
+                        },
+                        local_state: LocalState {
+                            metadata: Metadata {
+                                container_type: ContainerType::JurisdictionRuleSet,
+                                modality: Modality::Unknown,
+                                created_at: crate::bootstrap::BootstrapManager::now(),
+                                updated_at: crate::bootstrap::BootstrapManager::now(),
+                                provenance: "bootstrap".to_string(),
+                                permissions: 0,
+                                owner_id: 0,
+                                name: Some(format!("Jurisdiction: {}", scope)),
+                                materialized_path: Some(format!("/Jurisdiction/{}", scope)),
+                            },
+                            context: Context {
+                                categories: vec![],
+                                methodologies: vec![],
+                                keywords: vec![scope.clone()],
+                                topics: vec!["jurisdiction".to_string()],
+                                relationships: vec![],
+                                learned_associations: vec![],
+                                embedding: None,
+                            },
+                            storage: StoragePointers {
+                                db_shard_id: None,
+                                vector_index_ref: None,
+                                object_store_path: Some(
+                                    rel_path.to_string_lossy().replace('\\', "/"),
+                                ),
+                                compression_type: crate::types::container::CompressionType::None,
+                            },
+                            hints: TraversalHints::default(),
+                            integrity: IntegrityData::default(),
+                            file_context: None,
+                            code_context: None,
+                            text_context: None,
+                            external_ref: None,
+                        },
+                    };
+                    match zsei
+                        .query(crate::types::zsei::ZSEIQuery::CreateContainer {
+                            parent_id: JURISDICTION_ROOT_ID,
+                            container,
+                        })
+                        .await
+                    {
+                        Ok(_) => registered += 1,
+                        Err(e) => tracing::warn!(
+                            scope = %scope,
+                            error = %e,
+                            "Failed to register jurisdiction container"
+                        ),
+                    }
+                }
+                tracing::info!(
+                    "Jurisdiction store: {} new registrations ({} scopes already registered)",
+                    registered,
+                    already_registered.len()
+                );
+            }
+        }
+
         // Wire ZSEI into ConsciousnessStore (so experiences persist to ZSEI)
         {
             if let Ok(mut store) = crate::consciousness::CONSCIOUSNESS_STORE.lock() {
@@ -323,9 +520,56 @@ impl OzoneRuntime {
         // Initialize pipeline registry
         let pipeline_registry = pipeline::PipelineRegistry::new(&config.pipelines)?;
 
+        // Give every spawned pipeline subprocess a real way to make its own
+        // internal LLM calls (keyword/topic extraction, etc.) without any
+        // host auth bypass: point at pipeline 9's own binary, which already
+        // does complete standalone LLM dispatch (BitNet/OpenRouter) with no
+        // host callback. A pipeline that needs this spawns this binary
+        // itself, exactly like the orchestrator spawns pipelines — never via
+        // the user-session-gated /pipeline/execute HTTP route. Command
+        // inherits the full parent environment by default (no env_clear
+        // anywhere in executor.rs), so setting this once here reaches every
+        // spawned pipeline without touching invoke_pipeline itself.
+        //
+        // MUST run after PipelineRegistry::new() above, not before it —
+        // confirmed live this session as a real bug: get_pipeline_info(9)
+        // prefers the runtime registry (loaded from index.json, correctly
+        // says category "general") but falls back to the compile-time
+        // PIPELINE_INFO table (which labels pipeline 9 "core" — a stale
+        // logical grouping that every OTHER caller of get_pipeline_info,
+        // e.g. pipeline/executor.rs's get_builtin_info, only ever reads
+        // AFTER this same registry init, so the mismatch was invisible until
+        // this specific lookup ran too early and used the wrong category).
+        // Left unset (never a guessed/fake path) if pipeline 9 isn't built
+        // on this instance — callers must treat "not set" as "no real
+        // executor available", same as today's stub fallback.
+        if let Some(info) = crate::pipeline::registry::get_pipeline_info(9) {
+            let name = info.folder_name.as_str();
+            let assets_pipeline_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("assets/pipelines")
+                .join(info.category)
+                .join(name);
+            let candidates = [
+                assets_pipeline_dir.join("target/release").join(name),
+                assets_pipeline_dir.join("target/debug").join(name),
+            ];
+            if let Some(found) = candidates.iter().find(|c| c.exists()) {
+                std::env::set_var("OZONE_PROMPT_PIPELINE_PATH", found);
+            } else {
+                tracing::warn!(
+                    "Pipeline 9 (prompt) binary not found — OZONE_PROMPT_PIPELINE_PATH left \
+                     unset; pipelines needing an internal LLM call will report unavailable"
+                );
+            }
+        }
+
         // Initialize task manager
-        let task_manager =
-            task::TaskManager::new(TaskQueueConfig::default(), RefinementConfig::default())?;
+        let refinement_config = RefinementConfig {
+            interval_secs: config.tasks.refinement_interval_secs,
+            enabled: config.tasks.refinement_enabled,
+            ..RefinementConfig::default()
+        };
+        let task_manager = task::TaskManager::new(TaskQueueConfig::default(), refinement_config)?;
 
         // Initialize auth system
         let auth = auth::AuthSystem::new(&config.auth)?;
@@ -403,10 +647,21 @@ impl OzoneRuntime {
                 .await
                 .refinement_config()
                 .clone();
+            // Both background loops are genuinely detached meta work (not
+            // live request-answering — see the explicit distinction made
+            // elsewhere this session for why stage_3_blueprint_assignment
+            // does NOT use meta_fallback), so they use config.models.
+            // meta_fallback (local+free by default) rather than the
+            // user-facing fallback chain, and need the real model list to
+            // resolve identifiers against.
+            let available_models = runtime.read().await.config.models.available_models.clone();
+            let meta_fallback = runtime.read().await.config.models.meta_fallback.clone();
             tokio::spawn(crate::orchestrator::meta_loop::run_methodology_meta_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 refinement_config.clone(),
+                available_models.clone(),
+                meta_fallback.clone(),
             ));
 
             // Real AMT re-expansion loop (orchestrator/amt_loop.rs) — same
@@ -419,6 +674,8 @@ impl OzoneRuntime {
                 executor_adapter,
                 store_adapter,
                 refinement_config,
+                available_models,
+                meta_fallback,
             ));
         }
 

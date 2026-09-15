@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Mexican federal statutes, verified via live web search against official government sources (gob.mx, diputados.gob.mx, profeco.gob.mx) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Mexican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. State-level law is deliberately NOT included here. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "MX"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares — https://www.gob.mx/cms/uploads/attachment/file/123648/Ley_Federal_de_Protecci_n_de_Datos_Personales_en_Posesi_n_de_los.pdf",
+      "retrieved_snippet": "Objective: protect personal data in the possession of private entities, regulating its legitimate, controlled and informed treatment to guarantee privacy and informational self-determination.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares + Ley General de los Derechos de Niñas, Niños y Adolescentes — https://www.diputados.gob.mx/LeyesBiblio/pdf/LFPDPPP.pdf",
+      "retrieved_snippet": "In the treatment of personal data of minors, consent from a parent or guardian must always be obtained, prioritizing the best interests of the child ('interés superior de la niñez').",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares — https://www.gob.mx/cms/uploads/attachment/file/123648/Ley_Federal_de_Protecci_n_de_Datos_Personales_en_Posesi_n_de_los.pdf",
+      "retrieved_snippet": "Guardian/parental consent required for processing minors' personal data; best-interest-of-the-child principle applies, informed by Mexico's ratification of the Convention on the Rights of the Child.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Ley Federal de Protección al Consumidor (PROFECO) — https://www.profeco.gob.mx/juridico/pdf/l_lfpc_ultimo_camdip.pdf",
+      "retrieved_snippet": "Object of the law: promote and protect consumer rights, ensure equity, certainty and legal security between providers and consumers, including protection of life/health/safety and adequate/clear product information. Enforced by PROFECO, published in Diario Oficial de la Federación 1992-12-24.",
+      "official_source": true
+    }
+  ]
+}

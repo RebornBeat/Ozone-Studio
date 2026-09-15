@@ -1,0 +1,79 @@
+{
+  "metadata": {
+    "container_type": "ModalityGraph",
+    "modality": "Text",
+    "created_at": 1789438822,
+    "updated_at": 1789438822,
+    "provenance": "pipeline:100",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Unknown text graph (0 words, 0 sentences)",
+    "materialized_path": null
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [],
+    "topics": [],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "graphs/text_1789438822730410524.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 1789438822,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

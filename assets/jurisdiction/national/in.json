@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for India (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "IN"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Digital Personal Data Protection Act, 2023 (assented August 11 2023); DPDP Rules, 2025 notified November 14 2025, fully operationalizing the Act. Official: Ministry of Electronics and IT (MeitY), https://www.meity.gov.in/",
+      "retrieved_snippet": "The Digital Personal Data Protection Act, 2023 (DPDP Act) received the assent of the President on 11th August 2023... The Government of India notified the Digital Personal Data Protection (DPDP) Rules, 2025 on 14 November 2025, marking the full operationalisation of the Digital Personal Data Protection Act, 2023.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "IN"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Protection of Children from Sexual Offences (POCSO) Act, 2012 (as amended 2019) — Section 12 covers online sexual harassment of a child, Section 13 covers use of a child in media for sexual gratification; the DPDP Act, 2023 separately requires verifiable parental consent for processing a child's personal data. Official press release (PIB, Ministry of Law and Justice): https://www.pib.gov.in/PressReleasePage.aspx?PRID=2245026&reg=3&lang=1",
+      "retrieved_snippet": "Section 12 punishes sexual harassment of a child, including through electronic or online means, such as making sexually coloured remarks, showing pornographic material, or repeatedly contacting a child with sexual intent. Section 13 criminalises the use of a child in any form of media for the purpose of sexual gratification. The 2019 Amendment introduced stricter punishments.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "IN"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Act, 2019 (Act No. 35 of 2019), assented August 9 2019, in force since July 2020, replacing the Consumer Protection Act 1986. No single official full-text government URL was retrieved in this search pass — verify against India Code (indiacode.nic.in) before relying on this.",
+      "retrieved_snippet": "The Consumer Protection Act, 2019 (Act No. 35 of 2019) was passed by Lok Sabha on 30 July 2019, by Rajya Sabha on 6 August 2019, and assented to by President Ram Nath Kovind on 9 August 2019, commencing on 20 July 2020 and 24 July 2020. It repeals and replaces the Consumer Protection Act, 1986.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,20 +1,37 @@
 {
+  "metadata": {
+    "container_type": "KinematicsRoot",
+    "modality": "Unknown",
+    "created_at": 1789436718,
+    "updated_at": 1789436718,
+    "provenance": "bootstrap",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "Kinematics",
+    "materialized_path": "/Modality/Kinematics"
+  },
   "context": {
     "categories": [],
-    "embedding": null,
+    "methodologies": [],
     "keywords": [
       "kinematics"
     ],
-    "learned_associations": [],
-    "methodologies": [],
+    "topics": [],
     "relationships": [],
-    "topics": []
+    "learned_associations": [],
+    "embedding": null
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": null,
+    "compression_type": "None"
   },
   "hints": {
     "access_frequency": 0,
-    "centroid": null,
     "hotness_score": 0.0,
     "last_accessed": 0,
+    "centroid": null,
     "ml_prediction_weight": 0.0
   },
   "integrity": {
@@ -52,26 +69,13 @@
       0,
       0
     ],
-    "integrity_score": 1.0,
-    "last_verified": 1788917103,
     "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
     "version_history": []
   },
-  "metadata": {
-    "container_type": "KinematicsRoot",
-    "created_at": 1788917103,
-    "materialized_path": "/Modality/Kinematics",
-    "modality": "Unknown",
-    "name": "Kinematics",
-    "owner_id": 0,
-    "permissions": 0,
-    "provenance": "bootstrap",
-    "updated_at": 1788917103
-  },
-  "storage": {
-    "compression_type": "None",
-    "db_shard_id": null,
-    "object_store_path": null,
-    "vector_index_ref": null
-  }
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
 }

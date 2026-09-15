@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from real, current Polish law, retrieved via web search against official/reputable secondary sources describing the Polish Act of 10 May 2018 on the Protection of Personal Data and UOKiK consumer-protection enforcement, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Polish legal counsel. Scope: National(\"PL\") — this file covers ONLY Poland-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "PL" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Polish Act of 10 May 2018 on the Protection of Personal Data — fixes the national age of digital consent (GDPR Article 8) at 16, matching the GDPR default rather than lowering it; establishes UODO (Urząd Ochrony Danych Osobowych) as the supervisory authority. https://www.recordinglaw.com/world-laws/world-data-privacy-laws/poland-data-privacy-laws/"
+    },
+    {
+      "scope": { "National": "PL" },
+      "condition": "unfair commercial practice",
+      "action": "Log",
+      "source": "Poland's August 2024 implementation of Directive (EU) 2020/1828 on representative actions — allows authorized consumer organizations to bring collective actions on behalf of consumers, including for GDPR violations; UOKiK (Office of Competition and Consumer Protection) separately enforces unfair market practices and is developing tooling to detect dark patterns in online commerce. https://www.dataguidance.com/jurisdiction/poland"
+    }
+  ]
+}

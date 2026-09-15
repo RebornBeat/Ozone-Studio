@@ -90,5 +90,12 @@ timestamps above are placeholders; use real Unix timestamps in practice.
    `object_store_path` pointing at your new file.
 4. Set `[jurisdiction] instance_region = "US-CA"` (or whatever) in
    `config.toml` and restart. Global-scope rules apply regardless of this
-   setting; national/local rules only ever apply when a region is
-   explicitly configured here — this system never guesses a location.
+   setting; national/local rules only ever apply when a region is set here
+   — either explicitly, or auto-detected from real hardware/OS signals
+   (system timezone + locale; see `src/hardware_region.rs`) when left
+   unset, since this is deliberately not a skippable manual setting. An
+   explicit config value always wins over hardware detection. Hardware
+   detection only fills this in when its two signals agree; when they
+   disagree it stays unset (logged, both raw values shown) rather than
+   guessing, since a wrong value here can BLOCK real requests — this is
+   not IP geolocation and makes no network calls.

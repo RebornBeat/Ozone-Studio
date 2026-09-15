@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Malaysia (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "MY"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act 2010 (Act 709), significantly amended 2024 (Act A1727). Regulator: Department of Personal Data Protection (JPDP), official site https://www.pdp.gov.my/ppdpv1/en/main-page/ , official Act text https://www.pdp.gov.my/ppdpv1/en/akta/pdp-act-2010-en/",
+      "retrieved_snippet": "Governs processing of personal data in commercial transactions, built on seven principles (General, Notice and Choice, Disclosure, Security, Retention, Data Integrity, Access). The 2024 amendment added mandatory breach notification, DPO appointment requirements, direct obligations on data processors, and expanded sensitive-data definitions to include biometric data; penalties raised to RM 1 million and/or 3 years imprisonment.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MY"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Online Safety Act 2025 and its Child Protection Code (CPC), in force 1 June 2026, enforced by MCMC; also Communications and Multimedia (Amendment) Act 2025, Child Act 2001, and Sexual Offences against Children Act 2017. Summary: https://xident.io/blog/malaysia-under-16-social-media-ban-child-protection-code-compliance-2026/",
+      "retrieved_snippet": "Malaysia is one of the first countries worldwide, and the second in Asia, to enforce a minimum social-media age. The CPC requires age verification against government-issued records for platforms likely accessed by children (minimum age 16), applying to licensed social media providers with 8M+ Malaysian users (MCMC names Facebook, Instagram, TikTok, YouTube specifically). The Online Safety Act/Amendment Act also classify CSAM as priority harmful content.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "MY"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Act 1999 (Act 599), Royal Assent 27 August 1999, gazetted 9 September 1999, last major amendment 23 July 2019 (Tribunal for Consumer Claims). Regulator: Ministry of Domestic Trade and Cost of Living (KPDN), official Act text https://www.kpdn.gov.my/images/2024/awam/akta/ttpm/Act%20599.pdf",
+      "retrieved_snippet": "Malaysia's principal consumer protection statute, amended over time to cover unfair contract terms and establish the Tribunal for Consumer Claims for expedited dispute resolution.",
+      "official_source": true
+    }
+  ]
+}

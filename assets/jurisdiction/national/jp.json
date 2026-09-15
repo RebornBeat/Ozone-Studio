@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Japan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "JP"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Act on the Protection of Personal Information (APPI), most recent amendments in force 2021-2022; overseen by Japan's Personal Information Protection Commission (PPC). Official text/consolidated law: https://www.ppc.go.jp/en/legal/",
+      "retrieved_snippet": "The official APPI text is available through the PPC website as a consolidated text as of April 1, 2023, with all amended Acts entered into full force. The official Japanese texts of the laws have legal effect, and English translations are provided as reference materials.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Act on Development of an Internet Environment Enabling Young People's Safe and Secure Internet Use (2008), implemented via the Children and Families Agency's Basic Plan (Sixth Basic Plan, adopted September 2024); 2023 Penal Code revision raised age of consent 13->16 and criminalized grooming. Summarized via https://www.nippon.com/en/in-depth/d01099/ and https://www.nippon.com/en/in-depth/d01100/keeping-japanese-children-safe-in-cyberspace-weighing-the-roles-of-government-business-and.html (official Japanese statute text not retrieved directly in this pass).",
+      "retrieved_snippet": "Japan relies on a model built around carrier-level filtering, parental involvement, and digital literacy... The 2023 revision of the Penal Code and the Code of Criminal Procedure raised the age of consent from 13 to 16 and established penalties for grooming.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Contract Act, official English translation: https://www.japaneselawtranslation.go.jp/en/laws/view/4624 ; overseen by Japan's Consumer Affairs Agency (CAA): https://www.caa.go.jp/en/law/",
+      "retrieved_snippet": "The Consumer Contract Act permits consumers to rescind contracts on certain conditions and nullifies clauses that unfairly harm consumer interests. The Act applies to all contracts between individuals (not for business purposes) and business operators.",
+      "official_source": true
+    }
+  ]
+}

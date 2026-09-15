@@ -22,7 +22,8 @@
 //! across the whole methodology store is a larger, separate undertaking,
 //! not built here.
 
-use crate::orchestrator::{PipelineExecutor, StoreAccess};
+use crate::config::{AvailableModel, ModelFallbackConfig};
+use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, PromptOrchestrator, StoreAccess};
 use crate::task::RefinementConfig;
 use std::sync::Arc;
 
@@ -38,6 +39,8 @@ pub async fn run_methodology_meta_loop(
     executor: Arc<dyn PipelineExecutor>,
     store: Arc<dyn StoreAccess>,
     config: RefinementConfig,
+    available_models: Vec<AvailableModel>,
+    meta_fallback: ModelFallbackConfig,
 ) {
     if !config.enabled {
         tracing::info!("Methodology meta-loop disabled (RefinementConfig.enabled = false)");
@@ -53,7 +56,9 @@ pub async fn run_methodology_meta_loop(
         tokio::time::sleep(std::time::Duration::from_secs(config.interval_secs)).await;
 
         tracing::info!("Methodology meta-loop: starting review pass");
-        if let Err(e) = review_methodology_gaps_once(&executor, &store).await {
+        if let Err(e) =
+            review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback).await
+        {
             tracing::warn!(error = %e, "Methodology meta-loop review pass failed");
         }
         tracing::info!("Methodology meta-loop: review pass complete");
@@ -69,6 +74,8 @@ fn gaps_log_path() -> String {
 async fn review_methodology_gaps_once(
     executor: &Arc<dyn PipelineExecutor>,
     store: &Arc<dyn StoreAccess>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
 ) -> Result<(), String> {
     let path = gaps_log_path();
 
@@ -115,7 +122,68 @@ async fn review_methodology_gaps_once(
             continue;
         }
 
-        tracing::info!(?keywords, "Methodology meta-loop: drafting a new methodology for a real gap");
+        // Retry cap — confirmed live this session that without one, a gap
+        // whose draft call keeps coming back empty/invalid (a real,
+        // observed OpenRouter behavior for some content, not a bug in this
+        // loop) gets retried forever: every interval, indefinitely, burning
+        // a real API call each time with no escalation and no visible
+        // signal anything is actually wrong. Track attempts on the gap
+        // record itself (persisted, so this survives a restart — the
+        // count is never lost/reset just because the process was). After
+        // MAX_DRAFT_ATTEMPTS, stop retrying and mark it failed (not
+        // silently "handled" as if resolved) so it's visibly inspectable
+        // rather than either retried forever or quietly dropped.
+        const MAX_DRAFT_ATTEMPTS: u64 = 10;
+        let attempts = gap.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
+        if attempts >= MAX_DRAFT_ATTEMPTS {
+            tracing::warn!(
+                ?keywords,
+                attempts,
+                "Methodology meta-loop: gap exceeded max draft attempts — marking failed, not retrying further"
+            );
+            gap["handled"] = serde_json::json!(true);
+            gap["outcome"] = serde_json::json!("failed_after_max_attempts");
+            any_change = true;
+            continue;
+        }
+        gap["attempts"] = serde_json::json!(attempts + 1);
+        any_change = true;
+
+        // Model fallback escalation on retry — the first-ever attempt
+        // (attempts == 0) uses the primary/default model as before;
+        // attempt 2 onward escalates through the real meta_fallback chain
+        // (config.toml's [models.meta_fallback] — this loop is genuinely
+        // detached background work, the exact case that config was always
+        // reserved for) rather than blindly repeating a primary that keeps
+        // returning empty/invalid responses. CYCLES through the fallback
+        // candidates (never back to the primary, which has already failed
+        // at least once by then) rather than clamping to the last one —
+        // confirmed live 2026-09-15: with candidates [bitnet-i2_s,
+        // openrouter/free], clamping meant every attempt from #4 onward
+        // retried the SAME broken openrouter/free (daily quota exhausted)
+        // forever, never giving bitnet-i2_s — a real, working fallback —
+        // another turn. That wasted 6 of the 10-attempt retry budget on a
+        // guaranteed-fail target for one real gap. Cycling gives every
+        // fallback a fair rotation on every retry instead.
+        let fallback_candidates: Vec<&AvailableModel> = meta_fallback
+            .order
+            .iter()
+            .filter_map(|id| available_models.iter().find(|m| &m.identifier == id))
+            .filter(|m| !meta_fallback.free_only || m.is_free)
+            .collect();
+        let escalated_model = if attempts > 0 && !fallback_candidates.is_empty() {
+            let idx = ((attempts - 1) as usize) % fallback_candidates.len();
+            Some(fallback_candidates[idx])
+        } else {
+            None
+        };
+
+        tracing::info!(
+            ?keywords,
+            attempt = attempts + 1,
+            fallback_model = ?escalated_model.map(|m| m.identifier.as_str()),
+            "Methodology meta-loop: drafting a new methodology for a real gap"
+        );
 
         let draft_prompt = format!(
             r#"A real user request's keyword signal repeatedly matched no existing methodology:
@@ -143,12 +211,30 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
             topics.join(", ")
         );
 
-        let draft_input = serde_json::json!({
+        let mut draft_input = serde_json::json!({
             "prompt": draft_prompt,
             "max_tokens": 800,
             "temperature": 0.3,
             "system_context": "Draft real, practical methodologies only when the pattern genuinely warrants one. Return only valid JSON."
         });
+        if let Some(profile) = escalated_model {
+            let override_cfg = ModelConfigOverride {
+                model_type: Some(profile.model_type.clone()),
+                model_identifier: Some(profile.identifier.clone()),
+                max_tokens: None,
+                temperature: None,
+                context_length: Some(profile.context_length as u32),
+                api_endpoint: profile.api_endpoint.clone(),
+                api_key_env: profile.api_key_env.clone(),
+                api_key: profile.api_key.clone(),
+                wire_protocol: profile.wire_protocol.clone(),
+                bitnet_cli_path: profile.bitnet_cli_path.clone(),
+                local_model_path: profile.local_model_path.clone(),
+            };
+            if let Ok(v) = serde_json::to_value(&override_cfg) {
+                draft_input["model_override_config"] = v;
+            }
+        }
 
         let result = match executor.execute(PROMPT_PIPELINE_ID, draft_input).await {
             Ok(v) => v,

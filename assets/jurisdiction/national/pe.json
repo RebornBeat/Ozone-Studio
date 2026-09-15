@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from real, current Peruvian law, retrieved via web search against reputable secondary sources describing Personal Data Protection Law No. 29733 (2011) and the Consumer Protection Code (Law No. 29571), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Peruvian legal counsel. No verifiable, specific children's-data provision within Law 29733 was found during this research pass — not included rather than guessed. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "PE" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Law No. 29733 (2011) — sets rules for lawful, fair, and secure processing of personal data in both public and private sectors; organizations must register with Peru's National Authority for the Protection of Personal Data (ANPD), part of the Ministry of Justice and Human Rights. https://securiti.ai/peru-data-protection-law/"
+    },
+    {
+      "scope": { "National": "PE" },
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Code, Law No. 29571 — safeguards consumer rights (fair treatment, product safety) and separately regulates processing of personal data for commercial purposes, operating alongside Law No. 29733. https://www.smartsuite.com/framework/peru-personal-data-protection-law-no-29733"
+    }
+  ]
+}

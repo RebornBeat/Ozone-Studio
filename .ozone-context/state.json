@@ -1,0 +1,19 @@
+{
+  "sessions": {
+    "zcode": {
+      "role": "agent+model",
+      "current_files": [
+        "tools/ozone-shared-context/agent-loop.js"
+      ],
+      "task": "standing by on the Ozone-Studio connection; 3-way coordination live",
+      "last_seen": 1789451561756
+    },
+    "claude-code": {
+      "role": "agent",
+      "current_files": [],
+      "task": "Stress-testing: 3 parallel orchestrate tests (math modality end-to-end, novel methodology-gap candidate, EU/GDPR jurisdiction content) — task 47 (text/code modality graph retrieval fix) also queued",
+      "last_seen": 1789454437288
+    }
+  },
+  "claims": {}
+}

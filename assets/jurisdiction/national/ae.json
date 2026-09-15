@@ -1,0 +1,33 @@
+{
+  "disclaimer": "Drafted from real UAE federal legislation, retrieved via web search against official and near-official government sources (u.ae, uaelegislation.gov.ae, elaws.moj.gov.ae, khda.gov.ae) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UAE legal counsel. Scope: National(\"AE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "AE" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Federal Decree-Law No. 45 of 2021 on the Protection of Personal Data (UAE PDPL) — in force since 2 January 2022, establishes rights/duties around processing personal data. Official text (Arabic PDF) at u.ae: https://u.ae/en/about-the-uae/digital-uae/data/data-protection-laws",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "AE" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Federal Law No. 3 of 2016 on Child Rights (\"Wadeema's Law\") — Article 33 protects against all forms of physical, psychological, and sexual abuse/exploitation, including digital settings; applies to all children under 18 regardless of nationality/residency. Official English text hosted by KHDA (UAE government education authority): https://www.khda.gov.ae/CMS/WebParts/TextEditor/Documents/Children_Law_English.pdf",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "AE" },
+      "condition": "cyberbully",
+      "action": "Log",
+      "source": "Federal Law No. 34 of 2021 Concerning the Fight Against Rumours and Cybercrime — criminalizes cyberbullying and online harassment; complements Wadeema's Law's child-protection scope for digital contexts.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "AE" },
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Federal Law No. (15) of 2020 on Consumer Protection — covers goods/services including e-commerce, requires suppliers to safeguard consumer data and not use it for marketing without consent. Official text at UAE Legislation portal: https://uaelegislation.gov.ae/en/legislations/1455/download and Ministry of Justice: https://elaws.moj.gov.ae/UAE-MOJ_LC-En/00_CONSUMER/UAE-LC-En_2020-11-10_00015_Kait.html",
+      "official_source": true
+    }
+  ]
+}
