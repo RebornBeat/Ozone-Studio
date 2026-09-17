@@ -538,3 +538,39 @@ mod tests {
             .block_on(fut)
     }
 }
+
+#[cfg(test)]
+mod global_tests {
+    use super::*;
+
+    // T-U5: the process-global path — install, register, invoke via
+    // call_global; metered through the same ledger.
+    #[tokio::test]
+    async fn call_global_delegates_and_meters() {
+        let registry = Arc::new(McpRegistry::new());
+        let usage = Arc::new(UsageLedger::with_limit(0));
+        install_global(registry.clone(), usage.clone());
+        registry
+            .register(McpTool {
+                name: "global-tool".into(),
+                transport: McpTransport::Stdio,
+                endpoint: "test".into(),
+                capabilities: vec![],
+                server_version: None,
+                registered_at: 0,
+            })
+            .await;
+
+        let result = call_global(McpCall {
+            tool: "global-tool".into(),
+            agent: "test-agent".into(),
+            input: serde_json::json!({}),
+            context: None,
+        })
+        .await;
+
+        assert!(result.success);
+        assert_eq!(result.usage["total_today"], 1);
+        assert_eq!(result.usage["agent"], "test-agent");
+    }
+}

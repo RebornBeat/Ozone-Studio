@@ -59,6 +59,15 @@ prompt, model fallback escalation cycling on retry, attempt caps. The
 graph-ripple sync feeds it event-driven candidates — context alignment
 latency: seconds after a graph write.
 
+## Tool access (task 45 — mechanism complete)
+
+Expansion outcomes and stage-level tool needs reach the MCP surface via
+`crate::mcp::call_global(McpCall {...})` — process-global handles
+installed at server startup, same metering/gating/rippling as the HTTP
+path (proven by `mcp::tests::global_tests`). Consumers attach as real
+tools land (the 90+ list, jurisdiction source registry, search bridge);
+the contract is one call, already wired everywhere.
+
 ## Files
 
 - src/orchestrator/amt_candidates.rs — the unified store

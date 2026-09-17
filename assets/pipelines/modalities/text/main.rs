@@ -1902,6 +1902,13 @@ pub struct TextModalityPipeline {
     llm_calls: AtomicU64,
 }
 
+/// Which LLM extraction to run (retry dispatcher input).
+#[derive(Debug, Clone, Copy)]
+enum ExtractionKind {
+    Keywords,
+    Topics,
+}
+
 impl TextModalityPipeline {
     pub fn new(executor: Arc<dyn PipelineExecutor>) -> Self {
         Self {
@@ -3554,6 +3561,66 @@ Return ONLY a valid JSON array:
     }
 
     /// Extract keywords from text via LLM (internal helper)
+    /// Deterministic keyword derivation from raw word frequency — the
+    /// graceful-degradation tier when LLM extraction fails (rate limits,
+    /// empty responses). Real terms from the actual content, never
+    /// fabricated: top content words minus a stopword floor. This pair
+    /// (retry → frequency tier) is what guarantees attached-file graphs
+    /// NEVER go empty-silent again (task 68, section-3 finding).
+    fn derive_keywords_frequency(text: &str, max: usize) -> Vec<String> {
+        const STOPWORDS: &[&str] = &[
+            "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
+            "had", "her", "was", "one", "our", "out", "day", "get", "has", "him",
+            "his", "how", "its", "new", "now", "old", "see", "two", "way", "who",
+            "with", "this", "that", "from", "they", "have", "been", "were", "their",
+            "which", "will", "would", "there", "what", "about", "when", "make",
+            "like", "time", "just", "know", "take", "into", "your", "than", "then",
+            "them", "these", "some", "could", "other", "than", "also", "because",
+        ];
+        let mut freq: HashMap<String, usize> = HashMap::new();
+        for word in text.split_whitespace() {
+            let w: String = word
+                .chars()
+                .filter(|c| c.is_alphanumeric())
+                .collect::<String>()
+                .to_lowercase();
+            if w.len() >= 4 && !STOPWORDS.contains(&w.as_str()) {
+                *freq.entry(w).or_insert(0) += 1;
+            }
+        }
+        let mut pairs: Vec<(String, usize)> = freq.into_iter().collect();
+        pairs.sort_by(|a, b| b.1.cmp(&a.1));
+        pairs
+            .into_iter()
+            .take(max)
+            .map(|(term, _)| term)
+            .collect()
+    }
+
+    /// Bounded retry for the LLM extraction calls — one retry catches the
+    /// transient rate-limit/timeout class without burning the budget.
+    async fn extract_with_retry(
+        &self,
+        text: &str,
+        which: ExtractionKind,
+    ) -> Vec<String> {
+        let first = match which {
+            ExtractionKind::Keywords => self.extract_keywords_from_text(text).await,
+            ExtractionKind::Topics => self.extract_topics_from_text(text).await,
+        };
+        if !first.is_empty() {
+            return first;
+        }
+        tracing::warn!(
+            which = ?which,
+            "LLM extraction returned empty — retrying once before falling back to frequency-derived terms"
+        );
+        match which {
+            ExtractionKind::Keywords => self.extract_keywords_from_text(text).await,
+            ExtractionKind::Topics => self.extract_topics_from_text(text).await,
+        }
+    }
+
     async fn extract_keywords_from_text(&self, text: &str) -> Vec<String> {
         let prompt = format!(
             r#"Extract all important keywords and key phrases from this text.

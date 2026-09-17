@@ -519,6 +519,13 @@ impl ContainerStorage {
             file.write_all(&state.parent_id.to_le_bytes()).map_err(|e| {
                 OzoneError::StorageError(format!("Failed to write parent id: {}", e))
             })?;
+
+            // Keep the FILE header's write_offset current (bytes 20..28) —
+            // same field the mmap branch maintains, so files are identical
+            // across storage modes.
+            file.seek(SeekFrom::Start(20)).map_err(|e| {
+                OzoneError::StorageError(format!("Failed to seek header: {}", e))
+            })?;
             file.write_all(&self.write_offset.to_le_bytes()).map_err(|e| {
                 OzoneError::StorageError(format!("Failed to write header offset: {}", e))
             })?;
@@ -694,7 +701,6 @@ mod tests {
     // construction (both branches write the same 24-byte record at the same
     // offset); only the index rebuild is untested.
     #[test]
-    #[ignore = "deferred: index rebuild across instances"]
     fn cross_mode_byte_compatibility() {
         let tag = format!(
             "x_{}_{}",

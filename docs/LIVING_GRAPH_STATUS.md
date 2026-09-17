@@ -39,6 +39,21 @@ Last verified: 2026-09-15 (ZCode + Claude Code joint review night)
 
 ## The gaps (root-cause level — all confirmed live)
 
+0. **Nested pipeline-9 extraction calls fail silently — no fallback walk**
+   (SETTLED 2026-09-16, low-contention re-test): attached-file graph
+   creation works (auto-route ✓, containers created ✓), but the nested
+   topic/keyword extraction calls inside text modality's create_graph
+   failed for BOTH attachments (empty keywords/topics) while the main
+   generation walked the fallback chain successfully (6 distinct models
+   observed in one request). Root cause: SubprocessExecutor's direct
+   pipeline-9 call doesn't route through
+   `walk_fallback_chain_standalone` the way main steps do — one
+   free-tier/rate-limit failure = silent empty extraction. FIX: route
+   nested extraction calls through the same fallback walk (the shared
+   logic exists; wire it). Additionally: extraction failures should
+   downgrade gracefully (graph persists with whatever WAS extracted —
+   file text itself — rather than empty context).
+
 1. **The TraversalEngine is dead code in the live path** (task 56,
    claude-code). `src/zsei/traversal.rs` implements §6.7 for real —
    Structural / Semantic / Contextual / Hybrid / MLGuided / BruteForce —

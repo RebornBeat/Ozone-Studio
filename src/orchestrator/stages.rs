@@ -930,30 +930,6 @@ Return JSON:
             Ok(task_id) => {
                 state.task_id = Some(task_id);
 
-                // CONTEXT OBJECTS: Stage 6 assembled per-step context before
-                // a durable task id existed — persist every entry now so
-                // "what each step actually received as context" is durable,
-                // loggable, and API-obtainable (never write-only). Provenance
-                // records the real mechanism used at assembly time.
-                let task_mgr = self.task_manager.read().await;
-                for (step_idx, ctx) in &state.step_contexts {
-                    if let Err(e) = task_mgr
-                        .update_step_context(
-                            task_id,
-                            *step_idx,
-                            ctx,
-                            vec!["keyword-scan".to_string()],
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            task_id,
-                            step = *step_idx,
-                            error = %e,
-                            "Failed to persist step context object"
-                        );
-                    }
-                }
             }
             Err(e) => {
                 self.record_stage(state, 7, "Task Creation", false, &format!("Failed: {}", e));
@@ -1325,6 +1301,32 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             state
                 .step_contexts
                 .insert(step.step_index, step_context.clone());
+
+            // CONTEXT OBJECT: persist this step's assembled context the
+            // moment the task exists (Stage 7 created it before step
+            // execution) — the "what did this step actually see" record,
+            // with provenance of the gathering mechanism.
+            if let Some(task_id) = state.task_id {
+                if let Err(e) = self
+                    .task_manager
+                    .read()
+                    .await
+                    .update_step_context(
+                        task_id,
+                        step.step_index,
+                        &step_context,
+                        vec!["keyword-scan".to_string()],
+                    )
+                    .await
+                {
+                    tracing::warn!(
+                        task_id,
+                        step = step.step_index,
+                        error = %e,
+                        "Failed to persist step context object"
+                    );
+                }
+            }
 
             // Build full context with previous outputs
             let full_context = if !previous_outputs.is_empty() {

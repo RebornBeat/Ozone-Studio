@@ -72,6 +72,13 @@ jurisdiction 0, context_mirror 0, mcp 0, math 0, code 1, text 5, orchestrator
 
 ## 7. Graph ripple (src/graph_events.rs)
 
+> CODIFIED 2026-09-16: `graph_events::tests` (6) + `storage::tests` (3:
+> mmap round-trip, plain-file round-trip + in-place update, **cross-mode
+> plain-write→mmap-read** — the deferred case now proven) + `mcp::tests`
+> (6: ledger, gate, isolation, stdio delegation, unknown-tool, global
+> path). Storage plain-file branch aligned to the exact 24-byte stride +
+> file-header write_offset maintenance.
+
 - [x] **T-G1 Every write emits** — create/update/delete/link each produce one event at the query choke point; reads emit none. `real_create_container_emits_a_correctly_provenanced_event` plus `publish_subscribe_roundtrip`.
 - [x] **T-G2 Provenance capture** — type + scope keywords captured pre-write (CreateContainer carries the container's own keywords). Covered by the same `real_create_container_emits_a_correctly_provenanced_event` test.
 - [x] **T-G3 visible_to rules** — global subscribers see all; ws/proj subscribers see globals + own scope; empty-scope events only reach global. `global_subscriber_sees_everything`, `own_scope_events_match`, `global_event_reaches_all_scopes`, `empty_hub_subscribe_does_not_panic`.
@@ -79,7 +86,7 @@ jurisdiction 0, context_mirror 0, mcp 0, math 0, code 1, text 5, orchestrator
 
 ## 8. Context objects (per-step context provenance)
 
-- [x] **T-X1 Stage 7 persistence** (built; codify) — every step_contexts entry lands on the task record.
+- [x] **T-X1 Execution-time persistence** (built + relocated 2026-09-16) — context objects persist inside execute_step (the moment both the context AND the task id exist). The original Stage 7 hook fired before step execution and captured nothing — root cause of the steps-0 finding, now dead.
 - [ ] **T-X2 Find-or-create** — update_step_context creates missing steps, overwrites stale context.
 - [ ] **T-X3 API exposure** — GET /task/get returns context_assembled + context_sources per step.
 
