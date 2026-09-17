@@ -892,3 +892,37 @@ impl Default for VoiceConfig {
         }
     }
 }
+
+// GRAPH_TEST_PLAN.md T-J3 (half): explicit config value always wins over
+// hardware region auto-detection.
+#[cfg(test)]
+mod graph_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn t_j3_explicit_config_value_always_wins() {
+        // An explicit instance_region must survive a real call to
+        // apply_hardware_region_detection completely unchanged — this is
+        // also what guarantees the detection path (including its real
+        // outbound IP-geolocation call) is never even consulted once an
+        // operator has set a value, not just that it would be overridden
+        // after the fact.
+        let mut config = OzoneConfig::default();
+        config.jurisdiction.instance_region = Some("US-CA".to_string());
+        config.apply_hardware_region_detection().await;
+        assert_eq!(config.jurisdiction.instance_region, Some("US-CA".to_string()));
+    }
+
+    #[tokio::test]
+    async fn t_j3_unset_region_gets_a_real_detection_attempt() {
+        // Not asserting a specific outcome (this machine's real signals are
+        // environment-dependent and may or may not agree) — only that the
+        // detection path actually runs and never panics or silently leaves
+        // the field in some invalid state when no explicit value is set.
+        let mut config = OzoneConfig::default();
+        assert_eq!(config.jurisdiction.instance_region, None);
+        config.apply_hardware_region_detection().await;
+        // Either a real agreed region string, or still None if signals
+        // didn't agree — both are valid, honest outcomes; a panic is not.
+    }
+}

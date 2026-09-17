@@ -1460,6 +1460,47 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
     let progress_map = state.executor_progress.clone();
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
 
+    // GRAPH RIPPLE — subscribe this socket to the living-graph event hub:
+    // every graph write anywhere (containers, links, coordination mirrors)
+    // pushes to connected UIs and agents in real time. Scope filtering is
+    // client-side for now (events carry their scope keywords).
+    {
+        let tx = tx.clone();
+        let mut graph_rx = crate::graph_events::GraphEventHub::global().subscribe();
+        tokio::spawn(async move {
+            loop {
+                match graph_rx.recv().await {
+                    Ok(evt) => {
+                        let wire = serde_json::json!({
+                            "action": "graph_event",
+                            "event": evt.event,
+                            "container_id": evt.container_id,
+                            "parent_id": evt.parent_id,
+                            "container_type": evt.container_type,
+                            "source": evt.source,
+                            "scope_keywords": evt.scope_keywords,
+                            "timestamp": evt.timestamp,
+                        });
+                        if tx.send(serde_json::to_string(&wire).unwrap_or_default())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        let _ = tx
+                            .send(format!(
+                                "{{\"action\":\"graph_event\",\"lagged\":{n}}}"
+                            ))
+                            .await;
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     tokio::spawn(async move {
         let mut last_snapshot: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -1573,14 +1614,50 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         map
     };
 
+    let mcp_registry = Arc::new(crate::mcp::McpRegistry::new());
+    let mcp_usage = Arc::new(crate::mcp::UsageLedger::new());
+    // Process-global MCP handles — orchestrator stages call
+    // crate::mcp::call_global without needing AppState threaded through.
+    crate::mcp::install_global(mcp_registry.clone(), mcp_usage.clone());
+
     let state = Arc::new(AppState {
         runtime,
         start_time: std::time::Instant::now(),
         executor_progress: progress_map,
         pairing: Arc::new(crate::pairing::PairingHub::new()),
-        mcp: Arc::new(crate::mcp::McpRegistry::new()),
-        mcp_usage: Arc::new(crate::mcp::UsageLedger::new()),
+        mcp: mcp_registry,
+        mcp_usage,
     });
+
+    // GRAPH RIPPLE → monitor feed: graph writes surface in the same feed
+    // every agent and the dashboard already watches.
+    {
+        let state_for_graph = state.clone();
+        let mut graph_rx = crate::graph_events::GraphEventHub::global().subscribe();
+        tokio::spawn(async move {
+            loop {
+                match graph_rx.recv().await {
+                    Ok(evt) => {
+                        let runtime = state_for_graph.runtime.read().await;
+                        let registry = runtime.pipeline_registry.read().await;
+                        registry.activity_hub().record(
+                            crate::monitor::ActivityKind::Bridge,
+                            crate::monitor::ActivityLevel::Info,
+                            &evt.source,
+                            format!("graph {}: {} ({})", evt.event, evt.container_type, evt.container_id),
+                            Some(serde_json::json!({
+                                "container_id": evt.container_id,
+                                "parent_id": evt.parent_id,
+                                "scope_keywords": evt.scope_keywords,
+                            })),
+                        );
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
+                }
+            }
+        });
+    }
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -1635,6 +1712,9 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         // TASK CREATE — coordination tasks from the shared-context tool;
         // real TaskManager records, listed with every other task.
         .route("/task/create", post(create_coordination_task))
+        // TASK UPDATE — coordination-task lifecycle (routed agent marks
+        // its own work completed/failed).
+        .route("/task/update", post(update_coordination_task))
         .layer(cors)
         .with_state(state);
 
@@ -2326,4 +2406,52 @@ fn truncate_for_feed(s: &str, max: usize) -> String {
     } else {
         format!("{}…", &s[..s.char_indices().nth(max).map(|(i, _)| i).unwrap_or(max)])
     }
+}
+
+/// Coordination-task lifecycle: the routed agent marks its own work
+/// queued → completed/failed. Only touches /task/create tasks (source-
+/// tagged) — host-executed orchestration tasks keep their own lifecycle.
+async fn update_coordination_task(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CoordinationTaskUpdateRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.write().await;
+    let result = runtime
+        .task_manager
+        .read()
+        .await
+        .update_coordination_status(&req.task_id, &req.status, req.error.clone())
+        .await;
+    drop(runtime);
+
+    match result {
+        Ok(true) => {
+            let runtime = state.runtime.read().await;
+            let registry = runtime.pipeline_registry.read().await;
+            registry.activity_hub().record(
+                crate::monitor::ActivityKind::Job,
+                crate::monitor::ActivityLevel::Info,
+                req.agent.as_deref().unwrap_or("agent"),
+                format!("Task {} → {}", req.task_id, req.status),
+                None,
+            );
+            Json(serde_json::json!({ "success": true, "task_id": req.task_id, "status": req.status }))
+        }
+        Ok(false) => Json(serde_json::json!({
+            "success": false,
+            "error": "task not found or not a coordination task",
+        })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CoordinationTaskUpdateRequest {
+    pub task_id: u64,
+    /// completed | failed | queued (requeue)
+    pub status: String,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
 }

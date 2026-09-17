@@ -51,6 +51,15 @@ pub enum ContextAggInput {
         /// (orchestrator) decides, this pipeline doesn't guess.
         #[serde(default)]
         include_consciousness: bool,
+        /// Coordination layer (task 43) — agent notes/decisions/handoffs/
+        /// claims from the /SharedContext graph, scoped to global + this
+        /// workspace (+ project). Same separate-layer doctrine: carried in
+        /// its own `coordination_context` field, never mixed into
+        /// `context_text`. The caller decides; this pipeline doesn't guess.
+        #[serde(default)]
+        workspace_id: Option<u64>,
+        #[serde(default)]
+        include_coordination: bool,
     },
     /// Section S — reconstruct provided texts at a token limit, honoring
     /// sentence boundaries (greedy packing, ~4 chars/token). Session chunk
@@ -71,6 +80,11 @@ pub struct AggregatedContext {
     pub truncated: bool,
     pub coverage_score: f32,
     pub consciousness_context: Option<ConsciousnessContext>,
+    /// Coordination layer (task 43) — scoped agent notes/decisions from the
+    /// /SharedContext graph. Separate from context_text by the same
+    /// doctrine as consciousness_context.
+    #[serde(default)]
+    pub coordination_context: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -163,6 +177,82 @@ async fn search_containers_by_keywords(keywords: &[&str], container_type: Option
         .unwrap_or_default()
 }
 
+// Real graph traversal from keyword-search seeds — task 56 (confirmed live
+// 2026-09-15: TraversalEngine, a real and substantial mechanism, had zero
+// live callers anywhere in the orchestration request path; every context
+// assembly instead used the flat search above and stopped there). Mirrors
+// the exact working pattern proven tonight in
+// src/orchestrator/jurisdiction.rs's load_jurisdiction_rules: seed search
+// finds real starting points (unchanged, still a targeted lookup, not a
+// type-blind scan), then a real TraversalMode::Structural request per seed
+// walks the graph — structural_traversal (fixed earlier tonight) now
+// follows BOTH parent/child structure AND real Relation edges, so this
+// genuinely reaches connected-but-not-nested content, not just a tree
+// walk. This is meaningfully more useful tonight than when task 56 was
+// first scoped: text and code modality (assets/pipelines/modalities/
+// {text,code}/main.rs) now write real bidirectional SimilarTo edges
+// between genuinely related content whenever a graph is created, so a
+// traversal from one matched container can now actually reach a second,
+// genuinely related one that the flat keyword search alone would have
+// missed.
+//
+// Deliberately bounded — this runs on every step of every live request,
+// not a one-off background job (unlike jurisdiction's occasional gate
+// check). Small max_depth/max_results per seed, and only the first
+// MAX_TRAVERSAL_SEEDS keyword hits are ever traversed at all, so a step
+// with many keyword matches can't fan out into an expensive traversal
+// storm — resolve_containers' own MAX_RESOLVED_CONTAINERS cap (8) bounds
+// the final result regardless, but bounding the traversal REQUEST itself
+// (not just its output) keeps the host-side work itself cheap too.
+const MAX_TRAVERSAL_SEEDS: usize = 4;
+const TRAVERSAL_MAX_DEPTH: u16 = 2;
+const TRAVERSAL_MAX_RESULTS: u32 = 10;
+
+async fn traverse_from_seeds(seed_ids: &[u64]) -> Vec<u64> {
+    let mut discovered: Vec<u64> = Vec::new();
+    for &seed_id in seed_ids.iter().take(MAX_TRAVERSAL_SEEDS) {
+        let request = serde_json::json!({
+            "Traverse": {
+                "start_container": seed_id,
+                "mode": "Structural",
+                "filters": [],
+                "max_depth": TRAVERSAL_MAX_DEPTH,
+                "max_results": TRAVERSAL_MAX_RESULTS,
+                "budget": {
+                    "max_hops": TRAVERSAL_MAX_DEPTH,
+                    "max_containers": TRAVERSAL_MAX_RESULTS,
+                    "max_latency_ms": 2000
+                },
+                "use_ml": false,
+                "include_methodologies": false,
+                "include_external_refs": false,
+                "keyword_filter": null,
+                "topic_filter": null
+            }
+        });
+        let result = match zsei_query(request).await {
+            Ok(r) => r,
+            Err(_) => continue, // one seed's traversal failing shouldn't drop the others
+        };
+        // zsei_query returns the raw ZSEIQueryResult enum's wire shape —
+        // {"TraversalResult": {containers: [...], ...}} — same
+        // enum-tag-then-fields pattern fetch_container's "Container" and
+        // search_containers_by_keywords' "Containers" already unwrap below.
+        let containers = result
+            .get("TraversalResult")
+            .and_then(|t| t.get("containers"))
+            .and_then(|c| c.as_array());
+        if let Some(containers) = containers {
+            for id in containers.iter().filter_map(|v| v.as_u64()) {
+                if id != seed_id && !discovered.contains(&id) {
+                    discovered.push(id);
+                }
+            }
+        }
+    }
+    discovered
+}
+
 async fn fetch_project_context(project_id: u64) -> Option<serde_json::Value> {
     let result = zsei_query(serde_json::json!({"GetProjectContext": {"project_id": project_id}}))
         .await
@@ -245,6 +335,30 @@ fn reconstruct_texts_at_limit(texts: &[String], token_budget: u32) -> String {
 /// — the previous version assumed a flat `{container_id, container_type,
 /// name, content, semantic_summary, keywords}` shape that never matched any
 /// real container ZSEI actually produces.
+/// Container types that are system self-description/organizational
+/// infrastructure, never real content — a registered pipeline's own name
+/// and keywords, a structural root, a bare user/workspace/project node.
+/// Confirmed live 2026-09-15: search_containers_by_keywords's untyped scan
+/// (container_type: None) let these leak into step background context
+/// whenever a query happened to share any keyword with a pipeline's own
+/// generic self-description (e.g. "environment", "data") — a weak model
+/// given a flood of "## Pipeline: X\nKeywords: Y" entries pattern-matched
+/// the format and hallucinated more of them instead of answering the real
+/// question. These types are never legitimate "background context" for a
+/// user's question and are filtered out before context assembly, not just
+/// at display time — this is the same fix regardless of which keyword
+/// caused a given match, not a patch for one specific colliding keyword.
+fn is_infrastructure_container_type(t: &str) -> bool {
+    matches!(
+        t,
+        "Root" | "User" | "Workspace" | "Project"
+            | "Pipeline"
+            | "ModalityRoot" | "MethodologyRoot" | "BlueprintRoot" | "PipelineRoot"
+            | "ConsciousnessRoot" | "ExternalRoot" | "PackageRoot"
+            | "JurisdictionRoot"
+    )
+}
+
 fn build_context_from_containers(containers: &[serde_json::Value], budget: u32) -> (String, Vec<ContextSource>, bool) {
     let mut context_parts: Vec<String> = Vec::new();
     let mut sources: Vec<ContextSource> = Vec::new();
@@ -252,6 +366,16 @@ fn build_context_from_containers(containers: &[serde_json::Value], budget: u32) 
     let mut truncated = false;
 
     for container in containers {
+        let skip_type = container
+            .get("local_state")
+            .and_then(|l| l.get("metadata"))
+            .and_then(|m| m.get("container_type"))
+            .and_then(|t| t.as_str())
+            .map(is_infrastructure_container_type)
+            .unwrap_or(false);
+        if skip_type {
+            continue;
+        }
         let global = container.get("global_state");
         let local = container.get("local_state");
         let container_id = global
@@ -363,6 +487,107 @@ async fn resolve_containers(ids: &[u64]) -> Vec<serde_json::Value> {
     out
 }
 
+
+/// Coordination layer (task 43): pull scoped agent events from the
+/// /SharedContext graph — scope:global always, plus this workspace's (and
+/// this project's) own events — newest first, hard-capped. Returns None
+/// when nothing relevant exists (the layer is omitted, not empty-padded).
+async fn build_coordination_layer(
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+) -> Option<String> {
+    // Seed searches per scope bucket, unioned.
+    let mut ids: Vec<u64> = Vec::new();
+    for keywords in [
+        vec!["scope:global"],
+        match workspace_id {
+            Some(ws) => vec![format!("ws:{}", ws).leak() as &str],
+            None => vec![],
+        },
+        match (workspace_id, project_id) {
+            (Some(ws), Some(p)) => vec![format!("proj:{}-{}", ws, p).leak() as &str],
+            _ => vec![],
+        },
+    ] {
+        if keywords.is_empty() {
+            continue;
+        }
+        for id in search_containers_by_keywords(&keywords, Some("CoordinationEvent")).await {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+    }
+    if ids.is_empty() {
+        return None;
+    }
+
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let containers = resolve_containers(&ids).await;
+    let mut rows: Vec<(u64, String)> = Vec::new();
+    for c in &containers {
+        let meta = c.get("local_state").and_then(|l| l.get("metadata"));
+        let name = meta
+            .and_then(|m| m.get("name"))
+            .and_then(|n| n.as_str())
+            .unwrap_or("")
+            .to_string();
+        let provenance = meta
+            .and_then(|m| m.get("provenance"))
+            .and_then(|p| p.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let created = meta
+            .and_then(|m| m.get("created_at"))
+            .and_then(|t| t.as_u64())
+            .unwrap_or(0);
+        // Body file (full context) via the container's own storage pointer.
+        let ptr = c
+            .get("local_state")
+            .and_then(|l| l.get("storage"))
+            .and_then(|s| s.get("object_store_path"))
+            .and_then(|p| p.as_str())
+            .map(String::from);
+        let mut body = String::new();
+        if let Some(ptr) = ptr {
+            let full = if std::path::Path::new(&ptr).is_absolute() {
+                ptr.clone()
+            } else {
+                format!("{}/{}", data_dir, ptr)
+            };
+            if let Ok(raw) = env::var("OZONE_HOST") {
+                let _ = raw; // body is file-backed; host fetch unnecessary
+            }
+            if let Ok(raw) = std::fs::read_to_string(&full) {
+                if let Ok(j) = serde_json::from_str::<serde_json::Value>(&raw) {
+                    if let Some(b) = j.get("body").and_then(|b| b.as_str()) {
+                        body = b.chars().take(240).collect();
+                    }
+                }
+            }
+        }
+        rows.push((
+            created,
+            format!("[{}] {} ({}): {}", "coordination", provenance, name, body),
+        ));
+    }
+    rows.sort_by(|a, b| b.0.cmp(&a.0));
+    if rows.is_empty() {
+        return None;
+    }
+
+    const MAX_CHARS: usize = 1600;
+    let mut layer = String::from("[Coordination context — agent notes/decisions, newest first]\n");
+    for (_, line) in rows {
+        if layer.len() + line.len() + 1 > MAX_CHARS {
+            break;
+        }
+        layer.push_str(&line);
+        layer.push('\n');
+    }
+    Some(layer)
+}
+
 pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String> {
     match input {
         ContextAggInput::ForTask { task_id, token_budget, include_consciousness, .. } => {
@@ -377,7 +602,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 build_consciousness_context(&consciousness_data)
             } else { None };
 
-            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: if containers.is_empty() { 0.0 } else { 0.85 }, consciousness_context }), error: None })
+            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: if containers.is_empty() { 0.0 } else { 0.85 }, consciousness_context, coordination_context: None }), error: None })
         }
 
         ContextAggInput::ForQuery { query, token_budget, container_ids, project_id } => {
@@ -392,7 +617,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             }
             let (mut context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
             context_text = format!("Query: {}\n\n{}", query, context_text);
-            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None }), error: None })
+            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None, coordination_context: None }), error: None })
         }
 
         ContextAggInput::ForProject { project_id, token_budget, include_files: _, include_urls: _ } => {
@@ -405,13 +630,13 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 all_containers.push(project);
             }
             let (context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
-            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None }), error: None })
+            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None, coordination_context: None }), error: None })
         }
 
         ContextAggInput::Custom { container_ids, token_budget, .. } => {
             let all_containers = resolve_containers(&container_ids).await;
             let (context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
-            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None }), error: None })
+            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None, coordination_context: None }), error: None })
         }
 
         ContextAggInput::ForBlueprint { blueprint_id, step_index, token_budget } => {
@@ -420,16 +645,18 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 None => Vec::new(),
             };
             let (context_text, sources, truncated) = build_context_from_containers(&containers, token_budget);
-            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: format!("Blueprint step {} context:\n{}", step_index, context_text), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None }), error: None })
+            Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: format!("Blueprint step {} context:\n{}", step_index, context_text), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.85, consciousness_context: None, coordination_context: None }), error: None })
         }
 
         ContextAggInput::ForStep {
             query,
             session_context,
             token_budget,
-            project_id: _,
+            project_id,
             priority_order,
             include_consciousness,
+            workspace_id,
+            include_coordination,
         } => {
             // Container context (store side) — real keyword search now:
             // search for matching ids, then resolve each to full content.
@@ -457,7 +684,24 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     keyword_list.push(w);
                 }
             }
-            let ids = search_containers_by_keywords(&keyword_list, None).await;
+            let seed_ids = search_containers_by_keywords(&keyword_list, None).await;
+            // Real graph traversal (task 56) — walks real Relation edges
+            // from the flat keyword-search seeds, so genuinely related
+            // content (e.g. a related function/file linked via a real
+            // SimilarTo edge from text/code modality's cross-relationship
+            // linking) can be discovered even when the step's own keywords
+            // only directly matched one side of that relationship. Merged
+            // with the flat seeds, not a replacement for them — traversal
+            // starts FROM real matches, it doesn't substitute for finding
+            // them. Infrastructure-type filtering below applies uniformly
+            // to the merged set regardless of which path found a given id.
+            let traversed_ids = traverse_from_seeds(&seed_ids).await;
+            let mut ids = seed_ids;
+            for id in traversed_ids {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
             let containers = resolve_containers(&ids).await;
             let (container_text, sources, mut truncated) =
                 build_context_from_containers(&containers, token_budget);
@@ -495,6 +739,15 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 None
             };
 
+            // Coordination layer (task 43) — scoped agent history from the
+            // /SharedContext graph: global events + this workspace's (+ this
+            // project's). Own layer, newest first, capped hard.
+            let coordination_context = if include_coordination {
+                build_coordination_layer(workspace_id, project_id).await
+            } else {
+                None
+            };
+
             Ok(ContextAggOutput {
                 success: true,
                 context: Some(AggregatedContext {
@@ -504,6 +757,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     truncated,
                     coverage_score: 1.0,
                     consciousness_context,
+                    coordination_context,
                 }),
                 error: None,
             })
@@ -520,6 +774,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     truncated: false,
                     coverage_score: 1.0,
                     consciousness_context: None,
+                    coordination_context: None,
                 }),
                 error: None,
             })

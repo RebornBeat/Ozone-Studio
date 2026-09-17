@@ -97,3 +97,13 @@ Challenges:Ambiguity in natural language: Resolve via context or multi-pass LLM 
 Size Management: Abstract by prioritizing high-impact nodes; use thresholds for depth.
 Extensions: Combine with other structures (e.g., knowledge graphs for richer linkages).
 This framework empowers LLMs and automation systems to handle text with the same structural rigor as code, fostering more intelligent and complete interactions. For project integration, adapt the AMT builder as a module in your pipeline.
+
+
+---
+
+> **LIVE STATUS (2026-09-16)**: AMT expansion is now event-driven — see
+> `docs/AMT_EXPANSION.md` for the route taxonomy (UnverifiedNode /
+> GraphRipple / Continuation), the unified candidate store, the main/fork
+> island model (`amt-main` / `amt-fork-of:<id>` keywords + Continues
+> relations), and the graph-ripple wake. Per this document's own framing:
+> the AMT per project is a growing tree, not a per-request artifact.

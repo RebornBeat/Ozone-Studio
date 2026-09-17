@@ -750,18 +750,17 @@ impl TaskManager {
                 let mut reconciled = 0u32;
                 for task in tasks.values_mut() {
                     if task.status == "queued" || task.status == "running" {
-                        // Coordination tasks (created via /task/create with an
-                        // assignee) are WAITING work routed to an external
-                        // agent, not in-flight host execution — a restart
-                        // doesn't interrupt them; the agent picks them up
-                        // after boot. Everything else queued/running at
-                        // snapshot time honestly becomes "interrupted".
-                        let is_coordination = task
-                            .inputs
-                            .as_ref()
-                            .and_then(|i| i.get("assignee"))
-                            .map(|a| !a.is_null())
-                            .unwrap_or(false);
+                        // Coordination tasks (created via /task/create — they
+                        // carry a "source" input from the API wrapper) are
+                        // AGENT-routed work, not in-flight host execution: a
+                        // restart doesn't interrupt them. Assignee-bearing
+                        // tasks and source-tagged tasks both qualify —
+                        // task 56 (unassigned architecture work) exposed the
+                        // assignee-only gap. Everything else queued/running
+                        // at snapshot time honestly becomes "interrupted".
+                        let inputs = task.inputs.as_ref().cloned().unwrap_or(serde_json::Value::Null);
+                        let is_coordination = inputs.get("source").and_then(|v| v.as_str()).is_some()
+                            || inputs.get("assignee").map(|a| !a.is_null()).unwrap_or(false);
                         if is_coordination && task.status == "queued" {
                             continue;
                         }
@@ -1377,6 +1376,61 @@ impl TaskManager {
         }
         let _ = self.save_to_disk().await;
         Ok(())
+    }
+
+    /// Coordination-task lifecycle: the routed agent flips its own task to
+    /// completed/failed/queued. Only /task/create tasks (source-tagged
+    /// inputs) are eligible — host-executed orchestration tasks keep their
+    /// orchestrator-driven lifecycle. Returns Ok(false) when the task
+    /// doesn't exist or isn't coordination-routed.
+    pub async fn update_coordination_status(
+        &self,
+        task_id: &TaskID,
+        status: &str,
+        error: Option<String>,
+    ) -> OzoneResult<bool> {
+        match status {
+            "completed" | "failed" | "queued" | "running" => {}
+            other => {
+                return Err(OzoneError::TaskError(format!(
+                    "invalid coordination status: {}",
+                    other
+                )))
+            }
+        }
+        let ok = {
+            let mut tasks = self.tasks.write().await;
+            match tasks.get_mut(task_id) {
+                Some(task) => {
+                    let is_coordination = task
+                        .inputs
+                        .as_ref()
+                        .and_then(|i| i.get("source"))
+                        .and_then(|v| v.as_str())
+                        .is_some();
+                    if !is_coordination {
+                        return Ok(false);
+                    }
+                    let now = now();
+                    task.status = status.to_string();
+                    if status == "completed" || status == "failed" {
+                        task.completed_at = Some(now);
+                    }
+                    if status == "queued" {
+                        task.completed_at = None;
+                    }
+                    if let Some(e) = error {
+                        task.error = Some(e);
+                    }
+                    true
+                }
+                None => false,
+            }
+        };
+        if ok {
+            let _ = self.save_to_disk().await;
+        }
+        Ok(ok)
     }
 
     /// Persist the real AMT structure onto a task record — same
@@ -2002,5 +2056,133 @@ mod tests {
         assert!(TaskPriority::Critical > TaskPriority::High);
         assert!(TaskPriority::High > TaskPriority::Normal);
         assert!(TaskPriority::Normal > TaskPriority::Low);
+    }
+
+    // T-A4: amt_summary genuinely survives a restart on the task record.
+    // `TaskManager::new` always calls `load_from_disk_sync()` (see above),
+    // so constructing a second manager against the same storage_path is a
+    // real simulation of a process restart — not an in-memory-only check —
+    // and `set_amt_summary` calling `save_to_disk()` is exactly what needs
+    // proving actually round-trips through the real persistence backend.
+    // Own temp dir per test run (not the shared /tmp/test_tasks the
+    // existing tests above use) so this doesn't race other tests touching
+    // the same path.
+    #[tokio::test]
+    async fn amt_summary_survives_restart() {
+        let storage_path = std::env::temp_dir()
+            .join(format!(
+                "amt_summary_restart_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ))
+            .to_string_lossy()
+            .into_owned();
+
+        let refinement_config = RefinementConfig { enabled: false, ..Default::default() };
+
+        let task_id;
+        let summary = serde_json::json!({
+            "total_nodes": 7,
+            "verified_nodes": 3,
+            "unverified_nodes": 4,
+            "max_depth": 2
+        });
+        {
+            let mut config = TaskQueueConfig::default();
+            config.consciousness_enabled = false;
+            config.storage_path = storage_path.clone();
+            let manager = TaskManager::new(config, refinement_config.clone()).unwrap();
+
+            let mut inputs = HashMap::new();
+            inputs.insert("prompt".to_string(), serde_json::json!("amt persistence test"));
+            task_id = manager
+                .enqueue_task(None, inputs, 1, 1, None, None, TaskPriority::Normal)
+                .await
+                .unwrap();
+
+            manager.set_amt_summary(task_id, summary.clone()).await.unwrap();
+
+            // Sanity check within the same process before simulating restart.
+            let task = manager.get_task(task_id).await.unwrap();
+            assert_eq!(task.amt_summary, Some(summary.clone()));
+        }
+
+        // Fresh TaskManager, same storage_path — the real restart simulation.
+        let mut config2 = TaskQueueConfig::default();
+        config2.consciousness_enabled = false;
+        config2.storage_path = storage_path;
+        let reloaded_manager = TaskManager::new(config2, refinement_config).unwrap();
+
+        let reloaded_task = reloaded_manager
+            .get_task(task_id)
+            .await
+            .expect("task must survive restart");
+        assert_eq!(
+            reloaded_task.amt_summary,
+            Some(summary),
+            "amt_summary must round-trip through real disk persistence across a restart"
+        );
+    }
+
+    // T-U3: /task/update's real guard (update_coordination_status) only
+    // touches source-tagged (coordination) tasks — a real host-executed
+    // task (an actual orchestration run, no "source" input) must be
+    // refused, not silently mutated by an agent's handoff-tracking call.
+    #[tokio::test]
+    async fn coordination_update_refuses_a_host_executed_task() {
+        let storage_path = std::env::temp_dir()
+            .join(format!(
+                "task_lifecycle_guard_{}_{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ))
+            .to_string_lossy()
+            .into_owned();
+        let refinement_config = RefinementConfig { enabled: false, ..Default::default() };
+        let mut config = TaskQueueConfig::default();
+        config.consciousness_enabled = false;
+        config.storage_path = storage_path;
+        let manager = TaskManager::new(config, refinement_config).unwrap();
+
+        // A real host-executed task: a genuine orchestration request, no
+        // "source" tag — never created via the coordination API.
+        let mut host_inputs = HashMap::new();
+        host_inputs.insert("prompt".to_string(), serde_json::json!("what is 2+2?"));
+        let host_task_id = manager
+            .enqueue_task(None, host_inputs, 1, 1, None, None, TaskPriority::Normal)
+            .await
+            .unwrap();
+
+        let refused = manager
+            .update_coordination_status(&host_task_id, "completed", None)
+            .await
+            .unwrap();
+        assert!(!refused, "a host-executed task (no source tag) must be refused, not updated");
+        let task = manager.get_task(host_task_id).await.unwrap();
+        assert_ne!(task.status, "completed", "the refused update must not have mutated the task");
+
+        // A real coordination task: source-tagged, created via the
+        // coordination API — this one IS allowed to be updated.
+        let mut coord_inputs = HashMap::new();
+        coord_inputs.insert("source".to_string(), serde_json::json!("zcode"));
+        coord_inputs.insert("description".to_string(), serde_json::json!("[host-ops] restart requested"));
+        let coord_task_id = manager
+            .enqueue_task(None, coord_inputs, 1, 1, None, None, TaskPriority::Normal)
+            .await
+            .unwrap();
+
+        let allowed = manager
+            .update_coordination_status(&coord_task_id, "completed", None)
+            .await
+            .unwrap();
+        assert!(allowed, "a real source-tagged coordination task must be updatable");
+        let task = manager.get_task(coord_task_id).await.unwrap();
+        assert_eq!(task.status, "completed");
     }
 }

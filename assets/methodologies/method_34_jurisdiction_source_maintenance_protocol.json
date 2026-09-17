@@ -1,0 +1,56 @@
+{
+  "principles": [
+    {
+      "statement": "Jurisdiction content is not a one-time write — it is real, external law that changes, so this project needs a repeatable protocol for verifying what's already cited and for keeping new additions consistent with what's already approved, not just a one-time sourcing standard for new content (method 21).",
+      "rationale": "Confirmed live 2026-09-16: 147 real rules exist across 41 scopes (global + 40 national files), each with a real `source` citation, but nothing aggregated them into a reviewable form and nothing tracked which sources were genuinely confirmed official vs. secondary. A registry generated directly from the real files (`tools/generate_jurisdiction_registry.py` -> `assets/jurisdiction/SOURCE_REGISTRY.md`/`.json`) makes this reviewable and re-verifiable for the first time, and — because it's generated, not hand-maintained — it can't drift out of sync with the content it describes.",
+      "applicability": ["jurisdiction", "legal_content", "maintenance", "content_sourcing"]
+    },
+    {
+      "statement": "A generated artifact beats a hand-maintained one for anything that tracks the state of many individually-edited files — regenerate the registry after any jurisdiction content change rather than manually updating a separate summary document.",
+      "rationale": "The registry is produced by walking every real file under assets/jurisdiction/ at generation time — it is structurally impossible for it to describe content that no longer exists or miss content that was just added, the way a hand-maintained summary reliably would within a few edits.",
+      "applicability": ["documentation", "maintenance", "tooling"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Check the Registry Before an Independent New Search",
+      "description": "Before sourcing new jurisdiction content for a country/topic, check `assets/jurisdiction/SOURCE_REGISTRY.md` for that scope first — an already-approved, already-cited source for the same country (even a different topic) is a real signal about which government/regulator domains and citation conventions are already established for that jurisdiction, and reduces the chance of an inconsistent or lower-quality source being used where a better one is already known.",
+      "when_to_apply": "Starting any new jurisdiction expansion or deepening pass.",
+      "examples": [
+        "A country's data-protection authority domain, once found and cited for one topic (e.g. personal data), is very likely the same real source to check first for a related topic (e.g. consumer protection enforcement) in that same country."
+      ]
+    },
+    {
+      "name": "Treat the Gap Report as a Real Worklist, Not Noise",
+      "description": "The registry's gap summary (rules with official_source not confirmed true, rules with no retrieved_snippet) is not a defect to hide — it's an honest, real accounting of which citations are primary-confirmed vs. secondary/unconfirmed/pre-dating that tracking. Use it to prioritize which existing rules are worth a closer look or an upgrade to a primary source, rather than assuming all 147 rules are equally verified.",
+      "when_to_apply": "Periodically, and whenever touching jurisdiction content for a scope that already has entries with gaps.",
+      "examples": [
+        "76 of 147 rules (as of the first generation) don't have official_source confirmed true — this doesn't mean they're wrong (many are legitimately hand-curated or method-21-compliant secondary citations), but it's a real, honest list of where a future pass could add confidence, not an assumption that everything is equally solid."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Any jurisdiction content file under assets/jurisdiction/ is added, changed, or removed.",
+      "action": "Re-run `python3 tools/generate_jurisdiction_registry.py` to regenerate SOURCE_REGISTRY.md/.json from the real, current file content before considering the change complete — this is how the registry stays trustworthy rather than becoming a stale snapshot.",
+      "priority": 2,
+      "exceptions": []
+    },
+    {
+      "condition": "Revisiting or expanding jurisdiction content for a country/topic that already has an entry with `official_source` not confirmed true, or no `retrieved_snippet`.",
+      "action": "Treat this as a real opportunity to verify the citation is still current and, where possible, upgrade to a confirmed-official primary source — real re-verification, not just adding new unrelated content and leaving the gap untouched.",
+      "priority": 3,
+      "exceptions": [
+        "The existing citation is already the best real, verifiable source available (method 21's 'skip honestly rather than pad' applies here too — don't replace a real secondary citation with a fabricated 'upgrade')."
+      ]
+    },
+    {
+      "condition": "Deciding whether to add per-rule 'last verified' timestamp tracking to the JurisdictionRule schema.",
+      "action": "Not done as of this methodology's writing — deliberately deferred. The registry's own generation timestamp already gives an honest 'aggregated as of' marker at the collection level, and a real per-rule schema change (touching all 41 files, requiring a full build+test cycle) wasn't judged worth the risk for a benefit the registry-level timestamp already partially covers. Revisit only if the registry-level approach genuinely proves insufficient in practice — not preemptively.",
+      "priority": 3,
+      "exceptions": [
+        "A real, concrete need emerges (e.g. an actual automated re-verification job that needs per-rule granularity) — at that point this becomes a real, deliberate schema decision to make with full build/test verification, not something to bolt on casually."
+      ]
+    }
+  ]
+}

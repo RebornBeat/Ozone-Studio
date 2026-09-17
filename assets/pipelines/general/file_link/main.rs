@@ -8,6 +8,150 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+// Same real-ZSEI-over-HTTP pattern as text/code modality and
+// context_aggregation — ZSEIQuery is externally-tagged, wire format
+// {"VariantName": {fields...}}.
+fn ozone_host() -> String {
+    std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
+    }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Real ZSEI graph wiring for a resource link (task 64) — previously
+/// file/url/package links were entirely flat-JSON, invisible to any real
+/// graph traversal or relationship. Creates a real `container_type`
+/// container (FileReference here; url_link/package_link mirror this with
+/// URLReference/PackageReference) parented under `project_id` when present
+/// (falling back to `fallback_root` — FILE_GRAPH_ROOT_ID=76 for files —
+/// otherwise; `create_container` degrades gracefully if project_id doesn't
+/// correspond to a real container, confirmed by reading
+/// text-modality's persist_graph_container and src/zsei/query.rs, so this
+/// is safe even for an ad-hoc/nonexistent project_id). Then writes a real
+/// bidirectional Relation edge (project Contains reference; reference
+/// PartOf project) — best-effort: if the project container can't be
+/// fetched (e.g. a genuinely nonexistent project_id), the reference
+/// container is still real and created, just not cross-linked, which is
+/// still strictly better than the previous fully-flat state.
+async fn link_reference_to_graph(
+    project_id: u64,
+    fallback_root: u64,
+    container_type: &str,
+    provenance: &str,
+    name: String,
+    keywords: Vec<String>,
+) -> Option<u64> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let parent_id = if project_id != 0 { project_id } else { fallback_root };
+    let container = serde_json::json!({
+        "global_state": { "container_id": 0, "child_count": 0, "version": 1, "parent_id": 0, "child_ids": [] },
+        "local_state": {
+            "metadata": {
+                "container_type": container_type,
+                "modality": "Unknown",
+                "created_at": now,
+                "updated_at": now,
+                "provenance": provenance,
+                "permissions": 0,
+                "owner_id": 0,
+                "name": name,
+                "materialized_path": null
+            },
+            "context": {
+                "categories": [],
+                "methodologies": [],
+                "keywords": keywords,
+                "topics": [],
+                "relationships": [],
+                "learned_associations": [],
+                "embedding": null
+            },
+            "storage": { "db_shard_id": null, "vector_index_ref": null, "object_store_path": null, "compression_type": "None" },
+            "hints": { "access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0 },
+            "integrity": { "content_hash": vec![0u8; 32], "semantic_fingerprint": [], "last_verified": now, "integrity_score": 1.0, "version_history": [] },
+            "file_context": null,
+            "code_context": null,
+            "text_context": null,
+            "external_ref": null
+        }
+    });
+
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": parent_id, "container": container }
+    }))
+    .await
+    .ok()?;
+    let container_id = result.get("ContainerID").and_then(|v| v.as_u64())?;
+
+    if project_id != 0 {
+        link_relation_both_ways(project_id, container_id).await;
+    }
+
+    Some(container_id)
+}
+
+/// Best-effort bidirectional Relation edge between a project container and
+/// a newly-created reference container — Contains from the project's side,
+/// PartOf from the reference's side (RelationType::Contains=3/PartOf=2,
+/// src/types/container.rs). Real edges via UpdateContainer, same pattern
+/// text/code modality's link_related_containers already proved working.
+async fn link_relation_both_ways(project_id: u64, ref_container_id: u64) {
+    for (from_id, to_id, relation_type) in [
+        (project_id, ref_container_id, "Contains"),
+        (ref_container_id, project_id, "PartOf"),
+    ] {
+        let existing = match zsei_query(serde_json::json!({ "GetContainer": { "container_id": from_id } })).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let container_json = existing.get("Container").cloned().unwrap_or(existing);
+        let context = match container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let mut relationships: Vec<serde_json::Value> =
+            context.get("relationships").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let already = relationships.iter().any(|r| r.get("target_id").and_then(|v| v.as_u64()) == Some(to_id));
+        if already {
+            continue;
+        }
+        relationships.push(serde_json::json!({
+            "target_id": to_id,
+            "relation_type": relation_type,
+            "confidence": 1.0,
+            "discovered_via": "Manual"
+        }));
+        let mut updated_context = context.clone();
+        updated_context["relationships"] = serde_json::Value::Array(relationships);
+        let _ = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": from_id,
+                "updates": { "metadata": null, "context": updated_context, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum FileLinkInput {
@@ -46,6 +190,12 @@ pub struct FileRefInfo {
     pub modality: String,
     pub analyzed: bool,
     pub created_at: u64,
+    /// The real ZSEI FileReference container this link was also wired to
+    /// (task 64 — previously a link was flat-JSON-only, invisible to any
+    /// graph traversal). `#[serde(default)]` so files_<id>.json written
+    /// before this field existed still deserialize (as None).
+    #[serde(default)]
+    pub zsei_container_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -211,6 +361,9 @@ fn create_file_ref(project_id: u64, file_path: &str, analyze: bool) -> FileRefIn
         modality,
         analyzed: false, // Will be set true after actual analysis
         created_at: now(),
+        // Wired to the real graph at link time (task 64); None here is
+        // legitimate — link_reference_to_graph fills it in afterwards.
+        zsei_container_id: None,
     }
 }
 
@@ -349,6 +502,22 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 }
             }
 
+            // Real graph wiring (task 64) — a genuine FileReference
+            // container + bidirectional Relation edge with the project,
+            // not just a flat JSON row. Best-effort: a failure here doesn't
+            // fail the link itself (the flat ref is still the source of
+            // truth for fast lookup), just leaves zsei_container_id None.
+            let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
+            file_ref.zsei_container_id = link_reference_to_graph(
+                project_id,
+                76, // FILE_GRAPH_ROOT_ID
+                "FileReference",
+                "file_link_pipeline",
+                format!("File: {}", file_ref.path),
+                keywords,
+            )
+            .await;
+
             refs.push(file_ref.clone());
             save_file_refs(project_id, &refs)?;
 
@@ -385,6 +554,17 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     }
                 }
 
+                let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
+                file_ref.zsei_container_id = link_reference_to_graph(
+                    project_id,
+                    76,
+                    "FileReference",
+                    "file_link_pipeline",
+                    format!("File: {}", file_ref.path),
+                    keywords,
+                )
+                .await;
+
                 refs.push(file_ref.clone());
                 new_refs.push(file_ref);
             }
@@ -405,10 +585,20 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
         } => {
             let mut refs = load_file_refs(project_id);
             let initial_len = refs.len();
+            let zsei_container_id = refs.iter().find(|r| r.id == file_ref_id).and_then(|r| r.zsei_container_id);
             refs.retain(|r| r.id != file_ref_id);
 
             if refs.len() < initial_len {
                 save_file_refs(project_id, &refs)?;
+                // Best-effort: remove the real graph container too, not
+                // just the flat row — an unlinked file shouldn't remain
+                // discoverable as if still attached.
+                if let Some(container_id) = zsei_container_id {
+                    let _ = zsei_query(serde_json::json!({
+                        "DeleteContainer": { "container_id": container_id }
+                    }))
+                    .await;
+                }
                 Ok(FileLinkOutput {
                     success: true,
                     file_ref: None,
@@ -447,6 +637,10 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                                         file_ref.size = size;
                                         file_ref.modified = modified;
 
+                                        // Clone out of the mutable borrow
+                                        // before serializing the vec.
+                                        let updated = file_ref.clone();
+
                                         // Save updated refs
                                         let content = serde_json::to_string_pretty(&refs)
                                             .map_err(|e| e.to_string())?;
@@ -454,7 +648,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
                                         return Ok(FileLinkOutput {
                                             success: true,
-                                            file_ref: Some(file_ref.clone()),
+                                            file_ref: Some(updated),
                                             file_refs: None,
                                             error: None,
                                         });
@@ -522,15 +716,42 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
     }
 }
 
-fn main() {
+/// Real orchestrator invocations pass the full PipelineInput envelope
+/// {data, context} (see RegistryExecutorAdapter::execute) — this used to
+/// parse input_json directly as FileLinkInput with no envelope unwrap, so
+/// every real host-triggered call would have failed with a missing-field
+/// `action` parse error (confirmed by cross-referencing context_aggregation
+/// and text/code modality's main(), all of which already unwrap `data`).
+/// Also accepts a bare envelope-free FileLinkInput (direct CLI/manual
+/// testing) or stdin, matching the established parse_cli_input convention.
+fn parse_cli_input<T: serde::de::DeserializeOwned>() -> Result<T, String> {
     let args: Vec<String> = std::env::args().collect();
-    let mut input_json = String::new();
-    for i in 1..args.len() {
+    let mut input_json: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
         }
     }
-    let input: FileLinkInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    let raw = match input_json {
+        Some(s) => s,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin().read_to_string(&mut buf).map_err(|e| e.to_string())?;
+            buf
+        }
+    };
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let inner = v.get("data").cloned().unwrap_or(v);
+    serde_json::from_value(inner).map_err(|e| e.to_string())
+}
+
+fn main() {
+    let input: FileLinkInput = parse_cli_input().unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });

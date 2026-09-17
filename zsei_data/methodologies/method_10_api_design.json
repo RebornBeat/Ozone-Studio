@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "Design the interface from the caller's side first — write the call you want to make, then build the thing that answers it.",
+      "rationale": "Interfaces shaped around internal convenience leak implementation and age badly; caller-shaped ones stay stable as internals change.",
+      "applicability": [
+        "api",
+        "design",
+        "code_creation"
+      ]
+    },
+    {
+      "statement": "Consistency within the API beats local cleverness — same resource shape, same error shape, same naming everywhere.",
+      "rationale": "Every inconsistency is a permanent tax on every caller who has to remember a special case.",
+      "applicability": [
+        "api",
+        "design"
+      ]
+    },
+    {
+      "statement": "Errors are part of the contract — design them with the same care as successes.",
+      "rationale": "Callers branch on errors; an unstructured error is an undocumented behavior.",
+      "applicability": [
+        "api",
+        "design"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Round-trip test",
+      "description": "Write the create → read → update → delete → list sequence in pseudocode before implementation; if the sequence is awkward, the resource model is wrong.",
+      "when_to_apply": "Designing any new endpoint or resource.",
+      "examples": [
+        "If 'list files for project' has no natural home, the project↔file relationship is mis-modeled."
+      ]
+    },
+    {
+      "name": "Additive evolution",
+      "description": "New fields and endpoints are additions; renames and removals are breaking changes that need a version boundary.",
+      "when_to_apply": "Any change to a shipped interface.",
+      "examples": [
+        "Add `status_v2`; deprecate `status`; never repurpose its type."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Two endpoints would differ only in the shape of their response envelope.",
+      "action": "Unify the envelope and parameterize the content — envelope inconsistency compounds fast.",
+      "priority": 2,
+      "exceptions": []
+    },
+    {
+      "condition": "A request needs more than one boolean flag to select fundamentally different behaviors.",
+      "action": "Split it into distinct endpoints or resources — flag-driven multiplexing hides different contracts behind one URL.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

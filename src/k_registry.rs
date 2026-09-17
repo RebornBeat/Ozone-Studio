@@ -150,30 +150,30 @@ mod tests {
     #[test]
     fn shipped_presets_resolve() {
         let k = KAlgorithms::new();
+        // Presets became runtime-switchable (RwLock-wrapped) — lock for reads.
+        let validation = k.validation.read().unwrap();
+        let ordered_loop = k.ordered_loop.read().unwrap();
+        let pairwise = k.pairwise.read().unwrap();
+        let convergence = k.convergence.read().unwrap();
         assert_eq!(
-            k.validation.get(Some("strict-5")).map(|p| p.strength),
+            validation.get(Some("strict-5")).map(|p| p.strength),
             Some(5)
         );
-        assert_eq!(
-            k.ordered_loop.default_preset().exhaustion_strikes,
-            2
-        );
-        assert_eq!(
-            k.pairwise.get(Some("wide")).map(|p| p.forward_window),
-            Some(16)
-        );
-        assert_eq!(
-            k.convergence.get(Some("deep")).map(|p| p.max_passes),
-            Some(5)
-        );
+        assert_eq!(ordered_loop.default_preset().exhaustion_strikes, 2);
+        assert_eq!(pairwise.get(Some("wide")).map(|p| p.forward_window), Some(16));
+        assert_eq!(convergence.get(Some("deep")).map(|p| p.max_passes), Some(5));
     }
 
     #[test]
     fn kinds_cover_every_family() {
         let k = KAlgorithms::new();
-        assert_eq!(k.validation.kind(), KAlgorithmKind::Validation);
-        assert_eq!(k.ordered_loop.kind(), KAlgorithmKind::OrderedLoop);
-        assert_eq!(k.pairwise.kind(), KAlgorithmKind::Pairwise);
-        assert_eq!(k.convergence.kind(), KAlgorithmKind::Convergence);
+        let validation = k.validation.read().unwrap();
+        let ordered_loop = k.ordered_loop.read().unwrap();
+        let pairwise = k.pairwise.read().unwrap();
+        let convergence = k.convergence.read().unwrap();
+        assert_eq!(validation.kind(), KAlgorithmKind::Validation);
+        assert_eq!(ordered_loop.kind(), KAlgorithmKind::OrderedLoop);
+        assert_eq!(pairwise.kind(), KAlgorithmKind::Pairwise);
+        assert_eq!(convergence.kind(), KAlgorithmKind::Convergence);
     }
 }

@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "Deliver in slices that each stand alone and work end-to-end.",
+      "rationale": "A vertical slice that runs — however thin — proves the architecture and gives something to iterate; horizontal layers prove nothing until the last one lands.",
+      "applicability": [
+        "iteration",
+        "agile",
+        "code_creation"
+      ]
+    },
+    {
+      "statement": "Every increment leaves the system in a working state.",
+      "rationale": "A branch that 'needs one more week before it runs again' has silently accumulated every mistake made during that week.",
+      "applicability": [
+        "iteration",
+        "deployment"
+      ]
+    },
+    {
+      "statement": "Feedback from a working increment corrects the plan for the next one.",
+      "rationale": "The plan made before the first slice was built had the least information it will ever have.",
+      "applicability": [
+        "iteration",
+        "planning"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Walking skeleton first",
+      "description": "Build the thinnest end-to-end path (one input, one output, real wiring) before thickening any layer.",
+      "when_to_apply": "Starting any new system, service, or pipeline.",
+      "examples": [
+        "One file flowing through parse→store→serve beats a perfect parser with no sink."
+      ]
+    },
+    {
+      "name": "Stop-and-integrate check",
+      "description": "If the current increment can't land within the session/day, cut its scope until it can.",
+      "when_to_apply": "Any increment crossing a time boundary.",
+      "examples": [
+        "'Half the feature, fully working' integrates; 'the whole feature, half-working' does not."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "An increment is stuck and growing without reaching a runnable state.",
+      "action": "Cut scope to the smallest runnable slice; stash the rest as the next increment's plan.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "New information from a landed increment contradicts the original plan.",
+      "action": "Re-plan the remaining increments — do not push through a plan the feedback has invalidated.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

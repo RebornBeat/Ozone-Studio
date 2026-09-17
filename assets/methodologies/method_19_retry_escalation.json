@@ -1,0 +1,42 @@
+{
+  "principles": [
+    {
+      "statement": "Retry/fallback escalation logic across multiple candidates must cycle through all candidates as attempts increase, never clamp to the last-reached candidate and stay there.",
+      "rationale": "Confirmed live 2026-09-15: `((attempts - 1) as usize).min(candidates.len() - 1)` in two real background loops (methodology meta-loop, AMT re-expansion loop) meant that once escalation reached the final candidate in a 2-item fallback list, every subsequent retry stayed clamped on that same candidate forever — even though it was the one currently broken (an exhausted API quota) while the other, working candidate (a slower local model) never got retried again. One real gap burned 6 of its 10-attempt budget retrying a guaranteed-fail target.",
+      "applicability": ["retry_logic", "fallback", "code_review", "background_loops"]
+    },
+    {
+      "statement": "A clamp-vs-cycle bug in retry logic is easy to miss in code review because both produce 'valid-looking' escalation on the first pass through the candidate list — the defect only manifests after the list is exhausted, which requires enough real retries to observe.",
+      "rationale": "The bug shipped and ran for an unknown period before being caught by directly reading a live log showing attempt=9 still targeting the same broken candidate as attempt=4 through 8.",
+      "applicability": ["retry_logic", "code_review", "testing"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Cycle, Don't Clamp",
+      "description": "When mapping a monotonically increasing attempt counter to a fixed-size candidate list for escalation, use modulo (`% candidates.len()`) rather than `.min(candidates.len() - 1)` unless there is a specific, documented reason the last candidate should be sticky.",
+      "when_to_apply": "Any retry/fallback loop with more than one escalation candidate and an attempt counter that can exceed the candidate count.",
+      "examples": [
+        "meta_fallback.order = [bitnet-i2_s, openrouter/free]; attempt 4 onward should alternate between the two, not stick on whichever was reached last."
+      ]
+    },
+    {
+      "name": "Verify Retry Behavior From a Real Multi-Attempt Log",
+      "description": "Don't infer retry/escalation correctness from reading the code alone — pull a real log spanning several retry attempts for one real failure and confirm the actual candidate chosen at each attempt matches the intended escalation pattern.",
+      "when_to_apply": "After writing or reviewing any retry-escalation logic, especially before trusting it under a real, sustained failure condition (e.g. an exhausted API quota).",
+      "examples": [
+        "Read a real boot log showing attempt=9 for one gap; cross-referenced the fallback_model field logged at each attempt against the actual code path to confirm the clamping bug, rather than assuming the code was correct from a first read."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Writing or reviewing code that escalates through a fixed list of fallback candidates as a retry counter increases.",
+      "action": "Use `(attempts - 1) % candidates.len()` (cycle) as the default; only use a clamp-to-last pattern with an explicit, documented rationale for why sticking is preferred over cycling.",
+      "priority": 1,
+      "exceptions": [
+        "The last candidate is deliberately the most expensive/most-likely-to-succeed option and earlier ones are known-inferior — sticking there once reached may be intentional, but this must be a documented decision, not an accident of `.min()`."
+      ]
+    }
+  ]
+}

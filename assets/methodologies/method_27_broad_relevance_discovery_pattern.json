@@ -1,0 +1,37 @@
+{
+  "principles": [
+    {
+      "statement": "When discovering genuinely-related content across content types (not searching within one known type), use a type-BLIND search combined with a client-side type FILTER on the resolved candidates — not a single container_type restriction at the query layer. A query-level type filter is too narrow (misses genuinely related content of a different type) while a fully type-blind search with no filtering at all reintroduces the exact infrastructure-pollution bug already fixed once this session (Pipeline registry self-description containers leaking into results via shared generic keywords).",
+      "rationale": "Confirmed live 2026-09-15 implementing real cross-relationship linking for text-modality graphs: the search primitive (SearchContainersByKeywords) only supports filtering to ONE container_type, which would wrongly restrict 'find anything related' to 'find other text graphs specifically.' The correct, already-proven pattern from context_aggregation's earlier real fix is search broad, then exclude infrastructure types from the resolved results — reused verbatim here rather than reinvented, and live-verified end to end (two related text graphs correctly linked with real bidirectional Relation edges; a deliberately unrelated third graph correctly got zero edges; a real Structural traversal from the first graph correctly reached both related ones through the new edges).",
+      "applicability": ["search", "relationship_discovery", "cross_modality", "storage"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Require Multi-Signal Overlap Before Asserting a Relationship",
+      "description": "For auto-discovered similarity relationships (as opposed to structurally-certain ones like parent/child or an explicit import), require at least two independent shared signals (e.g. two shared keywords/topics, not one) before writing a Relation edge. A single shared term is often coincidental even after keyword-quality filtering; two independently-shared terms is a meaningfully stronger signal, and the threshold should be documented inline, not left implicit.",
+      "when_to_apply": "Implementing any auto-discovery relationship-linking feature (any modality, not just text) using keyword/topic overlap or similar heuristic similarity signals.",
+      "examples": [
+        "Two text graphs sharing 'transformer' (keyword) and 'neural network architecture' (topic) — 2 signals — correctly linked with confidence 0.6. A third graph sharing zero terms correctly got no relationship at all, live-verified via direct GetContainer reads on both sides."
+      ]
+    },
+    {
+      "name": "Verify New Relationship Edges Are Actually Traversable, Not Just Written",
+      "description": "After writing new Relation edges, don't stop at confirming the write succeeded (e.g. GetContainer shows the edge) — run a real traversal query from one of the linked containers and confirm it actually reaches the other. This session already found one case (jurisdiction's relationship wiring) where edges were correctly designed but the traversal mechanism reading them was separately broken by an unrelated bug — a write-side check alone would have missed it.",
+      "when_to_apply": "After implementing or verifying any new graph relationship-writing feature in this codebase.",
+      "examples": [
+        "Ran a real ZSEIQuery::Traverse (Structural mode) from the newly-created container and confirmed the TraversalResult's containers list included both linked containers with real path hops — not assumed from the write succeeding alone."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Implementing cross-relationship discovery/linking for any modality's graph-creation path.",
+      "action": "Search type-blind, filter results client-side using the same infrastructure-type exclusion list already established in context_aggregation, require multi-signal overlap before linking, write bidirectional edges, and verify with a real traversal call — not just a successful write.",
+      "priority": 2,
+      "exceptions": [
+        "A narrower, single-type search is explicitly correct for the use case (e.g. deliberately only linking to other containers of the exact same modality) — document why broad discovery isn't wanted in that specific case."
+      ]
+    }
+  ]
+}

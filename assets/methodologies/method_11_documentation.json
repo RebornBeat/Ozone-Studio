@@ -1,0 +1,60 @@
+{
+  "principles": [
+    {
+      "statement": "Document decisions and their reasons, not just mechanics — the 'why' is the part that cannot be re-derived from the code.",
+      "rationale": "The code shows what it does; six months later, only the doc can say why it does it that way and what alternatives were rejected.",
+      "applicability": [
+        "documentation",
+        "writing"
+      ]
+    },
+    {
+      "statement": "Docs live next to the thing they describe and update in the same change.",
+      "rationale": "A separate docs repo drifts silently; a doc that must change with the code gets changed with the code or the same PR fails review.",
+      "applicability": [
+        "documentation",
+        "writing"
+      ]
+    },
+    {
+      "statement": "Write for the reader who has the least context the doc assumes.",
+      "rationale": "Docs written by the just-finished-it author always assume too much; the target reader is someone returning in six months.",
+      "applicability": [
+        "documentation",
+        "writing"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Start with a working example",
+      "description": "One copy-paste-runnable example teaches more than three paragraphs of prose.",
+      "when_to_apply": "Any how-to or interface documentation.",
+      "examples": [
+        "A curl line beats an abstract description of the endpoint's semantics."
+      ]
+    },
+    {
+      "name": "Delete-or-date stale docs",
+      "description": "On finding a wrong doc: correct it if quick, otherwise mark it stale with a date — a wrong doc is worse than none.",
+      "when_to_apply": "Any time a doc contradicts current reality.",
+      "examples": [
+        "'NOTE: pre-2026-09 design, superseded by X' stops the doc from lying."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A doc and the code disagree.",
+      "action": "The code is current by definition — fix the doc immediately, and ask why the process let them diverge.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "A concept requires more than one paragraph of background before the main point.",
+      "action": "Move the background to a linked reference doc; keep the main doc on the main point.",
+      "priority": 3,
+      "exceptions": []
+    }
+  ]
+}

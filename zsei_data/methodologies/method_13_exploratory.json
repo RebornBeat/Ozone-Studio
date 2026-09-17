@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "Explore to generate hypotheses, not to confirm them — the first pass should widen the field, not narrow it.",
+      "rationale": "An exploration that goes looking for one thing finds only that thing and misses the pattern three columns over.",
+      "applicability": [
+        "data",
+        "exploration",
+        "discovery"
+      ]
+    },
+    {
+      "statement": "Change one lens at a time: distribution, then time, then groups, then relationships.",
+      "rationale": "Structured lenses keep exploration comparable across runs; random slicing produces anecdotes.",
+      "applicability": [
+        "data",
+        "exploration"
+      ]
+    },
+    {
+      "statement": "Record what you looked at and what it showed — negative results bound the search space too.",
+      "rationale": "Unrecorded exploration gets re-run by the next person (or you) with nothing to build on.",
+      "applicability": [
+        "exploration",
+        "discovery"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Shape before outliers",
+      "description": "Look at the whole distribution (histogram/counts) before hunting extremes — outliers only mean something against the shape.",
+      "when_to_apply": "Any new column or metric.",
+      "examples": [
+        "A single 1e9 spike means clipping; a long tail means log-scale."
+      ]
+    },
+    {
+      "name": "Follow the surprise",
+      "description": "When something contradicts expectation, stop and pull that thread — it is either a data error or the most valuable finding of the pass.",
+      "when_to_apply": "Any result that contradicts an assumption.",
+      "examples": [
+        "Two groups with identical means but wildly different spreads is the finding."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "An exploratory finding will be relied on downstream.",
+      "action": "Re-derive it deliberately: same data, scripted, reproducible — then it graduates from exploration to analysis.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "Exploration time exceeds the budget without a new hypothesis.",
+      "action": "Stop and write down what was eliminated — knowing where the answer ISN'T is the deliverable.",
+      "priority": 3,
+      "exceptions": []
+    }
+  ]
+}

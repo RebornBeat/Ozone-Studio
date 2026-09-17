@@ -26,6 +26,7 @@ Last verified: 2026-09-15 (ZCode + Claude Code joint review night)
 | ------- | ---------- | ------------- | -------------------- | ------ |
 | Text modality graphs | real (sentence/paragraph/section carry-state → containers) | 49+ relationship sites in pipeline | modality containers, cross-process retrieval **BROKEN** (see gaps) | ⚠️ partial |
 | Code modality graphs | real (AST → containers, project_id parenting — degrades to root when 0) | relationships array present, per-file | same cross-process gap as text | ⚠️ partial |
+| Attached-file auto-routing (stage 2) | real — `detect_file_modality` (~60 extensions → ~25 modalities), full-content Analyze + CreateGraph per attachment, every request, nothing silently dropped (fallback = text/100) | **MISSING** — `link_to_existing` hardcoded false at the call site, the pipelines' `_link_to_existing` param is ignored, per-request file-role classification (primary/supplementary/raw) is in-memory only | modality containers per attachment | ❌ cross-relationships = task 57 (design captured: scope-first + keyword overlap + DiscoveryMethod provenance + role-labeled edges) |
 | Math modality graphs | real (fixed + live-verified this session, incl. methodology/container relationships) | verified live | works (in-process); cross-process via CLI same open gap | ✅ in-process / ⚠️ cross-process |
 | File links (file_link pipeline) | references + analysis JSON under `local/file_analysis` — **not yet ZSEI containers with edges** (ZSEIQuery::LinkFile exists, unwired here) | stored as project references | project file lists | ⚠️ flat |
 | URL / package links | same pattern as file_link | same | same | ⚠️ flat |
@@ -65,7 +66,8 @@ Last verified: 2026-09-15 (ZCode + Claude Code joint review night)
 
 | Task | Owner | Closes |
 | ---- | ----- | ------ |
-| 56 | claude-code (lead) + zcode | TraversalEngine wired into context assembly; jurisdiction as meta-workspace graph (first concrete case) |
+| 56 | claude-code (lead) + zcode | TraversalEngine wired into context assembly; jurisdiction meta-workspace graph (first concrete case) — **relationship edges LIVE (40 wired at boot 18:41)**, live traversal verification pending |
+| 57 | claude-code | Attached-file graphs cross-linked into the whole graph (link_to_existing implemented, relevance = scope-first + keyword overlap + DiscoveryMethod provenance + role-labeled edges) |
 | 43 | zcode | Coordination graph → AMT stage context as its own scoped layer (global + ws:+proj: keywords filter; separate-layer doctrine) |
 | 45 | zcode | Orchestrator stages issue McpCall for tool needs |
 | 44/46 | claude-code | CHECKLIST retirement (post context-transfer); host-ops verification |

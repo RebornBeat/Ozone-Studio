@@ -1,0 +1,62 @@
+{
+  "principles": [
+    {
+      "statement": "Definitions are load-bearing: use each term exactly as defined, and restate the definition when the usage is subtle.",
+      "rationale": "Most mathematical disagreements are two parties using one word under two definitions.",
+      "applicability": [
+        "math",
+        "rigor",
+        "verification"
+      ]
+    },
+    {
+      "statement": "Track units, domains, and preconditions on every expression — a valid formula under invalid preconditions is still wrong.",
+      "rationale": "A square root of a negative, a division by a possibly-zero denominator, or a sum over an empty set each invalidate otherwise-correct algebra.",
+      "applicability": [
+        "math",
+        "rigor"
+      ]
+    },
+    {
+      "statement": "Numerical verification complements symbolic proof — compute the claim on representative cases and check it to tolerance.",
+      "rationale": "A symbolic slip shows up as a numeric mismatch; a numeric test is a cheap independent check, not a replacement for the proof.",
+      "applicability": [
+        "math",
+        "verification",
+        "rigor"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Edge inputs explicitly",
+      "description": "List the boundary inputs (zero, one, empty, negative, max) and confirm each satisfies every applied precondition.",
+      "when_to_apply": "Any formula or algorithm that will be implemented or relied on.",
+      "examples": [
+        "A mean formula must state its behavior on the empty set, not leave it to the reader."
+      ]
+    },
+    {
+      "name": "Independent recomputation",
+      "description": "Have the result computed by a second path (different formula, different tool) before treating it as established.",
+      "when_to_apply": "Any high-stakes numeric claim.",
+      "examples": [
+        "An analytic integral checked against a numerical quadrature to 1e-9."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A derivation cannot be re-derived from its stated definitions and priors.",
+      "action": "Treat the derivation as unproven — restart from the last checkable step.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "Two correct methods disagree on a value.",
+      "action": "Stop: the disagreement is a finding about preconditions or definitions, and resolving it is mandatory before any downstream use.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

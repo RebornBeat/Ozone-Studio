@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "State the claim precisely before attempting any proof — an ambiguous theorem cannot be proven or disproven.",
+      "rationale": "Most failed proofs fail at the statement, not the argument: undefined terms, implicit quantifiers, missing preconditions.",
+      "applicability": [
+        "math",
+        "proof",
+        "formal"
+      ]
+    },
+    {
+      "statement": "Every step follows from a named prior — an axiom, a definition, or an already-proven result.",
+      "rationale": "A gap of one unstated inference is where errors hide; naming the prior makes each step checkable.",
+      "applicability": [
+        "math",
+        "proof"
+      ]
+    },
+    {
+      "statement": "Prefer the simplest complete proof; brevity is a correctness feature, not a style choice.",
+      "rationale": "Each additional step is an additional place to be wrong, and a simpler proof is easier to verify and teach.",
+      "applicability": [
+        "math",
+        "proof"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Disprove first",
+      "description": "Spend bounded effort trying to construct a counterexample before proving — a failed disproof reveals the claim's load-bearing conditions.",
+      "when_to_apply": "Before beginning any nontrivial proof.",
+      "examples": [
+        "Trying x=0, x=1, x=-1 on an inequality often exposes a missing 'for x > 0'."
+      ]
+    },
+    {
+      "name": "Prove a special case first",
+      "description": "The n=2 or single-element case reveals the proof's shape; generalize afterward.",
+      "when_to_apply": "Claims with parameters or induction structures.",
+      "examples": [
+        "Induction bases often contain the entire argument in miniature."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A proof step's justification cannot be named.",
+      "action": "The step is a lemma — state it, prove it separately, then reference it. Never hand-wave inline.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "The proven claim is weaker than what was originally intended.",
+      "action": "Record the weaker result honestly with its exact conditions; do not restate it informally as the stronger version.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

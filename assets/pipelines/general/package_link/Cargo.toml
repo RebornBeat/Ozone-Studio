@@ -11,9 +11,11 @@ name = "package_link"
 path = "main.rs"
 
 [dependencies]
+chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
+reqwest = { version = "0.11", features = ["json"] }
 
 # Own workspace root: independent unit — builds anywhere, connects over the wire.
 [workspace]

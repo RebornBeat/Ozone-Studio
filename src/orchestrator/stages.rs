@@ -541,36 +541,12 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // reconciliation matches against (children are intent-level nodes
         // there, branches are intent_node.children) — walking descendants
         // finds them regardless of which tree shape applies.
-        fn collect_relationship_targets(node: &AMTNode, targets: &mut Vec<u64>) {
-            for rel in &node.relationships {
-                targets.push(rel.target_id);
-            }
-            for child in &node.children {
-                collect_relationship_targets(child, targets);
-            }
-        }
-        fn find_amt_node_by_id(node: &AMTNode, target_id: u64) -> Option<&AMTNode> {
-            if node.id == target_id {
-                return Some(node);
-            }
-            for child in &node.children {
-                if let Some(found) = find_amt_node_by_id(child, target_id) {
-                    return Some(found);
-                }
-            }
-            None
-        }
-        let related_chunk_indices = |matched: &AMTNode, root: &AMTNode| -> Vec<u32> {
-            let mut target_ids = Vec::new();
-            collect_relationship_targets(matched, &mut target_ids);
-            let mut idx = Vec::new();
-            for tid in target_ids {
-                if let Some(node) = find_amt_node_by_id(root, tid) {
-                    idx.extend(node.source_chunk_indices.iter().copied());
-                }
-            }
-            idx
-        };
+        //
+        // Extracted to module-level free functions (collect_relationship_targets/
+        // find_amt_node_by_id/related_chunk_indices, below) so T-A5's real
+        // test can call them directly instead of only being reachable
+        // through this ~400-line stage method — same logic, no behavior
+        // change, just made independently testable (see docs/GRAPH_TEST_PLAN.md).
         // AMTNode.methodology_ids is only ever set on branch-level nodes
         // (build_branch_node), not on the intent-level nodes amt.children
         // actually are in multi-intent mode — so collect recursively from
@@ -1330,6 +1306,12 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 // layer (see context_aggregation's ForStep handler) — only
                 // requested when this orchestration run actually has it on.
                 "include_consciousness": state.request.consciousness_enabled,
+                // Coordination layer (task 43): scoped agent history from the
+                // /SharedContext graph (global + this workspace/project) as
+                // its own layer — the AMT stays context-aligned with the
+                // living graph.
+                "workspace_id": state.request.workspace_id,
+                "include_coordination": true,
             });
 
             let context_result = self.metered_execute(state, 21, context_input).await?;
@@ -1933,5 +1915,170 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             return self.reconstruct_session_context(state, budget_tokens, &[]);
         }
         out.trim().to_string()
+    }
+}
+
+// ── AMTRelation cross-reference reconciliation (T-A5) ───────────────────────
+//
+// Extracted from stage_3_blueprint_assignment's step/branch reconciliation
+// (see the doc comment at that call site) — same logic, moved to module
+// scope purely so it's independently testable. No behavior change.
+
+/// Collect every relationship target_id reachable from `node` and its
+/// descendants (relationships live on branch-level nodes, which sit one
+/// level below intent-level nodes in multi-intent mode — recursing finds
+/// them regardless of tree shape).
+fn collect_relationship_targets(node: &AMTNode, targets: &mut Vec<u64>) {
+    for rel in &node.relationships {
+        targets.push(rel.target_id);
+    }
+    for child in &node.children {
+        collect_relationship_targets(child, targets);
+    }
+}
+
+/// Depth-first search for the AMTNode with the given id anywhere in the tree
+/// rooted at `node`.
+fn find_amt_node_by_id(node: &AMTNode, target_id: u64) -> Option<&AMTNode> {
+    if node.id == target_id {
+        return Some(node);
+    }
+    for child in &node.children {
+        if let Some(found) = find_amt_node_by_id(child, target_id) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// A step whose branch has a real AMTRelation to another branch should see
+/// that other branch's chunk indices too, not just its own — otherwise a
+/// step can be scoped away from content its own AMT data says it's
+/// explicitly related to.
+fn related_chunk_indices(matched: &AMTNode, root: &AMTNode) -> Vec<u32> {
+    let mut target_ids = Vec::new();
+    collect_relationship_targets(matched, &mut target_ids);
+    let mut idx = Vec::new();
+    for tid in target_ids {
+        if let Some(node) = find_amt_node_by_id(root, tid) {
+            idx.extend(node.source_chunk_indices.iter().copied());
+        }
+    }
+    idx
+}
+
+#[cfg(test)]
+mod amt_relation_tests {
+    use super::*;
+
+    fn leaf(id: u64, content: &str, chunk_indices: Vec<u32>) -> AMTNode {
+        AMTNode {
+            id,
+            node_type: AMTNodeType::Leaf,
+            content: content.to_string(),
+            source_chunk_indices: chunk_indices,
+            children: vec![],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 1,
+            verified: true,
+            confidence: 1.0,
+        }
+    }
+
+    // T-A5: a branch with a real AMTRelation to another branch pulls that
+    // other branch's source_chunk_indices in — the whole point of making
+    // relationships read, not just written.
+    #[test]
+    fn related_chunk_indices_pulls_in_the_target_branchs_chunks() {
+        let mut branch_a = leaf(1, "auth branch", vec![10, 11]);
+        let branch_b = leaf(2, "session branch", vec![20, 21]);
+        branch_a.relationships.push(AMTRelation {
+            target_id: 2,
+            relation_type: AMTRelationType::DependsOn,
+            confidence: 1.0,
+        });
+        let root = AMTNode {
+            id: 0,
+            node_type: AMTNodeType::Root,
+            content: "root".to_string(),
+            source_chunk_indices: vec![],
+            children: vec![branch_a.clone(), branch_b],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 0,
+            verified: true,
+            confidence: 1.0,
+        };
+
+        let related = related_chunk_indices(&branch_a, &root);
+        assert_eq!(related, vec![20, 21], "pulled the related branch's own chunks, not its own");
+    }
+
+    // A branch with no relationships contributes nothing extra — the
+    // mechanism doesn't manufacture relatedness that isn't there.
+    #[test]
+    fn no_relationships_means_no_extra_chunks() {
+        let branch_a = leaf(1, "standalone branch", vec![5]);
+        let root = AMTNode {
+            id: 0,
+            node_type: AMTNodeType::Root,
+            content: "root".to_string(),
+            source_chunk_indices: vec![],
+            children: vec![branch_a.clone()],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 0,
+            verified: true,
+            confidence: 1.0,
+        };
+
+        assert_eq!(related_chunk_indices(&branch_a, &root), Vec::<u32>::new());
+    }
+
+    // Relationships living on a deeper descendant (multi-intent shape: an
+    // intent-level node's children are the real branches) are still found —
+    // this is why collect_relationship_targets recurses instead of only
+    // checking `node` itself.
+    #[test]
+    fn relationship_on_a_descendant_branch_is_still_found() {
+        let mut deep_branch = leaf(3, "deep branch", vec![]);
+        let target = leaf(2, "target branch", vec![99]);
+        deep_branch.relationships.push(AMTRelation {
+            target_id: 2,
+            relation_type: AMTRelationType::RelatesTo,
+            confidence: 1.0,
+        });
+        let intent_node = AMTNode {
+            id: 1,
+            node_type: AMTNodeType::Branch,
+            content: "intent".to_string(),
+            source_chunk_indices: vec![],
+            children: vec![deep_branch.clone()],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 1,
+            verified: true,
+            confidence: 1.0,
+        };
+        let root = AMTNode {
+            id: 0,
+            node_type: AMTNodeType::Root,
+            content: "root".to_string(),
+            source_chunk_indices: vec![],
+            children: vec![intent_node, target],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 0,
+            verified: true,
+            confidence: 1.0,
+        };
+
+        assert_eq!(related_chunk_indices(&deep_branch, &root), vec![99]);
     }
 }

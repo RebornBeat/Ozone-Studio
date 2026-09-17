@@ -1,0 +1,103 @@
+{
+  "content_type": "Proof",
+  "created_at": "2026-09-16T05:43:28.249451705+00:00",
+  "edges": [
+    {
+      "edge_id": 1,
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 2,
+      "edge_type": "Defines",
+      "from_node": 2,
+      "properties": {},
+      "to_node": 2002,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 3,
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 3,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 4,
+      "edge_type": "Uses",
+      "from_node": 3,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    }
+  ],
+  "graph_id": 30352,
+  "metadata": {
+    "assumptions_count": 0,
+    "cross_modal_links": 0,
+    "edge_count": 4,
+    "is_verified": true,
+    "node_count": 4,
+    "proof_steps": 2,
+    "semantic_enriched": false,
+    "variables_count": 1,
+    "verification_confidence": 0.949999988079071
+  },
+  "modality": "math",
+  "name": "Test",
+  "nodes": [
+    {
+      "annotations": [],
+      "confidence": 0.949999988079071,
+      "content": "Proof analysis",
+      "label": "Mathematical Content",
+      "node_id": 1,
+      "node_type": "Root",
+      "properties": {},
+      "step_number": null
+    },
+    {
+      "annotations": [],
+      "confidence": 1.0,
+      "content": "Let x > 0",
+      "label": "Step 1",
+      "node_id": 2,
+      "node_type": "ProofStep",
+      "properties": {
+        "justification": "Given",
+        "step_type": "Given"
+      },
+      "step_number": 1
+    },
+    {
+      "annotations": [],
+      "confidence": 1.0,
+      "content": "x : Real",
+      "label": "x",
+      "node_id": 2002,
+      "node_type": "Variable",
+      "properties": {},
+      "step_number": 1
+    },
+    {
+      "annotations": [],
+      "confidence": 0.949999988079071,
+      "content": "x^2 > 0",
+      "label": "Step 2",
+      "node_id": 3,
+      "node_type": "ProofStep",
+      "properties": {
+        "justification": "Algebraic",
+        "step_type": "Conclusion"
+      },
+      "step_number": 2
+    }
+  ],
+  "project_id": 1,
+  "scope_tree": null,
+  "updated_at": "2026-09-16T05:43:28.249451705+00:00"
+}

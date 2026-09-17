@@ -1,0 +1,37 @@
+{
+  "principles": [
+    {
+      "statement": "Correctly observing that an outcome is fixed/merged does not guarantee correctly attributing WHY or WHO fixed it — when multiple agents or processes were plausibly active concurrently, verify which one could realistically have made the specific change (via file-claim scope, timing, or direct diff inspection) before crediting a cause in a report, even when the outcome itself is genuinely correct.",
+      "rationale": "Confirmed live 2026-09-15: a fork correctly found and reported that a missing `Relation.discovered_via` field had already been fixed by the time it re-checked, and correctly inferred a concurrent process was responsible — but incorrectly guessed it was 'the sibling UI-modernization fork.' The UI fork's own scope (file claims, diff) provably never touched any `src/` file — the fix was actually made directly by the coordinating session. The outcome-level claim ('this is now fixed, built clean') was entirely correct; only the attributed cause was wrong. Caught by checking the actual claimed-files list and git diff scope of the suspected party, not by re-verifying the fix itself (which was already independently confirmed correct).",
+      "applicability": ["multi_agent", "verification", "attribution", "coordination"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Check Scope Before Crediting Cause",
+      "description": "When a report attributes a change to a specific other agent/process/fork, verify that party's actual claimed files, working scope, or diff before repeating the attribution — 'X is fixed, probably because of Y' is a plausible-sounding inference that can be wrong even when X being fixed is completely real.",
+      "when_to_apply": "Any handoff or report that names a specific cause (which agent, which process, which prior fix) for an observed change, especially in a multi-agent environment with concurrent activity.",
+      "examples": [
+        "file_claims showed the UI fork's claims were limited to ui/src/App.css, ui/src/App.tsx, ui/src/components/SetupWizard.tsx — none of which is src/lib.rs, directly ruling out the fork's own guess about who fixed the missing struct field, in about one tool call."
+      ]
+    },
+    {
+      "name": "A Wrong Attribution Inside An Otherwise-Correct Report Is Still Worth Correcting",
+      "description": "Don't let a correct headline outcome ('built clean, task done') excuse leaving an incorrect causal claim uncorrected in the shared record — future readers may reasonably rely on 'who fixed what' for their own next steps (e.g. checking with the wrong party, assuming a capability the credited party doesn't actually have).",
+      "when_to_apply": "Reviewing any report/note before treating it as fully accurate, even one whose main claim independently checks out.",
+      "examples": [
+        "Posted a correction noting the misattribution explicitly, while confirming the underlying fix and build result were both genuinely correct — kept the record accurate on both axes rather than letting a minor factual error persist just because the bigger claim was right."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A report (self-authored or from another agent/fork) attributes an observed change to a specific other party's action, in an environment where multiple agents/processes are concurrently active.",
+      "action": "Verify that party's actual scope (file claims, diff, timing) before repeating or accepting the attribution, independent of whether the observed outcome itself is separately confirmed correct.",
+      "priority": 2,
+      "exceptions": [
+        "The attribution is explicitly hedged as a guess by its author (e.g. 'likely X') and the report is not being used to route further work to the credited party — lower stakes, correct opportunistically rather than urgently."
+      ]
+    }
+  ]
+}

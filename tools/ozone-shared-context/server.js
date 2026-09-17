@@ -99,7 +99,10 @@ function mirrorContext(req) {
   }).catch(() => {});
 }
 
-const AGENT_NAME = process.env.OZONE_AGENT_NAME || "unknown-agent";
+const AGENT_NAME =
+  process.env.OZONE_AGENT_NAME ||
+  process.env.USER ||
+  "unknown-agent"; // attribution matters: never silently anonymous if avoidable
 
 // ── SCOPE (declared when this server/session starts, like the UI declares
 // workspace on run): the workspace/project this coordination binding belongs

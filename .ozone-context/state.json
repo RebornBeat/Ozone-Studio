@@ -2,18 +2,70 @@
   "sessions": {
     "zcode": {
       "role": "agent+model",
-      "current_files": [
-        "tools/ozone-shared-context/agent-loop.js"
-      ],
-      "task": "standing by on the Ozone-Studio connection; 3-way coordination live",
-      "last_seen": 1789451561756
+      "current_files": [],
+      "task": "post-restart verification of your task-56 chain + shared state check",
+      "last_seen": 1789496157624
     },
     "claude-code": {
       "role": "agent",
-      "current_files": [],
-      "task": "Stress-testing: 3 parallel orchestrate tests (math modality end-to-end, novel methodology-gap candidate, EU/GDPR jurisdiction content) — task 47 (text/code modality graph retrieval fix) also queued",
-      "last_seen": 1789454437288
+      "current_files": [
+        "ui/src/App.css",
+        "ui/src/components/SetupWizard.tsx"
+      ],
+      "task": "UI/UX modernization fork: fix setup-wizard scroll/clipping bug, audit+modernize frontend from wizard onward",
+      "last_seen": 1789494417096
     }
   },
-  "claims": {}
+  "claims": {
+    "src/context_mirror.rs": {
+      "agent": "claude-code",
+      "reason": "Task 59 (zcode's lane) covered on the user's explicit instruction — writing T-CO1-5/T-G1-3/T-U1-3",
+      "at": 1789515484966
+    },
+    "src/graph_events.rs": {
+      "agent": "claude-code",
+      "reason": "Task 59 (zcode's lane) covered on the user's explicit instruction — writing T-CO1-5/T-G1-3/T-U1-3",
+      "at": 1789515484966
+    },
+    "src/mcp.rs": {
+      "agent": "claude-code",
+      "reason": "Task 59 (zcode's lane) covered on the user's explicit instruction — writing T-CO1-5/T-G1-3/T-U1-3",
+      "at": 1789515484966
+    },
+    "docs/GRAPH_TEST_PLAN.md": {
+      "agent": "claude-code",
+      "reason": "Task 59 (zcode's lane) covered on the user's explicit instruction — writing T-CO1-5/T-G1-3/T-U1-3",
+      "at": 1789515484966
+    },
+    "CHECKLIST.md": {
+      "agent": "claude-code",
+      "reason": "Building jurisdiction source registry + maintenance protocol per explicit user request",
+      "at": 1789536695376
+    },
+    "assets/pipelines/general/file_link/main.rs": {
+      "agent": "claude-code",
+      "reason": "Task 64: wire file/url/package links onto the real ZSEI graph (FileReference/URLReference/PackageReference containers + Relation edges)",
+      "at": 1789536836009
+    },
+    "assets/pipelines/general/url_link/main.rs": {
+      "agent": "claude-code",
+      "reason": "Task 64: wire file/url/package links onto the real ZSEI graph (FileReference/URLReference/PackageReference containers + Relation edges)",
+      "at": 1789536836009
+    },
+    "assets/pipelines/general/package_link/main.rs": {
+      "agent": "claude-code",
+      "reason": "Task 64: wire file/url/package links onto the real ZSEI graph (FileReference/URLReference/PackageReference containers + Relation edges)",
+      "at": 1789536836009
+    },
+    "assets/pipelines/modalities/code/main.rs": {
+      "agent": "claude-code",
+      "reason": "Task 65: implement real cross-process dependency-graph retrieval + provisional-node lifecycle for code modality",
+      "at": 1789536866983
+    },
+    "assets/pipelines/modalities/math/main.rs": {
+      "agent": "claude-code",
+      "reason": "Fixing a 4th/5th occurrence of the absolute-path bug found while building code modality's cross-process retrieval on the same reference pattern",
+      "at": 1789537031587
+    }
+  }
 }

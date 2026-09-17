@@ -17,7 +17,7 @@
 //! landings in the same feed as everything else.
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 
 /// Transport a tool speaks over. `stdio` tools are child processes on the
@@ -65,6 +65,30 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs()
+}
+
+// ── Process-global handles ──────────────────────────────────────────────────
+// The registry + ledger are built once in the server setup and shared via
+// AppState; this static makes them reachable from anywhere in the process
+// (orchestrator stages, AMT loops) without threading Arcs through every
+// constructor — the same pattern as GraphEventHub::global and
+// KAlgorithms::global.
+
+static GLOBAL_MCP: OnceLock<(Arc<McpRegistry>, Arc<UsageLedger>)> = OnceLock::new();
+
+/// Install the process-global handles. Called once at server startup; later
+/// calls are no-ops (first install wins).
+pub fn install_global(registry: Arc<McpRegistry>, usage: Arc<UsageLedger>) {
+    let _ = GLOBAL_MCP.set((registry, usage));
+}
+
+/// Issue the standardized abstract call through the process-global handles.
+/// Same metering, gating, and rippling as the HTTP path.
+pub async fn call_global(call: McpCall) -> McpResult {
+    let (registry, usage) = GLOBAL_MCP
+        .get()
+        .expect("mcp global handles not installed — call install_global at startup");
+    registry.invoke(call, usage, None).await
 }
 
 /// The registry itself — one per host, shared through AppState.
@@ -125,6 +149,13 @@ fn utc_today() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs();
+    utc_date_from_secs(secs)
+}
+
+/// Pure date computation, extracted from `utc_today` so the real day-
+/// rollover boundary is directly testable without waiting a real day or
+/// mocking `SystemTime::now()` (see T-U1's day-rollover test below).
+fn utc_date_from_secs(secs: u64) -> String {
     // Civil-from-days (Howard Hinnant's algorithm) — no external deps.
     let days = secs / 86400;
     let z = days as i64 + 719_468;
@@ -146,6 +177,11 @@ impl UsageLedger {
             .ok()
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(0);
+        Self::with_limit(daily_limit)
+    }
+
+    /// Explicit-limit constructor (ops scripts + tests).
+    pub fn with_limit(daily_limit: u32) -> Self {
         Self {
             daily_limit: AtomicU32::new(daily_limit),
             daily: RwLock::new(HashMap::new()),
@@ -372,5 +408,133 @@ impl McpRegistry {
                 usage: usage_json,
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // T-U1: per-tool counting, same-day accumulation.
+    #[test]
+    fn ledger_counts_per_tool() {
+        let ledger = UsageLedger::with_limit(0); // unlimited
+        let (allowed, total, limit) = smol_block(ledger.record("zcode", "presence_heartbeat"));
+        assert!(allowed);
+        assert_eq!(total, 1);
+        assert_eq!(limit, 0);
+        let (_, total, _) = smol_block(ledger.record("zcode", "presence_heartbeat"));
+        assert_eq!(total, 2);
+        let (_, total, _) = smol_block(ledger.record("zcode", "context_summary"));
+        assert_eq!(total, 3);
+        let snap = smol_block(ledger.snapshot("zcode"));
+        assert_eq!(snap["total_today"], 3);
+        // per_tool sorted by count desc: presence_heartbeat(2) then context_summary(1)
+        let tools: Vec<(String, u64)> = snap["per_tool"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (p[0].as_str().unwrap().into(), p[1].as_u64().unwrap()))
+            .collect();
+        assert!(tools.contains(&("presence_heartbeat".into(), 2)));
+        assert!(tools.contains(&("context_summary".into(), 1)));
+    }
+
+    // T-U1: day rollover — the real boundary, not a fixture guess. One
+    // second before midnight UTC and one second after must land on
+    // different date strings; the ledger's isolation on (agent, day) then
+    // means yesterday's count genuinely doesn't carry over.
+    #[test]
+    fn day_rollover_boundary_is_correct() {
+        // 2026-01-01T23:59:59Z and the following second, 2026-01-02T00:00:00Z.
+        let before = 1767311999u64;
+        let after = 1767312000u64;
+        assert_eq!(utc_date_from_secs(before), "2026-01-01");
+        assert_eq!(utc_date_from_secs(after), "2026-01-02");
+    }
+
+    // T-U2: gate refuses over limit, still counts the refused call.
+    #[test]
+    fn ledger_gate_refuses_over_limit() {
+        let ledger = UsageLedger::with_limit(2);
+        let (allowed, _, _) = smol_block(ledger.record("cc", "tool_a"));
+        assert!(allowed);
+        let (allowed, _, _) = smol_block(ledger.record("cc", "tool_b"));
+        assert!(allowed);
+        let (allowed, total, limit) = smol_block(ledger.record("cc", "tool_c"));
+        assert!(!allowed, "third call over limit 2 must refuse");
+        assert_eq!(total, 3); // refused calls still counted (honest ledger)
+        assert_eq!(limit, 2);
+    }
+
+    // T-U1: agents are isolated.
+    #[test]
+    fn ledger_isolates_agents() {
+        let ledger = UsageLedger::with_limit(1);
+        let (allowed, _, _) = smol_block(ledger.record("a", "t"));
+        assert!(allowed);
+        let (allowed, _, _) = smol_block(ledger.record("b", "t"));
+        assert!(allowed, "agent b has its own budget");
+        let (allowed, _, _) = smol_block(ledger.record("a", "t"));
+        assert!(!allowed, "agent a hit its limit");
+    }
+
+    // T-G1/T-U1 combined: stdio delegation path — metered, delegated, no network.
+    #[tokio::test]
+    async fn invoke_stdio_tool_delegates_and_meters() {
+        let registry = McpRegistry::new();
+        registry
+            .register(McpTool {
+                name: "shared-context".into(),
+                transport: McpTransport::Stdio,
+                endpoint: "node server.js".into(),
+                capabilities: vec![],
+                server_version: None,
+                registered_at: 0,
+            })
+            .await;
+        let usage = UsageLedger::with_limit(0);
+        let result = registry
+            .invoke(
+                McpCall {
+                    tool: "shared-context".into(),
+                    agent: "zcode".into(),
+                    input: serde_json::json!({"action": "context_summary"}),
+                    context: None,
+                },
+                &usage,
+                None,
+            )
+            .await;
+        assert!(result.success);
+        assert_eq!(result.usage["total_today"], 1);
+        let out = result.output.unwrap();
+        assert_eq!(out["delegated"], true);
+    }
+
+    #[tokio::test]
+    async fn invoke_unknown_tool_fails_with_usage_recorded() {
+        let registry = McpRegistry::new();
+        let usage = UsageLedger::with_limit(0);
+        let result = registry
+            .invoke(
+                McpCall { tool: "nope".into(), agent: "zcode".into(), input: serde_json::json!({}), context: None },
+                &usage,
+                None,
+            )
+            .await;
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("not registered"));
+        assert_eq!(result.usage["total_today"], 1);
+    }
+
+    /// Block on a future with a short sleep-based executor (tests run inside
+    /// tokio via #[tokio::test]; this helper just awaits directly).
+    fn smol_block<T>(fut: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(fut)
     }
 }

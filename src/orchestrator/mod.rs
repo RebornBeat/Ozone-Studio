@@ -43,6 +43,9 @@ mod stages;
 mod graphs;
 pub mod meta_loop;
 pub mod amt_loop;
+
+/// AMT expansion candidates — unified store (routes, append, review).
+pub mod amt_candidates;
 pub mod jurisdiction;
 pub mod jurisdiction_search;
 
@@ -206,6 +209,12 @@ pub struct OrchestrationResponse {
     pub blueprint_id: Option<u64>,
     pub stages_completed: Vec<StageResult>,
     pub consciousness_gate: Option<GateResult>,
+    /// Real jurisdiction gate findings — was write-only on OrchestrationState
+    /// until 2026-09-15 (set, never read by anything that reached the
+    /// caller); a `blocked` request's own error message referenced this
+    /// field by name while nothing ever actually exposed it. Surfaced here
+    /// the same way consciousness_gate already is.
+    pub jurisdiction_gate: Option<jurisdiction::JurisdictionGateResult>,
     pub error: Option<String>,
     pub total_tokens_used: Option<u32>,
     pub execution_time_ms: u64,
@@ -635,6 +644,9 @@ pub enum AMTRelationType {
     Contradicts,
     Elaborates,
     SharedContext,
+    /// Cross-generation: this AMT tree continues a prior generation for the
+    /// same project (target = the prior AMT's ZSEI container id).
+    Continues,
 }
 
 impl AMTNode {
@@ -1762,7 +1774,7 @@ impl PromptOrchestrator {
                         "type": "CreateGraph",
                         "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
                         "project_id": state.request.project_id.unwrap_or(0),
-                        "link_to_existing": false
+                        "link_to_existing": true
                     }
                 });
 
@@ -2685,6 +2697,7 @@ impl PromptOrchestrator {
             blueprint_id: state.blueprint_id,
             stages_completed: state.stages.clone(),
             consciousness_gate: state.gate_result.clone(),
+            jurisdiction_gate: state.jurisdiction_gate_result.clone(),
             error: None,
             total_tokens_used: Some(state.tokens_used_so_far),
             execution_time_ms: state.start_time.elapsed().as_millis() as u64,
@@ -2730,6 +2743,7 @@ impl PromptOrchestrator {
             blueprint_id: state.blueprint_id,
             stages_completed: state.stages.clone(),
             consciousness_gate: state.gate_result.clone(),
+            jurisdiction_gate: state.jurisdiction_gate_result.clone(),
             error: Some(error),
             total_tokens_used: Some(state.tokens_used_so_far),
             execution_time_ms: state.start_time.elapsed().as_millis() as u64,

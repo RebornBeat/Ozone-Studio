@@ -1871,176 +1871,6 @@ body {
     cursor: not-allowed;
 }
 
-/* Setup Wizard */
-.setup-wizard {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 100vh;
-    background: var(--color-bg);
-    padding: var(--space-lg);
-}
-
-.setup-container {
-    max-width: 600px;
-    width: 100%;
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-lg);
-    padding: var(--space-xl);
-}
-
-.setup-header {
-    text-align: center;
-    margin-bottom: var(--space-xl);
-}
-
-.setup-header .logo-icon {
-    font-size: 3rem;
-    color: var(--color-accent);
-    display: block;
-    margin-bottom: var(--space-md);
-}
-
-.setup-header h1 {
-    margin-bottom: var(--space-sm);
-}
-
-.setup-header p {
-    color: var(--color-text-secondary);
-}
-
-.setup-progress {
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: var(--space-xl);
-    position: relative;
-}
-
-.setup-progress::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: 10%;
-    right: 10%;
-    height: 2px;
-    background: var(--color-border);
-    z-index: 0;
-}
-
-.progress-step {
-    padding: var(--space-xs) var(--space-sm);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-    font-size: 0.8rem;
-    color: var(--color-text-secondary);
-    position: relative;
-    z-index: 1;
-}
-
-.progress-step.active {
-    background: var(--color-accent);
-    border-color: var(--color-accent);
-    color: white;
-}
-
-.setup-content {
-    min-height: 300px;
-}
-
-.setup-step h2 {
-    margin-bottom: var(--space-md);
-}
-
-.setup-step p {
-    color: var(--color-text-secondary);
-    margin-bottom: var(--space-lg);
-}
-
-.model-options,
-.voice-options,
-.consciousness-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-md);
-    margin-bottom: var(--space-xl);
-}
-
-.model-option {
-    padding: var(--space-md);
-    background: var(--color-bg);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-md);
-}
-
-.model-option h3 {
-    margin-bottom: var(--space-xs);
-}
-
-.model-option p {
-    font-size: 0.85rem;
-    margin-bottom: var(--space-sm);
-}
-
-.model-option input {
-    width: 100%;
-    padding: var(--space-sm);
-    background: var(--color-bg-tertiary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    color: var(--color-text);
-}
-
-.hint {
-    font-size: 0.8rem;
-    color: var(--color-text-muted);
-}
-
-.warning {
-    font-size: 0.8rem;
-    color: var(--color-warning);
-}
-
-.setup-buttons {
-    display: flex;
-    gap: var(--space-md);
-}
-
-.setup-back,
-.setup-next,
-.setup-complete {
-    padding: var(--space-sm) var(--space-lg);
-    border: none;
-    border-radius: var(--radius-md);
-    cursor: pointer;
-    font-weight: 500;
-}
-
-.setup-back {
-    background: var(--color-bg-tertiary);
-    color: var(--color-text);
-}
-
-.setup-next,
-.setup-complete {
-    background: var(--color-accent);
-    color: white;
-    flex: 1;
-}
-
-.setup-summary {
-    background: var(--color-bg);
-    padding: var(--space-md);
-    border-radius: var(--radius-md);
-    margin-bottom: var(--space-xl);
-}
-
-.setup-summary p {
-    margin-bottom: var(--space-xs);
-    color: var(--color-text);
-}
-
 /* Countdown in Connecting Screen */
 .connecting-countdown {
     font-size: 1.1rem;
@@ -3182,18 +3012,37 @@ body {
 }
 
 /* Setup Wizard v0.4.0 Updates */
+/* `.setup-wizard` is rendered standalone, outside `.app` (App.tsx returns it
+ * directly, bypassing the normal `.app { height:100vh; overflow:hidden }`
+ * shell) — but `body { overflow: hidden }` still applies globally. With
+ * `min-height:100vh` and no scroll container of its own, a wizard step
+ * taller than the viewport (e.g. the model-config step: provider picker +
+ * endpoint + API key + hints) had no way to be reached at all — not just
+ * "hard to scroll," genuinely inaccessible, since body can't scroll either.
+ * Fixed the same way `.app` already handles this pattern elsewhere: a fixed
+ * `height:100vh` on the outer flex container + its own `overflow-y:auto`
+ * makes IT the bounded scroll region. `align-items:flex-start` (not
+ * `center`) + `margin:auto 0` on `.setup-container` keeps the visual
+ * centering when content fits, but — unlike `align-items:center` alone,
+ * which has a well-known cross-browser bug where centered flex content that
+ * overflows can only be scrolled from one side — auto margins collapse to 0
+ * once there's no slack, so every pixel of an overflowing step stays
+ * reachable by scrolling from the top. */
 .setup-wizard {
-    min-height: 100vh;
+    height: 100vh;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
+    overflow-y: auto;
     background: linear-gradient(135deg, var(--color-bg) 0%, #0d1220 100%);
     padding: var(--space-lg);
+    box-sizing: border-box;
 }
 
 .setup-container {
     width: 100%;
     max-width: 600px;
+    margin: auto 0;
     background: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--radius-xl);

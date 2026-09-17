@@ -8,6 +8,111 @@ structure. The knowledge lives here. The LLMs are clients.
 
 ---
 
+## 2026-09 LIVING GRAPH — CURRENT STATE ADDENDUM
+
+> This addendum captures the graph system as it actually runs today. The
+> sections below remain accurate as doctrine; this section is the
+> implementation status layered on top. Nothing here replaces doctrine —
+> it fulfills it.
+
+### The living graph is operational
+
+Every graph write ripples. `ZSEI::query` is the single write choke point:
+every successful Create / Update / Delete / LinkFile / LinkURL / LinkPackage
+publishes a scoped **GraphEvent** (src/graph_events.rs) — event kind,
+container id, parent, type, source, and the event's scope keywords
+(`scope:global` | `ws:<id>` | `proj:<id>`), captured from the container
+*before* the write consumes it. Subscribers:
+
+- **WebSocket `/ws`** — live `graph_event` frames to every connected UI
+  and agent (real push, not polling).
+- **Monitor feed** — graph writes surface in `/monitor/summary`.
+- **AMT ripple sync** — project-scoped writes become AMT re-expansion
+  candidates and wake the expansion loop instantly (see
+  docs/AMT_EXPANSION.md). Context alignment latency: seconds, not the
+  30-minute interval.
+- Network-layer `on_container_created` / `on_methodology_created` /
+  `on_blueprint_created` hooks — registered transport, hub feed-in next.
+
+### Scoping — the coordination graph mirrors the system spine
+
+Session.active_workspace/active_project → OrchestrateRequest
+.workspace_id/.project_id → per-step context. Coordination events carry
+the same scope keywords the context layer filters on:
+
+| Scope | Meaning |
+| ----- | ------- |
+| `scope:global` | host-wide — every workspace sees it |
+| `ws:<id>` | bound to one workspace |
+| `proj:<id>` | bound to one project inside a workspace |
+
+Cross-workspace visibility is **explicit only** (promote to global, or
+call global in). Never silent bleed. Spec: tools/ozone-shared-context/
+README.md.
+
+### Container anatomy — the complete property inventory
+
+GlobalState (mmap, fixed layout — byte-identical in both storage modes):
+`container_id`, `parent_id`, `child_ids`, `child_count`, `version`.
+
+LocalState:
+- `metadata`: container_type, modality, created_at, updated_at,
+  **provenance** (who/what created it), permissions, owner_id, name,
+  materialized_path
+- `context`: categories, methodologies, **keywords** (the graph-search
+  encoding: kind, agent, `file:<path>`, `scope:global`, `ws:<id>`,
+  `proj:<id>`, `amt-main`, `amt-fork-of:<prior>`), topics,
+  **relationships** (typed edges: RelatedTo, DependsOn, Requires,
+  Contradicts, Elaborates, SharedContext, Continues), learned_associations,
+  embedding
+- `storage`: db_shard_id, vector_index_ref, **object_store_path** (the
+  content pointer — "context, not copies"), compression_type
+- `hints` (write-side usage signals, ready for ML-guided traversal):
+  access_frequency, last_accessed, hotness_score, ml_prediction_weight,
+  centroid
+- `integrity`: content_hash (blake3), integrity_score, last_verified,
+  semantic_fingerprint, version_history
+- type-specific: file_context / code_context / text_context / external_ref
+
+ContainerType catalog (reserved ranges, serde u16 — append-only):
+structural roots 1–8 (8 = SharedContextRoot), Workspace/Project,
+Modality/Category, Methodology/Blueprint/Pipeline, Task family,
+Dataset/Document/Chunk/Embedding, ChunkGraph/FileGraph,
+JurisdictionRoot/JurisdictionRuleSet (250/251), SharedContextRoot (252),
+CoordinationEvent (253), FileReference/DirectoryReference (50/51),
+URLReference/PackageReference (55/56), Consciousness roots and spheres.
+
+### What is graphed today (see docs/LIVING_GRAPH_STATUS.md for the full matrix)
+
+Jurisdiction (41 scopes + 40 relationship edges, live), coordination
+events (/SharedContext, both agents mirroring), text/code/math modality
+graphs (cross-process retrieval: math reference impl, text/code open),
+workspaces/projects (parenting verified), methodologies (33 real entries),
+blueprints (stranded content — known), file/url/package links (wiring
+in progress — task 64).
+
+### Storage modes — both real
+
+`mmap_enabled: true` (production) and `false` (plain seek/read/write)
+now produce byte-identical files — the plain-file branch was a silent
+no-op until the storage tests forced the fix (round-trip + overwrite
+proven; cross-mode index rebuild test deferred, layouts identical by
+construction).
+
+### Hard-won invariants (do not regress)
+
+- Structural-root id floor 1000+ (dynamic ids never overwrite roots 1–77)
+- `child_ids` persistence (rebuild_child_ids_cache at boot — was
+  in-memory-only, breaking every structural traversal on restart)
+- Cache coherency at the write choke point (writes invalidate target +
+  parent cache entries — stale reads found by test)
+- Absolute object_store_path used as-is; relative joins the data dir
+  (the garbage-join bug class, fixed in 4 sites — grep
+  `format!("{}/{}", data_dir, object_store_path)` periodically)
+- `mmap_enabled: false` writes real bytes (was a silent data-loss no-op)
+
+---
+
 ## What Makes ZSEI Different
 
 ### Traditional Systems vs. ZSEI
@@ -124,38 +229,91 @@ Materialized paths (e.g. `/Modality/Code/rust/async`) enable fast get_by_path.
 ### Container (The Universal Unit)
 
 Every item in ZSEI is a Container. The ContainerType determines what kind of item it is.
+This is the REAL field inventory (src/types/container.rs) — every field is live.
 
 ```rust
 Container {
-    // Global state (in mmap — fixed 64 bytes)
+    // Global state (mmap/plain-file — fixed 24-byte records + header)
     global_state: GlobalState {
         container_id: u64,
-        parent_id: u64,
+        parent_id: u64,          // graph edge: who contains me
+        child_ids: Vec<u64>,     // graph edge: what I contain (persisted
+                                 // via rebuild_child_ids_cache at boot)
         child_count: u32,
         version: u64,
-        // ... other fixed fields
     },
 
-    // Local state (in JSON — rich, flexible)
+    // Local state (JSON per container — rich, flexible)
     local_state: LocalState {
         metadata: Metadata {
-            container_type: ContainerType,
-            name: String,
-            description: String,
+            container_type: ContainerType,   // u16 enum, append-only
+            modality: Modality,
+            created_at: u64,
+            updated_at: u64,
+            provenance: String,              // who/what created it
+            permissions: u64,
+            owner_id: u64,
+            name: Option<String>,
             materialized_path: Option<String>,
         },
         context: Context {
-            keywords: Vec<String>,
+            categories: Vec<u64>,
+            methodologies: Vec<u64>,
+            keywords: Vec<String>,           // graph-search encoding:
+                                             // kind, agent, file:<path>,
+                                             // scope:global, ws:<id>, proj:<id>,
+                                             // amt-main, amt-fork-of:<id>
             topics: Vec<String>,
+            relationships: Vec<Relation>,    // typed edges + DiscoveryMethod
+                                             // provenance per edge
+            learned_associations: Vec<Association>,
             embedding: Option<Vec<f32>>,
-            relationships: Vec<Relationship>,
         },
-        hints: Hints,
-        integrity: IntegrityRecord,
-        storage: serde_json::Value,  // type-specific data
+        storage: StoragePointers {
+            db_shard_id: Option<u64>,
+            vector_index_ref: Option<...>,
+            object_store_path: Option<String>, // content pointer: "context, not copies"
+            compression_type: CompressionType,
+        },
+        hints: TraversalHints {              // traversal guidance signals
+            access_frequency: u64,           // write-side today; consumers pending
+            last_accessed: u64,
+            hotness_score: f32,
+            ml_prediction_weight: f32,
+            centroid: Option<...>,
+        },
+        integrity: IntegrityData {
+            content_hash: [u8; 32],          // blake3
+            integrity_score: f32,
+            last_verified: u64,
+            semantic_fingerprint: Vec<...>,
+            version_history: Vec<...>,
+        },
+        // Type-specific contexts
+        file_context: Option<FileContext>,   // path + hash + semantic summary
+        code_context: Option<CodeContext>,   // AST-level analysis
+        text_context: Option<TextContext>,   // paragraph boundaries etc.
+        external_ref: Option<ExternalReference>,
     }
 }
 ```
+
+**ContainerType** reserved ranges (serde u16, append-only — never renumber):
+- Roots 1–8: Modality, Methodologies, Blueprints, Pipelines, Consciousness,
+  External, Jurisdiction, **SharedContext (8 — the coordination graph)**
+- User organisation: User, Workspace, Project
+- Knowledge: Methodology, Blueprint, Pipeline, Task family
+- Data: Dataset, Document, Chunk, Embedding, ChunkGraph, FileGraph
+- Jurisdiction: JurisdictionRoot (250), JurisdictionRuleSet (251)
+- Coordination: SharedContextRoot (252), CoordinationEvent (253)
+- References: FileReference (50), DirectoryReference (51),
+  URLReference (55), PackageReference (56)
+- Consciousness roots/spheres (50s range, Experience family, etc.)
+
+The **scope keywords** inside `context.keywords` are how the whole system
+queries graphs by visibility (global / workspace / project) — see the
+Living Graph addendum above and docs/GRAPH_TEST_PLAN.md for the test
+contract.
 
 **ContainerType** includes (non-exhaustive):
 - `Root`, `Modality`, `Category`, `SubCategory`

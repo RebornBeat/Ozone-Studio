@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "One idea per sentence, one topic per paragraph — complexity belongs in the structure, not the sentences.",
+      "rationale": "Readers parse technical content serially; a sentence carrying two ideas loses one of them.",
+      "applicability": [
+        "writing",
+        "documentation",
+        "clarity"
+      ]
+    },
+    {
+      "statement": "Prefer concrete nouns and active verbs; delete intensifiers.",
+      "rationale": "'The parser validates tokens' beats 'the parser effectively and efficiently performs validation of tokens'.",
+      "applicability": [
+        "writing",
+        "clarity"
+      ]
+    },
+    {
+      "statement": "Define a term before or immediately after first use — and use it consistently thereafter.",
+      "rationale": "Synonym variation (id/identifier/reference for one thing) forces readers to guess whether the differences are meaningful.",
+      "applicability": [
+        "writing",
+        "documentation"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Read it aloud",
+      "description": "Sentences you can't say in one breath lose readers; run-ons and buried clauses become audible.",
+      "when_to_apply": "Reviewing any dense technical passage.",
+      "examples": [
+        "A 45-word sentence with three nested clauses reads as three sentences."
+      ]
+    },
+    {
+      "name": "Example-to-abstraction ratio",
+      "description": "Every abstraction earns its place only if a concrete example follows within a paragraph.",
+      "when_to_apply": "Any section introducing a new concept.",
+      "examples": [
+        "'Idempotency' explained twice without one 'run it twice, same result' example fails."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A paragraph can be deleted without losing information the reader needs.",
+      "action": "Delete it — length is not rigor.",
+      "priority": 3,
+      "exceptions": []
+    },
+    {
+      "condition": "The same fact is stated in two places in the same doc.",
+      "action": "State it once at the authoritative location and reference it — duplicated facts drift.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

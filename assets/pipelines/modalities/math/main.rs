@@ -262,7 +262,16 @@ async fn get_container_object_store_path(container_id: u64) -> Result<String, St
 async fn read_graph_container(graph_id: u64) -> Result<MathGraph, String> {
     let object_store_path = get_container_object_store_path(graph_id).await?;
     let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-    let full_path = format!("{}/{}", data_dir, object_store_path);
+    // 4th real occurrence of tonight's absolute-path garbage-join bug class
+    // (amt_loop.rs, jurisdiction.rs, amt.rs already fixed) — found while
+    // building code modality's dependency-graph retrieval on this exact
+    // pattern. Latent here too: math's own object_store_path is always
+    // relative ("graphs/math_{id}.json") today, so never yet observed live.
+    let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
+        object_store_path.clone()
+    } else {
+        format!("{}/{}", data_dir, object_store_path)
+    };
     let content = std::fs::read_to_string(&full_path)
         .map_err(|e| format!("Failed to read graph file {}: {}", full_path, e))?;
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse graph file {}: {}", full_path, e))
@@ -2139,7 +2148,12 @@ async fn update_graph(graph_id: u64, updates: MathGraphUpdate) -> Result<MathGra
     match get_container_object_store_path(graph_id).await {
         Ok(object_store_path) => {
             let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-            let full_path = format!("{}/{}", data_dir, object_store_path);
+            // 5th real occurrence (write side this time) — same fix.
+            let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
+                object_store_path.clone()
+            } else {
+                format!("{}/{}", data_dir, object_store_path)
+            };
             if let Ok(json) = serde_json::to_string_pretty(&graph) {
                 if let Err(e) = std::fs::write(&full_path, json) {
                     eprintln!("Failed to re-persist updated math graph to {}: {}", full_path, e);

@@ -1,0 +1,35 @@
+{
+  "principles": [
+    {
+      "statement": "A feature being fully built is not evidence it's actually in use — check the real, currently-active configuration/default, not just whether the supporting code exists. The gap between 'this capability exists somewhere in the system' and 'this is what actually runs on a real request right now' is exactly where expensive, confusing failures hide.",
+      "rationale": "Confirmed live this session: every OpenRouter call failed with 402 (insufficient credits) all night, and the root cause was NOT a missing feature — the free-tier infrastructure was fully built (available_models already had a real openrouter/free entry with is_free=true, meta_fallback already had free_only=true configured) but config.toml's api_model default was still \"openrouter/auto\", OpenRouter's paid intelligent router. The system silently fell through to a slow-but-working BitNet fallback every time, masking the real problem as 'BitNet is just slow' rather than 'the primary config points at a paid endpoint with zero credits'.",
+      "applicability": ["configuration", "debugging", "cost_management", "defaults"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "When Something Is Slow/Failing/Wrong, Check the Active Config Before the Code",
+      "description": "Before diving into code-level debugging of a system that's behaving unexpectedly (wrong routing, unexpected cost, degraded quality), read the actual currently-loaded configuration values it's running with — a correct, well-built system fed the wrong default/config value produces exactly the same symptoms as a real bug, but the fix is one line, not an investigation.",
+      "when_to_apply": "A system exhibits confusing behavior (slowness, wrong output, unexpected cost/quota consumption) and multiple subsystems (primary + fallback) could plausibly be involved.",
+      "examples": [
+        "Every request 'worked' (via BitNet fallback) but was mysteriously slow — reading config.toml directly (not the code that reads it) immediately revealed api_model was still the paid auto-router, explaining the pattern in seconds instead of hours of tracing fallback logic."
+      ]
+    },
+    {
+      "name": "Multiple Independently-Built Config Files Can Silently Diverge",
+      "description": "When a project has more than one copy of the same config file (e.g. one per launch-directory convention), a fix applied to only one is a fix that appears to not work — always identify and update every real copy that could be the one actually loaded, not just the one that's easiest to find.",
+      "when_to_apply": "Fixing any config-driven bug in a project with multiple config file locations (dev vs. built-binary directories, per-environment copies, etc.).",
+      "examples": [
+        "This project has config.toml at repo root AND target/release/config.toml — the server's actual CWD (target/release) determines which one loads; the fix had to be applied to both, with the CWD-relevant one explicitly noted as the one that actually matters at runtime."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A feature that should be working (per its own code/design) appears to be failing, slow, or behaving unexpectedly, and a fallback or secondary path is quietly absorbing the failure.",
+      "action": "Read the real, currently-active configuration directly before investigating the code paths further — verify the primary path is actually configured to use the feature that was built, not assuming it must be since the code exists.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

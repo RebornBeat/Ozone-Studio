@@ -1,0 +1,40 @@
+{
+  "principles": [
+    {
+      "statement": "A self-heal or deduplication check ('has this already been registered/created?') is only as trustworthy as the durability of the specific field it reads — if that field is non-persistent across restarts, the check will report 'nothing exists yet' every single time, and the self-heal logic will faithfully, correctly-looking re-create duplicates forever.",
+      "rationale": "Confirmed live 2026-09-15: jurisdiction container self-heal registration (src/lib.rs) checked `already_registered` by reading `JURISDICTION_ROOT_ID`'s `global_state.child_ids` — a field that (see method 22) never actually persisted across restarts. The registration code itself was completely correct; the bug was entirely in the durability of what it was checking. Result: 299 duplicate JurisdictionRuleSet containers on disk for ~41 real unique scopes, accumulated silently across roughly 9 restarts, with the boot log's own 'X new registrations (Y already registered)' line reporting Y=0 every time and nobody catching it because the log LOOKED like healthy self-heal behavior, not a bug.",
+      "applicability": ["idempotency", "self_heal", "deduplication", "storage"]
+    },
+    {
+      "statement": "A log line that reports a self-heal/registration count without ever showing a nonzero 'already existed, skipped' number across multiple real restarts is itself a signal worth investigating, not a fact to accept at face value.",
+      "rationale": "The exact symptom this bug produced — 'N new registrations (0 already registered)' on every single restart — is the observable signature of this bug class. A healthy self-heal running on a data set that mostly already exists should show a shrinking 'new' count and a growing 'already registered' count across successive restarts; if 'already registered' is permanently stuck at 0 no matter how many times it runs, that is diagnostic, not incidental.",
+      "applicability": ["idempotency", "logging", "observability"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Interrogate 'Always Zero' Counters",
+      "description": "If a count that should plausibly grow over repeated runs (e.g. 'already registered', 'already exists', 'skipped as duplicate') is reported as zero on every single run including the Nth restart, don't assume the check is simply thorough — verify the field it's reading is actually durable.",
+      "when_to_apply": "Reviewing boot logs or repeated-run output from any self-heal/idempotent-registration system.",
+      "examples": [
+        "Jurisdiction store's boot log showed '41 new registrations (0 scopes already registered)' on a restart that was NOT the system's first boot — a real tell that got investigated directly instead of assumed benign, leading straight to the child_ids_cache bug (method 22)."
+      ]
+    },
+    {
+      "name": "Count Real Duplicates On Disk, Don't Trust the Log Alone",
+      "description": "When an idempotency bug is suspected, verify by directly counting the actual persisted records (grep/count container files, database rows, etc.) grouped by whatever the dedup key should be — the log's own self-report can be wrong in exactly the way the underlying bug is wrong.",
+      "when_to_apply": "Confirming or ruling out a suspected duplicate-creation bug in a self-heal system.",
+      "examples": [
+        "Counted JurisdictionRuleSet containers directly from target/release/zsei_data/local/*.json by keyword — found exactly 9 duplicate containers for nearly every scope (global, eu, us, etc.), a real, measurable, on-disk confirmation independent of anything the boot log claimed."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Writing or reviewing any 'already exists, skip' / self-heal idempotency check.",
+      "action": "Trace the specific field the check reads all the way back to its storage representation and confirm it is genuinely durable across a real restart (see method 22's reconstruction pattern) before trusting the check's correctness — a logically-correct check built on a non-durable field is still a real bug.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

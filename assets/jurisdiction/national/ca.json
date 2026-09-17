@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Canadian federal statutes and regulator (Office of the Privacy Commissioner of Canada, Justice Laws Website) guidance, verified via live web search against official government sources (priv.gc.ca, laws-lois.justice.gc.ca) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Canadian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Provincial law (e.g. Quebec's Law 25) is deliberately NOT included here. Every rule's action is Log only.",
+  "disclaimer": "Drafted from real, currently-published official Canadian federal statutes and regulator (Office of the Privacy Commissioner of Canada, Justice Laws Website, Accessible Canada Act) guidance, verified via live web search against official/reputable sources at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Canadian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Provincial law (e.g. Quebec's Law 25) is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it.",
   "rules": [
     {
       "scope": {"National": "CA"},
@@ -31,6 +31,22 @@
       "action": "Log",
       "source": "Competition Act, R.S.C. 1985, c. C-34 — https://laws-lois.justice.gc.ca/eng/acts/c-34/",
       "retrieved_snippet": "The Competition Act's purposes include providing consumers with competitive prices and product choices; the Competition Bureau enforces it, and it incorporates the Consumer Packaging and Labelling Act and Textile Labelling Act.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CA"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No enacted comprehensive federal AI statute as of September 2026 — the Artificial Intelligence and Data Act (AIDA, part of Bill C-27) died on the Order Paper when Parliament was prorogued 6 January 2025 and has not been reintroduced. The current federal Minister of Artificial Intelligence and Digital Innovation has stated a future framework would be introduced separately, not as AIDA revived. What actually applies today: PIPEDA (general privacy law, already covered above), Quebec's provincial Law 25, and sector-specific guidance (e.g. OSFI E-23 for federally regulated financial institutions) — https://ised-isde.canada.ca/site/innovation-better-canada/en/artificial-intelligence-and-data-act-aida-companion-document",
+      "retrieved_snippet": "AIDA never became law; Bill C-27 died on the Order Paper 6 January 2025. Canada has no comprehensive AI-specific law in force as of 2026.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CA"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Accessible Canada Act (ACA), S.C. 2019, c. 10 — Royal Assent 21 June 2019, in force 11 July 2019 — https://laws-lois.justice.gc.ca/eng/acts/A-0.6/",
+      "retrieved_snippet": "Applies to the federal public sector and federally regulated organizations (banking, telecommunications, transportation, broadcasting) — not a general private-sector requirement. Covered organizations must publish accessibility plans; as of 31 May 2024, federal entities must comply with EN 301 549, which incorporates WCAG 2.1 Level AA plus provisions for non-web software and mobile apps.",
       "official_source": true
     }
   ]

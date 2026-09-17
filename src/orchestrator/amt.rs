@@ -102,12 +102,68 @@ impl PromptOrchestrator {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
+        // CONTINUATION (route: Continuation): a subsequent prompt for a
+        // project that already has AMT generations chains this tree onto the
+        // most recent prior generation via a root-level `Continues` relation
+        // (target = the prior AMT's ZSEI container id). Without this, every
+        // prompt spawned a sibling AMT island and project history fragmented.
+        let mut prior_generation: Option<u64> = None;
+        if let Some(project_id) = state.request.project_id {
+            if let Some(Some(project_json)) = self
+                .store
+                .get_container(project_id)
+                .await
+                .ok()
+            {
+                let child_ids: Vec<u64> = project_json
+                    .get("global_state")
+                    .and_then(|g| g.get("child_ids"))
+                    .and_then(|c| c.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_u64()).collect())
+                    .unwrap_or_default();
+                for child in child_ids.iter().rev() {
+                    if let Ok(Some(Some(c))) = self
+                        .store
+                        .get_container(*child)
+                        .await
+                        .map(|ok| ok.map(|v| v.as_object().and_then(|o| o.get("local_state")).and_then(|l| l.get("metadata")).and_then(|m| m.get("container_type")).and_then(|t| t.as_str()).map(|s| s.to_string())))
+                    {
+                        if c == "Derived" {
+                            prior_generation = Some(*child);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        let mut amt = amt.clone();
+        // MAIN/FORK designation (the island model): the FIRST AMT in a
+        // project is its MAIN tree; every subsequent generation is a FORK —
+        // an island spawned from the prior generation, carrying both a
+        // `Continues` relation (lineage) and an `amt-fork-of:<id>` keyword
+        // (graph-searchable provenance). Merge-back (fork results grafted
+        // into main) is the designed v2 — the expansion-candidate routes
+        // and the ripple give it its triggers.
+        let mut fork_of: Option<u64> = None;
+        let mut keywords = state.keywords.clone();
+        if let Some(prior) = prior_generation {
+            fork_of = Some(prior);
+            amt.relationships.push(crate::orchestrator::AMTRelation {
+                target_id: prior,
+                relation_type: crate::orchestrator::AMTRelationType::Continues,
+                confidence: 1.0,
+            });
+            keywords.push(format!("amt-fork-of:{}", prior));
+        } else {
+            keywords.push("amt-main".to_string());
+        }
+
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let amt_dir = format!("{}/amt", data_dir);
         let _ = std::fs::create_dir_all(&amt_dir);
         let file_name = format!("amt_{}_{}.json", now, amt.id);
         let file_path = format!("{}/{}", amt_dir, file_name);
-        if let Ok(json) = serde_json::to_string_pretty(amt) {
+        if let Ok(json) = serde_json::to_string_pretty(&amt) {
             std::fs::write(&file_path, json).map_err(|e| format!("Failed to write AMT tree file: {}", e))?;
         }
 
@@ -135,7 +191,7 @@ impl PromptOrchestrator {
                 "context": {
                     "categories": [],
                     "methodologies": amt.methodology_ids.clone(),
-                    "keywords": state.keywords.clone(),
+                    "keywords": keywords,
                     "topics": state.topics.clone(),
                     "relationships": [],
                     "learned_associations": [],
@@ -175,7 +231,20 @@ impl PromptOrchestrator {
         // its project container). 0 keeps today's root-parented default for
         // requests with no project_id.
         let parent_id = state.request.project_id.unwrap_or(0);
-        self.store.create_container(parent_id, container).await
+        let new_id = self.store.create_container(parent_id, container).await?;
+
+        let route = if fork_of.is_some() { "Continuation" } else { "InitialBuild" };
+        let _ = crate::orchestrator::amt_candidates::append(
+            new_id,
+            Some(parent_id),
+            route,
+            Some(&match fork_of {
+                Some(prior) => format!("fork of AMT container {}", prior),
+                None => "initial main AMT for this project".to_string(),
+            }),
+        );
+
+        Ok(new_id)
     }
 
     /// Recorded when a freshly-built AMT still has an unverified node — the
@@ -187,39 +256,14 @@ impl PromptOrchestrator {
     /// every AMT container. Best-effort: a logging failure here must never
     /// affect the orchestration response itself.
     fn record_amt_reexpansion_candidate(container_id: u64, project_id: u64, unverified_content: &str) {
-        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-        let path = format!("{}/amt_reexpansion_candidates.json", data_dir);
-
-        let mut candidates: Vec<serde_json::Value> = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-
-        let already_recorded = candidates.iter().any(|c| {
-            c.get("container_id").and_then(|v| v.as_u64()) == Some(container_id)
-                && c.get("handled").and_then(|v| v.as_bool()) == Some(false)
-        });
-        if already_recorded {
-            return;
-        }
-
-        candidates.push(serde_json::json!({
-            "recorded_at": chrono::Utc::now().timestamp(),
-            "container_id": container_id,
-            "project_id": project_id,
-            "unverified_content": unverified_content.chars().take(200).collect::<String>(),
-            "handled": false,
-        }));
-
-        const MAX_CANDIDATE_LOG_ENTRIES: usize = 500;
-        if candidates.len() > MAX_CANDIDATE_LOG_ENTRIES {
-            let drop = candidates.len() - MAX_CANDIDATE_LOG_ENTRIES;
-            candidates.drain(0..drop);
-        }
-
-        if let Ok(json) = serde_json::to_string_pretty(&candidates) {
-            let _ = std::fs::write(&path, json);
-        }
+        // Unified expansion-candidate store (amt_candidates) — route:
+        // UnverifiedNode, the original in-build trigger.
+        let _ = crate::orchestrator::amt_candidates::append(
+            container_id,
+            Some(project_id),
+            "UnverifiedNode",
+            Some(unverified_content),
+        );
     }
 
     /// First unverified node found via depth-first walk, if any — real
@@ -2028,7 +2072,18 @@ If no new branches apply, return: {{"branches": []}}"#,
             .and_then(|p| p.as_str())?;
 
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-        let full_path = format!("{}/{}", data_dir, object_store_path);
+        // Absolute object_store_path used as-is; only relative paths join
+        // the data dir — the third real occurrence of this exact bug class
+        // tonight (amt_loop.rs's try_reexpand_one, jurisdiction.rs's
+        // load_jurisdiction_rules, now here), found by task 62's own test
+        // using an absolute temp-dir fixture path. Every prior real call
+        // site here happened to pass a relative path, so this was latent,
+        // not yet observed live.
+        let full_path = if std::path::Path::new(object_store_path).is_absolute() {
+            object_store_path.to_string()
+        } else {
+            format!("{}/{}", data_dir, object_store_path)
+        };
         let content = std::fs::read_to_string(&full_path).ok()?;
         let parsed: serde_json::Value = serde_json::from_str(&content).ok()?;
 
@@ -2533,5 +2588,363 @@ If no new branches apply, return: {{"branches": []}}"#,
         }
 
         findings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::task::{RefinementConfig, TaskManager, TaskQueueConfig};
+
+    // Records the parent_id create_container was actually called with —
+    // T-A2 asserts against this directly rather than trusting the call
+    // merely succeeded (MockZSEI elsewhere in this crate's test suite
+    // returns a fixed id regardless of parent, which can't catch a
+    // hardcoded-0-parent regression).
+    struct RecordingStore {
+        last_parent_id: std::sync::Mutex<Option<u64>>,
+        /// Optional fixture: (project_id, child_ids) — get_container returns
+        /// a project container with these children and a Derived-typed JSON
+        /// for each child id, driving the continuation path in tests.
+        project_fixture: Option<(u64, Vec<u64>)>,
+        /// The container JSON from the last create_container call.
+        last_container: std::sync::Mutex<Option<serde_json::Value>>,
+    }
+
+    impl RecordingStore {
+        fn new() -> Self {
+            Self {
+                last_parent_id: std::sync::Mutex::new(None),
+                project_fixture: None,
+                last_container: std::sync::Mutex::new(None),
+            }
+        }
+        fn with_project(project_id: u64, child_ids: Vec<u64>) -> Self {
+            Self {
+                last_parent_id: std::sync::Mutex::new(None),
+                project_fixture: Some((project_id, child_ids)),
+                last_container: std::sync::Mutex::new(None),
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl StoreAccess for RecordingStore {
+        async fn query(&self, _q: serde_json::Value) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({}))
+        }
+        async fn traverse(&self, _r: serde_json::Value) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({}))
+        }
+        async fn create_container(
+            &self,
+            parent_id: u64,
+            c: serde_json::Value,
+        ) -> Result<u64, String> {
+            *self.last_parent_id.lock().unwrap() = Some(parent_id);
+            *self.last_container.lock().unwrap() = Some(c);
+            Ok(4242)
+        }
+        async fn update_container(&self, _id: u64, _u: serde_json::Value) -> Result<(), String> {
+            Ok(())
+        }
+        async fn get_container(&self, id: u64) -> Result<Option<serde_json::Value>, String> {
+            if let Some((pid, ref children)) = self.project_fixture {
+                if id == pid {
+                    return Ok(Some(serde_json::json!({
+                        "global_state": { "child_ids": children, "child_count": children.len() },
+                        "local_state": { "metadata": { "container_type": "Project" } }
+                    })));
+                }
+                if children.contains(&id) {
+                    return Ok(Some(serde_json::json!({
+                        "local_state": { "metadata": { "container_type": "Derived" } }
+                    })));
+                }
+            }
+            Ok(None)
+        }
+        async fn search_by_keywords(
+            &self,
+            _k: &[String],
+            _t: Option<&str>,
+        ) -> Result<Vec<u64>, String> {
+            Ok(vec![])
+        }
+        async fn get_categories(&self, _m: &str) -> Result<Vec<u64>, String> {
+            Ok(vec![])
+        }
+    }
+
+    struct NoopExecutor;
+    #[async_trait::async_trait]
+    impl PipelineExecutor for NoopExecutor {
+        async fn execute(
+            &self,
+            _pipeline_id: u64,
+            _input: serde_json::Value,
+        ) -> Result<serde_json::Value, String> {
+            Ok(serde_json::json!({"response": "{}"}))
+        }
+        async fn pipeline_exists(&self, _pipeline_id: u64) -> bool {
+            true
+        }
+    }
+
+    fn root_amt() -> AMTNode {
+        AMTNode {
+            id: 0,
+            node_type: AMTNodeType::Root,
+            content: "root analysis".to_string(),
+            source_chunk_indices: vec![],
+            children: vec![],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 0,
+            verified: true,
+            confidence: 1.0,
+        }
+    }
+
+    fn test_request(project_id: Option<u64>) -> OrchestrationRequest {
+        OrchestrationRequest {
+            prompt: "test".to_string(),
+            project_id,
+            workspace_id: None,
+            user_id: 1,
+            device_id: 1,
+            consciousness_enabled: false,
+            token_budget: Some(1000),
+            model_config: None,
+            attached_files: Vec::new(),
+            processing_path: ProcessingPathPref::default(),
+            executor_model: ExecutorModelKind::default(),
+            voice_input: None,
+            available_models: Vec::new(),
+            fallback_order: Vec::new(),
+            fallback_free_only: false,
+            meta_fallback_order: Vec::new(),
+            meta_fallback_free_only: false,
+        }
+    }
+
+    fn test_state(project_id: Option<u64>) -> OrchestrationState {
+        let request = test_request(project_id);
+        OrchestrationState {
+            request: request.clone(),
+            start_time: std::time::Instant::now(),
+            stages: Vec::new(),
+            thinking_log: Vec::new(),
+            jurisdiction_gate_result: None,
+            model_context_limit: 200_000,
+            tokens_used_so_far: 0,
+            raw_chunks: Vec::new(),
+            file_graphs: HashMap::new(),
+            attached_file_contents: HashMap::new(),
+            classified_file_graphs: Vec::new(),
+            chunk_graph_ids: Vec::new(),
+            modality_graphs: HashMap::new(),
+            graph_states: HashMap::new(),
+            root_modality_list: RootModalityList::default(),
+            initial_graphs_created: false,
+            cross_modal_index_id: None,
+            processed_chunks: Vec::new(),
+            cleaned_prompt: String::new(),
+            prompt_tokens: 0,
+            keywords: vec!["test".to_string()],
+            entities: Vec::new(),
+            topics: vec!["testing".to_string()],
+            methodologies: Vec::new(),
+            categories: Vec::new(),
+            categories_created: 0,
+            amt: None,
+            amt_container_id: None,
+            amt_validated: false,
+            validation_streak: 0,
+            amt_build_mode: AmtBuildMode::ChunkZeroShot,
+            needs_clarification: false,
+            clarification_points: Vec::new(),
+            intent_captures: Vec::new(),
+            branch_captures: Vec::new(),
+            detail_captures: Vec::new(),
+            cross_refs: Vec::new(),
+            amt_pass_count: 0,
+            coverage_aspects: Vec::new(),
+            blueprint_id: None,
+            blueprint_steps: Vec::new(),
+            orch_step_states: HashMap::new(),
+            blueprints_created: 0,
+            task_id: None,
+            step_results: Vec::new(),
+            final_response: None,
+            step_contexts: HashMap::new(),
+            step_outputs: HashMap::new(),
+            gate_result: None,
+            voice_identity: None,
+            available_pipelines: Vec::new(),
+        }
+    }
+
+    fn test_orchestrator(store: Arc<dyn StoreAccess>, tmp: &str) -> PromptOrchestrator {
+        let task_config = TaskQueueConfig {
+            consciousness_enabled: false,
+            storage_path: tmp.to_string(),
+            ..Default::default()
+        };
+        let refinement_config = RefinementConfig { enabled: false, ..Default::default() };
+        let task_manager = Arc::new(tokio::sync::RwLock::new(
+            TaskManager::new(task_config, refinement_config).unwrap(),
+        ));
+        PromptOrchestrator::new(
+            Arc::new(NoopExecutor),
+            store,
+            task_manager,
+            Arc::new(RwLock::new(None)),
+            200_000,
+            crate::config::JurisdictionConfig::default(),
+        )
+    }
+
+    // T-A2: a request with a real project_id gets its AMT container parented
+    // to that project — the hardcoded-parent_id-0 bug class (a real bug
+    // found and fixed earlier this session in text/code modality's own
+    // persist_graph_container) stays dead here too.
+    #[tokio::test]
+    async fn amt_container_parents_to_real_project_when_project_id_present() {
+        let store = Arc::new(RecordingStore::new());
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            "/tmp/test_amt_parenting_a",
+        );
+        let state = test_state(Some(777));
+        let amt = root_amt();
+
+        let container_id = orchestrator.persist_amt_container(&state, &amt).await.unwrap();
+
+        assert_eq!(container_id, 4242);
+        assert_eq!(
+            *store.last_parent_id.lock().unwrap(),
+            Some(777),
+            "AMT container must parent to the real project_id, not 0"
+        );
+    }
+
+    // Companion case: no project_id (a one-off chat request) falls back to
+    // the documented root-parent default (0), not some other stray value.
+    #[tokio::test]
+    async fn amt_container_falls_back_to_root_parent_when_no_project_id() {
+        let store = Arc::new(RecordingStore::new());
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            "/tmp/test_amt_parenting_b",
+        );
+        let state = test_state(None);
+        let amt = root_amt();
+
+        orchestrator.persist_amt_container(&state, &amt).await.unwrap();
+
+        assert_eq!(*store.last_parent_id.lock().unwrap(), Some(0));
+    }
+
+    // MAIN/FORK lifecycle (island model), sequential — both phases share
+    // the process-global OZONE_ZSEI_DATA_DIR env, so they run in one test.
+    #[tokio::test]
+    async fn amt_persist_main_then_fork_lifecycle() {
+        let base = format!("/tmp/amt_lifecycle_{}", std::process::id());
+
+        // ── Phase 1: first generation = MAIN ──
+        let dir_main = format!("{}/main", base);
+        std::fs::create_dir_all(format!("{}/amt", dir_main)).unwrap();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir_main);
+
+        let store = Arc::new(RecordingStore::with_project(778, vec![]));
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            &format!("{}/tasks", dir_main),
+        );
+        let state = test_state(Some(778));
+        orchestrator
+            .persist_amt_container(&state, &root_amt())
+            .await
+            .unwrap();
+
+        let dir = format!("{}/amt", dir_main);
+        let mut entries: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path().to_string_lossy().into_owned())
+            .collect();
+        entries.sort();
+        if entries.is_empty() {
+            let listing = std::fs::read_dir(&dir)
+                .map(|rd| rd.flatten().map(|e| e.path().to_string_lossy().into_owned()).collect::<Vec<_>>())
+                .unwrap_or_else(|e| vec![format!("read_dir failed: {}", e)]);
+            let env_val = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_default();
+            panic!(
+                "main AMT file written: dir={} env={:?} listing={:?}",
+                dir, env_val, listing
+            );
+        }
+        // MAIN/FORK keywords live on the CONTAINER (captured by the store),
+        // not on the tree file — the tree file carries the Continues
+        // relation instead.
+        let captured = store
+            .last_container
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("create_container captured the AMT container");
+        let kws = captured["local_state"]["context"]["keywords"]
+            .as_array()
+            .expect("keywords array");
+        assert!(kws.iter().any(|k| k == "amt-main"), "first generation is MAIN");
+
+        // ── Phase 2: subsequent generation = FORK of the prior ──
+        let dir_fork = format!("{}/fork", base);
+        std::fs::create_dir_all(format!("{}/amt", dir_fork)).unwrap();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir_fork);
+
+        let store = Arc::new(RecordingStore::with_project(777, vec![500]));
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            &format!("{}/tasks", dir_fork),
+        );
+        let state = test_state(Some(777));
+
+        let container_id = orchestrator
+            .persist_amt_container(&state, &root_amt())
+            .await
+            .unwrap();
+        assert_eq!(container_id, 4242);
+
+        let dir = format!("{}/amt", dir_fork);
+        let mut entries: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path().to_string_lossy().into_owned())
+            .collect();
+        entries.sort();
+        assert!(!entries.is_empty(), "fork AMT file written");
+        let fork_amt: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(entries.last().unwrap()).unwrap())
+                .unwrap();
+        let rel = fork_amt["relationships"].as_array().unwrap();
+        assert_eq!(rel.len(), 1, "Continues relation present");
+        assert_eq!(rel[0]["relation_type"], "Continues");
+        assert_eq!(rel[0]["target_id"], 500);
+        // Fork provenance keyword lives on the CONTAINER (captured).
+        let captured = store
+            .last_container
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("fork container captured");
+        let kws = captured["local_state"]["context"]["keywords"]
+            .as_array()
+            .unwrap();
+        assert!(kws
+            .iter()
+            .any(|k| k.as_str().unwrap_or("").starts_with("amt-fork-of:")));
     }
 }

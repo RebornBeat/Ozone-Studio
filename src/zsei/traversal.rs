@@ -87,7 +87,20 @@ impl TraversalEngine {
         })
     }
     
-    /// Structural traversal - follow parent/child relationships
+    /// Structural traversal - follow parent/child relationships AND
+    /// explicit `Context.relationships` (Relation) edges.
+    ///
+    /// Confirmed live 2026-09-15: none of the 6 traversal modes ever read
+    /// `Context.relationships` — a container's real, explicit `Relation`
+    /// edges (DependsOn/PartOf/RelatedTo/etc.) were dead data no traversal
+    /// ever walked, even though the type and storage for it were real. This
+    /// is the fix: relation targets are enqueued exactly like structural
+    /// children (same depth/visited bookkeeping), so a container's real
+    /// cross-references are just as traversable as its parent/child tree —
+    /// this is what makes a "meta workspace" of related-but-not-nested
+    /// containers (e.g. a country's national law layered on a regional
+    /// baseline it is NOT a structural child of) actually reachable by
+    /// graph traversal instead of only by a flat, type-blind keyword scan.
     async fn structural_traversal(
         &self,
         storage: &ContainerStorage,
@@ -97,27 +110,27 @@ impl TraversalEngine {
         let mut paths = Vec::new();
         let mut visited = HashSet::new();
         let mut queue = VecDeque::new();
-        
+
         // Start from the starting container
         queue.push_back((request.start_container, vec![request.start_container]));
-        
+
         let max_depth = request.max_depth;
         let max_containers = request.max_results;
-        
+
         while let Some((current_id, path)) = queue.pop_front() {
             if containers.len() >= max_containers as usize {
                 break;
             }
-            
+
             if path.len() > max_depth as usize {
                 continue;
             }
-            
+
             if visited.contains(&current_id) {
                 continue;
             }
             visited.insert(current_id);
-            
+
             // Check if this container matches filters
             if self.matches_filters(storage, current_id, &request.filters)? {
                 containers.push(current_id);
@@ -126,7 +139,7 @@ impl TraversalEngine {
                     total_distance: path.len() as f32,
                 });
             }
-            
+
             // Add children to queue
             let children = storage.get_children(current_id)?;
             for child_id in children {
@@ -134,6 +147,18 @@ impl TraversalEngine {
                     let mut new_path = path.clone();
                     new_path.push(child_id);
                     queue.push_back((child_id, new_path));
+                }
+            }
+
+            // Add explicit relation targets to queue — real graph edges,
+            // not just tree structure (see doc comment above).
+            if let Some(container) = storage.load(current_id)? {
+                for rel in &container.local_state.context.relationships {
+                    if !visited.contains(&rel.target_id) {
+                        let mut new_path = path.clone();
+                        new_path.push(rel.target_id);
+                        queue.push_back((rel.target_id, new_path));
+                    }
                 }
             }
         }

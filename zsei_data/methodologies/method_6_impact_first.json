@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "Choose work by its effect on the outcome, not by the order requests arrived.",
+      "rationale": "Queues built on arrival order equalize effort across tasks; ranking by impact concentrates effort where it changes results.",
+      "applicability": [
+        "planning",
+        "architecture",
+        "prioritization"
+      ]
+    },
+    {
+      "statement": "The smallest change that eliminates the largest risk beats the largest change that eliminates a small one.",
+      "rationale": "Risk eliminated per unit of effort is the real currency; raw effort spent is vanity.",
+      "applicability": [
+        "planning",
+        "refactoring"
+      ]
+    },
+    {
+      "statement": "Name the impact before writing the first line — 'this changes X for users in way Y'.",
+      "rationale": "Work that can't state its impact in one sentence usually hasn't found its reason to exist yet.",
+      "applicability": [
+        "planning",
+        "code_creation"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Blast-radius question",
+      "description": "Before implementing: 'if this is wrong, who notices and how badly?' — answers with 'nobody, soon' rank last.",
+      "when_to_apply": "Prioritizing a backlog or choosing between two valid approaches.",
+      "examples": [
+        "A schema fix that unblocks three pending features outranks a cosmetic rename."
+      ]
+    },
+    {
+      "name": "Reversibility tiebreak",
+      "description": "When two changes have similar impact, prefer the reversible one.",
+      "when_to_apply": "Impact estimates are close and both approaches are plausible.",
+      "examples": [
+        "A feature flag beats a hard cutover at equal impact."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A change is large, high-effort, and its impact cannot be stated in one concrete sentence.",
+      "action": "Defer it until the impact statement exists — write the sentence, then re-evaluate.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "Two tasks compete and one unblocks the other.",
+      "action": "The unblocking task takes priority regardless of its standalone impact score.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

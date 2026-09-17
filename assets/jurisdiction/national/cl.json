@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Chilean statutes, verified via live web search against official government sources (bcn.cl — Biblioteca del Congreso Nacional, senado.cl) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Chilean law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Note: Ley 21.719 was published 2024-12-13 but only enters full force 2026-12-01 — flagged as not-yet-fully-effective at time of writing. Every rule's action is Log only.",
+  "disclaimer": "Drafted from real, currently-published official Chilean statutes, verified via live web search against official government sources (bcn.cl — Biblioteca del Congreso Nacional, senado.cl) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Chilean law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Note: Ley 21.719 was published 2024-12-13 but only enters full force 2026-12-01 — flagged as not-yet-fully-effective at time of writing. Every rule's action is Log only. This content will age — re-verify before relying on it.",
   "rules": [
     {
       "scope": {"National": "CL"},
@@ -31,6 +31,22 @@
       "action": "Log",
       "source": "Ley 19.496 sobre Protección de los Derechos de los Consumidores — https://www.bcn.cl/leychile/navegar?idNorma=61438",
       "retrieved_snippet": "Regulates relations between providers and consumers, establishes consumer-prejudicial infractions and applicable procedures; enforced by SERNAC (Servicio Nacional del Consumidor).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CL"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No enacted AI-specific statute as of September 2026 — the 'Proyecto de Ley que regula los Sistemas de Inteligencia Artificial' was approved by the Chamber of Deputies on 13 October 2025 and sent to the Senate for review, not yet enacted. Real, already-enacted, AI-adjacent law: Ley No. 21.663 (2024), the Framework Law on Cybersecurity, establishing the National Cybersecurity Agency (ANCI) and security obligations for 'Operators of Vital Importance' using AI in critical infrastructure. — https://regulations.ai/regulations/RAI-CL-NA-SUMMARY-2026",
+      "retrieved_snippet": "Chile's dedicated AI bill (EU-AI-Act-style risk categories: prohibited/high-risk/limited/minimal) passed the Chamber of Deputies October 2025 and awaits Senate review — not yet law as of this research.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CL"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Ley 20.422 (2010), Establece Normas sobre Igualdad de Oportunidades e Inclusión Social de Personas con Discapacidad + Decreto Supremo No. 1 (2015) — https://www.bcn.cl/leychile/Consulta/listado_n_sel?comp=&agr=2&_grupo_aporte=&sub=1117",
+      "retrieved_snippet": "Ley 20.422 (informed by Chile's 2008 ratification of the UN Convention on the Rights of Persons with Disabilities) establishes equal-opportunity/inclusion norms; Supreme Decree No. 1 (2015) requires STATE organisms specifically to implement web accessibility standards. There is currently no legal requirement for private-sector websites — private-sector web accessibility remains voluntary in Chile as of this research, an honest gap, not a citable private-sector obligation.",
       "official_source": true
     }
   ]

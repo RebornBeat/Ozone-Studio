@@ -1,0 +1,103 @@
+{
+  "analysis": {
+    "classes": [],
+    "comments": [],
+    "complexity_metrics": {
+      "cognitive_complexity": 1,
+      "cyclomatic_complexity": 1,
+      "halstead_metrics": null,
+      "maintainability_index": 80.0
+    },
+    "exports": [],
+    "file_path": "scripts/report.py",
+    "function_calls": [],
+    "functions": [
+      {
+        "calls": [],
+        "complexity": 1,
+        "doc_comment": null,
+        "end_line": 5,
+        "is_async": false,
+        "is_public": true,
+        "name": "parse_csv",
+        "parameters": [],
+        "return_type": null,
+        "start_line": 1
+      }
+    ],
+    "imports": [
+      {
+        "is_external": true,
+        "items": [],
+        "line": 1,
+        "module": "pandas"
+      }
+    ],
+    "language": "python",
+    "line_count": 20,
+    "type_definitions": [],
+    "variables": []
+  },
+  "edges": [
+    {
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    },
+    {
+      "edge_type": "Imports",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 3,
+      "weight": 1.0
+    }
+  ],
+  "graph_id": 1789516037198551054,
+  "nodes": [
+    {
+      "name": "scripts/report.py",
+      "node_id": 1,
+      "node_type": "File",
+      "position": null,
+      "properties": {
+        "language": "python",
+        "line_count": 20
+      }
+    },
+    {
+      "name": "parse_csv",
+      "node_id": 2,
+      "node_type": "Function",
+      "position": {
+        "end_column": null,
+        "end_line": 5,
+        "file_path": "scripts/report.py",
+        "start_column": null,
+        "start_line": 1
+      },
+      "properties": {
+        "complexity": 1,
+        "is_async": false,
+        "is_public": true
+      }
+    },
+    {
+      "name": "pandas",
+      "node_id": 3,
+      "node_type": "Import",
+      "position": {
+        "end_column": null,
+        "end_line": 1,
+        "file_path": "scripts/report.py",
+        "start_column": null,
+        "start_line": 1
+      },
+      "properties": {
+        "is_external": true,
+        "items": []
+      }
+    }
+  ]
+}

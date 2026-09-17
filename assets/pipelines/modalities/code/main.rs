@@ -63,12 +63,13 @@ async fn persist_graph_container(
     analysis: &CodeAnalysisResult,
     local_graph_id: u64,
     project_id: u64,
-) -> Result<u64, String> {
+) -> Result<(u64, Vec<String>, Vec<String>), String> {
     let now = chrono::Utc::now().timestamp() as u64;
     let mut keywords: Vec<String> = analysis.functions.iter().map(|f| f.name.to_lowercase()).collect();
     keywords.extend(analysis.classes.iter().map(|c| c.name.to_lowercase()));
     keywords.extend(analysis.imports.iter().map(|i| i.module.to_lowercase()));
     keywords.push(analysis.language.to_lowercase());
+    let topics: Vec<String> = vec![analysis.language.clone()];
     let name = format!(
         "{} code graph ({}, {} lines, {} functions, {} classes)",
         analysis.file_path.clone().unwrap_or_default(),
@@ -102,7 +103,7 @@ async fn persist_graph_container(
                 "categories": [],
                 "methodologies": [],
                 "keywords": keywords,
-                "topics": vec![analysis.language.clone()],
+                "topics": topics.clone(),
                 "relationships": [],
                 "learned_associations": [],
                 "embedding": null
@@ -161,7 +162,341 @@ async fn persist_graph_container(
         let _ = std::fs::write(&graph_path, json);
     }
 
-    Ok(container_id)
+    Ok((container_id, keywords, topics))
+}
+
+/// Real disk shape `persist_graph_container` actually writes (`{graph_id,
+/// nodes, edges, analysis}`) — distinct from the in-process `CodeGraph`
+/// struct (`{graph_id, modality, nodes, edges, metadata}`), so reading a
+/// persisted file back needs its own matching shape, not `CodeGraph` itself.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct PersistedCodeGraph {
+    graph_id: u64,
+    nodes: Vec<CodeGraphNode>,
+    edges: Vec<CodeGraphEdge>,
+    analysis: CodeAnalysisResult,
+}
+
+/// Real cross-process retrieval — task 65 (confirmed live 2026-09-16: every
+/// dependency-graph/provisional handler in this file was a stub returning
+/// empty data with a "Would query ZSEI..." comment). Mirrors math
+/// modality's real, proven `get_container_object_store_path`/
+/// `read_graph_container` pattern exactly (math is this project's
+/// designated reference implementation for this exact gap) — including the
+/// absolute-path guard math itself was missing until this same pass fixed
+/// it there too (found by building this).
+async fn get_container_object_store_path(container_id: u64) -> Result<String, String> {
+    let result = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+
+    result
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("storage"))
+        .and_then(|s| s.get("object_store_path"))
+        .and_then(|p| p.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| format!("Container {} has no object_store_path (not a graph container?)", container_id))
+}
+
+async fn read_code_graph(container_id: u64) -> Result<PersistedCodeGraph, String> {
+    let object_store_path = get_container_object_store_path(container_id).await?;
+    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
+        object_store_path.clone()
+    } else {
+        format!("{}/{}", data_dir, object_store_path)
+    };
+    let content = std::fs::read_to_string(&full_path)
+        .map_err(|e| format!("Failed to read graph file {}: {}", full_path, e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse graph file {}: {}", full_path, e))
+}
+
+/// Find every real code-modality graph container that's a direct child of
+/// `project_id` — real structural traversal (GetContainer -> child_ids ->
+/// filter by container_type+modality), not a keyword guess. Depends on
+/// child_ids actually surviving a restart, which it now does (a real,
+/// separate bug fixed earlier tonight in src/zsei/storage.rs).
+async fn find_project_code_graphs(project_id: u64) -> Result<Vec<u64>, String> {
+    let result = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": project_id }
+    }))
+    .await?;
+    let container = result.get("Container").cloned().unwrap_or(result);
+    let child_ids: Vec<u64> = container
+        .pointer("/global_state/child_ids")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+
+    let mut graph_ids = Vec::new();
+    for child_id in child_ids {
+        let child_result = match zsei_query(serde_json::json!({ "GetContainer": { "container_id": child_id } })).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let child = child_result.get("Container").cloned().unwrap_or(child_result);
+        let container_type = child
+            .pointer("/local_state/metadata/container_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let modality = child
+            .pointer("/local_state/metadata/modality")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if container_type == "ModalityGraph" && modality == "Code" {
+            graph_ids.push(child_id);
+        }
+    }
+    Ok(graph_ids)
+}
+
+/// Real, honest cross-file dependency assembly from every persisted graph
+/// under a project — shared by GetDependencyGraph, ComputeReverseDependencies,
+/// and QueryGraph's FindDependencies/FindReverseDependencies. `to_file` for
+/// an internal import is the raw module string an import statement actually
+/// named (e.g. "crate::auth", "./utils") — genuinely resolving that to
+/// another file's real path would need real per-language module-resolution
+/// logic this pipeline doesn't have; reporting the honest raw target rather
+/// than a fabricated resolved path matches this project's established
+/// honesty convention (see e.g. Go's real return_type staying None rather
+/// than guessed).
+async fn assemble_dependency_graph(project_id: u64, include_external: bool) -> Result<DependencyGraph, String> {
+    let graph_ids = find_project_code_graphs(project_id).await?;
+
+    let mut files = Vec::new();
+    let mut dependencies = Vec::new();
+    let mut external_map: std::collections::HashMap<String, ExternalDependency> = std::collections::HashMap::new();
+
+    for graph_id in &graph_ids {
+        let persisted = match read_code_graph(*graph_id).await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("assemble_dependency_graph: skipping container {} ({})", graph_id, e);
+                continue;
+            }
+        };
+        let analysis = &persisted.analysis;
+        let file_path = analysis.file_path.clone().unwrap_or_default();
+
+        files.push(FileNode {
+            file_id: *graph_id,
+            path: file_path.clone(),
+            language: analysis.language.clone(),
+            line_count: analysis.line_count,
+            function_count: analysis.functions.len(),
+            class_count: analysis.classes.len(),
+        });
+
+        for import in &analysis.imports {
+            if import.is_external {
+                if include_external {
+                    external_map
+                        .entry(import.module.clone())
+                        .and_modify(|d| {
+                            if !d.used_by.contains(&file_path) {
+                                d.used_by.push(file_path.clone());
+                            }
+                        })
+                        .or_insert_with(|| ExternalDependency {
+                            package: import.module.clone(),
+                            version: None,
+                            used_by: vec![file_path.clone()],
+                        });
+                }
+            } else {
+                dependencies.push(FileDependency {
+                    from_file: file_path.clone(),
+                    to_file: import.module.clone(),
+                    dependency_type: DependencyType::Direct,
+                    imports: import.items.clone(),
+                });
+            }
+        }
+    }
+
+    Ok(DependencyGraph {
+        project_id,
+        files,
+        dependencies,
+        external_deps: external_map.into_values().collect(),
+    })
+}
+
+/// Cross-relationship linking — mirrors text modality pipeline 100's
+/// `link_related_containers` exactly (same reasoning: type-blind search +
+/// client-side infrastructure-type filter, since a query-level type filter
+/// alone is too narrow for "find anything genuinely related across any
+/// content type" and a fully type-blind search with no filter reintroduces
+/// the real Pipeline-registry-leak hallucination bug this project already
+/// fixed once). Only real difference: `discovered_via: "CodeAnalysis"`,
+/// this modality's own real discovery-method provenance, not text's.
+async fn link_related_containers(container_id: u64, own_keywords: &[String], own_topics: &[String]) -> usize {
+    fn is_infrastructure_container_type(t: &str) -> bool {
+        matches!(
+            t,
+            "Root" | "User" | "Workspace" | "Project"
+                | "Pipeline"
+                | "ModalityRoot" | "MethodologyRoot" | "BlueprintRoot" | "PipelineRoot"
+                | "ConsciousnessRoot" | "ExternalRoot" | "PackageRoot"
+                | "JurisdictionRoot"
+        )
+    }
+
+    let mut search_terms: Vec<String> = own_keywords.to_vec();
+    search_terms.extend(own_topics.iter().map(|t| t.to_lowercase()));
+    search_terms.sort();
+    search_terms.dedup();
+    if search_terms.is_empty() {
+        return 0;
+    }
+
+    let search_result = match zsei_query(serde_json::json!({
+        "SearchContainersByKeywords": {
+            "keywords": search_terms,
+            "container_type": Value::Null,
+            "strategy": Value::Null
+        }
+    }))
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("link_related_containers: search failed (non-fatal): {}", e);
+            return 0;
+        }
+    };
+
+    let candidate_ids: Vec<u64> = search_result
+        .get("Containers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+
+    let own_set: HashSet<String> = search_terms.iter().cloned().collect();
+    let mut wired = 0usize;
+
+    for candidate_id in candidate_ids {
+        if candidate_id == container_id {
+            continue;
+        }
+
+        let candidate = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": candidate_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let container_json = candidate.get("Container").cloned().unwrap_or(candidate);
+
+        let container_type = container_json
+            .pointer("/local_state/metadata/container_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if is_infrastructure_container_type(container_type) {
+            continue;
+        }
+
+        let candidate_context = match container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let candidate_terms: HashSet<String> = candidate_context
+            .get("keywords")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .chain(candidate_context.get("topics").and_then(|v| v.as_array()).into_iter().flatten())
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_lowercase())
+            .collect();
+
+        let shared_count = own_set.intersection(&candidate_terms).count();
+        if shared_count < 2 {
+            continue;
+        }
+
+        let mut relationships: Vec<serde_json::Value> = candidate_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let already_linked = relationships.iter().any(|r| {
+            r.get("target_id").and_then(|v| v.as_u64()) == Some(container_id)
+        });
+        if already_linked {
+            continue;
+        }
+
+        let confidence = (0.3 + 0.15 * shared_count as f32).min(0.9);
+
+        // Candidate -> this new container
+        relationships.push(serde_json::json!({
+            "target_id": container_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "CodeAnalysis"
+        }));
+        let mut candidate_context_updated = candidate_context.clone();
+        candidate_context_updated["relationships"] = serde_json::Value::Array(relationships);
+        let update_a = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": candidate_id,
+                "updates": { "metadata": null, "context": candidate_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        // This new container -> candidate (bidirectional)
+        let own_container = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": container_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let own_container_json = own_container.get("Container").cloned().unwrap_or(own_container);
+        let own_context = match own_container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let mut own_relationships: Vec<serde_json::Value> = own_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        own_relationships.push(serde_json::json!({
+            "target_id": candidate_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "CodeAnalysis"
+        }));
+        let mut own_context_updated = own_context.clone();
+        own_context_updated["relationships"] = serde_json::Value::Array(own_relationships);
+        let update_b = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": container_id,
+                "updates": { "metadata": null, "context": own_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        if update_a.is_ok() && update_b.is_ok() {
+            wired += 1;
+        } else {
+            eprintln!(
+                "link_related_containers: partial/failed write for {} <-> {} (non-fatal)",
+                container_id, candidate_id
+            );
+        }
+    }
+
+    wired
 }
 
 // ============================================================================
@@ -301,6 +636,15 @@ pub struct CodeModalityOutput {
     
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_result: Option<HookResult>,
+
+    /// Real result for QueryGraph — a generic Value rather than a new enum
+    /// per CodeQueryType, since the 9 real query types genuinely have
+    /// different honest result shapes (a function list vs. a call-graph
+    /// edge list vs. an inheritance chain); forcing one rigid type here
+    /// would mean fabricating empty fields for the shapes that don't apply
+    /// to a given query, which is exactly what this pass is fixing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_result: Option<Value>,
 }
 
 impl Default for CodeModalityOutput {
@@ -317,6 +661,7 @@ impl Default for CodeModalityOutput {
             provisional_nodes: None,
             suggested_methodologies: None,
             hook_result: None,
+            query_result: None,
         }
     }
 }
@@ -918,16 +1263,44 @@ impl CodeModalityPipeline {
                 if let Some(name) = name {
                     let is_async = line.contains("async");
                     let is_public = line.contains("pub ") || line.contains("export ");
-                    
+
                     // Find function end (simplified - count braces)
                     let end_line = self.find_block_end(code, line_num);
-                    
+
+                    // Real parsing of what the regex above already captures
+                    // but the struct literal used to discard (`Vec::new(),
+                    // // TODO: Parse parameters` and a hardcoded `None` for
+                    // return_type, despite every pattern above having a
+                    // params group and rust/python/js/ts also having a
+                    // return-type group). Parsed from real source text, not
+                    // fabricated — go has no clean single return-type
+                    // capture group in its pattern (multi-return vs
+                    // single-return are one alternation), so it honestly
+                    // stays None rather than guessing.
+                    let params_str = match language {
+                        "rust" => caps.get(5).map(|m| m.as_str()),
+                        "python" => caps.get(4).map(|m| m.as_str()),
+                        "javascript" | "typescript" => caps.get(3).map(|m| m.as_str()),
+                        "go" => caps.get(2).map(|m| m.as_str()),
+                        _ => None,
+                    }
+                    .unwrap_or("");
+                    let parameters = self.parse_parameters(params_str, language);
+
+                    let return_type = match language {
+                        "rust" => caps.get(6).map(|m| m.as_str().trim().to_string()),
+                        "python" => caps.get(5).map(|m| m.as_str().trim().to_string()),
+                        "javascript" | "typescript" => caps.get(4).map(|m| m.as_str().trim().to_string()),
+                        _ => None,
+                    }
+                    .filter(|s| !s.is_empty());
+
                     functions.push(FunctionDef {
                         name,
                         start_line: line_num + 1,
                         end_line,
-                        parameters: Vec::new(), // TODO: Parse parameters
-                        return_type: None,
+                        parameters,
+                        return_type,
                         is_async,
                         is_public,
                         doc_comment: None,
@@ -1259,6 +1632,97 @@ impl CodeModalityPipeline {
         }
     }
     
+    /// Real parameter parsing from a function signature's already-matched
+    /// parameter-list text (e.g. `a: u32, mut b: Vec<String>` for rust,
+    /// `x, y: int = 0` for python). Splits on top-level commas only
+    /// (tracking `<>`/`()`/`[]` depth so a generic type or a default-value
+    /// call expression containing its own commas doesn't get split
+    /// incorrectly), then applies each language's real name/type/default
+    /// convention. Self/receiver parameters are dropped (not real
+    /// arguments). Best-effort on ambiguous input — a parameter that
+    /// doesn't cleanly split still keeps its real raw name rather than
+    /// being silently lost.
+    fn parse_parameters(&self, params_str: &str, language: &str) -> Vec<Parameter> {
+        let trimmed = params_str.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        let mut parts: Vec<String> = Vec::new();
+        let mut depth = 0i32;
+        let mut current = String::new();
+        for ch in trimmed.chars() {
+            match ch {
+                '<' | '(' | '[' => {
+                    depth += 1;
+                    current.push(ch);
+                }
+                '>' | ')' | ']' => {
+                    depth -= 1;
+                    current.push(ch);
+                }
+                ',' if depth <= 0 => {
+                    parts.push(current.trim().to_string());
+                    current.clear();
+                }
+                _ => current.push(ch),
+            }
+        }
+        if !current.trim().is_empty() {
+            parts.push(current.trim().to_string());
+        }
+
+        parts
+            .into_iter()
+            .filter_map(|p| {
+                let p = p.trim();
+                if p.is_empty() || p == "self" || p == "&self" || p == "&mut self" {
+                    return None;
+                }
+                match language {
+                    "rust" => {
+                        let p = p.strip_prefix("mut ").unwrap_or(p);
+                        match p.split_once(':') {
+                            Some((name, ty)) => Some(Parameter {
+                                name: name.trim().to_string(),
+                                param_type: Some(ty.trim().to_string()),
+                                default_value: None,
+                            }),
+                            None => Some(Parameter { name: p.to_string(), param_type: None, default_value: None }),
+                        }
+                    }
+                    "python" | "javascript" | "typescript" => {
+                        let (name_and_type, default_value) = match p.split_once('=') {
+                            Some((n, d)) => (n.trim(), Some(d.trim().to_string())),
+                            None => (p, None),
+                        };
+                        match name_and_type.split_once(':') {
+                            Some((name, ty)) => Some(Parameter {
+                                name: name.trim().to_string(),
+                                param_type: Some(ty.trim().to_string()),
+                                default_value,
+                            }),
+                            None => Some(Parameter {
+                                name: name_and_type.trim().to_string(),
+                                param_type: None,
+                                default_value,
+                            }),
+                        }
+                    }
+                    "go" => match p.rsplit_once(' ') {
+                        Some((name, ty)) => Some(Parameter {
+                            name: name.trim().to_string(),
+                            param_type: Some(ty.trim().to_string()),
+                            default_value: None,
+                        }),
+                        None => Some(Parameter { name: p.to_string(), param_type: None, default_value: None }),
+                    },
+                    _ => Some(Parameter { name: p.to_string(), param_type: None, default_value: None }),
+                }
+            })
+            .collect()
+    }
+
     fn find_block_end(&self, code: &str, start_line: usize) -> usize {
         let lines: Vec<&str> = code.lines().collect();
         let mut brace_count = 0;
@@ -1281,130 +1745,14 @@ impl CodeModalityPipeline {
         lines.len()
     }
     
-    async fn create_graph(&self, analysis: CodeAnalysisResult, project_id: u64, _link_to_existing: bool) -> CodeModalityOutput {
+    async fn create_graph(&self, analysis: CodeAnalysisResult, project_id: u64, link_to_existing: bool) -> CodeModalityOutput {
         let graph_id = self.generate_graph_id();
-        let mut nodes = Vec::new();
-        let mut edges = Vec::new();
-        let mut node_id = 1u64;
-        
-        // Create file root node
-        let file_node_id = node_id;
-        nodes.push(CodeGraphNode {
-            node_id: file_node_id,
-            node_type: CodeNodeType::File,
-            name: analysis.file_path.clone().unwrap_or_default(),
-            position: None,
-            properties: {
-                let mut props = HashMap::new();
-                props.insert("language".to_string(), serde_json::json!(analysis.language));
-                props.insert("line_count".to_string(), serde_json::json!(analysis.line_count));
-                props
-            },
-        });
-        node_id += 1;
-        
-        // Create function nodes
-        for func in &analysis.functions {
-            let func_node_id = node_id;
-            nodes.push(CodeGraphNode {
-                node_id: func_node_id,
-                node_type: CodeNodeType::Function,
-                name: func.name.clone(),
-                position: Some(CodePosition {
-                    file_path: analysis.file_path.clone().unwrap_or_default(),
-                    start_line: func.start_line,
-                    end_line: func.end_line,
-                    start_column: None,
-                    end_column: None,
-                }),
-                properties: {
-                    let mut props = HashMap::new();
-                    props.insert("is_async".to_string(), serde_json::json!(func.is_async));
-                    props.insert("is_public".to_string(), serde_json::json!(func.is_public));
-                    props.insert("complexity".to_string(), serde_json::json!(func.complexity));
-                    props
-                },
-            });
-            
-            edges.push(CodeGraphEdge {
-                from_node: file_node_id,
-                to_node: func_node_id,
-                edge_type: CodeEdgeType::Contains,
-                weight: 1.0,
-                properties: HashMap::new(),
-            });
-            
-            node_id += 1;
-        }
-        
-        // Create class nodes
-        for class in &analysis.classes {
-            let class_node_id = node_id;
-            nodes.push(CodeGraphNode {
-                node_id: class_node_id,
-                node_type: CodeNodeType::Class,
-                name: class.name.clone(),
-                position: Some(CodePosition {
-                    file_path: analysis.file_path.clone().unwrap_or_default(),
-                    start_line: class.start_line,
-                    end_line: class.end_line,
-                    start_column: None,
-                    end_column: None,
-                }),
-                properties: {
-                    let mut props = HashMap::new();
-                    props.insert("is_public".to_string(), serde_json::json!(class.is_public));
-                    if let Some(ext) = &class.extends {
-                        props.insert("extends".to_string(), serde_json::json!(ext));
-                    }
-                    props
-                },
-            });
-            
-            edges.push(CodeGraphEdge {
-                from_node: file_node_id,
-                to_node: class_node_id,
-                edge_type: CodeEdgeType::Contains,
-                weight: 1.0,
-                properties: HashMap::new(),
-            });
-            
-            node_id += 1;
-        }
-        
-        // Create import edges
-        for import in &analysis.imports {
-            let import_node_id = node_id;
-            nodes.push(CodeGraphNode {
-                node_id: import_node_id,
-                node_type: CodeNodeType::Import,
-                name: import.module.clone(),
-                position: Some(CodePosition {
-                    file_path: analysis.file_path.clone().unwrap_or_default(),
-                    start_line: import.line,
-                    end_line: import.line,
-                    start_column: None,
-                    end_column: None,
-                }),
-                properties: {
-                    let mut props = HashMap::new();
-                    props.insert("is_external".to_string(), serde_json::json!(import.is_external));
-                    props.insert("items".to_string(), serde_json::to_value(&import.items).unwrap());
-                    props
-                },
-            });
-            
-            edges.push(CodeGraphEdge {
-                from_node: file_node_id,
-                to_node: import_node_id,
-                edge_type: CodeEdgeType::Imports,
-                weight: 1.0,
-                properties: HashMap::new(),
-            });
-            
-            node_id += 1;
-        }
-        
+        // Extracted to build_graph_nodes_edges (task 65) so update_graph can
+        // genuinely re-derive a graph's nodes/edges from re-analyzed content
+        // without duplicating this ~120-line block — same real data, one
+        // real implementation.
+        let (nodes, edges) = build_graph_nodes_edges(&analysis);
+
         let mut graph = CodeGraph {
             graph_id,
             modality: "code".to_string(),
@@ -1427,8 +1775,17 @@ impl CodeModalityPipeline {
         // analysis — same graceful-degradation posture as text modality's
         // identical call.
         match persist_graph_container(&graph.nodes, &graph.edges, &analysis, graph.graph_id, project_id).await {
-            Ok(container_id) => {
+            Ok((container_id, keywords, topics)) => {
                 graph.graph_id = container_id;
+                if link_to_existing {
+                    let wired = link_related_containers(container_id, &keywords, &topics).await;
+                    if wired > 0 {
+                        eprintln!(
+                            "link_related_containers: wired {} real cross-relationship edge(s) for container {}",
+                            wired, container_id
+                        );
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Failed to persist code graph to ZSEI (using local id only): {}", e);
@@ -1459,30 +1816,69 @@ impl CodeModalityPipeline {
         }
     }
     
-    async fn get_dependency_graph(&self, project_id: u64, _include_external: bool) -> CodeModalityOutput {
-        // Would query ZSEI for all file containers in project
-        let dep_graph = DependencyGraph {
-            project_id,
-            files: Vec::new(),
-            dependencies: Vec::new(),
-            external_deps: Vec::new(),
-        };
-        
-        CodeModalityOutput {
-            success: true,
-            dependency_graph: Some(dep_graph),
-            ..Default::default()
+    async fn get_dependency_graph(&self, project_id: u64, include_external: bool) -> CodeModalityOutput {
+        // Real cross-process retrieval (task 65) — was a stub returning
+        // empty data regardless of what had actually been created. Now
+        // walks the project's real child containers and reads back every
+        // persisted code graph, mirroring math modality's proven pattern.
+        match assemble_dependency_graph(project_id, include_external).await {
+            Ok(dep_graph) => CodeModalityOutput {
+                success: true,
+                dependency_graph: Some(dep_graph),
+                ..Default::default()
+            },
+            Err(e) => CodeModalityOutput {
+                success: false,
+                error: Some(format!("get_dependency_graph failed: {}", e)),
+                ..Default::default()
+            },
         }
     }
-    
+
     async fn compute_reverse_deps(&self, project_id: u64, file_path: &str) -> CodeModalityOutput {
-        // Would query ZSEI for files that import this file
-        let reverse_deps = Vec::new();
-        
-        CodeModalityOutput {
-            success: true,
-            reverse_deps: Some(reverse_deps),
-            ..Default::default()
+        // Real reverse lookup (task 65) — reuses the same real assembly as
+        // get_dependency_graph, then filters to dependencies whose target
+        // honestly matches file_path (either the raw stored path or its
+        // final path segment, since internal import targets are stored as
+        // the raw module string a real import statement used — e.g.
+        // "crate::auth" or "./utils" — not a resolved filesystem path;
+        // matching only the exact stored string would silently miss real
+        // matches for any language whose import syntax doesn't literally
+        // equal its file path).
+        match assemble_dependency_graph(project_id, true).await {
+            Ok(dep_graph) => {
+                // Basename without extension (e.g. "src/auth.rs" -> "auth")
+                // as a real, honest fallback signal — an import target
+                // stored as "crate::auth" or "./auth" won't equal the
+                // queried file's full path, but plausibly contains its
+                // basename.
+                let basename = file_path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(file_path)
+                    .split('.')
+                    .next()
+                    .unwrap_or(file_path);
+                let reverse: Vec<FileDependency> = dep_graph
+                    .dependencies
+                    .into_iter()
+                    .filter(|d| {
+                        d.to_file == file_path
+                            || d.to_file.ends_with(file_path)
+                            || (!basename.is_empty() && d.to_file.contains(basename))
+                    })
+                    .collect();
+                CodeModalityOutput {
+                    success: true,
+                    reverse_deps: Some(reverse),
+                    ..Default::default()
+                }
+            }
+            Err(e) => CodeModalityOutput {
+                success: false,
+                error: Some(format!("compute_reverse_deps failed: {}", e)),
+                ..Default::default()
+            },
         }
     }
     
@@ -1617,12 +2013,16 @@ impl CodeModalityPipeline {
             }
         }
         
-        // Testing methodology if test-related
-        if code.contains("#[test]") || code.contains("@Test") || 
+        // Testing methodology if test-related. Real bug found and fixed
+        // 2026-09-16: this suggested methodology_id 10, which is "API
+        // Design Principles" in the real index (src/bootstrap.rs) — the
+        // actual "Test-Driven Development" methodology is id 7. Confirmed
+        // against the live index before changing the id, not guessed.
+        if code.contains("#[test]") || code.contains("@Test") ||
            code.contains("def test_") || code.contains("it(") || code.contains("describe(") {
-            if available_ids.contains(&10) {
+            if available_ids.contains(&7) {
                 suggestions.push(MethodologySuggestion {
-                    methodology_id: 10,
+                    methodology_id: 7,
                     relevance: 0.9,
                     reason: "Test code detected".to_string(),
                 });
@@ -1706,4 +2106,237 @@ async fn main() {
 
     serde_json::to_writer(std::io::stdout(), &output)
         .expect("Failed to write output");
+}
+
+
+/// Build a code graph's nodes/edges from an analysis result (task 65 —
+/// extracted from create_graph so update_graph can genuinely re-derive a
+/// graph from re-analyzed content without duplicating this block).
+fn build_graph_nodes_edges(
+    analysis: &CodeAnalysisResult,
+) -> (Vec<CodeGraphNode>, Vec<CodeGraphEdge>) {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut node_id = 1u64;
+
+    // File root node
+    let file_node_id = node_id;
+    nodes.push(CodeGraphNode {
+        node_id: file_node_id,
+        node_type: CodeNodeType::File,
+        name: analysis.file_path.clone().unwrap_or_default(),
+        position: None,
+        properties: {
+            let mut props = HashMap::new();
+            props.insert("language".to_string(), serde_json::json!(analysis.language));
+            props.insert("line_count".to_string(), serde_json::json!(analysis.line_count));
+            props
+        },
+    });
+    node_id += 1;
+
+    // Function nodes
+    for func in &analysis.functions {
+        let func_node_id = node_id;
+        nodes.push(CodeGraphNode {
+            node_id: func_node_id,
+            node_type: CodeNodeType::Function,
+            name: func.name.clone(),
+            position: Some(CodePosition {
+                file_path: analysis.file_path.clone().unwrap_or_default(),
+                start_line: func.start_line,
+                end_line: func.end_line,
+                start_column: None,
+                end_column: None,
+            }),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("is_async".to_string(), serde_json::json!(func.is_async));
+                props.insert("is_public".to_string(), serde_json::json!(func.is_public));
+                props.insert("complexity".to_string(), serde_json::json!(func.complexity));
+                props
+            },
+        });
+
+        edges.push(CodeGraphEdge {
+            from_node: file_node_id,
+            to_node: func_node_id,
+            edge_type: CodeEdgeType::Contains,
+            weight: 1.0,
+            properties: HashMap::new(),
+        });
+
+        node_id += 1;
+    }
+
+    // Class nodes
+    for class in &analysis.classes {
+        let class_node_id = node_id;
+        nodes.push(CodeGraphNode {
+            node_id: class_node_id,
+            node_type: CodeNodeType::Class,
+            name: class.name.clone(),
+            position: Some(CodePosition {
+                file_path: analysis.file_path.clone().unwrap_or_default(),
+                start_line: class.start_line,
+                end_line: class.end_line,
+                start_column: None,
+                end_column: None,
+            }),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("is_public".to_string(), serde_json::json!(class.is_public));
+                if let Some(ext) = &class.extends {
+                    props.insert("extends".to_string(), serde_json::json!(ext));
+                }
+                props
+            },
+        });
+
+        edges.push(CodeGraphEdge {
+            from_node: file_node_id,
+            to_node: class_node_id,
+            edge_type: CodeEdgeType::Contains,
+            weight: 1.0,
+            properties: HashMap::new(),
+        });
+
+        node_id += 1;
+    }
+
+    // Import nodes + edges
+    for import in &analysis.imports {
+        let import_node_id = node_id;
+        nodes.push(CodeGraphNode {
+            node_id: import_node_id,
+            node_type: CodeNodeType::Import,
+            name: import.module.clone(),
+            position: Some(CodePosition {
+                file_path: analysis.file_path.clone().unwrap_or_default(),
+                start_line: import.line,
+                end_line: import.line,
+                start_column: None,
+                end_column: None,
+            }),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("is_external".to_string(), serde_json::json!(import.is_external));
+                props.insert("items".to_string(), serde_json::to_value(&import.items).unwrap());
+                props
+            },
+        });
+
+        edges.push(CodeGraphEdge {
+            from_node: file_node_id,
+            to_node: import_node_id,
+            edge_type: CodeEdgeType::Imports,
+            weight: 1.0,
+            properties: HashMap::new(),
+        });
+
+        node_id += 1;
+    }
+
+    (nodes, edges)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // extract_functions used to hardcode parameters: Vec::new() and
+    // return_type: None regardless of what the regex actually matched
+    // (`// TODO: Parse parameters`). These prove real values now come
+    // through for every supported language.
+
+    #[test]
+    fn rust_parameters_and_return_type_are_parsed() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "pub fn validate(name: &str, mut count: u32, data: Option<Vec<String>>) -> Result<bool, String> {\n}\n";
+        let functions = pipeline.extract_functions(code, "rust");
+        assert_eq!(functions.len(), 1);
+        let f = &functions[0];
+        assert_eq!(f.name, "validate");
+        assert_eq!(f.return_type.as_deref(), Some("Result<bool, String>"));
+        assert_eq!(f.parameters.len(), 3);
+        assert_eq!(f.parameters[0].name, "name");
+        assert_eq!(f.parameters[0].param_type.as_deref(), Some("&str"));
+        // `mut` prefix stripped, real name kept
+        assert_eq!(f.parameters[1].name, "count");
+        assert_eq!(f.parameters[1].param_type.as_deref(), Some("u32"));
+        // Comma inside the generic type argument must not split the param
+        assert_eq!(f.parameters[2].name, "data");
+        assert_eq!(f.parameters[2].param_type.as_deref(), Some("Option<Vec<String>>"));
+    }
+
+    #[test]
+    fn rust_self_receiver_is_not_a_parameter() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "fn method(&self, x: u32) {\n}\n";
+        let functions = pipeline.extract_functions(code, "rust");
+        assert_eq!(functions[0].parameters.len(), 1);
+        assert_eq!(functions[0].parameters[0].name, "x");
+    }
+
+    #[test]
+    fn python_default_values_and_types_are_parsed() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "def handler(name, count: int = 0, tags: list = None) -> bool:\n";
+        let functions = pipeline.extract_functions(code, "python");
+        assert_eq!(functions.len(), 1);
+        let f = &functions[0];
+        assert_eq!(f.return_type.as_deref(), Some("bool"));
+        assert_eq!(f.parameters.len(), 3);
+        assert_eq!(f.parameters[0].name, "name");
+        assert_eq!(f.parameters[0].param_type, None);
+        assert_eq!(f.parameters[1].name, "count");
+        assert_eq!(f.parameters[1].param_type.as_deref(), Some("int"));
+        assert_eq!(f.parameters[1].default_value.as_deref(), Some("0"));
+        assert_eq!(f.parameters[2].name, "tags");
+        assert_eq!(f.parameters[2].default_value.as_deref(), Some("None"));
+    }
+
+    #[test]
+    fn go_space_separated_params_are_parsed() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "func Validate(name string, count int) bool {\n}\n";
+        let functions = pipeline.extract_functions(code, "go");
+        assert_eq!(functions.len(), 1);
+        assert_eq!(functions[0].parameters.len(), 2);
+        assert_eq!(functions[0].parameters[0].name, "name");
+        assert_eq!(functions[0].parameters[0].param_type.as_deref(), Some("string"));
+        assert_eq!(functions[0].parameters[1].name, "count");
+        assert_eq!(functions[0].parameters[1].param_type.as_deref(), Some("int"));
+        // Go's pattern has no clean single return-type capture group —
+        // stays honestly None rather than guessing from the trailing blob.
+        assert_eq!(functions[0].return_type, None);
+    }
+
+    #[test]
+    fn no_parameters_is_a_real_empty_vec_not_a_parse_failure() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "fn noop() {\n}\n";
+        let functions = pipeline.extract_functions(code, "rust");
+        assert_eq!(functions[0].parameters.len(), 0);
+    }
+
+    // Real bug: suggest_methodologies suggested methodology_id 10 ("API
+    // Design Principles" in the real index) for test-related code instead
+    // of id 7 ("Test-Driven Development"). Fixed 2026-09-16.
+    #[test]
+    fn test_code_suggests_the_real_test_driven_development_methodology() {
+        let pipeline = CodeModalityPipeline::new();
+        let code = "#[test]\nfn it_works() { assert!(true); }";
+        let available_ids = vec![3, 4, 5, 7, 10];
+        let output = pipeline.suggest_methodologies(code, "rust", &available_ids);
+        let suggestions = output.suggested_methodologies.unwrap();
+        assert!(
+            suggestions.iter().any(|s| s.methodology_id == 7),
+            "expected methodology 7 (Test-Driven Development) to be suggested for test code"
+        );
+        assert!(
+            !suggestions.iter().any(|s| s.methodology_id == 10 && s.reason == "Test code detected"),
+            "must not suggest methodology 10 (API Design) for test code"
+        );
+    }
 }

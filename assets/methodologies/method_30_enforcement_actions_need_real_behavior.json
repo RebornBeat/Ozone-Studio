@@ -1,0 +1,41 @@
+{
+  "principles": [
+    {
+      "statement": "An enforcement action's name (Block/Warn/RequireConfirmation/Log) is not evidence of what it actually does at runtime — verify by reading the code path that consumes it before treating a downgrade, upgrade, or exemption decision as settled. A label with no differentiated behavior behind it is functionally identical to the weakest label, regardless of what it's called.",
+      "rationale": "Confirmed live 2026-09-15: a jurisdiction content-safety decision (whether to downgrade global.json's child-exploitation/abuse/self-harm rules from Block/RequireConfirmation/Warn to Log) was first resolved based on the JSON labels alone. Checking the actual enforcement code revealed Block was the only action with real, differentiated behavior (a genuine early-return that stops the request) — Warn and RequireConfirmation did nothing different from Log at runtime. The first resolution (downgrade everything to Log for 'consistency') would have been a real, silent regression in working safety enforcement (Block), while treating the Warn/RequireConfirmation downgrade as equally consequential was itself a miscalibration in the other direction, since those two labels were already inert.",
+      "applicability": ["safety", "enforcement", "content_moderation", "code_review"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Grep the Enforcement Enum's Real Consumers Before a Severity Decision",
+      "description": "Before deciding whether to elevate, downgrade, or exempt content tied to a severity/action enum (RuleAction, Permission level, LogLevel-as-gate, etc.), grep every real comparison/match against that enum's variants in the actual request/response path — not just its definition or a doc comment describing intent. The gap between 'what the type system allows' and 'what the runtime actually does differently per variant' is exactly where this kind of miscalibration hides.",
+      "when_to_apply": "Any decision that changes the severity/enforcement label on real content, config, or a policy rule.",
+      "examples": [
+        "grep for `RuleAction::` across src/orchestrator/*.rs found exactly one real consumer (`rule.action == RuleAction::Block` triggering an early-return Err) — immediately clarifying that Block was uniquely consequential and Warn/RequireConfirmation were not, before any content decision was finalized."
+      ]
+    },
+    {
+      "name": "A Write-Only Result Field Is Invisible Regardless of What It Contains",
+      "description": "Even a fully-correct, richly-detailed result struct (like JurisdictionGateResult) provides zero real value if nothing downstream ever reads it — check whether a decision's output actually reaches a caller/API/UI, not just whether it's computed and stored on internal state.",
+      "when_to_apply": "Auditing any gate/check/review mechanism whose result is stored on internal state rather than returned directly.",
+      "examples": [
+        "jurisdiction_gate_result was set on OrchestrationState correctly every request, referenced by name in a blocked-request's own error message — but nothing mapped it into OrchestrationResponse (unlike the sibling consciousness_gate field, which was), so a caller could never actually see which rule matched or why, even on a real block."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Deciding whether to change (elevate, downgrade, or exempt) an enforcement-severity label on real content or policy.",
+      "action": "First verify what real, differentiated runtime behavior each candidate severity level actually produces today (not what the label implies) — a decision made on label semantics alone can silently remove working enforcement or silently treat an already-inert label as if downgrading it were consequential.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "Building new real enforcement behavior for a severity level that previously had none (e.g. giving RequireConfirmation genuine teeth).",
+      "action": "Reuse an existing, already-proven review/gate mechanism in the same codebase where one exists (here: the Consciousness Gate's decision_gate pipeline call) rather than inventing a new one — same reasoning as reusing load_methodology_rules_text/is_infrastructure_container_type elsewhere this session.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

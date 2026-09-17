@@ -21,6 +21,21 @@
       "action": "Log",
       "source": "Film and Publications Amendment Act 11 of 2019 — makes it an offense to possess, create, produce, or contribute to child sexual abuse material online; places a positive obligation on internet service providers to act on such content.",
       "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No standalone AI statute as of 2026 — the National AI Policy Framework (published August 2024, following the 2024 National AI Plan launch at the University of Johannesburg) is the current blueprint, covering ethical guidelines, privacy/data protection, safety/security, transparency, and fairness/bias mitigation; a tailored regulatory approach is planned for 2025-2027, expected to be risk-based. Honest gap: policy framework only, no binding AI-specific legislation yet. Secondary summary: https://policyvault.africa/policy/south-africa-national-artificial-intelligence-ai-policy-framework-2024/",
+      "retrieved_snippet": "South Africa does not yet have a standalone AI law, but the National AI Policy Framework provides an early blueprint for what that future legislation will look like... published in August 2024. Its scope covers ethical guidelines development; privacy and data protection; safety and security; transparency and explainability; and fairness and mitigating bias... South Africa is developing and implementing a tailored regulatory approach to AI over the period of 2025 to 2027.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "No dedicated digital-accessibility statute — legal basis is indirect, via the Constitution's Bill of Rights (disability non-discrimination), the Promotion of Equality and Prevention of Unfair Discrimination Act (PEPUDA, 2000), and the Promotion of Access to Information Act (PAIA, 2000). Government Information Technology Officer (GITO) standards require national/provincial government websites to comply with WCAG 2.0 Level AA — this is the one concrete, checkable technical standard found; no equivalent private-sector mandate exists. Honest gap, not filled with an invented private-sector requirement. Secondary summary: https://www.allaccessible.org/is-website-accessibility-a-legal-requirement-in-south-africa/",
+      "official_source": false
     }
   ]
 }

@@ -1,0 +1,59 @@
+{
+  "principles": [
+    {
+      "statement": "Write the failing test that describes the missing behavior before writing the behavior.",
+      "rationale": "A test written after the code tests what the code does; a test written before tests what the code SHOULD do — and survives as the spec.",
+      "applicability": [
+        "testing",
+        "code_creation"
+      ]
+    },
+    {
+      "statement": "Red, green, refactor: fail first for the right reason, pass minimally, then clean up with the test as the safety net.",
+      "rationale": "Skipping the red step leaves you unable to distinguish a passing test from a broken one.",
+      "applicability": [
+        "testing",
+        "refactoring"
+      ]
+    },
+    {
+      "statement": "One behavioral change per test — a test asserting three things fails ambiguously.",
+      "rationale": "A failing multi-assert test doesn't tell you which behavior broke.",
+      "applicability": [
+        "testing"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Test the contract, not the implementation",
+      "description": "Assert observable outputs and state changes, never internal call sequences.",
+      "when_to_apply": "Writing any test against a function or service.",
+      "examples": [
+        "Assert `result == expected_json`, not `helper_was_called_with(...)`."
+      ]
+    },
+    {
+      "name": "Name tests as behavior sentences",
+      "description": "'refresh_marks_stale_file_refs' says what it verifies; 'test_refresh_2' says nothing.",
+      "when_to_apply": "Naming any test.",
+      "examples": [
+        "When the test name completes the sentence 'this test verifies that…', the name is right."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A bug report arrives with a reproducible defect.",
+      "action": "Write the failing test that reproduces it FIRST — it becomes the regression guard for the fix.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "A test cannot be written because the design makes the behavior untestable.",
+      "action": "That is a design defect — refactor for testability before implementing, not a reason to skip the test.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

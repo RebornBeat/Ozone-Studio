@@ -1,0 +1,37 @@
+{
+  "principles": [
+    {
+      "statement": "Incremental additions layered on top of existing state — a new 'vX.Y Updates' CSS block appended below an older one, a new self-heal pass creating fresh records instead of confirming existing ones — accumulate silent duplication and drift over time unless each addition either reconciles with (replaces/removes) what it supersedes or genuinely confirms nothing already covers the same ground.",
+      "rationale": "The exact same underlying bug class surfaced twice independently in one session, in two completely different systems: `ui/src/App.css` had two full, separately-authored `.setup-wizard`/`.setup-container` rule blocks (an older one fully superseded by a newer one, ~168 dead lines never removed), and ZSEI's jurisdiction container store had 299 duplicate JurisdictionRuleSet containers from 9 restarts of a self-heal pass that never correctly detected what already existed (method 23). Neither was caused by carelessness in the addition itself — both additions were individually well-formed — the shared root cause is 'add without reconciling against what's already there.'",
+      "applicability": ["code_hygiene", "storage", "css", "technical_debt", "self_heal"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Recognize the 'Layered Update Comment' Smell",
+      "description": "A comment like '/* Setup Wizard v0.4.0 Updates */' or a versioned block name appended below existing rules for the same component is a strong signal that an earlier version of the same rules may still exist elsewhere in the file, un-reconciled. Grep for the base selector names across the whole file whenever adding a new versioned/dated block for something that already has styling.",
+      "when_to_apply": "Adding new CSS (or similarly append-only config/rule structures) for a component that plausibly already has existing rules.",
+      "examples": [
+        "Confirmed via grep that `.setup-wizard`/`.setup-container` etc. were defined twice in App.css, ~1300 lines apart — the newer block's own comment ('v0.4.0 Updates') was the tell that an older, un-reconciled version might still exist."
+      ]
+    },
+    {
+      "name": "Periodically Audit Self-Heal Systems for Real Duplicate Counts",
+      "description": "Any 'runs every boot, additive, idempotent' self-heal pattern (a genuinely good, established pattern in this codebase) still needs its OWN idempotency verified periodically by directly counting real persisted records against expected unique counts — the pattern being architecturally sound doesn't guarantee any specific implementation of the 'already exists' check is correct (see method 23).",
+      "when_to_apply": "Any system using the 'runs every boot, additive, idempotent, self-heals' pattern established this session for methodology/jurisdiction/pipeline registration.",
+      "examples": [
+        "Direct container count (299 vs ~41 expected) caught what nine consecutive clean-looking boot logs did not."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Adding a new incremental/versioned block of rules, config, or self-heal logic on top of an area that may already have prior coverage.",
+      "action": "Before or immediately after adding, grep/search for the same logical keys (selector names, scope identifiers, dedup keys) elsewhere in the same file/store, and reconcile (remove the superseded original, or confirm the check that prevents duplication is itself durable per method 23) rather than leaving both to coexist indefinitely.",
+      "priority": 2,
+      "exceptions": [
+        "The old and new blocks are genuinely both still needed (e.g. a real `@media`-scoped responsive override, not a full duplicate) — confirm this by checking whether removing the older one changes rendered behavior, not by assuming."
+      ]
+    }
+  ]
+}

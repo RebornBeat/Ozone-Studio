@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "State the question and the decision the analysis serves before touching the data.",
+      "rationale": "Analyses without a decision target expand until the budget dies; the question is the filter.",
+      "applicability": [
+        "data",
+        "analysis",
+        "statistics"
+      ]
+    },
+    {
+      "statement": "Profile distributions and missingness before computing any aggregate.",
+      "rationale": "A mean over 40% nulls, or a max that's an entry error, produces confident nonsense.",
+      "applicability": [
+        "data",
+        "analysis"
+      ]
+    },
+    {
+      "statement": "Report the shape of the result — variance, sample size, exclusions — alongside the headline number.",
+      "rationale": "A point estimate without its uncertainty invites decisions the data cannot support.",
+      "applicability": [
+        "data",
+        "statistics"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Sanity row first",
+      "description": "Print one real row and the column types before any aggregation — most 'impossible results' are type or join surprises.",
+      "when_to_apply": "First contact with any new dataset.",
+      "examples": [
+        "A 'total' column stored as text sums to nothing; one printed row shows it instantly."
+      ]
+    },
+    {
+      "name": "Count what you excluded",
+      "description": "Every filter must report how many rows it removed — silent exclusion is silent bias.",
+      "when_to_apply": "Applying any filter or join that drops rows.",
+      "examples": [
+        "'Of 10,000 orders, 9,200 remained after excluding cancelled' — the 800 are part of the finding."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A result contradicts a known baseline or expectation.",
+      "action": "Re-verify the pipeline (types, joins, filters) before interpreting the surprise — surprises are usually pipeline errors, and only sometimes real discoveries.",
+      "priority": 1,
+      "exceptions": []
+    },
+    {
+      "condition": "The sample is too small for the claimed precision.",
+      "action": "Report the raw counts and the uncertainty; refuse the precise-sounding number.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

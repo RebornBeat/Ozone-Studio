@@ -174,7 +174,7 @@ async fn l2_remote_dispatch_wins_over_spawn() {
 
     let (url, server) =
         canned_server(r#"{"success": true, "source": "remote-dispatch"}"#.to_string());
-    remotes.register(100, "text-remote".to_string(), url).await;
+    remotes.register(100, "text-remote".to_string(), url, vec![]).await;
 
     let bp = fixture_blueprint(100, "text");
     let output = exec.execute(&bp, analyze_input("anything"), None).await.unwrap();

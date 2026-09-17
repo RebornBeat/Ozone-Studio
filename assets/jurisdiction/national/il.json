@@ -14,6 +14,22 @@
       "action": "Log",
       "source": "Protection of Privacy Law, 5741-1981 (minors-specific rules/amendments) — reported provisions include a general duty to protect minors' privacy, restrictions on collecting information about children under 14, and requiring parental consent for sensitive information about minors under 18. Source: Law Library of Congress summary, https://stuff.coffeecode.net/www.loc.gov/law/help/online-privacy-law/israel.php",
       "official_source": false
+    },
+    {
+      "scope": { "National": "IL" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Israel's AI Policy ('Responsible Innovation'), published by the Ministry of Innovation, Science and Technology and Ministry of Justice, December 2023 — policy-led/principle-driven, not a single AI Act; directs existing sectoral regulators to craft fit-for-purpose rules under a three-tiered structure (sector regulators, a governmental knowledge center, a steering committee), explicitly grounded in OECD AI principles. Financial sector (credit decisioning, insurance underwriting, investment advice) is the most developed area following a late-2024 interagency task force report. Secondary summary: https://dig.watch/resource/israels-policy-on-artificial-intelligence-regulation-and-ethics",
+      "retrieved_snippet": "The Israeli government published an AI Policy in December 2023, which set 'responsible innovation' as the guiding principle and directs regulators to craft fit-for-purpose rules for their sectors... The government has opted for a policy-led, principle-driven approach rather than a single overarching AI Act... The 2023 policy explicitly cites the OECD principles as its foundation.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "IL" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Equal Rights for Persons with Disabilities Law, 1998 (ERPD), enforced by the Commission for Equal Rights of Persons with Disabilities (CERPD, est. 2000); Israel Standard (IS) 5568 (in force since October 2017, essentially identical to WCAG 2.0) is the operative web-accessibility technical standard, mandatory for both public and private sectors. Official standards body: Standards Institution of Israel, https://www.sii.org.il/en/accessibility-statement/",
+      "retrieved_snippet": "In 1998, the Israeli Parliament passed the Equal Rights For Persons With Disabilities Law (ERPD)... In August 2000, the Commission for Equal Rights of Persons with Disabilities (CERPD) was set up to enforce the ERPD... The Israel Standard (IS) 5568... came into force in October 2017... essentially identical to WCAG 2.0. Compliance with Israel's web accessibility laws is mandatory for both the public and private sectors.",
+      "official_source": false
     }
   ]
 }

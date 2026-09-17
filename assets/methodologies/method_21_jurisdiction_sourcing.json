@@ -1,0 +1,61 @@
+{
+  "principles": [
+    {
+      "statement": "Legal/jurisdiction content must only ever be added from real, retrieved sources (a genuine search result, a real official citation) — never generated from a model's general/training knowledge, even when the resulting text would look plausible.",
+      "rationale": "Legal misinformation presented as real law is a distinct harm from ordinary factual error, since it may be relied on for real compliance decisions. This distinction was explicitly negotiated and agreed as the operating boundary for this content category.",
+      "applicability": ["jurisdiction", "legal_content", "content_sourcing"]
+    },
+    {
+      "statement": "Every jurisdiction rule carries a real, checkable source citation and every content file carries a mandatory, non-empty disclaimer stating the content is an engineering starting point, not verified legal compliance or a substitute for qualified counsel.",
+      "rationale": "This is enforced structurally (JurisdictionContentFile deserialization fails without a disclaimer, not just a convention) so the safety property can't be silently dropped by a future edit.",
+      "applicability": ["jurisdiction", "legal_content", "schema"]
+    },
+    {
+      "statement": "Auto-populated or newly-researched jurisdiction rules default to the lowest enforcement severity (Log only) — never Block, Warn, or RequireConfirmation — until a human with real legal authority reviews and explicitly elevates them.",
+      "rationale": "Assigning real enforcement consequences to unreviewed content recreates false confidence in a system that may be used in contexts where getting this wrong has real consequences.",
+      "applicability": ["jurisdiction", "legal_content", "enforcement"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Skip Honestly Rather Than Pad",
+      "description": "When no real, verifiable source exists for a given country/topic combination, omit that rule entirely rather than writing a plausible-sounding placeholder. A thin, honest file is correct; a padded, fabricated-sounding one recreates the exact harm the sourcing standard exists to prevent.",
+      "when_to_apply": "Any time real search does not turn up a genuine, citable source for a jurisdiction content gap.",
+      "examples": [
+        "Pakistan has no enacted comprehensive data-protection statute — cited the real applicable law (a criminal-cyber-crime act, not a privacy framework) instead of inventing an enacted one. Bangladesh has no online-specific child-safety law — cited the real general children's-welfare law and explicitly noted the gap rather than implying coverage that doesn't exist."
+      ]
+    },
+    {
+      "name": "Prefer Official Sources, Note When Using a Secondary One",
+      "description": "Prefer official government/regulator sources and primary legal text. When primary text isn't accessible (e.g. not available in a workable language), a reputable secondary source that clearly cites the underlying official law is acceptable — but note in the rule's source field that it's a secondary citation, not primary text.",
+      "when_to_apply": "Sourcing any new jurisdiction rule.",
+      "examples": [
+        "A country's official data-protection law text was only available in a non-English original; cited a reputable summary source and noted it was a secondary citation rather than presenting it as primary text."
+      ]
+    },
+    {
+      "name": "Layer National Content on a Regional Baseline, Don't Duplicate It",
+      "description": "When a country belongs to a bloc with its own real baseline content (e.g. an EU member state and the existing EU-wide rule set), only add genuinely national-specific rules (national implementing legislation, national authority guidance, country-specific statutes) — don't re-state the shared regional rule.",
+      "when_to_apply": "Adding jurisdiction content for a country that belongs to a regional bloc already covered by its own content file.",
+      "examples": [
+        "Sweden/Poland/Ireland/Portugal (EU members) got only their own national-specific rules layered on top of the existing EU-wide GDPR/DSA content, not a restatement of it."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Adding a new jurisdiction rule for any country or topic.",
+      "action": "Require a real, checkable source (official or clearly-cited secondary) before writing the rule; set action to Log only; ensure the file's disclaimer is present and accurate.",
+      "priority": 1,
+      "exceptions": [
+        "A human with real legal authority (not an agent) explicitly reviews and elevates a specific rule's action or confidence level."
+      ]
+    },
+    {
+      "condition": "No real, verifiable source can be found for a specific country/topic combination after a genuine search attempt.",
+      "action": "Skip that rule entirely and report the gap honestly (which country, which topic, why) rather than filling it with plausible-sounding but unverified content.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

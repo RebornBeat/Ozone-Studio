@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, current Polish law, retrieved via web search against official/reputable secondary sources describing the Polish Act of 10 May 2018 on the Protection of Personal Data and UOKiK consumer-protection enforcement, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Polish legal counsel. Scope: National(\"PL\") — this file covers ONLY Poland-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, current Polish law, retrieved via web search against official/reputable secondary sources describing the Polish Act of 10 May 2018 on the Protection of Personal Data and UOKiK consumer-protection enforcement, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Polish legal counsel. Scope: National(\"PL\") — this file covers ONLY Poland-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD, EU AI Act) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
   "rules": [
     {
       "scope": { "National": "PL" },
@@ -12,6 +12,22 @@
       "condition": "unfair commercial practice",
       "action": "Log",
       "source": "Poland's August 2024 implementation of Directive (EU) 2020/1828 on representative actions — allows authorized consumer organizations to bring collective actions on behalf of consumers, including for GDPR violations; UOKiK (Office of Competition and Consumer Protection) separately enforces unfair market practices and is developing tooling to detect dark patterns in online commerce. https://www.dataguidance.com/jurisdiction/poland"
+    },
+    {
+      "scope": { "National": "PL" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Act on Artificial Intelligence Systems (Ustawa o systemach sztucznej inteligencji) — adopted by Parliament 3 July 2026, signed by the President 24 July 2026, published in the 2026 Journal of Laws 27 July 2026, in force 11 August 2026 — https://www.regulatoryai.eu/ai-act-poland/",
+      "retrieved_snippet": "National implementing legislation for the EU AI Act — genuinely national-specific, not a restatement of eu.json's AI Act rules: creates the Commission for the Development and Safety of AI (KRiBSI), nested within the Ministry of Digital Affairs, as Poland's single market-surveillance authority (one of only two EU states, with Lithuania, to designate a sole authority), with real inspection, sanction, and regulatory-sandbox powers. From 2 August 2026, businesses in Poland must also comply with EU AI Act Article 50 transparency obligations (chatbots, emotion recognition, biometric categorisation, deepfakes).",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "PL" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Act on ensuring compliance with digital accessibility requirements (implementing the European Accessibility Act) — entered into force June 2025; earlier Act on Digital Accessibility of Websites and Mobile Applications of Public Entities of 4 April 2019 (transposing the EU Web Accessibility Directive) — https://www.w3.org/WAI/policies/poland/",
+      "retrieved_snippet": "The 2019 Act requires Polish public-sector websites/apps to meet WCAG 2.1 AA and publish an accessibility statement, with fines from PLN 5,000 to 100,000. The 2025 EAA-implementing Act extends WCAG 2.1 AA obligations to many private-sector companies as well, effective 28 June 2025 — genuinely broader than the EU-wide baseline and not yet covered in eu.json.",
+      "official_source": true
     }
   ]
 }

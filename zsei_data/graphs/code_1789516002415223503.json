@@ -1,0 +1,103 @@
+{
+  "analysis": {
+    "classes": [],
+    "comments": [],
+    "complexity_metrics": {
+      "cognitive_complexity": 1,
+      "cyclomatic_complexity": 1,
+      "halstead_metrics": null,
+      "maintainability_index": 80.0
+    },
+    "exports": [],
+    "file_path": "src/auth/b.rs",
+    "function_calls": [],
+    "functions": [
+      {
+        "calls": [],
+        "complexity": 1,
+        "doc_comment": null,
+        "end_line": 10,
+        "is_async": false,
+        "is_public": true,
+        "name": "validate_token",
+        "parameters": [],
+        "return_type": null,
+        "start_line": 1
+      }
+    ],
+    "imports": [
+      {
+        "is_external": false,
+        "items": [],
+        "line": 1,
+        "module": "crate::auth"
+      }
+    ],
+    "language": "rust",
+    "line_count": 40,
+    "type_definitions": [],
+    "variables": []
+  },
+  "edges": [
+    {
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    },
+    {
+      "edge_type": "Imports",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 3,
+      "weight": 1.0
+    }
+  ],
+  "graph_id": 1789516002415223503,
+  "nodes": [
+    {
+      "name": "src/auth/b.rs",
+      "node_id": 1,
+      "node_type": "File",
+      "position": null,
+      "properties": {
+        "language": "rust",
+        "line_count": 40
+      }
+    },
+    {
+      "name": "validate_token",
+      "node_id": 2,
+      "node_type": "Function",
+      "position": {
+        "end_column": null,
+        "end_line": 10,
+        "file_path": "src/auth/b.rs",
+        "start_column": null,
+        "start_line": 1
+      },
+      "properties": {
+        "complexity": 1,
+        "is_async": false,
+        "is_public": true
+      }
+    },
+    {
+      "name": "crate::auth",
+      "node_id": 3,
+      "node_type": "Import",
+      "position": {
+        "end_column": null,
+        "end_line": 1,
+        "file_path": "src/auth/b.rs",
+        "start_column": null,
+        "start_line": 1
+      },
+      "properties": {
+        "is_external": false,
+        "items": []
+      }
+    }
+  ]
+}

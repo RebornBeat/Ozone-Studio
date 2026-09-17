@@ -72,7 +72,7 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 /// concepts, arguments, tone, ...) don't have honest real values to fill
 /// from a TextAnalysisResult without fabricating structure, so text_context
 /// stays None. keywords/topics/name are real, directly from the analysis.
-async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResult, project_id: u64) -> Result<u64, String> {
+async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResult, project_id: u64) -> Result<(u64, Vec<String>, Vec<String>), String> {
     let now = chrono::Utc::now().timestamp() as u64;
     let keywords: Vec<String> = analysis.keywords.iter().map(|k| k.term.to_lowercase()).collect();
     let topics: Vec<String> = analysis.topics.iter().map(|t| t.name.clone()).collect();
@@ -173,7 +173,195 @@ async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResul
         let _ = std::fs::write(&graph_path, json);
     }
 
-    Ok(container_id)
+    Ok((container_id, keywords, topics))
+}
+
+/// Cross-relationship linking — the missing half of "identify file type,
+/// graph it, interconnect it with the whole graph" (confirmed gap: this
+/// container was created but never linked to anything else in ZSEI).
+/// Searches by this container's OWN real keywords/topics (not a separate
+/// re-derivation, so linking reflects exactly what the container advertises
+/// about itself), filters out infrastructure-type matches the same way
+/// context_aggregation's real fix does (mirrors is_infrastructure_container_type
+/// exactly — reusing that reasoning, not a query-level type restriction,
+/// since a type-blind SEARCH combined with a client-side type FILTER on the
+/// resolved containers is the proven-correct pattern from tonight's real
+/// hallucination-bug fix; a single container_type filter at the query layer
+/// would be too narrow — this needs to find genuinely related content across
+/// ANY content type, not just other text graphs), and requires at least 2
+/// shared keywords/topics (case-insensitive) before considering two
+/// containers related — one shared term is often coincidental even after the
+/// existing length>=3 + stopword filtering; two independently-shared terms
+/// is a meaningfully stronger signal. Confidence scales mildly with overlap
+/// count (more shared terms = more confidence) but is capped below 1.0 since
+/// this is inferred similarity, not an asserted fact. Writes a real,
+/// bidirectional Relation edge on both containers via UpdateContainer,
+/// skipping any relation that already exists (idempotent, safe to run again
+/// on a re-analysis). Returns the number of real edges wired.
+async fn link_related_containers(container_id: u64, own_keywords: &[String], own_topics: &[String]) -> usize {
+    fn is_infrastructure_container_type(t: &str) -> bool {
+        matches!(
+            t,
+            "Root" | "User" | "Workspace" | "Project"
+                | "Pipeline"
+                | "ModalityRoot" | "MethodologyRoot" | "BlueprintRoot" | "PipelineRoot"
+                | "ConsciousnessRoot" | "ExternalRoot" | "PackageRoot"
+                | "JurisdictionRoot"
+        )
+    }
+
+    let mut search_terms: Vec<String> = own_keywords.to_vec();
+    search_terms.extend(own_topics.iter().map(|t| t.to_lowercase()));
+    search_terms.sort();
+    search_terms.dedup();
+    if search_terms.is_empty() {
+        return 0;
+    }
+
+    let search_result = match zsei_query(serde_json::json!({
+        "SearchContainersByKeywords": {
+            "keywords": search_terms,
+            "container_type": Value::Null,
+            "strategy": Value::Null
+        }
+    }))
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("link_related_containers: search failed (non-fatal): {}", e);
+            return 0;
+        }
+    };
+
+    let candidate_ids: Vec<u64> = search_result
+        .get("Containers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+
+    let own_set: HashSet<String> = search_terms.iter().cloned().collect();
+    let mut wired = 0usize;
+
+    for candidate_id in candidate_ids {
+        if candidate_id == container_id {
+            continue;
+        }
+
+        let candidate = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": candidate_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let container_json = candidate.get("Container").cloned().unwrap_or(candidate);
+
+        let container_type = container_json
+            .pointer("/local_state/metadata/container_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if is_infrastructure_container_type(container_type) {
+            continue;
+        }
+
+        let candidate_context = match container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let candidate_terms: HashSet<String> = candidate_context
+            .get("keywords")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .chain(candidate_context.get("topics").and_then(|v| v.as_array()).into_iter().flatten())
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_lowercase())
+            .collect();
+
+        let shared_count = own_set.intersection(&candidate_terms).count();
+        if shared_count < 2 {
+            continue;
+        }
+
+        let mut relationships: Vec<serde_json::Value> = candidate_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let already_linked = relationships.iter().any(|r| {
+            r.get("target_id").and_then(|v| v.as_u64()) == Some(container_id)
+        });
+        if already_linked {
+            continue;
+        }
+
+        let confidence = (0.3 + 0.15 * shared_count as f32).min(0.9);
+
+        // Candidate -> this new container
+        relationships.push(serde_json::json!({
+            "target_id": container_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "TextAnalysis"
+        }));
+        let mut candidate_context_updated = candidate_context.clone();
+        candidate_context_updated["relationships"] = serde_json::Value::Array(relationships);
+        let update_a = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": candidate_id,
+                "updates": { "metadata": null, "context": candidate_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        // This new container -> candidate (bidirectional)
+        let own_container = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": container_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let own_container_json = own_container.get("Container").cloned().unwrap_or(own_container);
+        let own_context = match own_container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let mut own_relationships: Vec<serde_json::Value> = own_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        own_relationships.push(serde_json::json!({
+            "target_id": candidate_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "TextAnalysis"
+        }));
+        let mut own_context_updated = own_context.clone();
+        own_context_updated["relationships"] = serde_json::Value::Array(own_relationships);
+        let update_b = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": container_id,
+                "updates": { "metadata": null, "context": own_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        if update_a.is_ok() && update_b.is_ok() {
+            wired += 1;
+        } else {
+            eprintln!(
+                "link_related_containers: partial/failed write for {} <-> {} (non-fatal)",
+                container_id, candidate_id
+            );
+        }
+    }
+
+    wired
 }
 
 fn default_version() -> u32 {
@@ -5569,7 +5757,7 @@ RESPOND ONLY WITH JSON."#,
         &self,
         analysis: TextAnalysisResult,
         project_id: u64,
-        _link_to_existing: bool,
+        link_to_existing: bool,
     ) -> TextModalityOutput {
         let graph_id = Self::generate_id();
         let now = chrono::Utc::now().to_rfc3339();
@@ -5776,8 +5964,17 @@ RESPOND ONLY WITH JSON."#,
         // this pipeline already uses for optional integrations.
         let mut graph = graph;
         match persist_graph_container(&graph, &analysis, project_id).await {
-            Ok(container_id) => {
+            Ok((container_id, keywords, topics)) => {
                 graph.graph_id = container_id;
+                if link_to_existing {
+                    let wired = link_related_containers(container_id, &keywords, &topics).await;
+                    if wired > 0 {
+                        eprintln!(
+                            "link_related_containers: wired {} real cross-relationship edge(s) for container {}",
+                            wired, container_id
+                        );
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("Failed to persist text graph to ZSEI (using local id only): {}", e);

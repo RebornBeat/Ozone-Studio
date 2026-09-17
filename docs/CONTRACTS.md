@@ -223,3 +223,27 @@ These hold across every contract above:
 | Additional store backends | ○ |
 | Config-driven default selection | ○ |
 | Orchestrator decomposition into modules | ○ (standardization complete — safe to carve) |
+
+
+## 6. Coordination, pairing, and graph-event surface (2026-09-16)
+
+| Endpoint | Method | Contract |
+| -------- | ------ | -------- |
+| `/context/mirror` | POST | `{kind, agent, title, body?, files?, detail?, scope?, workspace_id?, project_id?}` → CoordinationEvent container under /SharedContext (id 8). Claims dedupe per file path. |
+| `/pairing/start` / `/status` / `/approve` | POST/GET | QR device pairing — phone as authenticator; real sessions via AuthSystem |
+| `/pair/:code` | GET | One-tap phone approve page |
+| `/devices` | GET | Every paired device on the host |
+| `/task/create` | POST | `{prompt, assignee?, created_by?, priority?}` → real TaskManager record (source-tagged; survives restarts as queued) |
+| `/task/update` | POST | `{task_id, status: completed\|failed\|queued, error?, agent?}` — coordination-task lifecycle; source-tagged tasks only |
+| `/mcp/call` | POST | THE standardized abstract tool call: `{tool, agent, input, context?}` → `{success, output, error, usage}` — metered, gated, rippled |
+| `/mcp/usage` | GET/POST | Per-agent/day/tool ledger; `OZONE_MCP_DAILY_LIMIT` gate |
+| `/ws` | GET | WebSocket: pipeline progress + live `graph_event` frames |
+
+**GraphEvent scope keywords** (`scope:global` / `ws:<id>` / `proj:<id>`)
+are the same encoding the coordination graph and context layer filter on —
+one vocabulary across ripple, monitor, and AMT context.
+
+**AMT expansion routes** (candidates, src/orchestrator/amt_candidates.rs):
+`UnverifiedNode` (build-time), `GraphRipple` (living-graph writes),
+`Continuation` (fork lineage). All consume through one review loop with
+methodology guidance + fallback escalation.

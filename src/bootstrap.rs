@@ -839,7 +839,7 @@ impl BootstrapManager {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),
-            "methodology_count": 15,
+            "methodology_count": 34,
             "methodologies": [
                 {"methodology_id":1,"name":"Conversational Response","categories":["conversation","chat"],"file":"method_1_conversational.json"},
                 {"methodology_id":2,"name":"Contextual Awareness","categories":["context","understanding"],"file":"method_2_context.json"},
@@ -856,7 +856,25 @@ impl BootstrapManager {
                 {"methodology_id":13,"name":"Exploratory Analysis","categories":["data","exploration","discovery"],"file":"method_13_exploratory.json"},
                 {"methodology_id":14,"name":"Formal Proof Methods","categories":["math","proof","formal"],"file":"method_14_formal_proof.json"},
                 {"methodology_id":15,"name":"Mathematical Rigor","categories":["math","rigor","verification"],"file":"method_15_mathematical_rigor.json"},
-                {"methodology_id":16,"name":"Host Lifecycle Management","categories":["host_operations","deployment","recovery"],"file":"method_16_host_lifecycle.json"}
+                {"methodology_id":16,"name":"Host Lifecycle Management","categories":["host_operations","deployment","recovery"],"file":"method_16_host_lifecycle.json"},
+                {"methodology_id":17,"name":"Memory-Pressure-Aware Build Sequencing","categories":["build","host_operations","multi_agent"],"file":"method_17_build_sequencing.json"},
+                {"methodology_id":18,"name":"CWD-Independent Path Resolution","categories":["filesystem","bootstrap","code_review"],"file":"method_18_path_resolution.json"},
+                {"methodology_id":19,"name":"Retry Escalation Must Cycle","categories":["retry_logic","fallback","code_review"],"file":"method_19_retry_escalation.json"},
+                {"methodology_id":20,"name":"Cross-Agent Claim Verification","categories":["multi_agent","verification","coordination"],"file":"method_20_cross_agent_verification.json"},
+                {"methodology_id":21,"name":"Jurisdiction Content Sourcing Standard","categories":["jurisdiction","legal_content","content_sourcing"],"file":"method_21_jurisdiction_sourcing.json"},
+                {"methodology_id":22,"name":"Persistent-vs-Cached Field Parity","categories":["storage","persistence","caching","restart_safety"],"file":"method_22_persistent_cache_parity.json"},
+                {"methodology_id":23,"name":"Idempotency Checks Must Read Durable State","categories":["idempotency","self_heal","deduplication","storage"],"file":"method_23_idempotency_check_durability.json"},
+                {"methodology_id":24,"name":"Incremental Layering Requires Reconciliation","categories":["code_hygiene","storage","css","technical_debt"],"file":"method_24_incremental_layering_reconciliation.json"},
+                {"methodology_id":25,"name":"Trace the Full Write-to-Read Path","categories":["debugging","code_review","restart_safety"],"file":"method_25_trace_full_write_read_path.json"},
+                {"methodology_id":26,"name":"Attribution Requires a Capability Check","categories":["multi_agent","verification","attribution","coordination"],"file":"method_26_attribution_requires_capability_check.json"},
+                {"methodology_id":27,"name":"Broad Relevance Discovery Pattern","categories":["search","relationship_discovery","cross_modality","storage"],"file":"method_27_broad_relevance_discovery_pattern.json"},
+                {"methodology_id":28,"name":"Extract for Testability","categories":["testing","code_review","refactoring"],"file":"method_28_extract_for_testability.json"},
+                {"methodology_id":29,"name":"Verify Test Assumptions Against Documented Exceptions Before Trusting a Failure","categories":["testing","code_review","content_integrity"],"file":"method_29_verify_test_assumptions_against_exceptions.json"},
+                {"methodology_id":30,"name":"Enforcement Actions Need Real Behavior, Not Just Labels","categories":["safety","enforcement","content_moderation","code_review"],"file":"method_30_enforcement_actions_need_real_behavior.json"},
+                {"methodology_id":31,"name":"Verify What's Actually Active, Not Just What's Built","categories":["configuration","debugging","cost_management","defaults"],"file":"method_31_verify_whats_actually_active.json"},
+                {"methodology_id":32,"name":"Self-Assessment Prompts Need a Calibration Bar","categories":["prompt_engineering","llm_gates","self_assessment","reliability"],"file":"method_32_self_assessment_needs_calibration_bar.json"},
+                {"methodology_id":33,"name":"Verify the Artifact, Not the Status","categories":["multi_agent","verification","resilience","coordination"],"file":"method_33_verify_the_artifact_not_the_status.json"},
+                {"methodology_id":34,"name":"Jurisdiction Source Maintenance Protocol","categories":["jurisdiction","legal_content","maintenance","content_sourcing"],"file":"method_34_jurisdiction_source_maintenance_protocol.json"}
             ]
         })
     }

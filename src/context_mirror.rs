@@ -256,3 +256,291 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
         Err(e) => Err(e.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::container::SHARED_CONTEXT_ROOT_ID;
+
+    async fn test_zsei() -> (ZSEI, String, std::path::PathBuf) {
+        // Unique per call: tests run in parallel and a shared dir would
+        // point multiple ZSEI instances at one mmap (byte-range stomping).
+        static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+        let dir = std::env::temp_dir().join(format!(
+            "ozone_cm_{}_{}_{}",
+            std::process::id(),
+            now_secs(),
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cfg = crate::config::ZSEIConfig {
+            global_path: dir.join("global.mmap").to_string_lossy().into(),
+            local_path: dir.join("local").to_string_lossy().into(),
+            cache_path: dir.join("cache").to_string_lossy().into(),
+            ml_path: dir.join("ml").to_string_lossy().into(),
+            max_containers_in_memory: 1000,
+            // mmap ON — the supported path. Found a real bug while writing
+            // this: mmap_enabled:false silently no-ops store_global's byte
+            // writes (storage core; filed for CC's storage pass).
+            mmap_enabled: true,
+            embedding_dimension: 384,
+            pipeline_index_path: dir.join("pi.json").to_string_lossy().into(),
+            methodology_index_path: dir.join("mi.json").to_string_lossy().into(),
+            blueprint_index_path: dir.join("bi.json").to_string_lossy().into(),
+        };
+        let zsei = ZSEI::new(&cfg).unwrap();
+        // Self-heal the /SharedContext root exactly like boot does.
+        let root = Container {
+            global_state: GlobalState {
+                container_id: SHARED_CONTEXT_ROOT_ID,
+                parent_id: 0,
+                child_ids: vec![],
+                child_count: 0,
+                version: 1,
+            },
+            local_state: LocalState {
+                metadata: Metadata {
+                    container_type: ContainerType::SharedContextRoot,
+                    modality: Modality::Unknown,
+                    created_at: 0,
+                    updated_at: 0,
+                    provenance: "test".into(),
+                    permissions: 0,
+                    owner_id: 0,
+                    name: Some("SharedContext".into()),
+                    materialized_path: Some("/SharedContext".into()),
+                },
+                ..Default::default()
+            },
+        };
+        let stored = zsei.store_container(root).await.unwrap();
+        assert_eq!(stored, SHARED_CONTEXT_ROOT_ID);
+        let data_dir = dir.to_string_lossy().into();
+        (zsei, data_dir, dir)
+    }
+
+    // T-CO1: scoping keywords — ws:<id> for workspace, scope:global for global.
+    #[tokio::test]
+    async fn mirrors_carry_scope_keywords() {
+        let (zsei, data_dir, _dir) = test_zsei().await;
+        let id = mirror(
+            &zsei,
+            &data_dir,
+            &MirrorRequest {
+                kind: "note".into(),
+                agent: "zcode".into(),
+                title: "ws test".into(),
+                body: String::new(),
+                files: vec![],
+                detail: None,
+                scope: Some("workspace".into()),
+                workspace_id: Some(3),
+                project_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let c = zsei.get_container(id).await.unwrap().unwrap();
+        assert!(c.local_state.context.keywords.contains(&"ws:3".to_string()));
+
+        let id = mirror(
+            &zsei,
+            &data_dir,
+            &MirrorRequest {
+                kind: "finding".into(),
+                agent: "zcode".into(),
+                title: "global test".into(),
+                body: String::new(),
+                files: vec![],
+                detail: None,
+                scope: Some("global".into()),
+                workspace_id: None,
+                project_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let c = zsei.get_container(id).await.unwrap().unwrap();
+        assert!(c
+            .local_state
+            .context
+            .keywords
+            .contains(&"scope:global".to_string()));
+    }
+
+    // T-CO2: claim dedupe — same file claimed twice → one container.
+    #[tokio::test]
+    async fn claim_dedupe_same_file_one_container() {
+        let (zsei, data_dir, _dir) = test_zsei().await;
+        let req = MirrorRequest {
+            kind: "claim".into(),
+            agent: "zcode".into(),
+            title: "claim: src/lib.rs".into(),
+            body: String::new(),
+            files: vec!["src/lib.rs".into()],
+            detail: None,
+            scope: Some("workspace".into()),
+            workspace_id: Some(3),
+            project_id: None,
+        };
+        let first = mirror(&zsei, &data_dir, &req).await.unwrap();
+        let second = mirror(&zsei, &data_dir, &req).await.unwrap();
+        assert_eq!(first, second, "re-claim must reuse the container");
+    }
+
+    // T-CO3: coercions — global claim → workspace; project w/o workspace → workspace.
+    #[tokio::test]
+    async fn scope_coercions() {
+        let (zsei, data_dir, _dir) = test_zsei().await;
+        // Global claim coerced to workspace (ws:0 when undeclared).
+        let c = zsei
+            .get_container(
+                mirror(
+                    &zsei,
+                    &data_dir,
+                    &MirrorRequest {
+                        kind: "claim".into(),
+                        agent: "cc".into(),
+                        title: "claim: x.rs".into(),
+                        body: String::new(),
+                        files: vec!["x.rs".into()],
+                        detail: None,
+                        scope: Some("global".into()),
+                        workspace_id: None,
+                        project_id: None,
+                    },
+                )
+                .await
+                .unwrap(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(c.local_state.context.keywords.contains(&"ws:0".to_string()));
+        assert!(!c
+            .local_state
+            .context
+            .keywords
+            .contains(&"scope:global".to_string()));
+
+        // project scope without workspace falls back to workspace.
+        let c = zsei
+            .get_container(
+                mirror(
+                    &zsei,
+                    &data_dir,
+                    &MirrorRequest {
+                        kind: "note".into(),
+                        agent: "cc".into(),
+                        title: "project note".into(),
+                        body: String::new(),
+                        files: vec![],
+                        detail: None,
+                        scope: Some("project".into()),
+                        workspace_id: None,
+                        project_id: Some(9),
+                    },
+                )
+                .await
+                .unwrap(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(c.local_state.context.keywords.contains(&"ws:0".to_string()));
+        assert!(!c
+            .local_state
+            .context
+            .keywords
+            .contains(&"proj:9".to_string()));
+    }
+
+    // T-CO4: body persistence — object_store_path file exists with full JSON.
+    #[tokio::test]
+    async fn body_persisted_via_object_store_path() {
+        let (zsei, data_dir, dir) = test_zsei().await;
+        let id = mirror(
+            &zsei,
+            &data_dir,
+            &MirrorRequest {
+                kind: "handoff".into(),
+                agent: "zcode".into(),
+                title: "handoff body test".into(),
+                body: "the full context".into(),
+                files: vec![],
+                detail: None,
+                scope: Some("global".into()),
+                workspace_id: None,
+                project_id: None,
+            },
+        )
+        .await
+        .unwrap();
+        let c = zsei.get_container(id).await.unwrap().unwrap();
+        let ptr = c
+            .local_state
+            .storage
+            .object_store_path
+            .expect("object_store_path set");
+        let body_path = std::path::PathBuf::from(&data_dir).join(&ptr);
+        let content = std::fs::read_to_string(body_path).expect("body file exists");
+        let j: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(j["body"], "the full context");
+        assert_eq!(j["kind"], "handoff");
+        let _ = dir; // tempdir cleanup on drop
+    }
+
+    // T-CO5: note_add through the MCP produces a real CoordinationEvent
+    // container. The HTTP handler (`mirror_context` in src/grpc/mod.rs,
+    // bound to POST /context/mirror) is a thin JSON-deserialize wrapper with
+    // no logic of its own beyond calling `mirror()` directly — confirmed by
+    // reading it — so exercising `mirror()` with a "note" kind (what
+    // note_add sends) is the real, complete behavior, not a partial stand-in
+    // for an HTTP-level test. Named explicitly for T-CO5 rather than relying
+    // on a reader to infer it from T-CO1's coverage.
+    #[tokio::test]
+    async fn note_add_produces_a_real_coordination_event_container() {
+        let (zsei, data_dir, _dir) = test_zsei().await;
+        let before = zsei
+            .get_container(SHARED_CONTEXT_ROOT_ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .global_state
+            .child_ids
+            .len();
+
+        let id = mirror(
+            &zsei,
+            &data_dir,
+            &MirrorRequest {
+                kind: "note".into(),
+                agent: "zcode".into(),
+                title: "real note_add test".into(),
+                body: "genuine note body".into(),
+                files: vec![],
+                detail: None,
+                scope: Some("workspace".into()),
+                workspace_id: Some(1),
+                project_id: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let c = zsei.get_container(id).await.unwrap().unwrap();
+        assert_eq!(c.local_state.metadata.container_type, ContainerType::CoordinationEvent);
+        assert!(c.local_state.context.keywords.contains(&"note".to_string()));
+        assert!(c.local_state.context.keywords.contains(&"zcode".to_string()));
+
+        let after = zsei
+            .get_container(SHARED_CONTEXT_ROOT_ID)
+            .await
+            .unwrap()
+            .unwrap()
+            .global_state
+            .child_ids
+            .len();
+        assert_eq!(after, before + 1, "the new note must be a real child of the SharedContext root");
+    }
+}

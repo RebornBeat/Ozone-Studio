@@ -1,0 +1,135 @@
+{
+  "graph_id": 1789498948002982718,
+  "modality": "text",
+  "version": "0.4.0",
+  "nodes": [
+    {
+      "node_id": 1,
+      "node_type": "Document",
+      "content": "60 words, 5 sentences, 1 paragraphs",
+      "position": null,
+      "properties": {
+        "paragraph_count": 1,
+        "readability_score": 55.0,
+        "sentence_count": 5,
+        "word_count": 60
+      },
+      "semantic_annotations": [],
+      "provisional": false,
+      "provisional_status": "Generated",
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "keywords": [],
+      "hotness_score": 0.5,
+      "cross_modal_refs": []
+    },
+    {
+      "node_id": 2,
+      "node_type": "Topic",
+      "content": "neural network architecture",
+      "position": null,
+      "properties": {
+        "keywords": [
+          "neural",
+          "network"
+        ],
+        "relevance": 0.8500000238418579
+      },
+      "semantic_annotations": [],
+      "provisional": false,
+      "provisional_status": "Generated",
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "keywords": [],
+      "hotness_score": 0.5,
+      "cross_modal_refs": []
+    },
+    {
+      "node_id": 3,
+      "node_type": "Keyword",
+      "content": "transformer",
+      "position": null,
+      "properties": {
+        "relevance": 0.8500000238418579,
+        "is_phrase": false,
+        "frequency": 4
+      },
+      "semantic_annotations": [],
+      "provisional": false,
+      "provisional_status": "Generated",
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "keywords": [],
+      "hotness_score": 0.5,
+      "cross_modal_refs": []
+    },
+    {
+      "node_id": 4,
+      "node_type": "Keyword",
+      "content": "gradient descent",
+      "position": null,
+      "properties": {
+        "relevance": 0.699999988079071,
+        "is_phrase": true,
+        "frequency": 2
+      },
+      "semantic_annotations": [],
+      "provisional": false,
+      "provisional_status": "Generated",
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "keywords": [],
+      "hotness_score": 0.5,
+      "cross_modal_refs": []
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": 1,
+      "from_node": 1,
+      "to_node": 2,
+      "edge_type": "Contains",
+      "weight": 0.85,
+      "properties": {},
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "is_cross_modal": false
+    },
+    {
+      "edge_id": 2,
+      "from_node": 1,
+      "to_node": 3,
+      "edge_type": "Contains",
+      "weight": 0.85,
+      "properties": {},
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "is_cross_modal": false
+    },
+    {
+      "edge_id": 3,
+      "from_node": 1,
+      "to_node": 4,
+      "edge_type": "Contains",
+      "weight": 0.7,
+      "properties": {},
+      "provenance": "DerivedFromPrompt",
+      "version": 1,
+      "version_notes": [],
+      "is_cross_modal": false
+    }
+  ],
+  "metadata": {
+    "created_at": "2026-09-15T19:02:28.002982842+00:00",
+    "project_id": 0,
+    "document_type": "Article"
+  },
+  "created_at": "2026-09-15T19:02:28.002982842+00:00",
+  "updated_at": "2026-09-15T19:02:28.002982842+00:00"
+}

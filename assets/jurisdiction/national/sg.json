@@ -24,6 +24,22 @@
       "source": "Consumer Protection (Fair Trading) Act (CPFTA), including Lemon Law provisions (Part III). Official ministry reference: https://www.mti.gov.sg/newsroom/public-consultation-lemon-law",
       "retrieved_snippet": "\"Lemon laws\" refer to consumer protection laws that provide remedies for consumers against latent defects in goods... The Consumer Protection (Fair Trading) Act (CPFTA) and the Lemon Law (Part III) provide repair, replacement, price reduction, or refund — with a defect that shows up within 6 months presumed to have existed at delivery.",
       "official_source": true
+    },
+    {
+      "scope": {"National": "SG"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Model AI Governance Framework for Agentic AI, released by the Infocomm Media Development Authority (IMDA), first issued 22 Jan 2026 (World Economic Forum), updated 20 May 2026 — voluntary/soft-law, risk-based, requiring meaningful human accountability and oversight (human-approval checkpoints for actions with material real-world impact). Third edition after Traditional AI (2020) and Generative AI (2024) frameworks. Official: https://www.imda.gov.sg/",
+      "retrieved_snippet": "Singapore unveiled its Model AI Governance Framework for Agentic AI on January 22, 2026 — the world's first comprehensive governance framework for agentic AI systems... predominantly soft-law, risk-based, and sector-specific... requiring humans to remain ultimately accountable for agents' actions, necessitating effective human oversight mechanisms including significant checkpoints where human approval is required for actions with material real-world impacts.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "SG"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "No mandatory private-sector digital accessibility law — IMDA's Accessibility Guidelines strongly recommend (not enforce) WCAG 2.1 Level AA. Government sector is mandatory: Singapore's Digital Service Standards require WCAG 2.1 AA for public agencies; the Enabling Masterplan 2030 targets all high-traffic government websites accessible by 2030 (61% as of search). Honest gap: no enforceable private-sector standard exists yet. Secondary summary: https://peopleofinternet.com/articles/singapore-mandates-digital-accessibility-for-government-serv.html ; official: https://www.imda.gov.sg/",
+      "retrieved_snippet": "Singapore's Infocomm Media Development Authority (IMDA) provides Accessibility Guidelines that recommend WCAG 2.1 Level AA compliance for digital services. However, Singapore currently has no mandatory private sector digital accessibility law... government agencies face mandatory compliance requirements for WCAG 2.1 AA standards. The Enabling Masterplan 2030 sets the goal of ensuring that all high-traffic government websites are fully accessible by 2030, up from the current 61%.",
+      "official_source": false
     }
   ]
 }

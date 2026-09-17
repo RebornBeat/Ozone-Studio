@@ -92,6 +92,16 @@ impl ZSEI {
                 ZSEIQueryResult::ContainerID(id) => Some(*id),
                 _ => None,
             };
+            // CACHE COHERENCY: process() writes through storage directly and
+            // bypasses the hot cache — invalidate the affected ids so the
+            // next read sees the new state (found live: claim dedupe read a
+            // stale root child list through the cache).
+            if let Some(id) = container_id {
+                self.cache.write().await.remove(&id);
+            }
+            if parent_id != 0 {
+                self.cache.write().await.remove(&parent_id);
+            }
             if let Some(id) = container_id {
                 crate::graph_events::emit(event, id, parent_id, container_type, "zsei", scope_keywords);
             } else if event != "created" {

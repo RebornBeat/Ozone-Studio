@@ -1,0 +1,55 @@
+{
+  "principles": [
+    {
+      "statement": "Context is assembled from the graph, not recalled from a summary — resolve links to their containers before reasoning about them.",
+      "rationale": "A summary of a summary loses the structure that makes the context accurate; the graph stores relationships precisely so they can be walked when needed.",
+      "applicability": [
+        "context",
+        "understanding",
+        "retrieval"
+      ]
+    },
+    {
+      "statement": "Prefer the most recently verified source when two context sources disagree.",
+      "rationale": "Stale context silently contradicts fresh state; verification timestamps exist to arbitrate exactly this conflict.",
+      "applicability": [
+        "context",
+        "understanding"
+      ]
+    },
+    {
+      "statement": "Note which scope a piece of context came from — global, workspace, or project — before using it.",
+      "rationale": "A global policy and a project-local exception can both be true; conflating their scopes produces wrong conclusions.",
+      "applicability": [
+        "context",
+        "scoping"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Relationship before content",
+      "description": "When evaluating a container, check what it links to and what links to it before trusting its standalone content.",
+      "when_to_apply": "Any container discovered by search rather than direct reference.",
+      "examples": [
+        "A jurisdiction rule whose scope links to an EU baseline inherits constraints its text never mentions."
+      ]
+    },
+    {
+      "name": "Scope conflict check",
+      "description": "If two context items contradict, first check whether they differ in scope before treating it as a real contradiction.",
+      "when_to_apply": "Any apparent conflict between stored facts.",
+      "examples": [
+        "'Deploy on Friday' (project A) vs 'never deploy Fridays' (global) — scopes differ, not facts."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Context was found by keyword match only, with no relationship walk.",
+      "action": "Treat as a lead, not a fact — verify via container resolution or a related edge before citing it as grounding.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

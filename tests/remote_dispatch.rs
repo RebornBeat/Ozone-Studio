@@ -54,7 +54,7 @@ async fn register_execute_and_count() {
     );
 
     // The pipeline "connects": it announces itself.
-    let entry = remotes.register(999, "test-remote".to_string(), url).await;
+    let entry = remotes.register(999, "test-remote".to_string(), url, vec![]).await;
     assert_eq!(entry.pipeline_id, 999);
 
     // Host dispatch lands on the remote, not on a spawn path.
@@ -85,7 +85,7 @@ async fn deregister_falls_back_to_absent() {
     let remotes = RemotePipelines::new();
 
     remotes
-        .register(1000, "gone-soon".to_string(), "http://127.0.0.1:1/x".to_string())
+        .register(1000, "gone-soon".to_string(), "http://127.0.0.1:1/x".to_string(), vec![])
         .await;
     assert!(remotes.deregister(1000).await);
     assert!(!remotes.deregister(1000).await); // second deregister: nothing there

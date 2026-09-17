@@ -78,6 +78,84 @@ use tokio::sync::RwLock;
 
 use task::{RefinementConfig, TaskQueueConfig};
 
+/// Real ISO-3166-1 alpha-2 codes of the EU's 27 member states — used only to
+/// decide which national jurisdiction rulesets also relate to the "eu"
+/// baseline scope during boot-time relationship-graph wiring, not asserted
+/// as legal fact beyond that. Module-level (not inlined in the wiring block)
+/// so `compute_jurisdiction_edges_to_add` and its tests share one real list.
+pub const JURISDICTION_EU_MEMBER_CODES: &[&str] = &[
+    "at", "be", "bg", "hr", "cy", "cz", "dk", "ee", "fi", "fr",
+    "de", "gr", "hu", "ie", "it", "lv", "lt", "lu", "mt", "nl",
+    "pl", "pt", "ro", "sk", "si", "es", "se",
+];
+
+/// Pure logic for the jurisdiction container self-heal registration —
+/// extracted from the boot-time block in `OzoneRuntime::new` so its
+/// idempotency guarantee is independently testable without a real ZSEI
+/// store. Given the scope keywords already registered as children of
+/// `JURISDICTION_ROOT_ID` and the full candidate list found on disk,
+/// returns exactly the candidates that still need registering (empty when
+/// every candidate is already covered — the "0 new on re-run" guarantee).
+pub fn compute_new_jurisdiction_registrations(
+    already_registered: &std::collections::HashSet<String>,
+    candidates: &[(String, std::path::PathBuf)],
+) -> Vec<(String, std::path::PathBuf)> {
+    candidates
+        .iter()
+        .filter(|(scope, _)| !already_registered.contains(scope))
+        .cloned()
+        .collect()
+}
+
+/// Pure logic for the jurisdiction relationship-graph wiring — extracted
+/// from the boot-time block in `OzoneRuntime::new` so both the edge shape
+/// (T-J2) and its idempotency (T-J5) are independently testable. Given one
+/// non-"global" scope's current relationships and the resolved global/eu
+/// representative container ids, returns the NEW `Relation` edges this
+/// scope should gain — empty when it already has them, which is exactly
+/// what makes a second call with the first call's edges already merged in a
+/// no-op (the idempotency guarantee the boot-time block relies on to be
+/// safely re-run every startup).
+pub fn compute_jurisdiction_edges_to_add(
+    scope: &str,
+    container_id: crate::types::ContainerID,
+    existing_relationships: &[crate::types::container::Relation],
+    global_id: Option<crate::types::ContainerID>,
+    eu_id: Option<crate::types::ContainerID>,
+) -> Vec<crate::types::container::Relation> {
+    use crate::types::container::{DiscoveryMethod, Relation, RelationType};
+
+    let mut new_edges = Vec::new();
+
+    if let Some(gid) = global_id {
+        if gid != container_id && !existing_relationships.iter().any(|r| r.target_id == gid) {
+            new_edges.push(Relation {
+                target_id: gid,
+                relation_type: RelationType::RelatedTo,
+                confidence: 0.9,
+                discovered_via: DiscoveryMethod::Manual,
+            });
+        }
+    }
+
+    if scope != "eu" {
+        if let Some(eid) = eu_id {
+            if JURISDICTION_EU_MEMBER_CODES.contains(&scope)
+                && !existing_relationships.iter().any(|r| r.target_id == eid)
+            {
+                new_edges.push(Relation {
+                    target_id: eid,
+                    relation_type: RelationType::RelatedTo,
+                    confidence: 0.9,
+                    discovered_via: DiscoveryMethod::Manual,
+                });
+            }
+        }
+    }
+
+    new_edges
+}
+
 /// Result of the full AMT orchestration flow
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct OrchestrationOutput {
@@ -435,11 +513,9 @@ impl OzoneRuntime {
                     }
                 }
 
+                let to_register = compute_new_jurisdiction_registrations(&already_registered, &candidates);
                 let mut registered = 0usize;
-                for (scope, rel_path) in candidates {
-                    if already_registered.contains(&scope) {
-                        continue;
-                    }
+                for (scope, rel_path) in to_register {
                     let container = Container {
                         global_state: GlobalState {
                             container_id: 0, // overwritten by CreateContainer
@@ -505,6 +581,89 @@ impl OzoneRuntime {
                     registered,
                     already_registered.len()
                 );
+            }
+        }
+
+        // --- Wire real jurisdiction relationship edges (graph, not just a
+        // flat list) --- Found live 2026-09-15: traversal.rs's 6 modes never
+        // read Context.relationships (structural_traversal just fixed above
+        // in the same pass to follow Relation edges), but nothing ever
+        // POPULATED jurisdiction relationships either — every
+        // JurisdictionRuleSet container created above starts with
+        // `relationships: vec![]`. This wires the real structural fact that
+        // a national ruleset is layered on top of (not a replacement for) a
+        // broader baseline: every non-global scope gets a RelatedTo edge to
+        // "global", and any EU member state additionally gets a RelatedTo
+        // edge to "eu" (the EU baseline is itself layered on "global" the
+        // same way). This is what makes jurisdiction an actual graphed meta
+        // workspace instead of a flat list only connected by shared
+        // keywords. Idempotent (skips a relation that already exists), runs
+        // every boot so it self-heals for content added after this code
+        // first ran.
+        {
+            use crate::types::ContainerID;
+            use crate::types::container::JURISDICTION_ROOT_ID;
+
+            let mut zsei = zsei_arc.write().await;
+            if let Ok(Some(root)) = zsei.get_container(JURISDICTION_ROOT_ID).await {
+                let mut scope_to_id: std::collections::HashMap<String, ContainerID> =
+                    std::collections::HashMap::new();
+                for child_id in &root.global_state.child_ids {
+                    if let Ok(Some(child)) = zsei.get_container(*child_id).await {
+                        if let Some(kw) = child.local_state.context.keywords.first() {
+                            scope_to_id.insert(kw.clone(), *child_id);
+                        }
+                    }
+                }
+
+                let global_id = scope_to_id.get("global").copied();
+                let eu_id = scope_to_id.get("eu").copied();
+                let scopes: Vec<(String, ContainerID)> =
+                    scope_to_id.iter().map(|(s, id)| (s.clone(), *id)).collect();
+
+                let mut wired = 0usize;
+                for (scope, container_id) in scopes {
+                    if scope.as_str() == "global" {
+                        continue;
+                    }
+                    let container = match zsei.get_container(container_id).await {
+                        Ok(Some(c)) => c,
+                        _ => continue,
+                    };
+
+                    let mut relationships = container.local_state.context.relationships.clone();
+                    let new_edges = compute_jurisdiction_edges_to_add(
+                        &scope,
+                        container_id,
+                        &relationships,
+                        global_id,
+                        eu_id,
+                    );
+                    let changed = !new_edges.is_empty();
+                    relationships.extend(new_edges);
+
+                    if changed {
+                        let mut new_context = container.local_state.context.clone();
+                        new_context.relationships = relationships;
+                        if let Err(e) = zsei
+                            .query(crate::types::zsei::ZSEIQuery::UpdateContainer {
+                                container_id,
+                                updates: crate::types::zsei::ContainerUpdate {
+                                    context: Some(new_context),
+                                    ..Default::default()
+                                },
+                            })
+                            .await
+                        {
+                            tracing::warn!(scope = %scope, error = %e, "Failed to wire jurisdiction relationship edge");
+                        } else {
+                            wired += 1;
+                        }
+                    }
+                }
+                if wired > 0 {
+                    tracing::info!("Jurisdiction graph: wired {} relationship edges", wired);
+                }
             }
         }
 
@@ -671,12 +830,24 @@ impl OzoneRuntime {
             // amt.rs::record_amt_reexpansion_candidate whenever a
             // project-anchored AMT still has an unverified node.
             tokio::spawn(crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
-                executor_adapter,
-                store_adapter,
+                executor_adapter.clone(),
+                store_adapter.clone(),
                 refinement_config,
                 available_models,
                 meta_fallback,
             ));
+
+            // GRAPH RIPPLE → AMT SYNC (task 43 groundwork): graph writes in
+            // a project's scope convert into AMT re-expansion candidates and
+            // wake the loop above instantly — the AMT stays context-aligned
+            // with the living graph instead of waiting for the interval.
+            crate::orchestrator::amt_loop::spawn_graph_ripple_sync(
+                store_adapter,
+                format!(
+                    "{}/amt_reexpansion_candidates.json",
+                    std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string())
+                ),
+            );
         }
 
         // Start gRPC server

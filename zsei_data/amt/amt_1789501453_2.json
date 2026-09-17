@@ -1,0 +1,15 @@
+{
+  "id": 2,
+  "node_type": "Root",
+  "content": "Process user request",
+  "source_chunk_indices": [
+    0
+  ],
+  "children": [],
+  "relationships": [],
+  "methodology_ids": [],
+  "metadata": {},
+  "depth": 0,
+  "verified": true,
+  "confidence": 1.0
+}

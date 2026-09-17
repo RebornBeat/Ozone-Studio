@@ -8,6 +8,134 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
 
+// Same real-ZSEI-over-HTTP pattern as text/code modality, file_link, and
+// context_aggregation.
+fn ozone_host() -> String {
+    std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
+}
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(format!("{}/zsei/query", ozone_host()))
+        .json(&serde_json::json!({"query": query, "session_token": ""}))
+        .send()
+        .await
+        .map_err(|e| format!("zsei query request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("zsei query response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("zsei query failed")
+            .to_string());
+    }
+    Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Real ZSEI graph wiring for a URL link (task 64) — see file_link's
+/// identical helper for the full design rationale. root=71
+/// (EXTERNAL_URLS_ROOT_ID) is the fallback parent.
+async fn link_reference_to_graph(
+    project_id: u64,
+    fallback_root: u64,
+    container_type: &str,
+    provenance: &str,
+    name: String,
+    keywords: Vec<String>,
+) -> Option<u64> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    let parent_id = if project_id != 0 { project_id } else { fallback_root };
+    let container = serde_json::json!({
+        "global_state": { "container_id": 0, "child_count": 0, "version": 1, "parent_id": 0, "child_ids": [] },
+        "local_state": {
+            "metadata": {
+                "container_type": container_type,
+                "modality": "Unknown",
+                "created_at": now,
+                "updated_at": now,
+                "provenance": provenance,
+                "permissions": 0,
+                "owner_id": 0,
+                "name": name,
+                "materialized_path": null
+            },
+            "context": {
+                "categories": [],
+                "methodologies": [],
+                "keywords": keywords,
+                "topics": [],
+                "relationships": [],
+                "learned_associations": [],
+                "embedding": null
+            },
+            "storage": { "db_shard_id": null, "vector_index_ref": null, "object_store_path": null, "compression_type": "None" },
+            "hints": { "access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0 },
+            "integrity": { "content_hash": vec![0u8; 32], "semantic_fingerprint": [], "last_verified": now, "integrity_score": 1.0, "version_history": [] },
+            "file_context": null,
+            "code_context": null,
+            "text_context": null,
+            "external_ref": null
+        }
+    });
+
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": parent_id, "container": container }
+    }))
+    .await
+    .ok()?;
+    let container_id = result.get("ContainerID").and_then(|v| v.as_u64())?;
+
+    if project_id != 0 {
+        link_relation_both_ways(project_id, container_id).await;
+    }
+
+    Some(container_id)
+}
+
+/// Best-effort bidirectional Relation edge — see file_link's identical
+/// helper for the full design rationale.
+async fn link_relation_both_ways(project_id: u64, ref_container_id: u64) {
+    for (from_id, to_id, relation_type) in [
+        (project_id, ref_container_id, "Contains"),
+        (ref_container_id, project_id, "PartOf"),
+    ] {
+        let existing = match zsei_query(serde_json::json!({ "GetContainer": { "container_id": from_id } })).await {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let container_json = existing.get("Container").cloned().unwrap_or(existing);
+        let context = match container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let mut relationships: Vec<serde_json::Value> =
+            context.get("relationships").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        let already = relationships.iter().any(|r| r.get("target_id").and_then(|v| v.as_u64()) == Some(to_id));
+        if already {
+            continue;
+        }
+        relationships.push(serde_json::json!({
+            "target_id": to_id,
+            "relation_type": relation_type,
+            "confidence": 1.0,
+            "discovered_via": "Manual"
+        }));
+        let mut updated_context = context.clone();
+        updated_context["relationships"] = serde_json::Value::Array(relationships);
+        let _ = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": from_id,
+                "updates": { "metadata": null, "context": updated_context, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum URLLinkInput {
@@ -37,6 +165,11 @@ pub struct URLRefInfo {
     pub last_fetched: u64,
     pub content_extracted: bool,
     pub created_at: u64,
+    /// The real ZSEI URLReference container this link was also wired to
+    /// (task 64). `#[serde(default)]` so urls_<id>.json written before
+    /// this field existed still deserialize (as None).
+    #[serde(default)]
+    pub zsei_container_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,6 +264,9 @@ fn create_url_ref(project_id: u64, url: &str, analyze: bool) -> URLRefInfo {
         last_fetched: if analyze { now() } else { 0 },
         content_extracted,
         created_at: now(),
+        // Wired to the real graph at link time (task 64); None until
+        // link_reference_to_graph fills it in.
+        zsei_container_id: None,
     }
 }
 
@@ -238,12 +374,26 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
                 });
             }
             
-            let url_ref = create_url_ref(project_id, &url, analyze);
+            let mut url_ref = create_url_ref(project_id, &url, analyze);
+
+            // analyze=true will fetch content in create_url_ref
+
+            // Real graph wiring (task 64) — a genuine URLReference
+            // container + bidirectional Relation edge with the project.
+            let keywords: Vec<String> = vec![url_ref.domain.to_lowercase()];
+            url_ref.zsei_container_id = link_reference_to_graph(
+                project_id,
+                71, // EXTERNAL_URLS_ROOT_ID
+                "URLReference",
+                "url_link_pipeline",
+                format!("URL: {}", url_ref.url),
+                keywords,
+            )
+            .await;
+
             refs.push(url_ref.clone());
             save_url_refs(project_id, &refs)?;
-            
-            // analyze=true will fetch content in create_url_ref
-            
+
             Ok(URLLinkOutput {
                 success: true,
                 url_ref: Some(url_ref),
@@ -267,7 +417,17 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
                     continue;
                 }
                 
-                let url_ref = create_url_ref(project_id, &url, analyze);
+                let mut url_ref = create_url_ref(project_id, &url, analyze);
+                let keywords: Vec<String> = vec![url_ref.domain.to_lowercase()];
+                url_ref.zsei_container_id = link_reference_to_graph(
+                    project_id,
+                    71,
+                    "URLReference",
+                    "url_link_pipeline",
+                    format!("URL: {}", url_ref.url),
+                    keywords,
+                )
+                .await;
                 refs.push(url_ref.clone());
                 new_refs.push(url_ref);
             }
@@ -285,10 +445,17 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
         URLLinkInput::Unlink { project_id, url_ref_id } => {
             let mut refs = load_url_refs(project_id);
             let initial_len = refs.len();
+            let zsei_container_id = refs.iter().find(|r| r.id == url_ref_id).and_then(|r| r.zsei_container_id);
             refs.retain(|r| r.id != url_ref_id);
-            
+
             if refs.len() < initial_len {
                 save_url_refs(project_id, &refs)?;
+                if let Some(container_id) = zsei_container_id {
+                    let _ = zsei_query(serde_json::json!({
+                        "DeleteContainer": { "container_id": container_id }
+                    }))
+                    .await;
+                }
                 Ok(URLLinkOutput {
                     success: true,
                     url_ref: None,
@@ -331,14 +498,18 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
                                             }
                                         }
                                         
+                                        // Clone out of the mutable borrow
+                                        // before serializing the vec.
+                                        let updated = url_ref.clone();
+
                                         // Save updated refs
                                         let content = serde_json::to_string_pretty(&refs)
                                             .map_err(|e| e.to_string())?;
                                         fs::write(&path, content).map_err(|e| e.to_string())?;
-                                        
+
                                         return Ok(URLLinkOutput {
                                             success: true,
-                                            url_ref: Some(url_ref.clone()),
+                                            url_ref: Some(updated),
                                             url_refs: None,
                                             error: None,
                                         });
@@ -403,15 +574,37 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
     }
 }
 
-fn main() {
+/// See file_link's identical helper for the full rationale — real
+/// orchestrator calls pass the {data, context} envelope, which the
+/// previous bare serde_json::from_str(&input_json) here never unwrapped.
+fn parse_cli_input<T: serde::de::DeserializeOwned>() -> Result<T, String> {
     let args: Vec<String> = std::env::args().collect();
-    let mut input_json = String::new();
-    for i in 1..args.len() {
+    let mut input_json: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = Some(args[i + 1].clone());
+            i += 2;
+        } else {
+            i += 1;
         }
     }
-    let input: URLLinkInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
+    let raw = match input_json {
+        Some(s) => s,
+        None => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin().read_to_string(&mut buf).map_err(|e| e.to_string())?;
+            buf
+        }
+    };
+    let v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let inner = v.get("data").cloned().unwrap_or(v);
+    serde_json::from_value(inner).map_err(|e| e.to_string())
+}
+
+fn main() {
+    let input: URLLinkInput = parse_cli_input().unwrap_or_else(|e| {
         eprintln!("Parse error: {}", e);
         std::process::exit(1);
     });

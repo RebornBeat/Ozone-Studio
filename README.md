@@ -624,6 +624,8 @@ The system recognizes that:
 - **Bootstrap & Evolution**: `docs/bootstrap_and_evolution.md`
 - **Contracts**: `docs/CONTRACTS.md`
 - **Living Graph Status**: `docs/LIVING_GRAPH_STATUS.md` — the graph system's doctrine-vs-reality matrix: what is graphed per modality, context-object provenance, the traversal-wiring gap, and the coordination graph
+- **ZSEI Architecture Deep Dive**: `docs/developer/ZSEI_ARCHITECTURE_DEEP_DIVE.md` — container anatomy (full property inventory), traversal modes, living-graph addendum
+- **AMT Expansion Architecture**: `docs/AMT_EXPANSION.md` — one gateway, three expansion routes, the unified candidate store, the main/fork island model
 - **Ecosystem Architecture**: `docs/ecosystem_architecture.md`
 - **Introduction**: `docs/introduction.md`
 - **Technical Documentation**: `docs/technical_documentation.md`

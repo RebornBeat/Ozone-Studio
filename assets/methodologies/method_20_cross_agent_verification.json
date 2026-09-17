@@ -1,0 +1,42 @@
+{
+  "principles": [
+    {
+      "statement": "Never treat another agent's self-reported claim of completion, container IDs, registration counts, or fix correctness as fact until independently checked via a real API call, GetContainer query, or direct file/process inspection.",
+      "rationale": "Confirmed live, repeatedly, across one session: a fork's claimed container IDs (1103-1109) did not exist when independently checked against the live host; a relayed 'MCP tools registered, 12 tools connected' claim did not match what was actually reachable; conversely, when claims WERE independently verified, several turned out to be genuinely accurate (SharedContext root child_count, methodology 16 registration) — the discipline catches real problems without assuming bad faith.",
+      "applicability": ["multi_agent", "verification", "coordination"]
+    },
+    {
+      "statement": "Independent verification is not adversarial — it is the mechanism that lets two agents trust a shared, unified state instead of two divergent mental models. Report verification results (both confirmations and corrections) back through the shared channel so the other agent benefits from the check too.",
+      "rationale": "Both agents this session repeatedly verified each other's claims and posted the results either way — this kept a real, unified picture of state (task stores, container counts, build status) instead of either side silently drifting.",
+      "applicability": ["multi_agent", "coordination", "trust"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Verify Before Building On Top",
+      "description": "Before writing code, running a test, or making a decision that depends on another agent's reported state (a container exists, a fix is built, a task is registered), make one real, cheap verification call first (GetContainer, tasks_list, a file existence check) rather than proceeding on trust.",
+      "when_to_apply": "Any time a handoff, note, or relayed status claims something that the receiving agent's own next action depends on being true.",
+      "examples": [
+        "A note claimed 'methodology root has 16 children' — before treating a related task as done, called GetContainer(METHODOLOGY_ROOT_ID) directly and confirmed child_count:16 matched, rather than closing the task on the note's word alone."
+      ]
+    },
+    {
+      "name": "Report Both Confirmations and Corrections",
+      "description": "When independent verification confirms a claim, say so explicitly in the shared channel (not just silence) — this is as valuable as catching a real discrepancy, since it tells the other agent their reporting is trustworthy and builds toward reducing how much re-verification is needed over time.",
+      "when_to_apply": "After any independent verification of another agent's claim, regardless of outcome.",
+      "examples": [
+        "Posted 'independently verified, both real' after confirming two specific claims via direct GetContainer calls, rather than only posting when something was wrong."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A shared-context note or handoff claims a specific, checkable fact (a container exists, a count, a build succeeded, a file is present) that upcoming work depends on.",
+      "action": "Make one real, direct verification call against the live system before proceeding as if the claim is true.",
+      "priority": 1,
+      "exceptions": [
+        "The claim is about the other agent's own internal reasoning/plan rather than a checkable external fact (e.g. 'I intend to work on X next') — nothing to verify there, just note it."
+      ]
+    }
+  ]
+}
