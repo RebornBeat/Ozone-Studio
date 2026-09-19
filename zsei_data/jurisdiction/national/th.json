@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Thailand (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "TH"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act B.E.2562 (2019) (PDPA), came into full effect 1 June 2022. Regulator: Personal Data Protection Committee (PDPC). Summary: https://www.nortonrosefulbright.com/en/knowledge/publications/e29d223d/overview-of-thailand-personal-data-protection-act-be2562-2019 . Official statutory text should be verified via the Thai Government Gazette or the PDPC's own site — not directly retrieved in this pass.",
+      "retrieved_snippet": "Thailand's comprehensive data-protection law, similar in scope and spirit to the EU's GDPR, regulating collection, use, and disclosure of personal data online, offline, and paper-based, applying to any business operating in or serving Thailand. Data controllers must report a breach to the PDPC within 72 hours of discovery unless it poses no risk to individuals' rights and freedoms.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "TH"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Child Protection Act B.E.2546 (2003) is the current base law (a child is an unmarried person under 18; parental consent required before collecting personal data of a child under 10). A comprehensive replacement Draft Child Protection Act was released for public review by the Ministry of Social Development and Human Security on 11 May 2026 — NOT YET ENACTED, a draft only. Summary: https://www.tilleke.com/insights/thailands-draft-child-protection-act-complete-overhaul-of-existing-framework/13/",
+      "retrieved_snippet": "The draft represents the most comprehensive overhaul of Thailand's child protection framework in over two decades, addressing evolving challenges including those from digital technology; a separate draft Criminal Code amendment targets online offenses against children specifically.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "TH"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Act B.E.2522 (1979). Regulator: Office of the Consumer Protection Board (OCPB), established 2 July 1979, official site https://www.ocpb.go.th/index_en.php",
+      "retrieved_snippet": "Safeguards consumer rights, regulates business practices, and ensures fair trade; OCPB administers matters on advertising, labeling, and contracts, investigates claims and mediates disputes, with escalation to the Consumer Court (expedited procedures, waived legal fees) if mediation fails.",
+      "official_source": true
+    }
+  ]
+}

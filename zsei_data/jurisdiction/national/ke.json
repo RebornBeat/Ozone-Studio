@@ -1,0 +1,26 @@
+{
+  "disclaimer": "Drafted from real Kenyan legislation and regulatory guidance, retrieved via web search against official government sources (odpc.go.ke, kenyalaw.org — the National Council for Law Reporting, parliament.go.ke, ca.go.ke) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Kenyan legal counsel. Scope: National(\"KE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "KE" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "The Data Protection Act, No. 24 of 2019 — enacted 8 Nov 2019 to give effect to Article 31 of the Constitution of Kenya, created the Office of the Data Protection Commissioner (ODPC). Official text: https://www.odpc.go.ke/wp-content/uploads/2024/02/TheDataProtectionAct__No24of2019.pdf and Kenya Law: https://new.kenyalaw.org/akn/ke/act/2019/24",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "KE" },
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Act, No. 46 of 2012 — general consumer-protection framework, prevents unfair trade practices. Official text via Kenya Law/Parliament: https://www.parliament.go.ke/node/6320",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "KE" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Industry Guidelines for Child Online Protection (COP) and Safety in Kenya, issued by the Communications Authority of Kenya under the Kenya Information and Communications (Consumer Protection) Regulations 2010 — safeguards for children's access to and use of ICT products/services. Official regulator: https://www.ca.go.ke/child-online-protection",
+      "official_source": true
+    }
+  ]
+}

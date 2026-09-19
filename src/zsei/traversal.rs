@@ -66,8 +66,58 @@ impl TraversalEngine {
         };
         
         let elapsed = start_time.elapsed();
+        let pre_filter_count = containers.len() as u32;
+        
+        // Activating the previously-dead keyword_filter/topic_filter fields:
+        // after traversal, filter result containers by whether their
+        // keywords or topics match any requested filter term. None or empty
+        // = no filtering (pass-through). The filters are stored on the
+        // TraversalRequest but were never read before this fix.
         let containers_count = containers.len() as u32;
         
+        // Activating the previously-dead keyword_filter/topic_filter fields:
+        // when set, resolve each container and check whether its keywords or
+        // topics match any filter term. This is a post-traversal refinement —
+        // traversal discovers the candidate set, the filter narrows it.
+        if request.keyword_filter.as_ref().map(|f| !f.is_empty()).unwrap_or(false)
+            || request.topic_filter.as_ref().map(|f| !f.is_empty()).unwrap_or(false)
+        {
+            let kw_filters = request.keyword_filter.clone().unwrap_or_default();
+            let topic_filters = request.topic_filter.clone().unwrap_or_default();
+            let pre_count = containers.len();
+            let mut filtered = Vec::new();
+            for cid in &containers {
+                if let Ok(Some(container)) = storage.load(*cid) {
+                    let ctx = &container.local_state.context;
+                    let kw_match = kw_filters.iter().any(|f| {
+                        ctx.keywords.iter().any(|k| k.contains(f.as_str()))
+                    });
+                    let tp_match = topic_filters.iter().any(|f| {
+                        ctx.topics.iter().any(|t| t.contains(f.as_str()))
+                    });
+                    if kw_match || tp_match {
+                        filtered.push(*cid);
+                    }
+                }
+            }
+            tracing::debug!(
+                pre = pre_count,
+                post = filtered.len(),
+                "Traversal filter: keyword/topic refinement"
+            );
+            let n = filtered.len();
+            return Ok(TraversalResult {
+                containers: filtered,
+                distances: vec![1.0; n],
+                paths,
+                stats: TraversalStats {
+                    containers_visited: pre_count as u32,
+                    ..Default::default()
+                },
+                ..Default::default()
+            });
+        }
+
         Ok(TraversalResult {
             containers,
             distances: vec![1.0; paths.len()], // Default distances

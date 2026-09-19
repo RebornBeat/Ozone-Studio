@@ -1,0 +1,53 @@
+{
+  "disclaimer": "Drafted from real, currently-published official U.S. federal statutes and regulator (FTC) guidance, verified via live web search against official government sources (ftc.gov, congress.gov) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only (minors' online privacy, general privacy enforcement authority, consumer protection), NOT a comprehensive survey of U.S. law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. State law (e.g. California's CCPA/CPRA) is deliberately NOT included here. Every rule's action is Log only — informational/auditable, never blocking or interrupting a real request — since this content has not been reviewed by counsel.",
+  "rules": [
+    {
+      "scope": {"National": "US"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Children's Online Privacy Protection Act (COPPA), 15 U.S.C. §6501 et seq., implementing regulation 16 CFR Part 312 — https://www.ftc.gov/legal-library/browse/rules/childrens-online-privacy-protection-rule-coppa",
+      "retrieved_snippet": "COPPA imposes requirements on operators of websites or online services directed to children under 13, and on operators with actual knowledge they are collecting personal information online from a child under 13. Enforced by the FTC.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "US"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Children's Online Privacy Protection Act (COPPA), 15 U.S.C. §6501 et seq. — https://www.ftc.gov/business-guidance/privacy-security/childrens-privacy",
+      "retrieved_snippet": "FTC Children's Privacy guidance page summarizing COPPA obligations for operators handling personal information of children under 13.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "US"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Federal Trade Commission Act, Section 5, 15 U.S.C. §45 (unfair or deceptive acts or practices) — https://www.ftc.gov/news-events/topics/protecting-consumer-privacy-security",
+      "retrieved_snippet": "The FTC's primary legal authority for privacy enforcement is Section 5 of the FTC Act, prohibiting unfair or deceptive practices; no single comprehensive federal privacy statute exists — enforcement is sector-specific plus this general authority.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "US"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Federal Trade Commission Act, Section 5, 15 U.S.C. §45 — https://www.congress.gov/crs-product/IF12244",
+      "retrieved_snippet": "Section 5 is the FTC's core consumer-protection authority over unfair or deceptive acts or practices; a practice is not 'unfair' unless it causes substantial injury not reasonably avoidable by consumers and not outweighed by countervailing benefits.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "US"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Section 508 of the Rehabilitation Act of 1973 — requires federal agencies (and vendors selling ICT/software to them) to make information and communication technology accessible, per the WCAG 2.0 AA technical standard. Official: https://www.section508.gov/",
+      "retrieved_snippet": "Section 508 of the Rehabilitation Act of 1973 is a U.S. law requiring federal agencies to make their Information and Communication Technology (ICT) — software, websites, electronic documents, multimedia — accessible to people with disabilities. The technical standard is WCAG 2.0 AA. Vendors selling digital products to the federal government must also meet Section 508 as a condition of procurement.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "US"},
+      "condition": "web accessibility",
+      "action": "Log",
+      "source": "ADA Title II (2024 DOJ rule) — state and local government websites/mobile apps must conform to WCAG 2.1 Level AA; compliance deadline April 24 2026 (extended one year for smaller jurisdictions). Note: this covers STATE/LOCAL GOVERNMENT entities specifically, not general private-sector services (private-sector ADA accessibility obligations arise under Title III case law, not this specific rule). https://www.section508.gov/manage/laws-and-policies/",
+      "retrieved_snippet": "In 2024, DOJ adopted technical accessibility requirements under ADA Title II for the websites and mobile applications of state and local government entities, requiring conformance with WCAG 2.1 Level AA, with phased compliance deadlines extended by one year in 2026.",
+      "official_source": true
+    }
+  ]
+}

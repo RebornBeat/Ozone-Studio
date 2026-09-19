@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Indonesia (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "ID"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 27 of 2022 on Personal Data Protection (PDP Law), effective 17 October 2022, published State Gazette RI No.196/2022. Official consolidated text via peraturan.go.id and JDIH Kominfo. Summary: https://www.loc.gov/item/global-legal-monitor/2022-12-18/indonesia-personal-data-protection-act-enters-into-force/",
+      "retrieved_snippet": "Indonesia's first comprehensive data privacy regulation governs how personal data is collected, processed, stored, disclosed, and transferred. It articulates core principles (protection, legal certainty, public interest, utility, prudence, balance, accountability, confidentiality), defines general and specific/sensitive data categories, establishes data-subject rights (access, correction, deletion, objection), and sets administrative and criminal sanctions for breaches.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "ID"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Government Regulation No. 17 of 2025 on Governance of Electronic System Implementation in Child Protection, in force 27 March 2025 (implements Articles 16A/16B of Law No.1/2024, amending the EIT Law); plus a nationwide social-media/high-risk-platform ban for users under 16, announced 5 March 2026, phased in from late March 2026. Summarized via https://chambers.com/articles/enhancing-child-online-safety-indonesia-s-new-regulation-clarifies-electronic-service-providers-ob and https://www.jurist.org/news/2026/03/indonesia-social-media-ban-for-minors-comes-into-effect/",
+      "retrieved_snippet": "Electronic system providers must protect children from online threats (pornography, violent content, cyberbullying, fraud, addiction), implement age verification, and grant parents oversight including consent for anonymous-user communication features. ESPs have until 27 March 2027 to fully comply.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "ID"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Law No. 8 of 1999 on Consumer Protection, published State Gazette RI 1999 No.42. Official text: https://www.aseanconsumer.org/file/pdf_file/04%20Law-No.-8-Concerning-Consumer-Protection.pdf ; enforced by the Directorate of Consumer Empowerment, Ministry of Trade.",
+      "retrieved_snippet": "Covers consumer and entrepreneur rights/obligations, prohibited practices, standard-clause regulation, the national consumer protection agency's structure, dispute settlement bodies, and sanctions for violations.",
+      "official_source": false
+    }
+  ]
+}

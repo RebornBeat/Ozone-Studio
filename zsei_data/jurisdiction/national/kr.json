@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for South Korea (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "KR"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Information Protection Act (PIPA); enforced by the Personal Information Protection Commission (PIPC). Official site: https://www.pipc.go.kr/eng/user/itc/itc/greetings.do",
+      "retrieved_snippet": "PIPC was formed as an independent agency in 2011 by the 'Personal Information Protection Act (PIPA)', and in 2020, PIPC became an independent regulatory agency with the power to investigate personal data privacy breaches and impose administrative fines.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "KR"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Juvenile Protection Act (enacted 1997, replacing the earlier Minors Protection Act) — regulates youth access to harmful media/content; the 'Shutdown Law' restricting under-16 gaming hours (2011) was repealed August 2021. Official statute portal: https://elaw.klri.re.kr/eng_mobile/viewer.do?hseq=49561&type=part&key=16",
+      "retrieved_snippet": "The Juvenile Protection Act aims to protect the well-being and development of juveniles by regulating access to harmful media, drugs, and business establishments, and recognizes individuals under 19 as juveniles.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "KR"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Framework Act on Consumers, official English text: https://elaw.klri.re.kr/eng_service/lawView.do?hseq=45955&lang=ENG ; implemented by the Korea Fair Trade Commission (KFTC) and Korea Consumer Agency (KCA)",
+      "retrieved_snippet": "The purpose of this Act is to prescribe consumers' rights and duties, the duties of the State, local governments and enterprisers, the roles of consumer organizations and relationship between consumers and enterprisers in free market economy in order to protect consumers' rights and interests.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "KR"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "AI Basic Act (Basic Act on the Development of Artificial Intelligence and the Establishment of Foundation for Trustworthiness) — the world's first comprehensive national AI framework after the EU's; passed 26 December 2024, took effect 22 January 2026. Introduces obligations for 'high-impact' AI in critical sectors (healthcare, energy, public services) and mandatory labeling for certain generative AI. A grace period through at least 2026 defers fact-finding/fines except for serious harm. Reference: https://www.loc.gov/item/global-legal-monitor/2026-02-20/south-korea-comprehensive-ai-legal-framework-takes-effect",
+      "retrieved_snippet": "South Korea's AI Basic Act and its Enforcement Decree took effect on January 22, 2026, creating a national framework combining AI industrial promotion with baseline obligations for trust, safety, transparency, and user protection. Introduces obligations for 'high-impact' AI systems in critical sectors and mandatory labeling for certain generative AI applications. MSIT is operating a grace period of at least one year in 2026, during which fines are generally deferred except for serious harm.",
+      "official_source": false
+    }
+  ]
+}

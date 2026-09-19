@@ -1,0 +1,28 @@
+{
+  "disclaimer": "Drafted from real Egyptian legislation, retrieved via web search — the official primary text is in Arabic (published in Official Gazette No. 28 bis (e), 15 July 2020); English translations cited here are third-party (Andersen, ACC) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Egyptian legal counsel. Scope: National(\"EG\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel, and specifically because several cited sources are translations or policy documents rather than official Arabic primary text. This content will age — re-verify before relying on it. Coverage note: a real search attempt for Egypt-specific child-online-protection and consumer-protection statutes (separate from data protection) did not surface a verifiable primary source in the time available — honestly omitted rather than filled in with a guess.",
+  "rules": [
+    {
+      "scope": { "National": "EG" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 151 of 2020 Promulgating the Personal Data Protection Law — Egypt's first comprehensive data protection legislation, issued 13 July 2020, in force since mid-October 2020; Executive Regulations (PM Decree No. 816) in force since 2 November 2025. English translation: https://eg.andersen.com/wp-content/uploads/2025/06/Law-No.-151-OF-2020.pdf",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "EG" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No enacted comprehensive AI statute as of September 2026 — a draft AI Law is expected to be finalized and adopted by Parliament in the 2025-2026 window but has not yet passed. Real, currently-operative governance (not binding legislation): the National AI Strategy 2025-2030, the 2023 Responsible AI Charter, and the National Council for Artificial Intelligence, Quantum Computing and Emerging Technologies (est. under the Egyptian Center for Responsible AI / MCIT). — https://ai.gov.eg/SynchedFiles/ar/Resources/Guide%20to%20Egypt%E2%80%99s%20National%20AI%20Governance%20Framework%2015-3-2026.pdf",
+      "retrieved_snippet": "Egypt's AI governance is currently policy/strategy-based (National AI Strategy, Responsible AI Charter, National AI Council), not yet backed by an enacted AI-specific statute — the draft AI Law remains pending as of this research.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "EG" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Law No. 10 of 2018 on the Rights of Persons with Disabilities — https://e-inclusion.unescwa.org/resources/1032",
+      "retrieved_snippet": "Egypt's first disability-rights legislation since 1975 (alongside Law 11 of 2019 establishing the National Council for Persons with Disabilities). Codifies accessibility as covering the physical, social, informational, and financial environment, with new ICT-specific requirements included in the 2018 law's executive instructions. NCPD investigates accessibility-failure complaints.",
+      "official_source": false
+    }
+  ]
+}

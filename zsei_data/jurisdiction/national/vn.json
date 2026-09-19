@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Vietnam (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "VN"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law on Personal Data Protection (PDP Law), enacted by the National Assembly, effective 1 January 2026 — elevates the prior Decree No.13/2023/ND-CP (Personal Data Protection Decree, effective 1 July 2023, 44 articles/4 chapters) to full statutory law. Summary: https://fpf.org/blog/vietnams-personal-data-protection-decree-overview-key-takeaways-and-context/ and https://www.hlc.com/en/publications/vietnam-enacts-landmark-law-on-personal-data-protection-stable-standing-with-stricter-compliance",
+      "retrieved_snippet": "Applies to Vietnamese and foreign agencies/organizations/individuals in Vietnam, Vietnamese entities operating abroad, and foreign entities processing personal data related to Vietnam. Mandates lawfulness, transparency, purpose limitation, data minimization, accuracy, integrity, confidentiality, and accountability.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "VN"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Decree 147/2024/ND-CP, requiring parental registration and supervision of social media accounts for children under 16; a further draft amendment (2026) proposes restricting under-16 users to view-only access (no posting/commenting/sharing/reacting). Summary: https://vietnamnet.vn/en/new-vietnam-law-mandates-parental-registration-for-child-online-accounts-2531595.html and https://thediplomat.com/2026/07/vietnam-planning-social-media-restrictions-for-children-under-16/",
+      "retrieved_snippet": "A parent or legal guardian must register a child's (under-16) social media account using their own identifying information and is responsible for supervising the content the child accesses, posts, and shares. Platforms must identify child users, deliver age-appropriate content, apply the highest privacy protections to child accounts, and proactively block harmful material.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "VN"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Law on the Protection of Consumer Rights 2023 (LPCR 2023), passed 20 June 2023, effective 1 July 2024, replacing Law No.59/2010/QH12; plus Decree No.55/2024/ND-CP on digital-platform responsibilities. Summary: https://www.tilleke.com/insights/significant-aspects-of-vietnams-new-consumer-protection-law/",
+      "retrieved_snippet": "Defines a consumer as a person purchasing/using goods or services for non-commercial personal/family/organizational consumption. Protects vulnerable consumers (elderly, disabled, children, ethnic minorities, pregnant/nursing women, severely ill, poor households); requires disclosure of influencer sponsorships; requires prior consumer consent before a business shares their information with a third party; simplifies small-claims procedures under VND 100 million.",
+      "official_source": false
+    }
+  ]
+}

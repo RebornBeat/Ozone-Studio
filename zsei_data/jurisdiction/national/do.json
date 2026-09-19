@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Dominican Republic statutes, verified via live web search against official government sources (presidencia.gob.do, proconsumidor.gob.do, pgr.gob.do, dgjp.gob.do) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Dominican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "DO"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley No. 172-13 sobre Protección de Datos Personales — https://presidencia.gob.do/sites/default/files/statics/transparencia/marco-legal/leyes/Ley-172-13.pdf",
+      "retrieved_snippet": "Objective: comprehensive protection of personal data in files/public registries/data banks, public or private, guaranteeing the right to honor and privacy under Article 44 of the Dominican Constitution. Published in Official Gazette No. 10737, 2013-12-15.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DO"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Ley No. 136-03, Código para el Sistema de Protección y los Derechos Fundamentales de Niños, Niñas y Adolescentes — https://www.dgjp.gob.do/wp-content/uploads/2022/05/Ley-Nu%CC%81m.-136-03.pdf",
+      "retrieved_snippet": "The State is responsible for protecting children and adolescents against all forms of abuse, mistreatment and exploitation regardless of medium, including internet/electronic means; dissemination of images/data that could affect physical, psychological or moral development is prohibited.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DO"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Procuraduría General de la República Dominicana — Ley 136-03 — https://pgr.gob.do/wpfd_file/ley-no-136-06/",
+      "retrieved_snippet": "Exposure and revictimization of children/adolescents in media is penalized under Ley 136-03; sanctions (fines and prison) established in Articles 394-411 of the Code.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DO"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Ley General de Protección de los Derechos del Consumidor o Usuario, Ley 358-05 — https://proconsumidor.gob.do/historia/",
+      "retrieved_snippet": "Establishes the regime for defense of consumer/user rights, guaranteeing equity and legal security between suppliers and consumers. Enacted 2005-09-09; Article 33 recognizes rights to life/health/safety protection and truthful, clear, timely information. Enforced by Pro Consumidor.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Colombian statutes, verified via live web search against official government sources (funcionpublica.gov.co, sic.gov.co) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Colombian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": {"National": "CO"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley 1581 de 2012 (Régimen General de Protección de Datos Personales) — https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=49981",
+      "retrieved_snippet": "Develops the constitutional right to know, update and rectify information collected in databases (Art. 15 of the Colombian Constitution) and the right to information (Art. 20). Enforced by the Superintendencia de Industria y Comercio (SIC).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CO"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Superintendencia de Industria y Comercio — ¿Los datos personales de los niños, niñas y adolescentes tienen alguna protección especial? — https://www.sic.gov.co/content/%C2%BFlos-datos-personales-de-los-ni%C3%B1os-ni%C3%B1as-y-adolescentes-tienen-alguna-protecci%C3%B3n-especial",
+      "retrieved_snippet": "Ley 1581 de 2012 and Decreto 1377 de 2013 incorporate special rules for minors' personal data: collection/processing is prohibited except public-nature data (civil status, occupation); treatment must respect the best interests and fundamental rights of the child.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CO"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Ley 2489 de 2025 — https://www.funcionpublica.gov.co/eva/gestornormativo/norma.php?i=260756",
+      "retrieved_snippet": "Establishes an integral system of monitoring, evaluation and technological development dedicated to protecting children/adolescents in digital environments — early detection/prevention of cyberbullying, inappropriate content exposure, online sexual exploitation, and human trafficking.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CO"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Estatuto del Consumidor, Ley 1480 de 2011 — https://www.sic.gov.co/estatutos-consumidor",
+      "retrieved_snippet": "Protects, promotes and guarantees the effectiveness and free exercise of consumer rights, including protection against risks to health and safety. In force since 2012-04-12, enforced by the SIC.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CO"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No enacted comprehensive AI statute as of September 2026 — Project Law 043 of 2025 (Senate) / 324 of 2025 (Chamber), led by the Ministry of Science, Technology and Innovation (MinCiencias), remains in the legislative process (positive committee recommendation as of this research, not yet passed). Proposes an EU-AI-Act-style risk classification (prohibited/high-risk/limited/low). — https://www.camara.gov.co/wp-content/uploads/2026/07/proyectos-ley/documentos/proyecto-36127/P.L.025-2026SC-INTELIGENCIA-ARTIFICIAL.pdf",
+      "retrieved_snippet": "MinCiencias-led AI bill (043/2025 Senate, 324/2025 Chamber) continues its legislative process with a positive committee recommendation — not yet enacted law as of this research.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "CO"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Ley 1618 de 2013 + Ley 1712 de 2014 + NTC 5854 (ICONTEC technical standard, ratified 15 June 2011) — https://gobiernodigital.mintic.gov.co/692/articles-160770_Directrices_Accesibilidad_web.pdf",
+      "retrieved_snippet": "Ley 1618 (2013) establishes conditions for full exercise of rights by persons with disabilities across all sectors; Ley 1712 (2014, Transparency and Access to Public Information Law) requires state websites to be accessible, adopting WCAG as the basis; NTC 5854 is Colombia's own technical accessibility standard for web pages. Coverage is primarily state/public-entity websites — private-sector obligation is less clearly established in these sources.",
+      "official_source": true
+    }
+  ]
+}

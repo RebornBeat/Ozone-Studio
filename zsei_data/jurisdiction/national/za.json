@@ -1,0 +1,41 @@
+{
+  "disclaimer": "Drafted from real South African legislation, retrieved via web search against government sources (justice.gov.za, Government Gazette references) and established legal-reference sites (saflii.org — South African Legal Information Institute) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified South African legal counsel. Scope: National(\"ZA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "ZA" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Protection of Personal Information Act (POPIA), Act 4 of 2013 — assented to 19 Nov 2013, published in Government Gazette Notice 37067 (26 Nov 2013), fully enforceable since 1 July 2021. Accessible text: https://popia.co.za/ (unofficial mirror of the Act as passed by Parliament).",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Children's Act 38 of 2005 — principal child-protection legislation, defines and criminalizes child sexual abuse/exploitation. Official text hosted by the Department of Justice and Constitutional Development: https://www.justice.gov.za/legislation/acts/2005-038%20childrensact.pdf",
+      "official_source": true
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "child sexual abuse material",
+      "action": "Log",
+      "source": "Film and Publications Amendment Act 11 of 2019 — makes it an offense to possess, create, produce, or contribute to child sexual abuse material online; places a positive obligation on internet service providers to act on such content.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No standalone AI statute as of 2026 — the National AI Policy Framework (published August 2024, following the 2024 National AI Plan launch at the University of Johannesburg) is the current blueprint, covering ethical guidelines, privacy/data protection, safety/security, transparency, and fairness/bias mitigation; a tailored regulatory approach is planned for 2025-2027, expected to be risk-based. Honest gap: policy framework only, no binding AI-specific legislation yet. Secondary summary: https://policyvault.africa/policy/south-africa-national-artificial-intelligence-ai-policy-framework-2024/",
+      "retrieved_snippet": "South Africa does not yet have a standalone AI law, but the National AI Policy Framework provides an early blueprint for what that future legislation will look like... published in August 2024. Its scope covers ethical guidelines development; privacy and data protection; safety and security; transparency and explainability; and fairness and mitigating bias... South Africa is developing and implementing a tailored regulatory approach to AI over the period of 2025 to 2027.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "ZA" },
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "No dedicated digital-accessibility statute — legal basis is indirect, via the Constitution's Bill of Rights (disability non-discrimination), the Promotion of Equality and Prevention of Unfair Discrimination Act (PEPUDA, 2000), and the Promotion of Access to Information Act (PAIA, 2000). Government Information Technology Officer (GITO) standards require national/provincial government websites to comply with WCAG 2.0 Level AA — this is the one concrete, checkable technical standard found; no equivalent private-sector mandate exists. Honest gap, not filled with an invented private-sector requirement. Secondary summary: https://www.allaccessible.org/is-website-accessibility-a-legal-requirement-in-south-africa/",
+      "official_source": false
+    }
+  ]
+}

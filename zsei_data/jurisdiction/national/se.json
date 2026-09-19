@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from real, current Swedish law, retrieved via web search against official/reputable secondary sources describing the Swedish Data Protection Act (Lag (2018:218) med kompletterande bestämmelser till EU:s dataskyddsförordning), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Swedish legal counsel. Scope: National(\"SE\") — this file covers ONLY Sweden-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "SE" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Swedish Data Protection Act (Lag 2018:218) — lowers the GDPR Article 8 default age of consent for children's information-society-service data processing to 13 (vs. the GDPR default of 16), meaning a 13-year-old in Sweden can validly consent without a parent/guardian. https://www.imy.se/globalassets/dokument/rapporter/the-rights-of-children-and-young-people-on-digital-platforms_accessible.pdf"
+    },
+    {
+      "scope": { "National": "SE" },
+      "condition": "personal identity number",
+      "action": "Log",
+      "source": "Swedish Data Protection Act (Lag 2018:218) — supplements GDPR with specific rules restricting processing of Swedish personal identity numbers (personnummer) to cases where clearly justified, and rules on processing data relating to criminal convictions/offences. https://pacmap.dev/regulation/se-data-protection-act-2018"
+    }
+  ]
+}

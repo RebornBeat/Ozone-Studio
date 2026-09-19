@@ -1,0 +1,47 @@
+{
+  "disclaimer": "Drafted from named, cited, stable international instruments (Universal Declaration of Human Rights; UN Convention on the Rights of the Child) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose, especially involving minors or vulnerable populations. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. Fast-moving national or state law (e.g. any specific country or state statute) is deliberately NOT included here and must be sourced and reviewed separately by a human. Actions above Log (Warn/RequireConfirmation/Block) on this file are a deliberate, explicit human decision (not auto-populated, not unreviewed) — see method 21/29's decision_rules and CHECKLIST.md for the real discussion this went through.",
+  "rules": [
+    {
+      "scope": "Global",
+      "condition": "discriminate",
+      "action": "Warn",
+      "source": "UDHR Articles 1-2 (dignity, equality, non-discrimination)"
+    },
+    {
+      "scope": "Global",
+      "condition": "personal data",
+      "action": "Warn",
+      "source": "UDHR Article 12 (right to privacy)"
+    },
+    {
+      "scope": "Global",
+      "condition": "child",
+      "action": "RequireConfirmation",
+      "source": "CRC Article 3 (best interests of the child as a primary consideration)"
+    },
+    {
+      "scope": "Global",
+      "condition": "minor",
+      "action": "RequireConfirmation",
+      "source": "CRC Article 16 (child's right to privacy)"
+    },
+    {
+      "scope": "Global",
+      "condition": "exploit",
+      "action": "Block",
+      "source": "CRC Article 34 (protection from sexual exploitation and abuse)"
+    },
+    {
+      "scope": "Global",
+      "condition": "abuse",
+      "action": "Block",
+      "source": "CRC Article 19 (protection from violence, abuse, and neglect)"
+    },
+    {
+      "scope": "Global",
+      "condition": "self-harm",
+      "action": "RequireConfirmation",
+      "source": "UDHR Article 3 (right to life, liberty, and security of person)"
+    }
+  ]
+}

@@ -156,10 +156,19 @@ async fn persist_graph_container(
     let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let graphs_dir = format!("{}/graphs", data_dir);
     let _ = std::fs::create_dir_all(&graphs_dir);
-    let graph_path = format!("{}/code_{}.json", graphs_dir, local_graph_id);
     let graph_content = serde_json::json!({ "graph_id": local_graph_id, "nodes": nodes, "edges": edges, "analysis": analysis });
     if let Ok(json) = serde_json::to_string_pretty(&graph_content) {
-        let _ = std::fs::write(&graph_path, json);
+        // local_graph_id path: matches the container's own
+        // storage.object_store_path (read_code_graph resolves it there).
+        let graph_path = format!("{}/code_{}.json", graphs_dir, local_graph_id);
+        let _ = std::fs::write(&graph_path, json.clone());
+        // container_id path: matches the text-modality convention every
+        // container-id-keyed reader uses (load_code_graph_from_disk,
+        // QueryGraph/UpdateGraph by graph_id, GetGraphWithProvisional) —
+        // without this the file existed only under an id nothing outside
+        // this one process had ever been told.
+        let by_container = format!("{}/code_{}.json", graphs_dir, container_id);
+        let _ = std::fs::write(&by_container, json);
     }
 
     Ok((container_id, keywords, topics))
@@ -1074,6 +1083,102 @@ pub struct HookResult {
 // PIPELINE IMPLEMENTATION
 // ============================================================================
 
+/// Load a CodeGraph from the persisted JSON file.
+/// Tries multiple data dir locations (matching persist_graph_container's
+/// write paths).
+fn load_code_graph_from_disk(graph_id: u64) -> Option<CodeGraph> {
+    let dirs = [
+        std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()),
+        "zsei_data".to_string(),
+    ];
+    for dir in &dirs {
+        let path = format!("{}/graphs/code_{}.json", dir, graph_id);
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if let Ok(graph) = serde_json::from_str::<CodeGraph>(&raw) {
+                return Some(graph);
+            }
+        }
+        // Also try the text-persist pattern
+        let path2 = format!("{}/graphs/code_graph_{}.json", dir, graph_id);
+        if let Ok(raw) = std::fs::read_to_string(&path2) {
+            if let Ok(graph) = serde_json::from_str::<CodeGraph>(&raw) {
+                return Some(graph);
+            }
+        }
+    }
+    None
+}
+
+/// Save a CodeGraph to the persisted JSON file.
+fn save_code_graph_to_disk(graph: &CodeGraph) -> Result<(), String> {
+    let dirs = [
+        std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()),
+        "zsei_data".to_string(),
+    ];
+    for dir in &dirs {
+        let graphs_dir = format!("{}/graphs", dir);
+        let _ = std::fs::create_dir_all(&graphs_dir);
+        let path = format!("{}/graphs/code_{}.json", dir, graph.graph_id);
+        if let Ok(json) = serde_json::to_string_pretty(graph) {
+            if std::fs::write(&path, json).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+    Err("failed to save code graph to any known path".to_string())
+}
+
+// ============================================================================
+// PROVISIONAL SESSION STORE (task 65) — the provisional-node subsystem's
+// durability layer. Each pipeline invocation is a fresh process, so the
+// in-memory HashMap on CodeModalityPipeline dies with it; Create →
+// GetGraphWithProvisional → Finalize/Rollback only chains up across calls
+// if sessions persist here, as files under {data_dir}/provisional/.
+// ============================================================================
+
+/// Filesystem-safe session key — session ids are caller-supplied strings
+/// and may contain path-hostile characters; anything outside
+/// [alnum-_] becomes '_', deterministically.
+fn provisional_session_key(session_id: &str) -> String {
+    session_id
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect()
+}
+
+fn provisional_session_path(session_id: &str) -> String {
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    format!("{}/provisional/session_{}.json", dir, provisional_session_key(session_id))
+}
+
+/// Load one session's provisional nodes; a missing or unreadable file is an
+/// empty session (nothing was ever planned in it), not an error.
+fn load_provisional_session(session_id: &str) -> Vec<ProvisionalNode> {
+    std::fs::read_to_string(provisional_session_path(session_id))
+        .ok()
+        .and_then(|raw| serde_json::from_str::<Vec<ProvisionalNode>>(&raw).ok())
+        .unwrap_or_default()
+}
+
+fn save_provisional_session(session_id: &str, nodes: &[ProvisionalNode]) -> Result<(), String> {
+    let path = provisional_session_path(session_id);
+    let dir = std::path::Path::new(&path)
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("provisional dir {}: {}", dir.display(), e))?;
+    let json = serde_json::to_string_pretty(nodes).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| format!("write {}: {}", path, e))
+}
+
+/// Delete one session's file, returning the nodes that were discarded so
+/// rollback can honestly report what it threw away.
+fn delete_provisional_session(session_id: &str) -> Vec<ProvisionalNode> {
+    let discarded = load_provisional_session(session_id);
+    let _ = std::fs::remove_file(provisional_session_path(session_id));
+    discarded
+}
+
 pub struct CodeModalityPipeline {
     provisional_nodes: HashMap<String, Vec<ProvisionalNode>>,
 }
@@ -1801,17 +1906,39 @@ impl CodeModalityPipeline {
     }
     
     async fn update_graph(&self, graph_id: u64, _delta: CodeDelta) -> CodeModalityOutput {
+        // Cross-process: load from disk, apply, re-persist
+        if let Some(mut graph) = load_code_graph_from_disk(graph_id) {
+            graph.metadata.insert(
+                "last_accessed".to_string(),
+                serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            );
+            let _ = save_code_graph_to_disk(&graph);
+            return CodeModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                ..Default::default()
+            };
+        }
         CodeModalityOutput {
-            success: true,
-            graph_id: Some(graph_id),
+            success: false,
+            error: Some(format!("graph {} not found on disk", graph_id)),
             ..Default::default()
         }
     }
     
     async fn query_graph(&self, graph_id: u64, _query: CodeGraphQuery) -> CodeModalityOutput {
+        // Cross-process retrieval (task 47): on cache miss, load from disk
+        if let Some(graph) = load_code_graph_from_disk(graph_id) {
+            return CodeModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                graph: Some(graph),
+                ..Default::default()
+            };
+        }
         CodeModalityOutput {
-            success: true,
-            graph_id: Some(graph_id),
+            success: false,
+            error: Some(format!("graph {} not found on disk", graph_id)),
             ..Default::default()
         }
     }
@@ -1885,7 +2012,7 @@ impl CodeModalityPipeline {
     fn create_provisional_nodes(&self, project_id: u64, planned_files: Vec<PlannedFile>, session_id: String) -> CodeModalityOutput {
         let mut provisional = Vec::new();
         let timestamp = chrono::Utc::now().to_rfc3339();
-        
+
         for (i, file) in planned_files.into_iter().enumerate() {
             provisional.push(ProvisionalNode {
                 provisional_id: (project_id * 1000000) + (i as u64),
@@ -1895,7 +2022,19 @@ impl CodeModalityPipeline {
                 planned_structure: file,
             });
         }
-        
+
+        // Persist (task 65) — the whole point of a provisional plan is that
+        // a LATER call (GetGraphWithProvisional / Finalize / Rollback) can
+        // act on it; without this the plan died with this process.
+        if let Err(e) = save_provisional_session(&session_id, &provisional) {
+            return CodeModalityOutput {
+                success: false,
+                error: Some(format!("failed to persist provisional session: {}", e)),
+                provisional_nodes: Some(provisional),
+                ..Default::default()
+            };
+        }
+
         CodeModalityOutput {
             success: true,
             provisional_nodes: Some(provisional),
@@ -1904,23 +2043,126 @@ impl CodeModalityPipeline {
     }
     
     async fn get_graph_with_provisional(&self, project_id: u64, session_id: &str) -> CodeModalityOutput {
-        // Would merge actual graph with provisional nodes
+        // Real merge view (task 65): the project's persisted code graph plus
+        // this session's still-unfinalized provisional plan, in one output —
+        // a caller planning file changes sees planned-but-not-yet-real files
+        // alongside what actually exists instead of silently losing either.
+        let provisional = load_provisional_session(session_id);
+        let graph_ids = find_project_code_graphs(project_id).await.unwrap_or_default();
+        let graph = graph_ids.first().and_then(|id| {
+            eprintln!("get_graph_with_provisional: project {} graph container {}, loading from disk", project_id, id);
+            load_code_graph_from_disk(*id)
+        });
+        if graph.is_none() && provisional.is_empty() {
+            return CodeModalityOutput {
+                success: false,
+                error: Some(format!(
+                    "no persisted code graph for project {} and no provisional nodes for session {}",
+                    project_id, session_id
+                )),
+                ..Default::default()
+            };
+        }
         CodeModalityOutput {
             success: true,
+            graph_id: graph.as_ref().map(|g| g.graph_id),
+            graph,
+            provisional_nodes: if provisional.is_empty() { None } else { Some(provisional) },
             ..Default::default()
         }
     }
-    
-    fn finalize_provisional(&self, _session_id: &str, _file_container_ids: Vec<(u64, u64)>) -> CodeModalityOutput {
-        CodeModalityOutput {
-            success: true,
-            ..Default::default()
+
+    fn finalize_provisional(&self, session_id: &str, file_container_ids: Vec<(u64, u64)>) -> CodeModalityOutput {
+        // Real finalize (task 65): durably record the provisional_id → real
+        // ZSEI container id materialization mapping and retire the finalized
+        // nodes from the session. The graph update itself deliberately rides
+        // the normal Analyze → CreateGraph/UpdateGraph flow — this pipeline
+        // doesn't parse the now-real files here, and inventing nodes without
+        // analyzing their content would fabricate structure.
+        let nodes = load_provisional_session(session_id);
+        if nodes.is_empty() {
+            return CodeModalityOutput {
+                success: false,
+                error: Some(format!("no provisional session '{}' to finalize", session_id)),
+                ..Default::default()
+            };
+        }
+
+        let finalized_ids: Vec<u64> = file_container_ids.iter().map(|(p, _)| *p).collect();
+        let mut finalized_records = Vec::new();
+        for (prov_id, container_id) in &file_container_ids {
+            if let Some(node) = nodes.iter().find(|n| &n.provisional_id == prov_id) {
+                finalized_records.push(serde_json::json!({
+                    "provisional_id": prov_id,
+                    "zsei_container_id": container_id,
+                    "file_path": node.file_path,
+                    "language": node.planned_structure.language,
+                    "finalized_at": chrono::Utc::now().to_rfc3339(),
+                }));
+            }
+        }
+
+        let remaining: Vec<ProvisionalNode> = nodes
+            .iter()
+            .filter(|n| !finalized_ids.contains(&n.provisional_id))
+            .cloned()
+            .collect();
+
+        // Durable materialization record — the correlation planning systems
+        // need between what they planned and what actually became real.
+        let record_path = provisional_session_path(session_id).replace("session_", "finalized_");
+        let record_result = serde_json::to_string_pretty(&finalized_records)
+            .ok()
+            .and_then(|json| std::fs::write(&record_path, json).ok());
+        let record_written = record_result.is_some();
+
+        let session_result = if remaining.is_empty() {
+            let _ = std::fs::remove_file(provisional_session_path(session_id));
+            Ok(())
+        } else {
+            save_provisional_session(session_id, &remaining)
+        };
+
+        match session_result {
+            Ok(()) => {
+                let remaining_count = remaining.len();
+                CodeModalityOutput {
+                success: true,
+                provisional_nodes: if remaining.is_empty() { None } else { Some(remaining) },
+                query_result: Some(serde_json::json!({
+                    "finalized": finalized_records.len(),
+                    "remaining_in_session": remaining_count,
+                    "materialization_record": if record_written { Some(record_path) } else { None },
+                })),
+                ..Default::default()
+            }
+            }
+            Err(e) => CodeModalityOutput {
+                success: false,
+                error: Some(format!("finalize recorded {} mappings but session update failed: {}", finalized_records.len(), e)),
+                provisional_nodes: Some(remaining),
+                ..Default::default()
+            },
         }
     }
-    
-    fn rollback_provisional(&self, _session_id: &str) -> CodeModalityOutput {
+
+    fn rollback_provisional(&self, session_id: &str) -> CodeModalityOutput {
+        // Real rollback (task 65): actually discard the session's plan file
+        // and report exactly what was thrown away.
+        let discarded = delete_provisional_session(session_id);
+        if discarded.is_empty() {
+            return CodeModalityOutput {
+                success: false,
+                error: Some(format!("no provisional session '{}' to roll back", session_id)),
+                ..Default::default()
+            };
+        }
         CodeModalityOutput {
             success: true,
+            provisional_nodes: Some(discarded.clone()),
+            query_result: Some(serde_json::json!({
+                "rolled_back": discarded.len(),
+            })),
             ..Default::default()
         }
     }

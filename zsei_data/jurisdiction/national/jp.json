@@ -1,0 +1,45 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Japan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "JP"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Act on the Protection of Personal Information (APPI), most recent amendments in force 2021-2022; overseen by Japan's Personal Information Protection Commission (PPC). Official text/consolidated law: https://www.ppc.go.jp/en/legal/",
+      "retrieved_snippet": "The official APPI text is available through the PPC website as a consolidated text as of April 1, 2023, with all amended Acts entered into full force. The official Japanese texts of the laws have legal effect, and English translations are provided as reference materials.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Act on Development of an Internet Environment Enabling Young People's Safe and Secure Internet Use (2008), implemented via the Children and Families Agency's Basic Plan (Sixth Basic Plan, adopted September 2024); 2023 Penal Code revision raised age of consent 13->16 and criminalized grooming. Summarized via https://www.nippon.com/en/in-depth/d01099/ and https://www.nippon.com/en/in-depth/d01100/keeping-japanese-children-safe-in-cyberspace-weighing-the-roles-of-government-business-and.html (official Japanese statute text not retrieved directly in this pass).",
+      "retrieved_snippet": "Japan relies on a model built around carrier-level filtering, parental involvement, and digital literacy... The 2023 revision of the Penal Code and the Code of Criminal Procedure raised the age of consent from 13 to 16 and established penalties for grooming.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Contract Act, official English translation: https://www.japaneselawtranslation.go.jp/en/laws/view/4624 ; overseen by Japan's Consumer Affairs Agency (CAA): https://www.caa.go.jp/en/law/",
+      "retrieved_snippet": "The Consumer Contract Act permits consumers to rescind contracts on certain conditions and nullifies clauses that unfairly harm consumer interests. The Act applies to all contracts between individuals (not for business purposes) and business operators.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Act on the Promotion of Research and Development and the Utilization of AI-Related Technologies (AI Promotion Act), approved by the Diet 28 May 2025, in full effect since 1 September 2025 — a non-binding soft-law framework (no fines, no bans; enforcement via administrative guidance and public disclosure of non-compliant operators). MIC/METI's AI Guidelines for Business Ver1.2 is the operative business guidance; the Cabinet Office adopted a revised AI Basic Plan 14 July 2026. Secondary summary: https://fpf.org/blog/understanding-japans-ai-promotion-act-an-innovation-first-blueprint-for-ai-regulation/ ; official law text not retrieved directly in this pass — verify against https://www.cas.go.jp/ (Cabinet Secretariat) before relying on this.",
+      "retrieved_snippet": "On May 28, 2025, Japan's Parliament approved the AI Promotion Act, and it came into full effect on 1 September 2025... A defining feature is its non-binding character — no mandatory requirements, no fines, and no bans for violations. Enforcement operates through administrative guidance and a name-and-shame mechanism. The Act explicitly allows the government to introduce risk-based regulatory measures when existing laws prove insufficient.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Japanese Industrial Standard JIS X 8341-3 (web accessibility, aligned with WCAG 2.0 Level AA; first enacted 2004, revised 2010), plus the Act on the Promotion of Smooth Communication of Persons with Disabilities via Accessible Information (enacted May 2022). Mandatory compliance for government agencies; private-sector reporting obligations carry fines up to JPY 200,000 for false/missing accessibility disclosures. Secondary summary: https://www.boia.org/blog/japans-digital-accessibility-laws-an-overview ; JIS standard itself administered by the Japanese Standards Association, https://www.jsa.or.jp/",
+      "retrieved_snippet": "Japan's most specific web accessibility regulation is JIS X 8341-3... includes the same principles and success criteria as WCAG 2.0 Level AA. While JIS X 8341 compliance is not universally legislated, it is required for government agencies and many corporations. If private businesses don't report their accessibility practices to authorities, or make false claims, they may face fines of up to JPY 200,000.",
+      "official_source": false
+    }
+  ]
+}

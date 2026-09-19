@@ -1,0 +1,37 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Argentine federal statutes, verified via live web search against official government sources (argentina.gob.ar) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Argentine law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only.",
+  "rules": [
+    {
+      "scope": {"National": "AR"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley de Protección de los Datos Personales, Ley 25.326 — https://www.argentina.gob.ar/normativa/nacional/ley-25326-64790/texto",
+      "retrieved_snippet": "Objective: comprehensive protection of personal data recorded in files/registers/databases, public or private, to guarantee the right to honor and privacy and access to one's own recorded information. Sanctioned 2000-10-04, published in Boletín Oficial 2000-11-02.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AR"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Argentina.gob.ar — Protección de datos y privacidad de niños, niñas y adolescentes en entornos digitales — https://www.argentina.gob.ar/noticias/proteccion-de-datos-y-privacidad-de-ninos-ninas-y-adolescentes-en-entornos-digitales",
+      "retrieved_snippet": "Under Ley 25.326 and the Civil and Commercial Code (arts. 26, 639, 'progressive autonomy' principle from the CRC): consent of persons 16+ is valid; for younger children, treatment is lawful only with consent from whoever exercises parental responsibility.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AR"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Argentina.gob.ar — Datos personales y niñez — https://www.argentina.gob.ar/noticias/datos-personales-y-ninez",
+      "retrieved_snippet": "The Civil and Commercial Code considers minors persons under 18, adolescents from 13; the 'Con vos en la Web' government program addresses children/adolescent online protection specifically.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AR"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Ley de Defensa del Consumidor, Ley 24.240 — https://www.argentina.gob.ar/normativa/nacional/ley-24240-638",
+      "retrieved_snippet": "Establishes the rights of consumers and obligations of providers in consumption relations. Sanctioned 1993-09-22, published in Boletín Oficial 1993-10-15.",
+      "official_source": true
+    }
+  ]
+}

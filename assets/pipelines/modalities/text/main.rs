@@ -1909,6 +1909,99 @@ enum ExtractionKind {
     Topics,
 }
 
+/// One model candidate from the host-exported fallback chain
+/// (OZONE_FALLBACK_CHAIN — exported by ModelConfig::to_pipeline_env).
+#[derive(Debug, Clone)]
+struct FallbackCandidate {
+    identifier: String,
+    model_type: String,
+    context_length: u64,
+    api_endpoint: Option<String>,
+    api_key_env: Option<String>,
+    api_key: Option<String>,
+    wire_protocol: Option<String>,
+    bitnet_cli_path: Option<String>,
+    local_model_path: Option<String>,
+}
+
+/// Parse the host-exported fallback chain. Order defines the walk; when
+/// free_only is set, paid candidates are filtered out.
+fn fallback_chain_from_env() -> Vec<FallbackCandidate> {
+    let raw = match std::env::var("OZONE_FALLBACK_CHAIN") {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let order: Vec<String> = v
+        .get("order")
+        .and_then(|o| o.as_array())
+        .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+    let models = v
+        .get("models")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let free_only = v
+        .get("free_only")
+        .and_then(|f| f.as_bool())
+        .unwrap_or(false);
+
+    order
+        .iter()
+        .filter_map(|id| {
+            models
+                .iter()
+                .find(|m| {
+                    m.get("identifier").and_then(|i| i.as_str()) == Some(id.as_str())
+                })
+                .filter(|m| {
+                    !free_only
+                        || m.get("is_free")
+                            .and_then(|f| f.as_bool())
+                            .unwrap_or(false)
+                })
+        })
+        .map(|m| FallbackCandidate {
+            identifier: m
+                .get("identifier")
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string(),
+            model_type: m
+                .get("model_type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("api")
+                .to_string(),
+            context_length: m
+                .get("context_length")
+                .and_then(|c| c.as_u64())
+                .unwrap_or(8192),
+            api_endpoint: m
+                .get("api_endpoint")
+                .and_then(|e| e.as_str())
+                .map(String::from),
+            api_key_env: m.get("api_key_env").and_then(|e| e.as_str()).map(String::from),
+            api_key: m.get("api_key").and_then(|k| k.as_str()).map(String::from),
+            wire_protocol: m
+                .get("wire_protocol")
+                .and_then(|w| w.as_str())
+                .map(String::from),
+            bitnet_cli_path: m
+                .get("bitnet_cli_path")
+                .and_then(|b| b.as_str())
+                .map(String::from),
+            local_model_path: m
+                .get("local_model_path")
+                .and_then(|l| l.as_str())
+                .map(String::from),
+        })
+        .collect()
+}
+
 impl TextModalityPipeline {
     pub fn new(executor: Arc<dyn PipelineExecutor>) -> Self {
         Self {
@@ -3567,6 +3660,7 @@ Return ONLY a valid JSON array:
     /// fabricated: top content words minus a stopword floor. This pair
     /// (retry → frequency tier) is what guarantees attached-file graphs
     /// NEVER go empty-silent again (task 68, section-3 finding).
+    /// (English-specific stopword floor — analysis.language is "en" today.)
     fn derive_keywords_frequency(text: &str, max: usize) -> Vec<String> {
         const STOPWORDS: &[&str] = &[
             "the", "and", "for", "are", "but", "not", "you", "all", "any", "can",
@@ -3575,7 +3669,7 @@ Return ONLY a valid JSON array:
             "with", "this", "that", "from", "they", "have", "been", "were", "their",
             "which", "will", "would", "there", "what", "about", "when", "make",
             "like", "time", "just", "know", "take", "into", "your", "than", "then",
-            "them", "these", "some", "could", "other", "than", "also", "because",
+            "them", "these", "some", "could", "other", "also", "because",
         ];
         let mut freq: HashMap<String, usize> = HashMap::new();
         for word in text.split_whitespace() {
@@ -3584,12 +3678,14 @@ Return ONLY a valid JSON array:
                 .filter(|c| c.is_alphanumeric())
                 .collect::<String>()
                 .to_lowercase();
-            if w.len() >= 4 && !STOPWORDS.contains(&w.as_str()) {
+            if w.chars().count() >= 4 && !STOPWORDS.contains(&w.as_str()) {
                 *freq.entry(w).or_insert(0) += 1;
             }
         }
+        // Deterministic order: frequency desc, then term asc — identical
+        // input always produces identical fallback terms.
         let mut pairs: Vec<(String, usize)> = freq.into_iter().collect();
-        pairs.sort_by(|a, b| b.1.cmp(&a.1));
+        pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         pairs
             .into_iter()
             .take(max)
@@ -3599,29 +3695,79 @@ Return ONLY a valid JSON array:
 
     /// Bounded retry for the LLM extraction calls — one retry catches the
     /// transient rate-limit/timeout class without burning the budget.
-    async fn extract_with_retry(
+    /// THE task-68 wrapper: primary attempt → configured fallback chain
+    /// (models + order from OZONE_FALLBACK_CHAIN — each attempt overrides
+    /// pipeline 9's model) → deterministic frequency-derived terms as the
+    /// final tier for keywords. Topics degrade to empty under Option A
+    /// (conservative: no fabricated semantic labels). Every attempt is
+    /// metered via llm_execute; outcome logged with full provenance —
+    /// never empty-silent.
+    async fn extract_terms_with_fallback(
         &self,
         text: &str,
         which: ExtractionKind,
-    ) -> Vec<String> {
-        let first = match which {
-            ExtractionKind::Keywords => self.extract_keywords_from_text(text).await,
-            ExtractionKind::Topics => self.extract_topics_from_text(text).await,
+    ) -> (Vec<String>, &'static str) {
+        // Primary attempt (unoverridden).
+        let primary = match which {
+            ExtractionKind::Keywords => self.extract_keywords_attempt(text, None).await,
+            ExtractionKind::Topics => self.extract_topics_attempt(text, None).await,
         };
-        if !first.is_empty() {
-            return first;
+        match &primary {
+            Ok(v) if !v.is_empty() => {
+                tracing::info!(kind = ?which, "extraction ok (primary)");
+                return (primary.unwrap_or_default(), "llm");
+            }
+            Ok(_) => tracing::warn!(kind = ?which, "extraction empty — walking fallback chain"),
+            Err(e) => tracing::warn!(kind = ?which, error = %e, "primary extraction failed — walking fallback chain"),
         }
-        tracing::warn!(
-            which = ?which,
-            "LLM extraction returned empty — retrying once before falling back to frequency-derived terms"
-        );
+
+        for cand in &fallback_chain_from_env() {
+            let override_json = serde_json::json!({
+                "model_type": cand.model_type,
+                "model_identifier": cand.identifier,
+                "context_length": cand.context_length,
+                "api_endpoint": cand.api_endpoint,
+                "api_key_env": cand.api_key_env,
+                "api_key": cand.api_key,
+                "wire_protocol": cand.wire_protocol,
+                "bitnet_cli_path": cand.bitnet_cli_path,
+                "local_model_path": cand.local_model_path,
+            });
+            let res = match which {
+                ExtractionKind::Keywords => {
+                    self.extract_keywords_attempt(text, Some(&override_json)).await
+                }
+                ExtractionKind::Topics => {
+                    self.extract_topics_attempt(text, Some(&override_json)).await
+                }
+            };
+            match res {
+                Ok(v) if !v.is_empty() => {
+                    tracing::info!(kind = ?which, model = %cand.identifier, "extraction ok via fallback");
+                    return (v, "llm-fallback");
+                }
+                Ok(_) => continue,
+                Err(e) => {
+                    tracing::warn!(kind = ?which, model = %cand.identifier, error = %e, "fallback candidate failed");
+                    continue;
+                }
+            }
+        }
+
+        // Chain exhausted.
         match which {
-            ExtractionKind::Keywords => self.extract_keywords_from_text(text).await,
-            ExtractionKind::Topics => self.extract_topics_from_text(text).await,
+            ExtractionKind::Keywords => {
+                let terms = Self::derive_keywords_frequency(text, 20);
+                tracing::warn!(kind = ?which, terms = terms.len(), "all extraction attempts failed — deterministic frequency terms");
+                (terms, "deterministic_frequency")
+            }
+            ExtractionKind::Topics => {
+                tracing::warn!(kind = ?which, "all extraction attempts failed — topics omitted (Option A: no fabricated labels)");
+                (Vec::new(), "none")
+            }
         }
     }
-
-    async fn extract_keywords_from_text(&self, text: &str) -> Vec<String> {
+    async fn extract_keywords_attempt(&self, text: &str, override_json: Option<&serde_json::Value>) -> Result<Vec<String>, String> {
         let prompt = format!(
             r#"Extract all important keywords and key phrases from this text.
 Return as a JSON array of strings. Focus on: topics, concepts, named entities, technical terms.
@@ -3633,21 +3779,29 @@ RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
             text
         );
 
-        let input = serde_json::json!({
+        let mut input = serde_json::json!({
             "prompt": prompt,
             "max_tokens": 300,
             "temperature": 0.2,
             "system_context": "Extract keywords. Respond only with valid JSON array."
         });
-
-        match self.executor.execute(9, input).await {
-            Ok(result) => result
-                .get("response")
-                .and_then(|r| r.as_str())
-                .and_then(|s| Self::parse_json_array(s))
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
+        if let Some(v) = override_json {
+            input["model_override_config"] = v.clone();
         }
+
+        let result = self.llm_execute(9, input).await?;
+        let response = result
+            .get("response")
+            .and_then(|r| r.as_str())
+            .unwrap_or("");
+        if response.trim().is_empty() {
+            return Err("empty response".to_string());
+        }
+        Self::parse_json_array(response).ok_or_else(|| "invalid JSON array".to_string())
+    }
+
+    async fn extract_keywords_from_text(&self, text: &str) -> Vec<String> {
+        self.extract_keywords_attempt(text, None).await.unwrap_or_default()
     }
 
     /// Extract entities from text via LLM (internal helper)
@@ -3698,6 +3852,10 @@ RESPOND ONLY WITH JSON ARRAY."#,
 
     /// Extract topics from text via LLM (internal helper)
     async fn extract_topics_from_text(&self, text: &str) -> Vec<String> {
+        self.extract_topics_attempt(text, None).await.unwrap_or_default()
+    }
+
+    async fn extract_topics_attempt(&self, text: &str, override_json: Option<&serde_json::Value>) -> Result<Vec<String>, String> {
         let prompt = format!(
             r#"What are the main topics/themes in this text?
 Return as JSON array of topic strings.
@@ -3709,21 +3867,26 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             text
         );
 
-        let input = serde_json::json!({
+        let mut input = serde_json::json!({
             "prompt": prompt,
             "max_tokens": 200,
             "temperature": 0.2,
             "system_context": "Output only a valid JSON array of strings. No explanation. No markdown. Start directly with [."
         });
-
-        match self.executor.execute(9, input).await {
-            Ok(result) => result
-                .get("response")
-                .and_then(|r| r.as_str())
-                .and_then(|s| Self::parse_json_array(s))
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
+        if let Some(v) = override_json {
+            input["model_override_config"] = v.clone();
         }
+
+        let result = self.llm_execute(9, input).await?;
+        let response = result
+            .get("response")
+            .and_then(|r| r.as_str())
+            .unwrap_or("");
+        if response.trim().is_empty() {
+            return Err("empty response".to_string());
+        }
+        Self::parse_json_array(response)
+            .ok_or_else(|| format!("invalid JSON array in response: {}", &response[..response.len().min(120)]))
     }
 
     /// Run an async extractor repeatedly until 5 consecutive passes find
@@ -4209,11 +4372,15 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             Vec::new()
         };
 
-        let topics_raw = if extract_topics {
-            self.extract_topics_from_text(&cleaned_text).await
+        let (topics_raw, topics_source) = if extract_topics {
+            let (t, src) = self.extract_terms_with_fallback(&cleaned_text, ExtractionKind::Topics).await;
+            (t, src)
         } else {
-            Vec::new()
+            (Vec::new(), "not-requested")
         };
+        if extract_topics {
+            tracing::info!(topics_source, topics = topics_raw.len(), "topic extraction provenance");
+        }
         let topics: Vec<Topic> = topics_raw
             .into_iter()
             .enumerate()
@@ -4272,7 +4439,10 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
         // gated on extract_entities since Analyze has no dedicated keyword
         // flag; entities/keywords are the closest existing semantic pair.
         if keywords.is_empty() && extract_entities {
-            let raw = self.extract_keywords_from_text(&cleaned_text).await;
+            let (raw, kw_source) = self
+                .extract_terms_with_fallback(&cleaned_text, ExtractionKind::Keywords)
+                .await;
+            tracing::info!(kw_source, keywords = raw.len(), "keyword fallback provenance");
             keywords = raw
                 .into_iter()
                 .map(|term| Keyword {
@@ -6064,6 +6234,11 @@ RESPOND ONLY WITH JSON."#,
 
     /// Update existing graph
     async fn update_graph(&self, graph_id: u64, delta: TextDelta) -> TextModalityOutput {
+        // Cache miss → load from persisted file (cross-process retrieval)
+        if !self.graph_cache.read().await.contains_key(&graph_id) {
+            self.load_graph_from_disk(graph_id).await;
+        }
+
         let mut cache = self.graph_cache.write().await;
 
         if let Some(graph) = cache.get_mut(&graph_id) {
@@ -6115,8 +6290,28 @@ RESPOND ONLY WITH JSON."#,
         }
     }
 
+    /// Load a TextGraph from the persisted JSON file on a cache miss.
+    /// File path: {OZONE_ZSEI_DATA_DIR}/graphs/text_{graph_id}.json
+    /// (same path persist_graph_container writes). Puts the loaded graph
+    /// into the cache so subsequent queries hit memory.
+    async fn load_graph_from_disk(&self, graph_id: u64) -> Option<TextGraph> {
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR")
+            .unwrap_or_else(|_| "zsei_data".to_string());
+        let path = format!("{}/graphs/text_{}.json", data_dir, graph_id);
+        let raw = tokio::fs::read_to_string(&path).await.ok()?;
+        let graph: TextGraph = serde_json::from_str(&raw).ok()?;
+        self.graph_cache.write().await.insert(graph_id, graph.clone());
+        tracing::info!(graph_id, path = %path, "TextGraph loaded from disk into cache");
+        Some(graph)
+    }
+
     /// Query graph
     async fn query_graph(&self, graph_id: u64, query: TextGraphQuery) -> TextModalityOutput {
+        // Cache miss → load from persisted file (cross-process retrieval)
+        if !self.graph_cache.read().await.contains_key(&graph_id) {
+            self.load_graph_from_disk(graph_id).await;
+        }
+
         let cache = self.graph_cache.read().await;
 
         if let Some(graph) = cache.get(&graph_id) {

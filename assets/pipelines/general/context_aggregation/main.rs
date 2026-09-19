@@ -95,6 +95,10 @@ pub struct ContextSource {
     pub relevance: f32, 
     pub tokens_used: u32,
     pub snippet: String,
+    /// How this container was found: "keyword-scan", "traversal",
+    /// "coordination", etc. — provenance for the context-gathering path.
+    #[serde(default)]
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -441,14 +445,14 @@ fn build_context_from_containers(containers: &[serde_json::Value], budget: u32) 
             let remaining = budget.saturating_sub(total_tokens);
             if remaining > 50 {
                 let (trunc_content, _) = truncate_to_budget(&content, remaining);
-                sources.push(ContextSource { container_id, container_type: container_type.to_string(), name: name.to_string(), relevance: 0.8, tokens_used: estimate_tokens(&trunc_content), snippet: trunc_content.chars().take(100).collect() });
+                sources.push(ContextSource { container_id, container_type: container_type.to_string(), name: name.to_string(), relevance: 0.8, tokens_used: estimate_tokens(&trunc_content), snippet: trunc_content.chars().take(100).collect(), source: "keyword-scan".to_string() });
                 context_parts.push(trunc_content);
             }
             break;
         }
         
         context_parts.push(content.clone());
-        sources.push(ContextSource { container_id, container_type: container_type.to_string(), name: name.to_string(), relevance: 0.9, tokens_used: content_tokens, snippet: content.chars().take(100).collect() });
+        sources.push(ContextSource { container_id, container_type: container_type.to_string(), name: name.to_string(), relevance: 0.9, tokens_used: content_tokens, snippet: content.chars().take(100).collect(), source: "traversal".to_string() });
         total_tokens += content_tokens;
     }
     

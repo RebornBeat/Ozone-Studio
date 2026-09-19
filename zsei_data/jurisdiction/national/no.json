@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from Norway's Personal Data Act 2018 (Personopplysningsloven, LOV-2018-06-15-38), which implements GDPR into Norwegian law via the EEA Agreement, retrieved via web search against summaries citing the official text on lovdata.no, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Norwegian legal counsel. Scope: National(\"NO\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "NO" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Act 2018 (LOV-2018-06-15-38) — implements GDPR in Norway via the EEA Agreement (incorporated 6 July 2018); enforced by Datatilsynet (the Norwegian Data Protection Authority) under GDPR Article 51. Official text: lovdata.no."
+    },
+    {
+      "scope": { "National": "NO" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Personal Data Act 2018 (LOV-2018-06-15-38) — sets Norway's national age of consent for children's data processing at 13 years (lower than the EU GDPR Article 8 default of 16), one of the national-flexibility provisions GDPR permits member/EEA states to set themselves. Official text: lovdata.no."
+    }
+  ]
+}

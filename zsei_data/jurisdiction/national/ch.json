@@ -1,0 +1,17 @@
+{
+  "disclaimer": "Drafted from Switzerland's revised Federal Act on Data Protection (FADP / German: DSG; SR 235.1), in force since 1 September 2023, retrieved via web search against summaries citing the official consolidated text on fedlex.admin.ch, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Swiss legal counsel. Scope: National(\"CH\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "CH" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Federal Act on Data Protection (FADP/DSG, SR 235.1, revised, in force 1 Sept 2023) — applies to all personal-data processing with effects in Switzerland regardless of where the processing organization is based; protects natural persons only (unlike the prior 1992 law, which also covered legal entities). Data subjects have the right to information on data collection and to data portability. Official consolidated text: fedlex.admin.ch (SR 235.1)."
+    },
+    {
+      "scope": { "National": "CH" },
+      "condition": "profiling",
+      "action": "Log",
+      "source": "FADP (SR 235.1) — introduces specific protection against high-risk automated profiling for Swiss nationals; enforcement by the Federal Data Protection and Information Commissioner (FDPIC), with penalties up to CHF 250,000 against the responsible natural person. Official consolidated text: fedlex.admin.ch (SR 235.1)."
+    }
+  ]
+}

@@ -232,7 +232,10 @@ impl ContainerStorage {
         Ok(())
     }
     
-    /// Load index from mmap file
+    /// Load index by scanning the global file — works in both storage modes
+    /// (the mmap branch reads via memory view; the plain-file branch reads
+    /// via seek+read). Without this, a plain-file store's index is empty
+    /// after restart and no containers are loadable.
     fn load_index(&mut self) -> OzoneResult<()> {
         if let Some(ref mmap) = self.global_mmap {
             let mut offset = 64u64; // Skip file header
@@ -241,10 +244,41 @@ impl ContainerStorage {
                 let start = offset as usize;
                 let container_id = u64::from_le_bytes(mmap[start..start+8].try_into().unwrap());
                 
-                if container_id != 0 || offset == 64 { // Valid container or root at offset 64
+                if container_id != 0 || offset == 64 {
                     self.index.insert(container_id, offset);
                 }
                 
+                offset += HEADER_SIZE as u64;
+            }
+        } else if let Some(ref file) = self.global_file {
+            // Plain-file scan: read records in HEADER_SIZE strides from
+            // offset 64 (after the file header), same layout as the mmap
+            // branch. seek+read per record instead of a memory view.
+            use std::io::{Seek, SeekFrom, Read};
+            let mut scan_file = file.try_clone().map_err(|e| {
+                OzoneError::StorageError(format!("Failed to clone for index scan: {}", e))
+            })?;
+            let file_len = scan_file.metadata().map_err(|e| {
+                OzoneError::StorageError(format!("Failed to stat global file: {}", e))
+            })?.len();
+            let mut offset = 64u64;
+            while offset + HEADER_SIZE as u64 <= file_len {
+                scan_file.seek(SeekFrom::Start(offset)).map_err(|e| {
+                    OzoneError::StorageError(format!("Index scan seek failed at {}: {}", offset, e))
+                })?;
+                let mut record = [0u8; 24];
+                match scan_file.read_exact(&mut record) {
+                    Ok(_) => {
+                        let container_id = u64::from_le_bytes(record[0..8].try_into().unwrap());
+                        if container_id != 0 {
+                            self.index.insert(container_id, offset);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(offset, error = %e, "Index scan: short read at offset, stopping");
+                        break;
+                    }
+                }
                 offset += HEADER_SIZE as u64;
             }
         }

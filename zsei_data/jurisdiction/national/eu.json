@@ -1,0 +1,65 @@
+{
+  "disclaimer": "Drafted from real, current EU legislation (GDPR — Regulation (EU) 2016/679; Digital Services Act — Regulation (EU) 2022/2065; Unfair Commercial Practices Directive — Directive 2005/29/EC), retrieved via web search against official EUR-Lex summaries and the regulation texts themselves, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified EU legal counsel before relying on it for any real compliance purpose. Scope: National(\"EU\") applies this content to any EU member state's instance_region, since these are EU-wide regulations that apply uniformly across all 27 member states (national implementing/supplementary law, e.g. a specific member state's own data protection act, is NOT covered here and would need its own per-country file). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — EU law is amended and reinterpreted over time; re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "EU" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "GDPR (Regulation (EU) 2016/679) Article 6 — lawful basis required (one of: consent, contract, legal obligation, vital interests, public task, legitimate interests) before processing personal data. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "GDPR Article 33 — notify the supervisory authority within 72 hours of becoming aware of a personal data breach posing risk to individuals; Article 34 requires direct notification to affected individuals if the risk is high. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "child",
+      "action": "Log",
+      "source": "GDPR Article 8 — for information society services offered directly to a child, processing is lawful only if the child is at least 16, or (if a member state has lowered this, to no lower than 13) that state's own threshold; below that age, processing requires consent from the holder of parental responsibility. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "minor",
+      "action": "Log",
+      "source": "Digital Services Act (Regulation (EU) 2022/2065) — very large online platforms/search engines must maintain safeguards for children and are limited from using sensitive personal data of minors for targeted advertising. https://eur-lex.europa.eu/ENG/legal-content/summary/digital-services-act.html"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "illegal content",
+      "action": "Log",
+      "source": "Digital Services Act (Regulation (EU) 2022/2065) — online platforms must provide mechanisms to flag illegal content/products, cooperate with trusted flaggers, and act on notices; large platforms face additional risk-management and audit obligations. https://eur-lex.europa.eu/ENG/legal-content/summary/digital-services-act.html"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "unfair commercial practice",
+      "action": "Log",
+      "source": "Unfair Commercial Practices Directive (2005/29/EC) — prohibits misleading and aggressive commercial practices toward consumers; member states must provide individual remedies and dissuasive penalties (up to 4% of turnover or €2m in cross-border cases). https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32005L0029"
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "EU AI Act (Regulation (EU) 2024/1689) — general provisions and prohibited-practices chapters (Chapters I-II) have applied since 2 February 2025; obligations for general-purpose AI models (Chapter V) have applied since 2 August 2025. Verified live (search, September 2026): https://artificialintelligenceact.eu/implementation-timeline/",
+      "retrieved_snippet": "Provisions under Chapter I (General Provisions) and Chapter II (Prohibited AI Practices) have been applicable since 2 February 2025. Chapter V (obligations for general-purpose AI models) has applied since 2 August 2025.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "chatbot",
+      "action": "Log",
+      "source": "EU AI Act Article 50 (transparency obligations) — applies from 2 August 2026: AI systems that interact directly with people must make clear a person is dealing with a machine; deepfakes and manipulated audio/image/video must be disclosed as artificially generated. https://artificialintelligenceact.eu/implementation-timeline/",
+      "retrieved_snippet": "The transparency obligations under Article 50 apply from 2 August 2026 to any AI system placed on the EU market. Systems that interact directly with people must make clear that a person is dealing with a machine. Deepfakes and manipulated content must be disclosed as artificially generated.",
+      "official_source": false
+    },
+    {
+      "scope": { "National": "EU" },
+      "condition": "high-risk ai",
+      "action": "Log",
+      "source": "EU AI Act — high-risk obligations for stand-alone systems (Annex III: hiring, credit scoring, education, critical infrastructure) are deferred to 2 December 2027; high-risk AI embedded in already-regulated products (Annex I) deferred to 2 August 2028 — NOT yet in force as of this content's verification date (September 2026), noted so this isn't mistaken for a current obligation. https://artificialintelligenceact.eu/implementation-timeline/",
+      "retrieved_snippet": "High-risk obligations for stand-alone systems (Annex III, covering hiring, credit scoring, education, and critical infrastructure) are deferred to 2 December 2027, and high-risk AI embedded in already-regulated products (Annex I) is deferred to 2 August 2028.",
+      "official_source": false
+    }
+  ]
+}

@@ -226,6 +226,20 @@ async fn review_amt_candidates_once(
                 tracing::info!(container_id, "AMT re-expansion: branch deepened");
                 candidate["handled"] = serde_json::json!(true);
                 any_change = true;
+                // MERGE-BACK V2 (main/fork islands): when a fork deepens,
+                // notify the living graph so subscribers know the AMT
+                // evolved. The Continues relation already links fork→main;
+                // the ripple event lets downstream consumers know new
+                // content exists to graft.
+                let route = candidate.get("route").and_then(|r| r.as_str()).unwrap_or("UnknownNode");
+                crate::graph_events::emit(
+                    "updated",
+                    container_id,
+                    0,
+                    "AMTExpansion".to_string(),
+                    "amt-expansion",
+                    vec![format!("route:{}", route)],
+                );
             }
             Ok(false) => {
                 // Container gone, node no longer unverified (resolved some
@@ -1078,4 +1092,49 @@ mod tests {
         let file = store.amt_file.clone();
         (store, file)
     }
+}
+
+/// Bridge the graph ripple to the network layer's hook system.
+/// Spawns a subscriber that converts GraphEvents into
+/// `on_container_created` / `on_blueprint_created` /
+/// `on_methodology_created` calls, finally connecting the network
+/// transport to the graph writes (it was registered but never fed).
+pub fn spawn_network_hook_bridge(
+    hub: &'static crate::graph_events::GraphEventHub,
+    network: std::sync::Arc<crate::network::NetworkManager>,
+) {
+    let mut rx = hub.subscribe();
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(evt) => {
+                    if evt.event == "created" {
+                        let data = serde_json::to_vec(&serde_json::json!({
+                            "container_id": evt.container_id,
+                            "parent_id": evt.parent_id,
+                            "container_type": evt.container_type,
+                            "source": evt.source,
+                            "scope_keywords": evt.scope_keywords,
+                        }))
+                        .unwrap_or_default();
+                        match evt.container_type.as_str() {
+                            "Methodology" => {
+                                let _ = network.on_methodology_created(evt.container_id, data).await;
+                            }
+                            "Blueprint" => {
+                                let _ = network.on_blueprint_created(evt.container_id, data).await;
+                            }
+                            _ => {
+                                let _ = network.on_container_created(evt.container_id, data).await;
+                            }
+                        }
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::warn!(lagged = n, "Network hook bridge: missed graph events");
+                }
+                Err(_) => break,
+            }
+        }
+    });
 }

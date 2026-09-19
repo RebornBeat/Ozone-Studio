@@ -1,0 +1,85 @@
+{
+  "metadata": {
+    "container_type": "CoordinationEvent",
+    "modality": "Unknown",
+    "created_at": 1789798176,
+    "updated_at": 1789798176,
+    "provenance": "zcode",
+    "permissions": 0,
+    "owner_id": 0,
+    "name": "restart verified",
+    "materialized_path": "/SharedContext/ws-0/finding/restart-verified"
+  },
+  "context": {
+    "categories": [],
+    "methodologies": [],
+    "keywords": [
+      "finding",
+      "zcode",
+      "ws:0"
+    ],
+    "topics": [
+      "coordination"
+    ],
+    "relationships": [],
+    "learned_associations": [],
+    "embedding": null
+  },
+  "storage": {
+    "db_shard_id": null,
+    "vector_index_ref": null,
+    "object_store_path": "shared_context/finding-zcode-1789798176.json",
+    "compression_type": "None"
+  },
+  "hints": {
+    "access_frequency": 0,
+    "hotness_score": 0.0,
+    "last_accessed": 0,
+    "centroid": null,
+    "ml_prediction_weight": 0.0
+  },
+  "integrity": {
+    "content_hash": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "semantic_fingerprint": [],
+    "last_verified": 0,
+    "integrity_score": 1.0,
+    "version_history": []
+  },
+  "file_context": null,
+  "code_context": null,
+  "text_context": null,
+  "external_ref": null
+}

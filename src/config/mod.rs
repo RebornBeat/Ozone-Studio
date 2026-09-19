@@ -706,6 +706,15 @@ impl ModelConfig {
         if let Some(c) = &self.bitnet_cli_path {
             env.push(("BITNET_CLI_PATH".to_string(), c.clone()));
         }
+        // Nested pipeline-9 consumers (text/code modality extraction, etc.)
+        // need the same fallback chain the orchestrator walks — without it,
+        // one free-tier failure silently empties their extraction results.
+        let chain = serde_json::json!({
+            "order": self.fallback.order,
+            "free_only": self.fallback.free_only,
+            "models": self.available_models,
+        });
+        env.push(("OZONE_FALLBACK_CHAIN".to_string(), chain.to_string()));
         env
     }
 }

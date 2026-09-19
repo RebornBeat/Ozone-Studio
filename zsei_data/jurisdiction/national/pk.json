@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Pakistan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Pakistan specifically: as of 2026 there is NO enacted comprehensive data protection statute — the entry below honestly reflects that gap rather than fabricating an enacted law.",
+  "rules": [
+    {
+      "scope": {"National": "PK"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "NO enacted comprehensive data protection law as of 2026. The Personal Data Protection Bill (most recent draft titled Personal Data Protection Act, 2025) has Federal Cabinet approval but has NOT passed both houses of Parliament. In the absence of that law, the Prevention of Electronic Crimes Act 2016 (PECA), amended January 2025, is the primary applicable statute for data misuse — but it is a criminal-law statute, not a privacy framework. Summary: https://www.thefridaytimes.com/11-Dec-2025/data-privacy-peril-pakistan-s-legal-vacuum-consequences and https://practiceguides.chambers.com/practice-guides/data-protection-privacy-2026/pakistan",
+      "retrieved_snippet": "Pakistan has no enacted data protection law as of 2026. The draft legislation titled Personal Data Protection Act, 2025 introduces new compliance obligations for local/international businesses while keeping state agencies largely exempt; legal analysts describe the bill as having serious flaws and it remains mired in Parliament.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "PK"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Prevention of Electronic Crimes Act 2016 (PECA), as amended by the Criminal Laws (Amendment) Act 2023 (child defined as under 18) and further updated 2025 (creation of the Social Media Protection and Regulatory Authority). New PECA sections: 22A (online grooming/solicitation/cyber enticement), 22B (commercial sexual exploitation of children), 22C (use of an information system for kidnapping/abduction/trafficking of minors), 24A (cyberbullying), 30B (victim/witness protection). Summary: https://iportal.riphah.edu.pk/newspaper/peca-and-children-part-i/",
+      "retrieved_snippet": "The 2023 Amendment enhanced punishments — imprisonment for child pornography raised to fourteen years, extendable to twenty, with fines increased from one million up to five million rupees. The Federal Investigation Agency (FIA) and, since the amendment, police are authorized to act under PECA on child-related offenses.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "PK"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer protection in Pakistan is a PROVINCIAL matter, not a single federal statute: Islamabad Consumer Protection Act 1995, Khyber Pakhtunkhwa Consumer Protection Act 1997 (official text: http://kpcode.kp.gov.pk/uploads/1997_06_THE_KHYBER_PAKHTUNKHWA_CONSUMERS_PROTECTION_ACT_1997_.pdf), Balochistan Consumer Protection Act 2003, Punjab Consumers Protection Act 2005 (official text: http://punjablaws.gov.pk/laws/477.html), and a Sindh Consumer Protection Bill from 2015.",
+      "retrieved_snippet": "Each province has its own consumer protection legislation and district consumer protection councils; consumer courts established under the provincial acts handle complaint resolution.",
+      "official_source": true
+    }
+  ]
+}

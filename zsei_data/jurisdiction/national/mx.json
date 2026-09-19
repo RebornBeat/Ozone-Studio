@@ -1,0 +1,53 @@
+{
+  "disclaimer": "Drafted from real, currently-published official Mexican federal statutes, verified via live web search against official government sources (gob.mx, diputados.gob.mx, profeco.gob.mx) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Mexican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. State-level law is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": {"National": "MX"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares — https://www.gob.mx/cms/uploads/attachment/file/123648/Ley_Federal_de_Protecci_n_de_Datos_Personales_en_Posesi_n_de_los.pdf",
+      "retrieved_snippet": "Objective: protect personal data in the possession of private entities, regulating its legitimate, controlled and informed treatment to guarantee privacy and informational self-determination.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares + Ley General de los Derechos de Niñas, Niños y Adolescentes — https://www.diputados.gob.mx/LeyesBiblio/pdf/LFPDPPP.pdf",
+      "retrieved_snippet": "In the treatment of personal data of minors, consent from a parent or guardian must always be obtained, prioritizing the best interests of the child ('interés superior de la niñez').",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "minor",
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares — https://www.gob.mx/cms/uploads/attachment/file/123648/Ley_Federal_de_Protecci_n_de_Datos_Personales_en_Posesi_n_de_los.pdf",
+      "retrieved_snippet": "Guardian/parental consent required for processing minors' personal data; best-interest-of-the-child principle applies, informed by Mexico's ratification of the Convention on the Rights of the Child.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Ley Federal de Protección al Consumidor (PROFECO) — https://www.profeco.gob.mx/juridico/pdf/l_lfpc_ultimo_camdip.pdf",
+      "retrieved_snippet": "Object of the law: promote and protect consumer rights, ensure equity, certainty and legal security between providers and consumers, including protection of life/health/safety and adequate/clear product information. Enforced by PROFECO, published in Diario Oficial de la Federación 1992-12-24.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No enacted comprehensive AI statute as of September 2026 — Mexico has adopted a hybrid, sectoral approach rather than a single AI law. A comprehensive National Law to Regulate the Use of Artificial Intelligence (introduced by Senator Karina Ruíz Ruíz) and a separate Federal Law Initiative for Ethical, Sovereign and Inclusive AI Development remain in the legislative process, not yet passed. The one enacted, narrower reform: amendments to the Federal Labor Law and Copyright Law protecting performers'/creators' voice and image against generative AI, published 14 May 2026. — https://cms.law/en/int/expert-guides/ai-regulation-scanner/mexico",
+      "retrieved_snippet": "Mexico reached the second half of 2026 without a general AI law; a comprehensive bill remains in Senate committee. The only enacted AI-related change so far is the May 2026 Labor/Copyright Law amendment on generative-AI voice/image protection.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "MX"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Ley General para la Inclusión de las Personas con Discapacidad + Ley Federal de Telecomunicaciones y Radiodifusión (2014) — https://www.gob.mx/conadis",
+      "retrieved_snippet": "Mexico's primary disability-rights statute protects and promotes inclusion broadly; the Federal Telecommunications and Broadcasting Law separately mandates that telecommunications services be accessible to persons with disabilities. Neither law explicitly names website/digital-content accessibility standards (e.g. no codified WCAG requirement) — website accessibility specifically is honestly underdeveloped in Mexican federal law as of this research, not a settled, citable requirement the way it is in the EU, Poland, or Brazil's LBI.",
+      "official_source": false
+    }
+  ]
+}

@@ -244,7 +244,91 @@ impl PromptOrchestrator {
             }),
         );
 
+        // MERGE-BACK (task 43 arc): graft substantive branches from this
+        // fork into the project's main AMT content file. The main AMT is
+        // the earliest-created AMT tree for this project; verified children
+        // from this fork that don't exist in main are appended as new
+        // branches so the main tree grows across prompts.
+        if let Some(project_id) = state.request.project_id {
+            self.merge_back_to_main(project_id, &amt).await;
+        }
+
         Ok(new_id)
+    }
+
+    /// Graft verified branches from a fork AMT into the project's main AMT
+    /// content file. Only grafts branches that don't already exist in main
+    /// (content-match dedup). Best-effort — failures logged, never propagated.
+    async fn merge_back_to_main(&self, project_id: u64, amt: &AMTNode) {
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let amt_dir = format!("{}/amt", data_dir);
+        let _ = std::fs::create_dir_all(&amt_dir);
+
+        // Find the main AMT file (earliest created for this project).
+        let mut main_file: Option<String> = None;
+        let mut earliest = u64::MAX;
+        if let Ok(entries) = std::fs::read_dir(&amt_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("amt_") && name.ends_with(".json") {
+                        if let Ok(metadata) = entry.metadata() {
+                            let created = metadata
+                                .created()
+                                .ok()
+                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                                .map(|d| d.as_secs())
+                                .unwrap_or(u64::MAX);
+                            if created < earliest {
+                                earliest = created;
+                                main_file = Some(path.to_string_lossy().into_owned());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let Some(main_path) = main_file else {
+            tracing::debug!(project_id, "merge-back: no main AMT file found, skipping");
+            return;
+        };
+
+        let Ok(main_raw) = std::fs::read_to_string(&main_path) else {
+            tracing::warn!(project_id, path = %main_path, "merge-back: failed to read main AMT");
+            return;
+        };
+        let mut main_tree: AMTNode = match serde_json::from_str(&main_raw) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::warn!(project_id, error = %e, "merge-back: failed to parse main AMT");
+                return;
+            }
+        };
+
+        let mut existing = std::collections::HashSet::new();
+        fn collect_contents(node: &AMTNode, set: &mut std::collections::HashSet<String>) {
+            set.insert(node.content.clone());
+            for child in &node.children {
+                collect_contents(child, set);
+            }
+        }
+        collect_contents(&main_tree, &mut existing);
+
+        let mut grafted = 0usize;
+        for child in &amt.children {
+            if child.verified && !existing.contains(&child.content) {
+                main_tree.children.push(child.clone());
+                existing.insert(child.content.clone());
+                grafted += 1;
+            }
+        }
+
+        if grafted > 0 {
+            let updated = serde_json::to_string_pretty(&main_tree).unwrap_or_default();
+            let _ = std::fs::write(&main_path, updated);
+            tracing::info!(project_id, grafted, "Merge-back: grafted verified branches into main AMT");
+        }
     }
 
     /// Recorded when a freshly-built AMT still has an unverified node — the

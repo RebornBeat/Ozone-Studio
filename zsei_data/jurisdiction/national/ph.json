@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for the Philippines (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "PH"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Republic Act No. 10173, the Data Privacy Act of 2012, effective 8 September 2012; Implementing Rules and Regulations enforceable 9 September 2016. Official text: https://privacy.gov.ph/data-privacy-act/ and https://www.officialgazette.gov.ph/2012/08/15/republic-act-no-10173/ . Enforced by the National Privacy Commission (NPC), attached to the DICT.",
+      "retrieved_snippet": "An act protecting individual personal information in information and communications systems in the government and the private sector, creating for this purpose a National Privacy Commission.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "PH"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Republic Act No. 11930, the Anti-OSAEC and CSAEM Act (Anti-Online Sexual Abuse or Exploitation of Children / Anti-Child Sexual Abuse or Exploitation Materials Act), official text: https://lawphil.net/statutes/repacts/ra2022/ra_11930_2022.html ; also Republic Act No. 7610 (Special Protection of Children Against Abuse, Exploitation and Discrimination Act, 1992), official text: https://chanrobles.com/republicactno7610.html",
+      "retrieved_snippet": "RA 11930 positions the Philippines as one of the first countries in East Asia and the Pacific with an institutionalized, collaborative approach to preventing and responding to online sexual abuse and exploitation of children; RA 7610 gives children heightened legal protection against physical, sexual, psychological and economic abuse and exploitation.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "PH"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Republic Act No. 7394, the Consumer Act of the Philippines, enacted 13 April 1992, effective 15 July 1992. Official text: https://www.officialgazette.gov.ph/1992/04/13/republic-act-no-7394-s-1992/ . Primary enforcement by the Department of Trade and Industry (DTI).",
+      "retrieved_snippet": "State policy to protect consumer interests, promote general welfare, and establish standards of conduct for business and industry; DTI leads on general consumer products, deceptive trade practices, and product standards for non-food/non-drug goods.",
+      "official_source": true
+    }
+  ]
+}

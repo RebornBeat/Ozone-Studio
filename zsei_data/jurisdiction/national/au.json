@@ -1,0 +1,45 @@
+{
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Australia (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "rules": [
+    {
+      "scope": {"National": "AU"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Privacy Act 1988 (Commonwealth), 13 Australian Privacy Principles (APPs); a dedicated Children's Online Privacy Code is required to be developed by the OAIC by 10 December 2026. Official: Office of the Australian Information Commissioner (OAIC), https://www.oaic.gov.au/privacy/privacy-registers/privacy-codes/childrens-online-privacy-code",
+      "retrieved_snippet": "The Commonwealth Privacy Act 1988 provides protection for personal information based on 13 principles (the Australian Privacy Principles, or APPs)... The Amendment Act requires the OAIC to develop the Code to address online privacy for children by 10 December 2026.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AU"},
+      "condition": "child",
+      "action": "Log",
+      "source": "Online Safety Act 2021, enforced by the eSafety Commissioner; includes the Social Media Minimum Age scheme and Unlawful and Age-restricted material Codes. Official: OAIC, https://www.oaic.gov.au/news/blog/a-safer-internet-doesnt-need-to-compromise-privacy",
+      "retrieved_snippet": "In Australia, the Privacy Act 1988 and Online Safety Act 2021 play distinct and essential roles in protecting children online... including the introduction of the Social Media Minimum Age scheme, the completed Online Safety Act 2021 review and the Unlawful and Age-restricted material Codes registered by the eSafety Commissioner.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AU"},
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Australian Consumer Law (Schedule 2 of the Competition and Consumer Act 2010), enforced by the Australian Competition and Consumer Commission (ACCC) under a one-law/multiple-regulators system with state/territory regulators. Official: https://www.accc.gov.au/consumers/buying-products-and-services/consumer-rights-and-guarantees",
+      "retrieved_snippet": "The Australian Consumer Law is written into Schedule 2 of the Competition and Consumer Act 2010... Under the Australian Consumer Law, businesses must meet a set of basic rights called consumer guarantees when they sell products or services.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AU"},
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "No standalone Australian AI Act as of July 2026 — government confirmed (National AI Plan, Dec 2025) it will rely on existing law + sector regulators + the Australian AI Safety Institute (AISI) rather than mandatory economy-wide guardrails; existing privacy/consumer/copyright/anti-discrimination law governs AI outcomes instead. From 15 June 2026, mandatory requirements (AI impact assessments, procurement guidance, Chief AI Officers) apply to Commonwealth agencies only, full compliance due 10 December 2026. Secondary summary: https://rivergroup.ai/insights/australia-drops-mandatory-ai-guardrails ; official: National AI Centre guidance, https://www.industry.gov.au/",
+      "retrieved_snippet": "The government has confirmed it will not proceed with AI-specific legislation, betting instead on existing law, a new AI Safety Institute, and refreshed adoption guidance... from 15 June 2026 the first mandatory requirements apply to Commonwealth agencies, including AI impact assessments, procurement guidance, foundational AI training, and appointing Chief AI Officers, with full compliance due by 10 December 2026.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "AU"},
+      "condition": "accessibility",
+      "action": "Log",
+      "source": "Disability Discrimination Act 1992 (DDA), Australia's core disability-rights statute covering online businesses; the Australian Human Rights Commission's Guidelines on Equal Access to Digital Goods and Services (2025) recommend WCAG 2.2 Level AA (replacing the 2014 Advisory Notes). Mandatory for public and private sectors; non-compliance can lead to AHRC complaints and fines up to AUD 100,000. Official: https://humanrights.gov.au/our-work/disability-rights/world-wide-web-access-disability-discrimination-act-advisory-notes-ver",
+      "retrieved_snippet": "The Disability Discrimination Act 1992 (DDA) is Australia's core disability rights legislation... protects disabled Australians from discrimination in public life, including by online businesses. The Commission's 2025 guidelines specifically recommend WCAG 2.2 Level AA as the applicable standard. Compliance is mandatory for both the public and private sectors, and non-compliance can result in fines up to AUD 100,000.",
+      "official_source": true
+    }
+  ]
+}

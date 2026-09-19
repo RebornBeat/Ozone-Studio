@@ -1328,20 +1328,35 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 }
             }
 
-            // Build full context with previous outputs
-            let full_context = if !previous_outputs.is_empty() {
-                format!(
-                    "{}\n\nPrevious step outputs:\n{}",
-                    step_context,
-                    previous_outputs
-                        .iter()
-                        .enumerate()
-                        .map(|(i, o)| format!("Step {}: {}", i + 1, &o[..o.len().min(300)]))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                )
-            } else {
-                step_context
+            // Build full context with previous outputs + coordination layer.
+            // The coordination layer (task 43) carries scoped agent history
+            // from the /SharedContext graph — included as a distinct labeled
+            // section, never mixed into the project-scoped context text.
+            let coordination_layer = context_result
+                .get("context")
+                .and_then(|c| c.get("coordination_context"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("");
+            let full_context = {
+                let mut fc = String::new();
+                if !coordination_layer.is_empty() {
+                    fc.push_str("[Agent coordination history]\n");
+                    fc.push_str(coordination_layer);
+                    fc.push_str("\n\n");
+                }
+                fc.push_str(&step_context);
+                if !previous_outputs.is_empty() {
+                    fc.push_str("\n\nPrevious step outputs:\n");
+                    fc.push_str(
+                        &previous_outputs
+                            .iter()
+                            .enumerate()
+                            .map(|(i, o)| format!("Step {}: {}", i + 1, &o[..o.len().min(300)]))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    );
+                }
+                fc
             };
 
             // Attached-file content (real bytes read from disk in

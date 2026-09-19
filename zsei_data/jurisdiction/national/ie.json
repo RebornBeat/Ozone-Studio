@@ -1,0 +1,23 @@
+{
+  "disclaimer": "Drafted from real, current Irish law, retrieved via web search against the Irish Data Protection Commission's (DPC) own published guidance on the Data Protection Act 2018, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Irish legal counsel. Scope: National(\"IE\") — this file covers ONLY Ireland-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "IE" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Irish Data Protection Act 2018, Section 29 — fixes the national age of digital consent (GDPR Article 8) at 16; a child under Section 29 is defined as under 18 for other child-specific protections in the Act. https://caseguard.com/articles/a-new-legal-framework-for-data-protection-in-ireland/"
+    },
+    {
+      "scope": { "National": "IE" },
+      "condition": "direct marketing",
+      "action": "Log",
+      "source": "Irish Data Protection Act 2018 — it is a specific criminal offence for a company or corporate body to process a child's personal data for the purposes of direct marketing, profiling, or micro-targeting; the DPC's \"Children Front and Centre\" guidance sets out 14 child-specific data-processing principles. https://www.dacbeachcroft.com/en/What-we-think/In-the-Spotlight-Processing-Childrens-Personal-Data-in-Ireland-and-beyond"
+    },
+    {
+      "scope": { "National": "IE" },
+      "condition": "right to be forgotten",
+      "action": "Log",
+      "source": "Irish Data Protection Act 2018 — provides a specific, strengthened right to erasure for children with respect to personal data collected when they were offered an information-society service, going beyond the general GDPR Article 17 right. https://www.dataprotection.ie/sites/default/files/uploads/2023-04/DPC_ChildrensData_ParentalConsent.pdf"
+    }
+  ]
+}

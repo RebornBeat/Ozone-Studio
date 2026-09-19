@@ -1,0 +1,23 @@
+{
+  "disclaimer": "Drafted from real, current Moroccan law, retrieved via web search against reputable secondary sources describing Law No. 09-08 (18 February 2009) on the protection of individuals with regard to the processing of personal data, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Moroccan legal counsel. No verifiable source for consumer-protection-specific integration with this law was found during this research pass — not included rather than guessed. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "rules": [
+    {
+      "scope": { "National": "MA" },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 09-08 (18 February 2009) and implementing Decree n° 2-09-165 (21 May 2009) — requires lawful, transparent processing, data minimization, and appropriate security; certain processing must be declared to or authorized by the CNDP (Commission Nationale de contrôle de la protection des Données à caractère Personnel), Morocco's data protection authority. https://www.clym.io/regulations/law-no-09-08-morocco"
+    },
+    {
+      "scope": { "National": "MA" },
+      "condition": "child",
+      "action": "Log",
+      "source": "Law No. 09-08 — parental consent is required for processing a child's personal data. https://www.upsilon-consulting.com/en/cndp-law-09-08-personal-data-protection-morocco/"
+    },
+    {
+      "scope": { "National": "MA" },
+      "condition": "data access request",
+      "action": "Log",
+      "source": "Law No. 09-08 — refusing a data subject's access, rectification, or objection rights carries penalties of MAD 20,000-200,000; failure to declare/authorize processing with the CNDP carries penalties of MAD 10,000-100,000. https://www.dpo-consulting.com/blog/morocco-data-protection-law-09-08"
+    }
+  ]
+}
