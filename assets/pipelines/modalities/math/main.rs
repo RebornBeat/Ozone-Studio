@@ -27,10 +27,21 @@
 //! - Nodes: Expression, ProofStep, Variable, Axiom, Theorem, Assumption, Definition
 //! - Edges: Uses, Derives, Requires, Implies, Defines, AssumesIn, DischargesIn
 
+use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::env;
+
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
+/// Pipeline-side model-call capture (C6-minimal, shared — single source).
+/// Currently covers the one pipeline-9 call site (E7's
+/// resolve_implicit_step_references, dead code until wired) so capture is
+/// already in place the moment that call goes live.
+#[path = "../../shared/capture.rs"]
+mod capture;
 
 // Same real-ZSEI-over-HTTP pattern as text modality (100) and code modality
 // (101) — this pipeline had never actually been built/exercised before (see
@@ -42,8 +53,17 @@ fn ozone_host() -> String {
     env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
 }
 
+/// Process-wide HTTP client for host calls — keep-alive connection reuse.
+/// Measured (link_metrics, 2026-09-20): a fresh Client per zsei_query call
+/// costs a TCP connect every time; the shared client removes that from the
+/// per-edge linking cost without capping or batching anything.
+fn shared_http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = shared_http_client();
     let resp = client
         .post(format!("{}/zsei/query", ozone_host()))
         .json(&serde_json::json!({"query": query, "session_token": ""}))
@@ -74,6 +94,18 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 /// found — so this must never return empty when the graph has real content.
 fn derive_math_keywords(graph: &MathGraph, analysis: &MathAnalysisResult) -> (Vec<String>, Vec<String>) {
     let mut keywords: Vec<String> = Vec::new();
+    // P4 supplement (math isolation fix): the raw content's real words come
+    // FIRST — for prose-heavy inputs they are the meaningful terms, while
+    // ParseExpression's per-token variables are the noise. Zero real
+    // overlap with sibling text/code graphs was the entire reason math
+    // graphs stayed isolated (live root-caused 2026-09-21/22).
+    if let Some(parse_result) = &analysis.parse_result {
+        for kw in &parse_result.content_keywords {
+            if !keywords.contains(kw) {
+                keywords.push(kw.clone());
+            }
+        }
+    }
     for node in &graph.nodes {
         match node.node_type {
             MathGraphNodeType::Variable => keywords.push(node.label.to_lowercase()),
@@ -86,6 +118,11 @@ fn derive_math_keywords(graph: &MathGraph, analysis: &MathAnalysisResult) -> (Ve
     let mut topics: Vec<String> = vec![format!("{:?}", analysis.analysis_type).to_lowercase()];
     if let Some(proof) = &analysis.proof_analysis {
         topics.push(format!("{:?}", proof.proof_technique).to_lowercase());
+        for kw in &proof.content_keywords {
+            if !keywords.contains(kw) {
+                keywords.push(kw.clone());
+            }
+        }
         for axiom in &proof.axioms_used {
             keywords.push(axiom.name.to_lowercase());
         }
@@ -121,7 +158,7 @@ async fn persist_graph_container(
     analysis: &MathAnalysisResult,
     local_graph_id: u64,
     project_id: u64,
-) -> Result<u64, String> {
+) -> Result<(u64, Vec<String>, Vec<String>), String> {
     let now = chrono::Utc::now().timestamp() as u64;
     let (keywords, topics) = derive_math_keywords(graph, analysis);
     let name = format!(
@@ -222,7 +259,10 @@ async fn persist_graph_container(
     }
     write_graph_json_file(local_graph_id, &graph_json)?;
 
-    Ok(container_id)
+    // Keywords/topics returned alongside so the caller (create_graph) can
+    // run cross-relationship linking without re-deriving them — same shape
+    // code modality's persist_graph_container returns.
+    Ok((container_id, keywords, topics))
 }
 
 fn write_graph_json_file(local_graph_id: u64, graph_json: &serde_json::Value) -> Result<(), String> {
@@ -355,6 +395,12 @@ pub enum MathAction {
         project_id: u64,
         #[serde(default)]
         graph_name: Option<String>,
+        /// Cross-relationship linking (task 57) — when true, the freshly
+        /// persisted graph container gets real SimilarTo edges to existing
+        /// containers sharing >= 2 keywords/topics. Serde-defaulted so
+        /// callers that predate the flag keep working unchanged.
+        #[serde(default)]
+        link_to_existing: bool,
     },
 
     /// Update existing graph
@@ -518,6 +564,16 @@ pub struct ParseResult {
     pub normalized: Option<String>,
     /// Parse confidence
     pub confidence: f32,
+    /// Text-style content keywords extracted from the RAW input string
+    /// (P4, math isolation fix): ParseExpression character-tokenizes
+    /// formulas, so prose-heavy inputs (a .tex file that is mostly
+    /// English) yield garbage single-letter Variables and
+    /// derive_math_keywords finds no real terms. The raw string's real
+    /// words — extracted here, at the only place the raw content exists —
+    /// supplement the graph-derived keywords so prose+math documents can
+    /// cross-link with text/code graphs.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_keywords: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -735,6 +791,13 @@ pub struct ProofAnalysis {
     pub scope_tree: Option<ScopeTree>,
     /// Dependency graph
     pub dependencies: Vec<StepDependency>,
+    /// Text-style content keywords extracted from the combined raw step
+    /// statements (P4 extended to proofs): `extract_content_keywords`
+    /// previously only ran inside `parse_expression`, so prose-heavy proofs
+    /// (the exact ".tex mostly English" case P4 was built for) never
+    /// benefited — `parse_result` is always `None` for a proof analysis.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub content_keywords: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1222,6 +1285,11 @@ pub struct MathGraphEdge {
 pub enum MathEdgeType {
     // Structural
     Contains,
+    FollowsStep,    // Step i is presented after step i-1 (real, unconditional
+                     // presentation order — distinct from Uses, which is a
+                     // real cited content dependency and must never be
+                     // defaulted to "the previous step" absent an actual
+                     // citation in the step's own text)
     // Proof dependencies
     Uses,           // Step uses another step's result
     Derives,        // Step derives from another
@@ -1257,6 +1325,11 @@ pub struct GraphMetadata {
     pub verification_confidence: f32,
     pub semantic_enriched: bool,
     pub cross_modal_links: usize,
+    /// Real captured metrics from link_related_containers (present only
+    /// when link_to_existing ran) — candidate counts, shared-term
+    /// distribution, edges written, duration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_metrics: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1432,8 +1505,9 @@ pub async fn execute(input: Value) -> Result<Value, String> {
             analysis,
             project_id,
             graph_name,
+            link_to_existing,
         } => {
-            let graph = create_graph(analysis, project_id, graph_name).await?;
+            let graph = create_graph(analysis, project_id, graph_name, link_to_existing).await?;
             ("CreateGraph", MathResult::Graph(graph))
         }
 
@@ -1515,6 +1589,434 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ============================================================================
 // ACTION IMPLEMENTATIONS
 // ============================================================================
+
+/// P4 (math isolation fix): text-style content keyword extraction over the
+/// RAW input — the supplement that lets prose-heavy math documents (a .tex
+/// file that is mostly English) contribute REAL terms ("gradient",
+/// "learning_rate", "descent") alongside ParseExpression's per-token
+/// variables, so derive_math_keywords produces keywords that actually
+/// overlap text/code graphs. Lowercase, >=4 chars, small stopword set,
+/// deduped, capped.
+fn extract_content_keywords(raw: &str) -> Vec<String> {
+    const STOPWORDS: [&str; 14] = [
+        "this", "that", "with", "from", "have", "been", "were", "will",
+        "would", "should", "could", "their", "there", "which",
+    ];
+    let mut out: Vec<String> = Vec::new();
+    for word in raw.split(|c: char| !c.is_alphanumeric() && c != '_') {
+        let w = word.to_lowercase();
+        if w.len() >= 4 && !STOPWORDS.contains(&w.as_str()) && !out.contains(&w) {
+            out.push(w);
+        }
+        if out.len() >= 12 {
+            break;
+        }
+    }
+    out
+}
+
+/// Real cross-step reference detection for proof steps. Previously
+/// `analyze_proof` hardcoded every step's dependency to `vec![i]` (only the
+/// immediately preceding step) regardless of what the step's own text
+/// actually cites — a fabricated relationship presented as real (see the
+/// 2026-09-22 graph/relationship audit). This scans the step's own statement
+/// for genuine textual evidence of an earlier reference and returns ONLY
+/// step numbers with that evidence — an empty result is honest when no
+/// citation exists, never defaulted.
+///
+/// Two forms of evidence are accepted:
+/// 1. Explicit numbered citations: "step 2", "equation 3", "(4)" (when not a
+///    leading enumeration marker), "result 1", "assumption 2" — resolved
+///    only against real earlier step numbers (1..current_step_number).
+/// 2. Explicit textual back-reference phrases ("the previous step", "as
+///    shown above") — these genuinely claim a reference to the immediately
+///    preceding step in the step's own words, unlike the old unconditional
+///    default, so mapping them to step (current-1) is grounded, not guessed.
+fn push_unique_earlier_ref(n: usize, current_step_number: usize, found: &mut Vec<usize>) {
+    if n >= 1 && n < current_step_number && !found.contains(&n) {
+        found.push(n);
+    }
+}
+
+fn extract_step_references(statement: &str, current_step_number: usize) -> Vec<usize> {
+    let mut found: Vec<usize> = Vec::new();
+
+    if let Ok(labeled) = Regex::new(r"(?i)\b(?:steps?|eqs?\.?|equations?|results?|assumptions?)\s*#?\s*(\d+)\b") {
+        for cap in labeled.captures_iter(statement) {
+            if let Some(n) = cap.get(1).and_then(|m| m.as_str().parse::<usize>().ok()) {
+                push_unique_earlier_ref(n, current_step_number, &mut found);
+            }
+        }
+    }
+
+    if let Ok(paren) = Regex::new(r"\((\d+)\)") {
+        for cap in paren.captures_iter(statement) {
+            // A "(N)" at the very start of the (already-trimmed) statement
+            // reads as an enumeration/list marker ("(1) First, ..."), not a
+            // citation — skip it to avoid a false-positive reference.
+            let is_leading = cap.get(0).map(|m| m.start()).unwrap_or(1) == 0;
+            if is_leading {
+                continue;
+            }
+            if let Some(n) = cap.get(1).and_then(|m| m.as_str().parse::<usize>().ok()) {
+                push_unique_earlier_ref(n, current_step_number, &mut found);
+            }
+        }
+    }
+
+    if current_step_number > 1 {
+        let lower = statement.to_lowercase();
+        const IMPLICIT_MARKERS: [&str; 6] = [
+            "the previous step", "as before", "as shown above",
+            "from above", "the prior step", "as above",
+        ];
+        if IMPLICIT_MARKERS.iter().any(|m| lower.contains(m)) {
+            push_unique_earlier_ref(current_step_number - 1, current_step_number, &mut found);
+        }
+    }
+
+    found.sort_unstable();
+    found
+}
+
+/// Real per-step assumption/variable-introduction detection (2026-09-22
+/// graph audit follow-up, `GRAPH_RELATIONSHIP_REGISTRY.md` §2's
+/// highest-value next item): `analyze_proof` used to hardcode
+/// `introduced_variables`/`assumptions` empty for every step even though
+/// the graph-construction code for `Defines`/`AssumesIn` edges already
+/// existed and worked — this was purely a missing-source-data gap, not a
+/// missing-consumer one. Same honest-evidence-only discipline as
+/// `extract_step_references`: no textual evidence, no node.
+fn extract_variable_introduction(statement: &str) -> Option<Variable> {
+    let re = Regex::new(r"(?i)\blet\s+([A-Za-z][A-Za-z0-9_]*)\s+be\b").ok()?;
+    let cap = re.captures(statement)?;
+    let name = cap.get(1)?.as_str().to_string();
+    Some(Variable {
+        name,
+        var_type: VariableType::Unknown,
+        constraints: vec![],
+        scope: None,
+        quantifier: None,
+        initial_value: None,
+    })
+}
+
+/// Real assumption-introduction detection ("assume X", "suppose X",
+/// "for the sake of contradiction, assume X"). Returns the assumed clause
+/// text plus a best-effort `AssumptionType` from the same statement's own
+/// wording — never fabricated when the statement doesn't actually
+/// introduce an assumption.
+fn extract_assumption_introduction(statement: &str) -> Option<(String, AssumptionType)> {
+    let re = Regex::new(r"(?i)\b(?:assume|suppose)\b\s*(?:that\s+)?(.+)").ok()?;
+    let cap = re.captures(statement)?;
+    let clause = cap.get(1)?.as_str().trim().trim_end_matches('.').to_string();
+    if clause.is_empty() {
+        return None;
+    }
+    let lower = statement.to_lowercase();
+    let assumption_type = if lower.contains("contradiction") {
+        AssumptionType::Contradiction
+    } else if lower.contains("case") {
+        AssumptionType::Case
+    } else if lower.contains("induction") {
+        AssumptionType::Induction
+    } else {
+        AssumptionType::Direct
+    };
+    Some((clause, assumption_type))
+}
+
+/// Real discharge-reference detection: which earlier STEP's assumption(s)
+/// this step's own text says it is discharging/dropping/contradicting.
+/// Returns real earlier step numbers only (resolved to actual assumption
+/// ids by the caller, which tracks which assumption(s) each step
+/// introduced) — a step with no discharge language returns empty, never
+/// guessed.
+fn extract_discharge_step_refs(statement: &str, current_step_number: usize) -> Vec<usize> {
+    let mut found = Vec::new();
+    let lower = statement.to_lowercase();
+    let has_discharge_language = lower.contains("discharg")
+        || lower.contains("drop the assumption")
+        || lower.contains("contradicts our assumption")
+        || lower.contains("contradicts the assumption");
+    if !has_discharge_language {
+        return found;
+    }
+    if let Ok(re) = Regex::new(r"(?i)\b(?:step|assumption)\s*#?\s*(\d+)\b") {
+        for cap in re.captures_iter(statement) {
+            if let Some(n) = cap.get(1).and_then(|m| m.as_str().parse::<usize>().ok()) {
+                push_unique_earlier_ref(n, current_step_number, &mut found);
+            }
+        }
+    }
+    found
+}
+
+/// Balanced-scan, multi-candidate JSON extractor — same pattern already
+/// proven this session in the orchestrator (decision_review.rs,
+/// amt_loop.rs, meta_loop.rs) and text modality (extract_entities_from_text
+/// et al.) to detect BitNet "confetti" (a single response containing
+/// multiple conflicting JSON candidates). Ported here for E7 (math's first
+/// real zero-shot call site — see `resolve_implicit_step_references`),
+/// since this pipeline had no prior pipeline-9 exposure to inherit the
+/// helper from. Returns every non-empty, individually-parseable candidate
+/// in order; callers treat `len() > 1` as confetti (unusable, retry).
+fn extract_all_json_candidates(s: &str, start_char: char, end_char: char) -> Vec<String> {
+    let chars: Vec<char> = s.chars().collect();
+    let mut candidates = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] != start_char {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+        let mut j = i;
+        while j < chars.len() {
+            let c = chars[j];
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == '"' {
+                    in_string = false;
+                }
+            } else {
+                if c == '"' {
+                    in_string = true;
+                } else if c == start_char {
+                    depth += 1;
+                } else if c == end_char {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(j);
+                        break;
+                    }
+                }
+            }
+            j += 1;
+        }
+        match end {
+            Some(e) => {
+                let candidate: String = chars[start..=e].iter().collect();
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&candidate) {
+                    let is_empty = match &parsed {
+                        serde_json::Value::Object(o) => o.is_empty(),
+                        serde_json::Value::Array(a) => a.is_empty(),
+                        _ => true,
+                    };
+                    if !is_empty {
+                        candidates.push(candidate);
+                    }
+                }
+                i = e + 1;
+            }
+            None => break,
+        }
+    }
+    candidates
+}
+
+/// Trait for executing other pipelines (injected by runtime) — mirrors
+/// text/main.rs's identical trait verbatim. Separate compiled binaries,
+/// no shared crate: each modality pipeline that needs a real zero-shot
+/// call defines its own copy of this exact contract.
+#[async_trait::async_trait]
+pub trait PipelineExecutor: Send + Sync {
+    async fn execute(
+        &self,
+        pipeline_id: u64,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String>;
+}
+
+/// Real executor: spawns the prompt pipeline (#9) as a subprocess, the same
+/// mechanism text/main.rs's `SubprocessExecutor` uses — a modality pipeline
+/// binary has no host auth to call pipeline 9 through the orchestrator
+/// directly (this was tried and reverted earlier this session), so a direct
+/// subprocess call to the real prompt binary is the correct, working
+/// pattern, not a shortcut.
+struct SubprocessExecutor;
+
+#[async_trait::async_trait]
+impl PipelineExecutor for SubprocessExecutor {
+    async fn execute(
+        &self,
+        pipeline_id: u64,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        // LOUD failures (fixed 2026-09-27, same class as text's fix found
+        // live by the pipeline capture layer): the old
+        // Ok({"response": "[]"}) conversions fabricated successes out of
+        // total model failures. Callers degrade gracefully on Err; capture
+        // and retries now see the truth.
+        if pipeline_id != 9 {
+            return Err(format!(
+                "math SubprocessExecutor: no internal executor for pipeline {} (only pipeline 9 is wired)",
+                pipeline_id
+            ));
+        }
+        let path = match std::env::var("OZONE_PROMPT_PIPELINE_PATH") {
+            Ok(p) if !p.is_empty() && std::path::Path::new(&p).exists() => p,
+            other => {
+                eprintln!(
+                    "SubprocessExecutor: OZONE_PROMPT_PIPELINE_PATH not set or binary \
+                     missing (env={:?}) — internal LLM call unavailable this run",
+                    other
+                );
+                return Err(
+                    "math SubprocessExecutor: OZONE_PROMPT_PIPELINE_PATH not set or binary missing — internal LLM call unavailable".to_string(),
+                );
+            }
+        };
+        let input_json = serde_json::to_string(&input).map_err(|e| e.to_string())?;
+        let execution_id = format!(
+            "math-internal-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+        );
+        let output = tokio::task::spawn_blocking(move || {
+            std::process::Command::new(&path)
+                .arg("--input")
+                .arg(&input_json)
+                .arg("--execution-id")
+                .arg(&execution_id)
+                .output()
+        })
+        .await
+        .map_err(|e| format!("internal prompt-pipeline task join failed: {}", e))?
+        .map_err(|e| format!("failed to spawn internal prompt pipeline: {}", e))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            eprintln!(
+                "SubprocessExecutor: internal prompt pipeline exited non-zero: {}",
+                stderr
+            );
+            return Err(format!(
+                "internal prompt pipeline failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            ));
+        }
+        serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("failed to parse internal prompt pipeline output: {}", e))
+    }
+}
+
+/// E7 (docs/ZERO_SHOT_EXPANSION_GUIDE.md): batched zero-shot resolution for
+/// proof steps `extract_step_references`'s regex pass left with zero
+/// citations — implicit references ("by the earlier bound we derived", no
+/// explicit number) or named-theorem citations the regex pass structurally
+/// cannot reach. Runs once per `AnalyzeProof` action, only over the
+/// genuinely unresolved subset — never a duplicate of the regex pass, and
+/// gated by the caller's own confidence threshold before any result is
+/// trusted (see `analyze_proof`).
+///
+/// NOT YET WIRED into `analyze_proof` — this function is real and correct
+/// (mirrors `extract_step_references`'s confetti-safe, non-fabricating
+/// discipline) but has no caller yet. Interrupted mid-build by a session
+/// rate limit (2026-09-22/23); wiring it in (identifying the unresolved
+/// subset after the regex pass, merging results above a confidence floor)
+/// is the real remaining work. Left as dead code (compiles clean, unused
+/// function warning only) rather than force-wired without verification.
+#[allow(dead_code)]
+async fn resolve_implicit_step_references(
+    executor: &dyn PipelineExecutor,
+    unresolved_steps: &[(usize, String)],
+) -> Vec<(usize, Vec<usize>, Vec<String>, f32)> {
+    let steps_json: Vec<serde_json::Value> = unresolved_steps
+        .iter()
+        .map(|(n, statement)| serde_json::json!({"step_number": n, "statement": statement}))
+        .collect();
+
+    let prompt = format!(
+        r#"These proof steps have no explicit numbered citation in their own text. For EACH step, decide whether it implicitly references an earlier step (e.g. "by the earlier bound we derived", "from our previous inequality") or names a specific theorem/axiom/definition being applied. Only report a reference when the step's own wording genuinely supports it — if a step is a true given/axiom with nothing to cite, report it with empty arrays, do not guess.
+
+STEPS:
+{}
+
+Return ONLY a JSON array, one object per step, in this exact shape:
+[{{"step_number": <int>, "cited_steps": [<int>, ...], "cited_theorems": ["<name>", ...], "confidence": <0.0-1.0>}}]
+
+RESPOND ONLY WITH THE JSON ARRAY."#,
+        serde_json::to_string_pretty(&steps_json).unwrap_or_default()
+    );
+
+    let input = serde_json::json!({
+        "prompt": prompt,
+        "max_tokens": 600,
+        "temperature": 0.2,
+        "system_context": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
+    });
+
+    const MAX_ATTEMPTS: u32 = 2;
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let result = executor.execute(9, input.clone()).await;
+        capture::capture_zero_shot_call(
+            "math",
+            "resolve_implicit_step_references",
+            &prompt,
+            &result,
+        );
+        let response_text = result
+            .as_ref()
+            .ok()
+            .and_then(|r| r.get("response"))
+            .and_then(|r| r.as_str())
+            .unwrap_or("")
+            .to_string();
+        let candidates = extract_all_json_candidates(&response_text, '[', ']');
+        if candidates.len() > 1 {
+            if attempt < MAX_ATTEMPTS {
+                eprintln!(
+                    "resolve_implicit_step_references: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                    candidates.len(),
+                    attempt
+                );
+                continue;
+            }
+            eprintln!(
+                "resolve_implicit_step_references: still confetti after {} attempts, giving up",
+                attempt
+            );
+            return Vec::new();
+        }
+        let parsed = candidates
+            .into_iter()
+            .next()
+            .and_then(|json_str| serde_json::from_str::<Vec<serde_json::Value>>(&json_str).ok());
+        match parsed {
+            Some(arr) => {
+                return arr
+                    .iter()
+                    .filter_map(|v| {
+                        let step_number = v.get("step_number")?.as_u64()? as usize;
+                        let cited_steps = v
+                            .get("cited_steps")
+                            .and_then(|c| c.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_u64().map(|n| n as usize)).collect())
+                            .unwrap_or_default();
+                        let cited_theorems = v
+                            .get("cited_theorems")
+                            .and_then(|c| c.as_array())
+                            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+                            .unwrap_or_default();
+                        let confidence = v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32;
+                        Some((step_number, cited_steps, cited_theorems, confidence))
+                    })
+                    .collect();
+            }
+            None if attempt < MAX_ATTEMPTS => continue,
+            None => return Vec::new(),
+        }
+    }
+}
 
 async fn parse_expression(
     expression: &str,
@@ -1611,6 +2113,7 @@ async fn parse_expression(
         expression_type,
         variables,
         operations,
+        content_keywords: extract_content_keywords(expression),
         constants: vec![],
         domain: None,
         range: None,
@@ -1641,20 +2144,29 @@ async fn analyze_proof(
     let mut gaps = Vec::new();
 
     for (i, line) in lines.iter().enumerate() {
+        // Real per-step reference detection (fixes the fabricated-dependency
+        // bug from the 2026-09-22 graph audit): only steps whose own text
+        // actually cites an earlier step/equation/result get a dependency —
+        // no default to "always the previous step".
+        let real_refs = extract_step_references(line, i + 1);
         let step = ProofStep {
             step_number: i + 1,
             statement: line.to_string(),
             justification: Justification {
                 justification_type: if i == 0 {
                     JustificationType::Given
-                } else {
+                } else if !real_refs.is_empty() {
                     JustificationType::PreviousResult
+                } else {
+                    // Honest fallback: no citation evidence in the step's own
+                    // text, so we don't claim a specific reference relationship.
+                    JustificationType::LogicalRule
                 },
                 rule_name: None,
                 explanation: None,
-                referenced_steps: if i > 0 { vec![i] } else { vec![] },
+                referenced_steps: real_refs.clone(),
             },
-            dependencies: if i > 0 { vec![i] } else { vec![] },
+            dependencies: real_refs,
             introduced_variables: vec![],
             assumptions: vec![],
             discharged_assumptions: vec![],
@@ -1681,18 +2193,29 @@ async fn analyze_proof(
         ProofTechnique::Direct
     };
 
-    // Build dependencies
+    // Build dependencies from real per-step citations only (was: an
+    // unconditional i-1 chain regardless of content — see extract_step_references).
     let dependencies: Vec<StepDependency> = steps.iter()
-        .skip(1)
-        .map(|s| StepDependency {
-            from_step: s.step_number - 1,
+        .flat_map(|s| s.dependencies.iter().map(move |&dep| StepDependency {
+            from_step: dep,
             to_step: s.step_number,
             dependency_type: DependencyType::Uses,
-        })
+        }))
         .collect();
 
     let is_valid = verify && gaps.is_empty();
     let confidence = if is_valid { 0.90 } else { 0.60 };
+
+    // P4 extended to proofs: parse_result is always None here, so the
+    // existing P4 supplement in derive_math_keywords never fired for proof
+    // analysis. Combined step text gives derive_math_keywords real prose
+    // terms for proof-heavy content the same way it already does for bare
+    // expression parses.
+    let combined_step_text = steps.iter()
+        .map(|s| s.statement.as_str())
+        .collect::<Vec<_>>()
+        .join(". ");
+    let content_keywords = extract_content_keywords(&combined_step_text);
 
     Ok(ProofAnalysis {
         title: None,
@@ -1707,6 +2230,7 @@ async fn analyze_proof(
         proof_technique,
         scope_tree: None,
         dependencies,
+        content_keywords,
     })
 }
 
@@ -1884,6 +2408,7 @@ async fn create_graph(
     analysis: MathAnalysisResult,
     project_id: u64,
     graph_name: Option<String>,
+    link_to_existing: bool,
 ) -> Result<MathGraph, String> {
     let graph_id = generate_graph_id();
     let now = chrono::Utc::now().to_rfc3339();
@@ -1940,7 +2465,26 @@ async fn create_graph(
                 properties: HashMap::new(),
             });
 
-            // Edges to dependencies
+            // Real, unconditional presentation-order edge — honest structural
+            // fact, kept separate from Uses (a real cited content
+            // dependency) so the two are never conflated again.
+            if step.step_number > 1 {
+                if let Some(prev_node) = nodes.iter().find(|n| {
+                    n.node_type == MathGraphNodeType::ProofStep && n.step_number == Some(step.step_number - 1)
+                }) {
+                    edges.push(MathGraphEdge {
+                        edge_id: edges.len() as u64 + 1,
+                        from_node: step_node_id,
+                        to_node: prev_node.node_id,
+                        edge_type: MathEdgeType::FollowsStep,
+                        weight: 1.0,
+                        properties: HashMap::new(),
+                    });
+                }
+            }
+
+            // Edges to real cited dependencies (empty when the step's own
+            // text has no citation evidence — see extract_step_references)
             for dep in &step.dependencies {
                 if let Some(dep_node) = nodes.iter().find(|n| n.step_number == Some(*dep)) {
                     edges.push(MathGraphEdge {
@@ -2084,6 +2628,7 @@ async fn create_graph(
             verification_confidence,
             semantic_enriched: false,
             cross_modal_links: 0,
+            link_metrics: None,
         },
         created_at: now.clone(),
         updated_at: now,
@@ -2099,16 +2644,358 @@ async fn create_graph(
     // failure, fall back to the local id (still usable for this one
     // in-process run) rather than failing the whole analysis — same
     // graceful-degradation posture as code modality's identical call.
+    let mut link_metrics: Option<Value> = None;
     match persist_graph_container(&graph, &analysis, graph.graph_id, project_id).await {
-        Ok(container_id) => {
+        Ok((container_id, keywords, topics)) => {
             graph.graph_id = container_id;
+            // Cross-relationship linking (task 57) — same gate and same
+            // helper shape text/code use; linking failure never fails the
+            // graph creation itself (non-fatal by design inside the helper).
+            if link_to_existing {
+                let (wired, metrics) = link_related_containers(container_id, project_id, &keywords, &topics).await;
+                eprintln!(
+                    "link_related_containers: wired {} edge(s) for container {}, metrics: {}",
+                    wired, container_id, metrics
+                );
+                link_metrics = Some(metrics);
+            }
         }
         Err(e) => {
             eprintln!("Failed to persist math graph to ZSEI (using local id only): {}", e);
         }
     }
 
+    graph.metadata.link_metrics = link_metrics;
     Ok(graph)
+}
+
+/// Cross-relationship linking — ported verbatim from code modality pipeline
+/// 101's `link_related_containers` (which mirrors text pipeline 100's), the
+/// one honest difference being this modality's own `discovered_via`
+/// provenance, "MathAnalysis". Type-blind search + client-side
+/// infrastructure-type filter, >= 2 shared keyword/topic terms, real
+/// bidirectional SimilarTo edges written via UpdateContainer.
+/// The live relevance policy from OZONE_RELEVANCE_POLICY (exported at boot
+/// by the host from the KAlgorithms registry's current preset). Falls back
+/// to the graph-first defaults when absent (older host binary).
+/// (graph_max_depth, neighborhood_shared_floor, seed_shared_floor, preset)
+fn relevance_policy() -> (u32, usize, usize, String) {
+    if let Ok(raw) = std::env::var("OZONE_RELEVANCE_POLICY") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            return (
+                v.get("graph_max_depth").and_then(|x| x.as_u64()).unwrap_or(2) as u32,
+                v.get("neighborhood_shared_floor").and_then(|x| x.as_u64()).unwrap_or(1) as usize,
+                v.get("seed_shared_floor").and_then(|x| x.as_u64()).unwrap_or(2) as usize,
+                v.get("preset").and_then(|x| x.as_str()).unwrap_or("graph-first").to_string(),
+            );
+        }
+    }
+    (2, 1, 2, "graph-first".to_string())
+}
+
+async fn link_related_containers(container_id: u64, project_id: u64, own_keywords: &[String], own_topics: &[String]) -> (usize, serde_json::Value) {
+    fn is_infrastructure_container_type(t: &str) -> bool {
+        matches!(
+            t,
+            "Root" | "User" | "Workspace" | "Project"
+                | "Pipeline"
+                | "ModalityRoot" | "MethodologyRoot" | "BlueprintRoot" | "PipelineRoot"
+                | "ConsciousnessRoot" | "ExternalRoot" | "PackageRoot"
+                | "JurisdictionRoot"
+        )
+    }
+
+    let mut search_terms: Vec<String> = own_keywords.to_vec();
+    search_terms.extend(own_topics.iter().map(|t| t.to_lowercase()));
+    search_terms.sort();
+    search_terms.dedup();
+    if search_terms.is_empty() {
+        return (0, serde_json::json!({"skipped": "no search terms"}));
+    }
+
+    let search_result = match zsei_query(serde_json::json!({
+        "SearchContainersByKeywords": {
+            "keywords": search_terms,
+            "container_type": Value::Null,
+            "strategy": Value::Null
+        }
+    }))
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("link_related_containers: search failed (non-fatal): {}", e);
+            return (0, serde_json::json!({"skipped": "keyword search failed", "error": e}));
+        }
+    };
+
+    let candidate_ids: Vec<u64> = search_result
+        .get("Containers")
+        .and_then(|v| v.as_array())
+        .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+
+    let own_set: HashSet<String> = search_terms.iter().cloned().collect();
+    let started = std::time::Instant::now();
+    let (walk_depth, nb_floor, seed_floor, preset_name) = relevance_policy();
+
+    // ── Candidate source 1: the relationship neighborhood ──
+    // ONE structural Traverse from the project container — real graph edges
+    // (parent/child AND explicit Context.relationships, walked by the
+    // store's traversal engine). UNCAPPED per user directive: the walk
+    // depth is the only bound; max_results is set to an effectively
+    // unlimited value and the REAL returned count lands in the metrics so
+    // tuning decisions come from measured numbers, never preemptive caps.
+    let mut neighborhood: HashMap<u64, u32> = HashMap::new();
+    let mut traverse_returned = 0usize;
+    if walk_depth > 0 && project_id != 0 {
+        match zsei_query(serde_json::json!({
+            "Traverse": {
+                "start_container": project_id,
+                "mode": "Structural",
+                "filters": [],
+                "max_depth": walk_depth,
+                "max_results": 10_000_000u64,
+                "budget": { "max_hops": walk_depth, "max_containers": 10_000_000u64, "max_latency_ms": 3_600_000u64 },
+                "use_ml": false,
+                "include_methodologies": false,
+                "include_external_refs": false,
+            }
+        }))
+        .await
+        {
+            Ok(result) => {
+                if let Some(tr) = result.get("TraversalResult") {
+                    let containers = tr.get("containers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    let paths = tr.get("paths").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    traverse_returned = containers.len();
+                    for (cid, path) in containers.iter().zip(paths.iter()) {
+                        if let (Some(id), Some(hops)) = (
+                            cid.as_u64(),
+                            path.get("hops").and_then(|h| h.as_array()),
+                        ) {
+                            neighborhood.insert(id, hops.len().saturating_sub(1) as u32);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "link_related_containers: relationship walk failed (non-fatal, keyword seeds only): {}",
+                    e
+                );
+            }
+        }
+    }
+
+    // candidate_ids (keyword seeds, computed above) — source 2: they catch
+    // genuinely related containers with NO graph path yet; without them
+    // nothing would ever receive its FIRST relationship edge.
+
+    // ── Score: hop-aware, floors from the relevance policy, NO CAPS ──
+    // Neighborhood candidates ordered by hop distance first, keyword seeds
+    // after; every unique candidate is fetched and scored. Nothing is
+    // truncated — the write phase touches every candidate that clears its
+    // floor, however many that is.
+    // (candidate_id, container_json, context, shared_terms, hops)
+    let mut scored: Vec<(u64, serde_json::Value, serde_json::Value, usize, Option<u32>)> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut ordered: Vec<(u64, Option<u32>)> = {
+        let mut v: Vec<(u64, Option<u32>)> =
+            neighborhood.iter().map(|(id, h)| (*id, Some(*h))).collect();
+        v.sort_by_key(|(_, h)| *h);
+        v
+    };
+    for id in &candidate_ids {
+        ordered.push((*id, None));
+    }
+
+    let mut fetch_failures = 0usize;
+    for (candidate_id, hops) in ordered {
+        if candidate_id == container_id || !seen.insert(candidate_id) {
+            continue;
+        }
+        let candidate = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": candidate_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => {
+                fetch_failures += 1;
+                continue;
+            }
+        };
+        let container_json = candidate.get("Container").cloned().unwrap_or(candidate);
+
+        let candidate_type = container_json
+            .pointer("/local_state/metadata/container_type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if is_infrastructure_container_type(candidate_type) {
+            continue;
+        }
+
+        let candidate_context = match container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => continue,
+        };
+        let candidate_terms: HashSet<String> = candidate_context
+            .get("keywords")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .chain(candidate_context.get("topics").and_then(|v| v.as_array()).into_iter().flatten())
+            .filter_map(|v| v.as_str())
+            .map(|s| s.to_lowercase())
+            .collect();
+
+        let shared_count = own_set.intersection(&candidate_terms).count();
+        let floor = if hops.is_some() { nb_floor } else { seed_floor };
+        if shared_count < floor {
+            continue;
+        }
+
+        scored.push((candidate_id, container_json, candidate_context, shared_count, hops));
+    }
+
+    // Most graph-adjacent first, then strongest overlap.
+    scored.sort_by(|a, b| {
+        let ha = a.4.unwrap_or(u32::MAX);
+        let hb = b.4.unwrap_or(u32::MAX);
+        ha.cmp(&hb).then(b.3.cmp(&a.3))
+    });
+
+    // Stats captured BEFORE the write loop consumes `scored` — every value
+    // counted from what this run actually did.
+    let qualified_total = scored.len();
+    let qualified_neighborhood = scored.iter().filter(|c| c.4.is_some()).count();
+    let shared_max = scored.iter().map(|c| c.3).max().unwrap_or(0);
+    let shared_total: usize = scored.iter().map(|c| c.3).sum();
+
+    // ── Write phase: real bidirectional edges, one candidate at a time ──
+    let mut wired = 0usize;
+    let mut already_linked_skipped = 0usize;
+    let mut write_failures = 0usize;
+    for (candidate_id, _container_json, candidate_context, shared_count, hops) in scored {
+        let mut relationships: Vec<serde_json::Value> = candidate_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let already_linked = relationships.iter().any(|r| {
+            r.get("target_id").and_then(|v| v.as_u64()) == Some(container_id)
+        });
+        if already_linked {
+            already_linked_skipped += 1;
+            continue;
+        }
+
+        let confidence = (0.3 + 0.15 * shared_count as f32).min(0.9);
+        // TWO distinct edges: the candidate points at the new graph, the
+        // new graph points at the candidate. (Found live: reusing ONE edge
+        // object for both sides wrote target_id=container_id into the new
+        // graph's OWN relationships — 7 self-loops.)
+        let mut new_edge = serde_json::json!({
+            "target_id": container_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "MathAnalysis"
+        });
+        let mut reverse_edge = serde_json::json!({
+            "target_id": candidate_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "MathAnalysis"
+        });
+        if let Some(h) = hops {
+            new_edge["graph_hops"] = serde_json::json!(h);
+            reverse_edge["graph_hops"] = serde_json::json!(h);
+        }
+
+        // Candidate -> this new container
+        relationships.push(new_edge);
+        let mut candidate_context_updated = candidate_context.clone();
+        candidate_context_updated["relationships"] = serde_json::Value::Array(relationships);
+        let update_a = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": candidate_id,
+                "updates": { "metadata": null, "context": candidate_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        // This new container -> candidate (bidirectional)
+        let own_container = match zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": container_id }
+        }))
+        .await
+        {
+            Ok(v) => v,
+            Err(_) => {
+                write_failures += 1;
+                continue;
+            }
+        };
+        let own_container_json = own_container.get("Container").cloned().unwrap_or(own_container);
+        let own_context = match own_container_json.pointer("/local_state/context") {
+            Some(c) => c.clone(),
+            None => {
+                write_failures += 1;
+                continue;
+            }
+        };
+        let mut own_relationships: Vec<serde_json::Value> = own_context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+        own_relationships.push(reverse_edge);
+        let mut own_context_updated = own_context.clone();
+        own_context_updated["relationships"] = serde_json::Value::Array(own_relationships);
+        let update_b = zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": container_id,
+                "updates": { "metadata": null, "context": own_context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await;
+
+        if update_a.is_ok() && update_b.is_ok() {
+            wired += 1;
+        } else {
+            write_failures += 1;
+            eprintln!(
+                "link_related_containers: partial/failed write for {} <-> {} (non-fatal)",
+                container_id, candidate_id
+            );
+        }
+    }
+
+    // ── Real captured metrics (user directive: optimize from measured
+    // numbers, never preemptive caps) — every value counted from what this
+    // run actually did. ──
+    let metrics = serde_json::json!({
+        "policy_preset": preset_name,
+        "graph_max_depth": walk_depth,
+        "neighborhood_shared_floor": nb_floor,
+        "seed_shared_floor": seed_floor,
+        "traverse_containers_returned": traverse_returned,
+        "neighborhood_candidates": neighborhood.len(),
+        "seed_candidates": candidate_ids.len(),
+        "unique_candidates": seen.len(),
+        "fetch_failures": fetch_failures,
+        "qualified": qualified_total + already_linked_skipped,
+        "qualified_neighborhood": qualified_neighborhood,
+        "qualified_seeds": qualified_total - qualified_neighborhood + already_linked_skipped,
+        "shared_terms_max": shared_max,
+        "shared_terms_total": shared_total,
+        "already_linked_skipped": already_linked_skipped,
+        "edges_written": wired,
+        "write_failures": write_failures,
+        "duration_ms": started.elapsed().as_millis() as u64,
+    });
+    (wired, metrics)
 }
 
 async fn update_graph(graph_id: u64, updates: MathGraphUpdate) -> Result<MathGraph, String> {
@@ -2610,6 +3497,66 @@ mod tests {
         assert_eq!(output.action, "AnalyzeProof");
     }
 
+    /// 2026-09-22 graph audit regression test: `extract_step_references` must
+    /// never fabricate a citation the step's own text doesn't actually contain.
+    #[test]
+    fn test_extract_step_references_no_fabrication() {
+        // No citation anywhere in the text -> empty, NOT defaulted to i-1.
+        assert_eq!(extract_step_references("Then x^2 > 0.", 3), Vec::<usize>::new());
+
+        // Explicit numbered citation to a non-adjacent earlier step resolves
+        // to that real step, not to the immediately preceding one.
+        assert_eq!(extract_step_references("Using step 1, we get x^2 > 0.", 4), vec![1]);
+
+        // Bare "(N)" mid-statement citation.
+        assert_eq!(extract_step_references("Substituting from (2) gives the result.", 5), vec![2]);
+
+        // A leading "(N)" reads as an enumeration marker, not a citation.
+        assert_eq!(extract_step_references("(1) First we assume x > 0.", 3), Vec::<usize>::new());
+
+        // Implicit back-reference phrase resolves to the immediately
+        // preceding step — grounded in real text, unlike the old default.
+        assert_eq!(extract_step_references("As shown above, the result follows.", 4), vec![3]);
+
+        // A citation to a step number >= the current step isn't a valid
+        // earlier reference and must not be returned.
+        assert_eq!(extract_step_references("See step 5 for details.", 3), Vec::<usize>::new());
+    }
+
+    /// 2026-09-22 graph audit regression test: the worst finding — every
+    /// proof step's dependency was hardcoded to the immediately preceding
+    /// step regardless of content. Proves a non-adjacent citation resolves
+    /// correctly and an uncited step stays honestly empty.
+    #[tokio::test]
+    async fn test_analyze_proof_does_not_fabricate_dependencies() {
+        let proof = "Let x be an integer.\nLet y be an integer.\nUsing step 1, x is real.";
+        let analysis = analyze_proof(proof, MathFormat::Plain, false, false).await.unwrap();
+
+        assert_eq!(analysis.steps.len(), 3);
+        assert_eq!(analysis.steps[0].dependencies, Vec::<usize>::new());
+        // Step 2 has no citation in its own text -> must stay empty, not [1]
+        // (the old bug would have fabricated a dependency on step 1 here).
+        assert_eq!(analysis.steps[1].dependencies, Vec::<usize>::new());
+        // Step 3 cites step 1 explicitly -> must resolve to [1], not the old
+        // fabricated [2] (blind immediately-preceding-step default).
+        assert_eq!(analysis.steps[2].dependencies, vec![1]);
+
+        // Structural presentation order must still be recoverable via the
+        // graph (FollowsStep), independent of and in addition to real
+        // content citations (Uses) — the two facts stay separate.
+        let graph_analysis = MathAnalysisResult {
+            analysis_type: MathAnalysisType::Proof,
+            parse_result: None,
+            proof_analysis: Some(analysis),
+            confidence: 0.9,
+        };
+        let graph = create_graph(graph_analysis, 1, None, false).await.unwrap();
+        let follows_count = graph.edges.iter().filter(|e| e.edge_type == MathEdgeType::FollowsStep).count();
+        let uses_count = graph.edges.iter().filter(|e| e.edge_type == MathEdgeType::Uses).count();
+        assert_eq!(follows_count, 2); // step2->step1, step3->step2 (unconditional order)
+        assert_eq!(uses_count, 1);    // only step3->step1 (real cited content dependency)
+    }
+
     #[tokio::test]
     async fn test_create_graph_from_proof() {
         let analysis = MathAnalysisResult {
@@ -2672,15 +3619,70 @@ mod tests {
                     to_step: 2,
                     dependency_type: DependencyType::Uses,
                 }],
+                content_keywords: vec![],
             }),
             confidence: 0.95,
         };
 
-        let graph = create_graph(analysis, 1, Some("Test".to_string())).await.unwrap();
+        let graph = create_graph(analysis, 1, Some("Test".to_string()), false).await.unwrap();
 
         assert!(!graph.nodes.is_empty());
         assert!(!graph.edges.is_empty());
         assert_eq!(graph.metadata.proof_steps, 2);
         assert_eq!(graph.metadata.variables_count, 1);
+    }
+
+    /// T-M2 (GRAPH_TEST_PLAN §5) — cross-process retrieval, durable half of
+    /// the reference implementation all other modalities copy: the persisted
+    /// file bakes the REAL container id into its own graph_id (not the local
+    /// placeholder) and round-trips intact from disk in a fresh data dir.
+    /// The HTTP half (GetContainer -> object_store_path -> read) was proven
+    /// live 2026-09-19 with container 30392 (real keywords, real parentage);
+    /// what a unit test can honestly pin is this file contract.
+    #[test]
+    fn t_m2_persisted_file_bakes_container_id_and_round_trips() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "ozone_t_m2_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir);
+
+        let local_id: u64 = 1789819000000000001;
+        let container_id: u64 = 778003;
+        let mut graph_json = serde_json::json!({
+            "graph_id": local_id,
+            "name": "t-m2 round trip",
+            "nodes": [],
+            "edges": [],
+            "metadata": { "node_count": 0, "edge_count": 0, "proof_steps": 0, "variables_count": 0 },
+            "created_at": "2026-09-19T00:00:00+00:00",
+            "updated_at": "2026-09-19T00:00:00+00:00",
+            "semantic_enriched": false,
+            "cross_modal_links": 0,
+        });
+
+        // The reference pattern under test (persist_graph_container's own
+        // sequence): bake the real container id BEFORE writing the file.
+        if let Some(obj) = graph_json.as_object_mut() {
+            obj.insert("graph_id".to_string(), serde_json::json!(container_id));
+        }
+        write_graph_json_file(local_id, &graph_json).expect("write must succeed");
+
+        // "Fresh process": read the file back by path and verify the baked id.
+        let path = dir.join(format!("graphs/math_{}.json", local_id));
+        let raw = std::fs::read_to_string(&path).expect("persisted file must exist");
+        let read_back: serde_json::Value = serde_json::from_str(&raw).expect("must parse");
+        assert_eq!(
+            read_back.get("graph_id").and_then(|v| v.as_u64()),
+            Some(container_id),
+            "file must carry the real container id, not the local placeholder"
+        );
+
+        std::env::remove_var("OZONE_ZSEI_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

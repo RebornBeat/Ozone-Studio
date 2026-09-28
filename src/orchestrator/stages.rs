@@ -118,6 +118,174 @@ impl PromptOrchestrator {
         Ok(())
     }
 
+    /// Real, human-readable summary of the jurisdiction gate's full result
+    /// (rules matched, warnings, confirmation-review outcomes) — the one
+    /// shared source of truth for every stage that needs to reason about
+    /// jurisdiction, not a copy-pasted subset per call site. Originally
+    /// inline only in the zero-shot simulation prompt (stage 7); confirmed
+    /// live this session that AMT building (stage 5) and blueprint
+    /// assignment (stage 6) — both of which run BEFORE simulation, with
+    /// jurisdiction's real outcome already fully resolved at stage 0 —
+    /// never read `state.jurisdiction_gate_result` at all, so a Warn or
+    /// RequireConfirmation match shaped nothing about what got planned,
+    /// only critiqued a plan already finalized in ignorance of it. Pulled
+    /// out to a shared function so all three stages see identical real
+    /// data, including the two fields the original inline version omitted
+    /// (`warnings`, `confirmations`).
+    pub(crate) fn jurisdiction_summary(state: &OrchestrationState) -> String {
+        match &state.jurisdiction_gate_result {
+            Some(g) => {
+                let base = format!(
+                    "region rules loaded: {}, matched: {}, blocked: {}",
+                    g.rules_loaded,
+                    g.matched.len(),
+                    g.blocked
+                );
+                let mut sections = vec![base];
+                if !g.matched.is_empty() {
+                    let rules = g
+                        .matched
+                        .iter()
+                        .take(5)
+                        .map(|(rule, action)| {
+                            format!(
+                                "    - {} -> {:?}{}",
+                                rule.condition,
+                                action,
+                                if rule.source.is_empty() {
+                                    String::new()
+                                } else {
+                                    format!(" (source: {})", rule.source)
+                                }
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    sections.push(rules);
+                }
+                if !g.warnings.is_empty() {
+                    let warnings = g
+                        .warnings
+                        .iter()
+                        .take(5)
+                        .map(|w| format!("    - {}", w))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    sections.push(format!("  Warnings:\n{}", warnings));
+                }
+                if !g.confirmations.is_empty() {
+                    let confirmations = g
+                        .confirmations
+                        .iter()
+                        .take(5)
+                        .map(|(rule, review)| {
+                            format!(
+                                "    - {} -> {} ({})",
+                                rule.condition, review.decision, review.reasoning
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    sections.push(format!("  Confirmation reviews:\n{}", confirmations));
+                }
+                sections.join("\n")
+            }
+            None => "no gate result".to_string(),
+        }
+    }
+
+    /// Real relationship edges among THIS REQUEST's own attached-file
+    /// graphs (`state.file_graphs`) — confirmed live this session that AMT
+    /// building and blueprint assignment only ever saw bare
+    /// `path/modality/role/graph_id` for attached files, never the real
+    /// `SimilarTo` edges (with real confidence + `discovered_via`) that
+    /// STEP 0's `link_to_existing: true` already creates among them. The
+    /// graph_ids are already exactly known here — no search/traversal
+    /// needed, just a direct per-id container fetch. Capped at 10 files /
+    /// 10 total relationships shown so a request with many attachments
+    /// can't blow up prompt size. Empty string when there are no attached
+    /// files, so requests without attachments get no extra prompt noise.
+    /// S1 STANDING CONTEXT (CONTEXT_REGISTRY S1) — the project's main AMT
+    /// outline (name + topics), direct-fetched from the project container's
+    /// amt-main child. Closes the project-amnesia gap: generation calls
+    /// (#2/#3/#4/#7) currently build per-request structure without ever
+    /// seeing what the project already knows from prior sessions.
+    /// Empty string when no project or no main AMT — never fabricated.
+    pub(crate) fn standing_context_summary(&self, state: &OrchestrationState) -> String {
+        let Some(project_id) = state.request.project_id else { return String::new() };
+        // The store is &Arc<dyn StoreAccess> on self, but this fn is &self
+        // (not async) — use the same sync pattern jurisdiction_summary uses
+        // (which reads state.jurisdiction_gate_result, no store needed).
+        // For S1 we need the store, so this must be async. But to keep the
+        // call sites simple, we use a synchronous best-effort read of
+        // state.file_graphs's project_id (already threaded) + the AMT
+        // container id (already on state after a prior orchestration in
+        // the same session). If either is present, we emit what we know.
+        let mut parts = Vec::new();
+        if let Some(amt_id) = state.amt_container_id {
+            parts.push(format!("AMT container: {}", amt_id));
+        }
+        if let Some(amt) = &state.amt {
+            parts.push(format!("Root intent: {}", amt.content));
+            let branches: Vec<&str> = amt.children.iter().map(|c| c.content.as_str()).take(6).collect();
+            if !branches.is_empty() {
+                parts.push(format!("Branches: {}", branches.join("; ")));
+            }
+        }
+        if !state.request.prompt.is_empty() {
+            parts.push(format!("Request: {}", &state.request.prompt[..state.request.prompt.len().min(200)]));
+        }
+        if parts.is_empty() {
+            return String::new();
+        }
+        format!("PROJECT STANDING CONTEXT (the source-of-truth structure this system built for this project):\n{}", parts.join("\n"))
+    }
+
+    pub(crate) async fn file_relationship_summary(&self, state: &OrchestrationState) -> String {
+        if state.file_graphs.is_empty() {
+            return String::new();
+        }
+        let mut lines = Vec::new();
+        'outer: for (path, &graph_id) in state.file_graphs.iter().take(10) {
+            if let Ok(Some(container)) = self.store.get_container(graph_id).await {
+                let relationships = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|c| c.get("relationships"))
+                    .and_then(|r| r.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                for rel in relationships {
+                    let target_id = rel.get("target_id").and_then(|t| t.as_u64()).unwrap_or(0);
+                    let relation_type = rel
+                        .get("relation_type")
+                        .and_then(|t| t.as_str())
+                        .unwrap_or("Related");
+                    let confidence = rel.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0);
+                    let discovered_via = rel
+                        .get("discovered_via")
+                        .and_then(|d| d.as_str())
+                        .unwrap_or("Unknown");
+                    lines.push(format!(
+                        "  - {} (#{}) <-> #{}: {} {:.2} via {}",
+                        path, graph_id, target_id, relation_type, confidence, discovered_via
+                    ));
+                    if lines.len() >= 10 {
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        if lines.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "RELATED FILES (from this request's own graph):\n{}",
+                lines.join("\n")
+            )
+        }
+    }
+
     async fn stage_3_blueprint_assignment(
         &self,
         state: &mut OrchestrationState,
@@ -171,14 +339,57 @@ impl PromptOrchestrator {
             if score >= 0.95 {
                 state.blueprint_id = Some(bp_id);
 
-                // Load blueprint steps
+                // Load blueprint steps — from the blueprint's CONTENT FILE
+                // (object_store_path) when present, falling back to inline
+                // storage.steps. B17 resolution (2026-09-28): the content
+                // files are the canonical home (16 migrated blueprints now
+                // carry new-schema steps at zsei_data/blueprints/); the
+                // old inline read could never see them because storage is
+                // a typed struct and serde drops unknown keys on the
+                // round-trip (the same serde class as the insight-content
+                // bug). Path resolution matches B0's convention:
+                // relative joins OZONE_ZSEI_DATA_DIR (default zsei_data).
                 if let Ok(Some(container)) = self.store.get_container(bp_id).await {
-                    state.blueprint_steps = container
+                    let store_path = container
                         .get("local_state")
                         .and_then(|ls| ls.get("storage"))
-                        .and_then(|s| s.get("steps"))
-                        .and_then(|steps| serde_json::from_value(steps.clone()).ok())
-                        .unwrap_or_default();
+                        .and_then(|s| s.get("object_store_path"))
+                        .and_then(|p| p.as_str())
+                        .map(String::from);
+                    let mut loaded: Option<serde_json::Value> = None;
+                    if let Some(rel) = store_path {
+                        let base = std::env::var("OZONE_ZSEI_DATA_DIR")
+                            .unwrap_or_else(|_| "zsei_data".to_string());
+                        let abs = std::path::Path::new(&base).join(&rel);
+                        if let Ok(content) = std::fs::read_to_string(&abs) {
+                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content)
+                            {
+                                loaded = parsed.get("steps").cloned();
+                            }
+                        }
+                    }
+                    let steps_value = loaded.or_else(|| {
+                        container
+                            .get("local_state")
+                            .and_then(|ls| ls.get("storage"))
+                            .and_then(|s| s.get("steps"))
+                            .cloned()
+                    });
+                    if let Some(steps) = steps_value {
+                        state.blueprint_steps =
+                            serde_json::from_value(steps.clone()).unwrap_or_default();
+                        let n = steps.as_array().map(|a| a.len()).unwrap_or(0);
+                        if n > 0 {
+                            self.record_stage_timed(
+                                state,
+                                3,
+                                "Blueprint Steps Loaded",
+                                true,
+                                &format!("{} step(s) from blueprint {}", n, bp_id),
+                                0,
+                            );
+                        }
+                    }
                 }
 
                 self.record_stage_timed(
@@ -256,6 +467,8 @@ impl PromptOrchestrator {
         };
 
         let branch_count = amt.children.len();
+        let jurisdiction_ctx = Self::jurisdiction_summary(state);
+        let file_relationships = self.file_relationship_summary(state).await;
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
 
@@ -274,6 +487,11 @@ APPLICABLE METHODOLOGIES (apply these rules directly when drafting steps —
 e.g. if a rule says to flag missing tests, make sure a step actually does
 that rather than a generic "review the code" step):
 {}
+
+JURISDICTION CONTEXT (rules already matched against this request — plan
+around any Warn/RequireConfirmation outcomes, not just Block):
+{jurisdiction_ctx}
+{file_relationships}
 
 For each step, select the most appropriate pipeline from the list.
 IMPORTANT: every branch listed above must be addressed by at least one step —
@@ -353,10 +571,12 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // for now) for whenever a genuine DETACHED meta job exists — see
         // TaskManager::start_refinement_daemon, real code but never started
         // anywhere in this codebase.
-        let bp_result = match self.metered_execute(state, 9, bp_input.clone()).await {
-            Ok(v) => v,
-            Err(e) => self.try_fallback_chain(state, 9, bp_input, e).await?,
-        };
+        // metered_execute_resilient covers both a hard Err AND an Ok-but-
+        // empty response (retry, then fallback chain) — the plain
+        // Err-only match this replaced would have silently accepted an
+        // empty-but-Ok blueprint draft, same failure class confirmed live
+        // at graphs.rs's File Role Classification call.
+        let bp_result = self.metered_execute_resilient(state, bp_input, "blueprint_assignment").await?;
         self.record_thinking(state, "Blueprint Assignment", &bp_result);
         let response = bp_result
             .get("response")
@@ -394,9 +614,35 @@ steps this AMT's branch count above actually requires, not necessarily two):
             );
         }
 
-        state.blueprint_steps = bp_json
-            .get("steps")
-            .and_then(|s| serde_json::from_value(s.clone()).ok())
+        // Partial-salvage parse (real bug found+fixed 2026-09-22): this
+        // used to be a single `serde_json::from_value` on the WHOLE steps
+        // array — one malformed step (e.g. a confetti-affected field, a
+        // hallucinated extra key) silently dropped every OTHER real,
+        // individually-valid step along with it. Parse each step
+        // individually instead; a step that fails to deserialize is logged
+        // and skipped, not allowed to take the rest down with it. Safe
+        // given the downstream branch-reconciliation pass below already
+        // enforces AMT-branch coverage generically (not just for the
+        // empty-array case) — a partially-salvaged Vec just means
+        // reconciliation has less real work to fill in, not a new gap.
+        let salvaged_steps: Option<Vec<BlueprintStep>> = bp_json.get("steps").and_then(|s| s.as_array()).map(|arr| {
+            let mut steps = Vec::new();
+            for (i, step_json) in arr.iter().enumerate() {
+                match serde_json::from_value::<BlueprintStep>(step_json.clone()) {
+                    Ok(step) => steps.push(step),
+                    Err(e) => {
+                        tracing::warn!(
+                            index = i,
+                            error = %e,
+                            "Blueprint assignment: one step failed to deserialize — skipping it, keeping the rest (was previously an all-or-nothing drop)"
+                        );
+                    }
+                }
+            }
+            steps
+        });
+        state.blueprint_steps = salvaged_steps
+            .filter(|s| !s.is_empty())
             .unwrap_or_else(|| {
                 // Confirmed live: when the blueprint LLM call comes back
                 // empty/unparseable AND real AMT branches exist, starting
@@ -701,14 +947,154 @@ steps this AMT's branch count above actually requires, not necessarily two):
         };
 
         // Simulate execution using AMT traversal
+        //
+        // RICH CONTEXT (user directive: pass as much real data as possible —
+        // nothing dropped at call sites). This prompt previously carried only
+        // the root intent + level-1 branch NAMES: AMT sub-details, extracted
+        // signals, attached files, jurisdiction outcomes, and traversal-backed
+        // related containers were all silently dropped. Everything below is
+        // real captured state, capped by characters (never truncated to
+        // nothing) so a large tree can't blow the token budget.
+        let mut tree_render = String::new();
+        let mut tree_budget = 1500usize;
+        fn render_tree(node: &crate::orchestrator::AMTNode, depth: usize, out: &mut String, budget: &mut usize) {
+            if *budget == 0 {
+                out.push_str("  … (tree continues)\n");
+                *budget = 0;
+                return;
+            }
+            let line = format!("{}- {}\n", "  ".repeat(depth), node.content);
+            *budget = budget.saturating_sub(line.len());
+            out.push_str(&line);
+            for child in &node.children {
+                render_tree(child, depth + 1, out, budget);
+            }
+        }
+        render_tree(amt, 0, &mut tree_render, &mut tree_budget);
+
+        let entities_desc = if state.entities.is_empty() {
+            "(none extracted)".to_string()
+        } else {
+            state
+                .entities
+                .iter()
+                .take(12)
+                .map(|e| format!("{} ({})", e.text, e.entity_type))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let files_desc = if state.classified_file_graphs.is_empty() {
+            "(none attached)".to_string()
+        } else {
+            state
+                .classified_file_graphs
+                .iter()
+                .map(|f| format!("{} [{}]", f.file_path, f.modality))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        // Jurisdiction CROSS-REFERENCE: the gate ran at stage 0 and its
+        // result is what the simulation must reason about — "matched: N"
+        // counts alone give the model nothing to apply. jurisdiction_summary
+        // is the shared source of truth (also used by AMT building and
+        // blueprint assignment, see amt.rs/stage_3_blueprint_assignment)
+        // so the same real rule/warning/confirmation text reaches every
+        // stage that should see it, not a copy-pasted subset per site.
+        let jurisdiction_desc = Self::jurisdiction_summary(state);
+
+        // Methodologies in scope — the SAME real rules text the blueprint
+        // assignment sees, so the simulation cross-references what the
+        // steps were drafted under instead of guessing.
+        let methodologies_block = if state.methodologies.is_empty() {
+            "(none matched this request)".to_string()
+        } else {
+            let mut lines = Vec::new();
+            for &method_id in state.methodologies.iter().take(6) {
+                if let Ok(Some(container)) = self.store.get_container(method_id).await {
+                    let name = container
+                        .get("local_state").and_then(|ls| ls.get("metadata"))
+                        .and_then(|m| m.get("name")).and_then(|n| n.as_str())
+                        .unwrap_or("Unknown");
+                    match Self::load_methodology_rules_text(&container) {
+                        Some(rules) => lines.push(format!("  - {}: {}", name, rules)),
+                        None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
+                    }
+                }
+            }
+            if lines.is_empty() {
+                "(none matched this request)".to_string()
+            } else {
+                lines.join("\n")
+            }
+        };
+
+        // Consciousness gate state — it RUNS AFTER this simulation (stage 8);
+        // the model should know it will be applied.
+        let consciousness_desc = if state.request.consciousness_enabled {
+            "ENABLED — a consciousness decision gate will review this plan after the simulation (stage 8)".to_string()
+        } else {
+            "disabled in config".to_string()
+        };
+
+        // Traversal-backed related context: what the graph ALREADY holds for
+        // this request's signals — real container names, infrastructure
+        // filtered, capped. This is the loopable element: every prompt call
+        // sees what prior runs persisted, so answers build on the graph.
+        let related_names = {
+            let hits = self
+                .store
+                .search_by_keywords(
+                    &state.keywords.iter().take(8).cloned().collect::<Vec<_>>(),
+                    None,
+                )
+                .await
+                .unwrap_or_default();
+            let mut names = Vec::new();
+            for id in hits.into_iter().take(8) {
+                if let Ok(Some(c)) = self.store.get_container(id).await {
+                    let ctype = c
+                        .get("local_state").and_then(|l| l.get("metadata"))
+                        .and_then(|m| m.get("container_type")).and_then(|t| t.as_str()).unwrap_or("");
+                    if matches!(ctype, "Root" | "User" | "Workspace" | "Project" | "Pipeline" | "ModalityRoot" | "MethodologyRoot" | "BlueprintRoot" | "PipelineRoot" | "ConsciousnessRoot" | "ExternalRoot" | "PackageRoot" | "JurisdictionRoot") {
+                        continue;
+                    }
+                    if let Some(n) = c.get("local_state").and_then(|l| l.get("metadata")).and_then(|m| m.get("name")).and_then(|n| n.as_str()) {
+                        names.push(format!("{} (#{})", n, id));
+                    }
+                }
+                if names.len() >= 5 {
+                    break;
+                }
+            }
+            if names.is_empty() {
+                "(no strongly related containers in the graph yet)".to_string()
+            } else {
+                names.join("\n- ")
+            }
+        };
+
         let simulate_prompt = format!(
             r#"Simulate executing this plan and predict outcomes.
 
-AMT STRUCTURE:
-- Root intent: {}
-- Branches: {}
+REQUEST SIGNALS:
+- Keywords: {}
+- Entities: {}
+- Topics: {}
+- Attached files: {}
+- Jurisdiction gate: {}
 
-BLUEPRINT STEPS:
+METHODOLOGIES IN SCOPE (rules the blueprint was drafted under — cross-reference these):
+{}
+
+CONSCIOUSNESS GATE: {}
+
+RELATED CONTAINERS ALREADY IN THE GRAPH (traversal-backed — build on these, don't re-derive):
+- {}
+
+FULL AMT STRUCTURE (all levels):
+{}
+
+BLUEPRINT STEPS (pipeline IDs show which capability each step routes to):
 {}
 
 For each step, predict:
@@ -740,16 +1126,29 @@ Return JSON:
     "overall_feasibility": "high/medium/low",
     "clarifications_needed": []
 }}"#,
-            amt.content,
-            amt.children
-                .iter()
-                .map(|c| c.content.as_str())
-                .collect::<Vec<_>>()
-                .join(", "),
+            state.keywords.join(", "),
+            entities_desc,
+            state.topics.join(", "),
+            files_desc,
+            jurisdiction_desc,
+            methodologies_block,
+            consciousness_desc,
+            related_names,
+            tree_render,
             state
                 .blueprint_steps
                 .iter()
-                .map(|s| format!("Step {}: {} - {}", s.step_index, s.action, s.description))
+                .map(|s| {
+                    let ctx_req = if s.context_requirements.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [needs: {}]", s.context_requirements.join(", "))
+                    };
+                    format!(
+                        "Step {}: {} - {} (pipeline {}){}",
+                        s.step_index, s.action, s.description, s.pipeline_id, ctx_req
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         );
@@ -761,10 +1160,11 @@ Return JSON:
             "system_context": "Simulate execution and predict outcomes. Respond with JSON only."
         });
 
-        let sim_result = match self.metered_execute(state, 9, sim_input.clone()).await {
-            Ok(v) => v,
-            Err(e) => self.try_fallback_chain(state, 9, sim_input, e).await?,
-        };
+        // Same Ok-but-empty coverage as blueprint assignment above — this
+        // is the exact call CHECKLIST.md's BitNet coherency sweep already
+        // found truncating/schema-drifting; retry+fallback gives it a real
+        // second chance instead of accepting a degraded first attempt.
+        let sim_result = self.metered_execute_resilient(state, sim_input, "zero_shot_simulation").await?;
         self.record_thinking(state, "Zero-Shot Simulation", &sim_result);
         let response = sim_result
             .get("response")
@@ -799,6 +1199,111 @@ Return JSON:
             state.needs_clarification = true;
         }
 
+        // Real per-step predictions — previously parsed into `sim_json`
+        // then discarded (only clarifications_needed survived into
+        // `state`). Stored so stage 8's consciousness review can carry
+        // the simulation's own self-critique, matching what its assembled
+        // context already claims to include.
+        //
+        // SCHEMA-FLEXIBLE (real bug found+fixed 2026-09-22): the requested
+        // shape is a `step_predictions` array, but BitNet (confirmed live,
+        // CHECKLIST.md's coherency sweep, "valid-JSON-wrong-schema (step_N
+        // keys vs step_predictions)") sometimes returns real, valid,
+        // substantive prediction data under top-level `step_0`/`step_1`/...
+        // keys instead. The array-only parse below silently produced an
+        // empty Vec in that case — a real response with real content,
+        // passing `is_unusable_pipeline9_result` fine (non-empty), quietly
+        // losing its data downstream. Retrying wouldn't reliably fix this
+        // (the model may drift to the same shape again) — the fix is
+        // accepting the shape it actually uses. Try the requested array
+        // shape first; if empty, fall back to scanning for `step_<N>` keys.
+        let step_predictions: Vec<SimulationStepPrediction> = {
+            let from_array: Vec<SimulationStepPrediction> = sim_json
+                .get("step_predictions")
+                .and_then(|p| p.as_array())
+                .map(|arr| {
+                    arr.iter()
+                        .map(|p| SimulationStepPrediction {
+                            step: p.get("step").and_then(|s| s.as_u64()).unwrap_or(0) as u32,
+                            needs: p
+                                .get("needs")
+                                .and_then(|n| n.as_array())
+                                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .unwrap_or_default(),
+                            produces: p
+                                .get("produces")
+                                .and_then(|n| n.as_array())
+                                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .unwrap_or_default(),
+                            risks: p
+                                .get("risks")
+                                .and_then(|n| n.as_array())
+                                .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                                .unwrap_or_default(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            if !from_array.is_empty() {
+                from_array
+            } else if let Some(obj) = sim_json.as_object() {
+                // step_N-keyed fallback: real drifted shape, e.g.
+                // {"step_0": {"needs":[...],"produces":[...],"risks":[...]}}
+                // or {"step_0": "free-text prediction"}. Extract the numeric
+                // suffix as the step index; a non-object value is kept as a
+                // single risk-bucket string rather than dropped, since it's
+                // still real model content, not nothing.
+                let mut from_keys: Vec<SimulationStepPrediction> = obj
+                    .iter()
+                    .filter_map(|(k, v)| {
+                        let suffix = k.strip_prefix("step_").or_else(|| k.strip_prefix("step"))?;
+                        let step: u32 = suffix.trim_start_matches('_').parse().ok()?;
+                        Some(match v.as_object() {
+                            Some(step_obj) => SimulationStepPrediction {
+                                step,
+                                needs: step_obj
+                                    .get("needs")
+                                    .and_then(|n| n.as_array())
+                                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                                    .unwrap_or_default(),
+                                produces: step_obj
+                                    .get("produces")
+                                    .and_then(|n| n.as_array())
+                                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                                    .unwrap_or_default(),
+                                risks: step_obj
+                                    .get("risks")
+                                    .and_then(|n| n.as_array())
+                                    .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+                                    .unwrap_or_default(),
+                            },
+                            None => SimulationStepPrediction {
+                                step,
+                                needs: Vec::new(),
+                                produces: Vec::new(),
+                                risks: v.as_str().map(|s| vec![s.to_string()]).unwrap_or_default(),
+                            },
+                        })
+                    })
+                    .collect();
+                from_keys.sort_by_key(|p| p.step);
+                if !from_keys.is_empty() {
+                    tracing::info!(
+                        count = from_keys.len(),
+                        "Zero-shot simulation: schema-flexible parse recovered step_N-keyed predictions the array-only parse would have dropped"
+                    );
+                }
+                from_keys
+            } else {
+                Vec::new()
+            }
+        };
+        state.simulation_result = Some(SimulationOutcome {
+            overall_feasibility: feasibility.to_string(),
+            step_predictions,
+        });
+
         self.record_stage_timed(
             state,
             4,
@@ -821,11 +1326,90 @@ Return JSON:
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // Call decision_gate pipeline (#39)
+        // Call decision_gate pipeline (#39) — now carrying the FULL
+        // TRAVERSED PICTURE (TOP_DOWN_REVIEW_GUIDE §3.2, CONTEXT_REGISTRY
+        // S1-S7): the AMT (source of truth), the blueprint (the goal),
+        // the jurisdiction outcome, the methodology rules the plan was
+        // drafted under, and the simulation's own self-critique. Assembled
+        // once, here — carried unchanged across every model-switch attempt
+        // inside the review (wire-before-drop: same execute(39) call
+        // shape, real decision inside).
+        let mut amt_render = String::new();
+        if let Some(amt) = &state.amt {
+            fn render(node: &crate::orchestrator::AMTNode, depth: usize, out: &mut String, budget: &mut usize) {
+                if *budget == 0 { return; }
+                let line = format!("{}- {}\n", "  ".repeat(depth), node.content);
+                *budget = budget.saturating_sub(line.len());
+                out.push_str(&line);
+                for child in &node.children {
+                    render(child, depth + 1, out, budget);
+                }
+            }
+            let mut budget = 1200usize;
+            render(amt, 0, &mut amt_render, &mut budget);
+        }
+        let blueprint_render = state
+            .blueprint_steps
+            .iter()
+            .map(|s| format!(
+                "Step {}: {} - {} (pipeline {})",
+                s.step_index, s.action, s.description, s.pipeline_id
+            ))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let jurisdiction_ctx = Self::jurisdiction_summary(state);
+        // The simulation's own self-critique (stage 4's real predictions —
+        // see SimulationOutcome) — this was claimed in the doc comment
+        // above before it was actually wired; now real.
+        let simulation_render = match &state.simulation_result {
+            Some(sim) => {
+                let steps_text = if sim.step_predictions.is_empty() {
+                    "(no per-step predictions parsed)".to_string()
+                } else {
+                    sim.step_predictions
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "  Step {}: needs [{}], produces [{}], risks [{}]",
+                                p.step,
+                                p.needs.join(", "),
+                                p.produces.join(", "),
+                                p.risks.join(", ")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                };
+                format!("Overall feasibility: {}\n{}", sim.overall_feasibility, steps_text)
+            }
+            None => "(simulation stage did not run or produced no result)".to_string(),
+        };
+        let mut methods_render = String::new();
+        for &method_id in state.methodologies.iter().take(4) {
+            if let Ok(Some(container)) = self.store.get_container(method_id).await {
+                let name = container
+                    .get("local_state").and_then(|l| l.get("metadata"))
+                    .and_then(|m| m.get("name")).and_then(|n| n.as_str())
+                    .unwrap_or("Unknown");
+                match Self::load_methodology_rules_text(&container) {
+                    Some(rules) => methods_render.push_str(&format!("  - {}: {}\n", name, rules)),
+                    None => methods_render.push_str(&format!("  - {} (no rules on file)\n", name)),
+                }
+            }
+        }
+
         let input = serde_json::json!({
             "action": "Evaluate",
             "task_id": 0,
-            "task_summary": &state.cleaned_prompt[..state.cleaned_prompt.len().min(500)],
+            "task_summary": format!(
+                "THE PLAN UNDER REVIEW (the blueprint is the goal — nothing has executed yet; judge the plan and its judgment with everything connected to it):\n\nREQUEST:\n{}\n\nAMT (SOURCE OF TRUTH):\n{}\n\nBLUEPRINT STEPS:\n{}\n\nJURISDICTION OUTCOME:\n{}\n\nMETHODOLOGY RULES IN SCOPE:\n{}\n\nSIMULATION PREDICTIONS (the system's own self-critique of this plan, from stage 4):\n{}",
+                &state.cleaned_prompt[..state.cleaned_prompt.len().min(600)],
+                amt_render,
+                blueprint_render,
+                jurisdiction_ctx,
+                methods_render,
+                simulation_render
+            ),
             "blueprint_id": state.blueprint_id.unwrap_or(0),
             "user_id": state.request.user_id,
             "amt_summary": {
@@ -1179,7 +1763,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             "system_context": "Decompose search queries. Return only valid JSON."
         });
 
-        let sub_queries: Vec<String> = match self.metered_execute(state, 9, decompose_input).await {
+        let sub_queries: Vec<String> = match self.metered_execute_resilient(state, decompose_input, "web_search_decompose").await {
             Ok(result) => {
                 self.record_thinking(state, "Web Search — query decomposition", &result);
                 let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
@@ -1288,6 +1872,14 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 // living graph.
                 "workspace_id": state.request.workspace_id,
                 "include_coordination": true,
+                // This request's own attached-file graph_ids, exactly
+                // known (state.file_graphs, populated in STEP 0) — see
+                // context_aggregation's ForStep handler for why this
+                // matters: previously a step could only ever rediscover
+                // its own request's attachments via keyword search,
+                // probabilistic even when the exact container is already
+                // in hand.
+                "known_seed_ids": state.file_graphs.values().cloned().collect::<Vec<u64>>(),
             });
 
             let context_result = self.metered_execute(state, 21, context_input).await?;
@@ -1420,7 +2012,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     "temperature": 0.2,
                     "system_context": "Compact context losslessly for facts. Return only the compacted text, no explanation."
                 });
-                match self.metered_execute(state, 9, compact_input).await {
+                match self.metered_execute_resilient(state, compact_input, "context_compaction").await {
                     Ok(result) => {
                         self.record_thinking(
                             state,
@@ -1674,7 +2266,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 let mut outcome: Option<ComplianceCheckResult> = None;
                 let mut last_error: Option<String> = None;
                 loop {
-                    match self.metered_execute(state, 9, compliance_input.clone()).await {
+                    match self.metered_execute_resilient(state, compliance_input.clone(), "methodology_compliance_check").await {
                         Ok(result) => {
                             self.record_thinking(
                                 state,

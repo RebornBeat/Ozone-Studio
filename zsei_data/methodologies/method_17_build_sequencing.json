@@ -1,0 +1,48 @@
+{
+  "principles": [
+    {
+      "statement": "Before starting any cargo build, check for other active heavy processes (rustc, another cargo, BitNet/llama-cli generations) and real available memory — never assume you have the machine to yourself.",
+      "rationale": "Confirmed live 2026-09-15: two agents each started their own cargo build within minutes of each other on a 7.6GB machine, plus an orphaned 20+ minute BitNet generation running concurrently, causing repeated OOM kills of unrelated background processes (curl clients, monitoring loops) even though the builds themselves eventually succeeded via cargo's own lock serialization.",
+      "applicability": ["build", "host_operations", "multi_agent"]
+    },
+    {
+      "statement": "cargo's build-directory lock will serialize concurrent builds safely (a second build blocks with 'Blocking waiting for file lock' rather than corrupting anything) — but a blocked build still holds memory and API-budget-adjacent resources while waiting, so avoid deliberately racing another agent's build rather than relying on the lock alone to keep things safe.",
+      "rationale": "Observed directly: a queued build sat blocked for the full duration of another agent's build before proceeding — safe, but slower and more resource-tense than coordinating first would have been.",
+      "applicability": ["build", "multi_agent"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Pre-Build Contention Check",
+      "description": "Run `pgrep -x rustc` / `pgrep -x cargo` and `free -h` before invoking `cargo build`. If another build is active or available memory is below roughly 1.5GB, wait (poll every few minutes) rather than starting immediately.",
+      "when_to_apply": "Any time a build is about to be started on a shared host machine, especially when another agent (or a background BitNet/LLM subprocess) may also be active.",
+      "examples": [
+        "Two agents both need to rebuild after independent fixes — check `pgrep -x rustc` first; if it returns a PID, post a coordination note and wait rather than launching a second concurrent build."
+      ]
+    },
+    {
+      "name": "Orphaned Process Cleanup Before Building",
+      "description": "If a known-orphaned subprocess (e.g. a BitNet generation whose client already disconnected and whose result is confirmed unrecoverable) is consuming significant memory/CPU, kill it before starting a new build rather than waiting for it to finish naturally.",
+      "when_to_apply": "When ps/pgrep shows a long-running process tied to a request that has already been confirmed lost (task record shows no progress despite the process still running), and its continued execution is blocking other real work.",
+      "examples": [
+        "A curl client died from memory pressure; its BitNet subprocess kept running 27+ minutes with nothing left to consume the result. Confirmed via the task record (progress:0, steps:[]) that the result is unrecoverable — killed the process to free memory for a real build rather than waiting it out."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "About to start `cargo build --release` and another rustc/cargo process is already active.",
+      "action": "Wait for the existing build to clear (poll, don't force), or coordinate via a shared-context note first if the wait would be long — do not force-kill another agent's active build.",
+      "priority": 1,
+      "exceptions": [
+        "The active process is confirmed orphaned/unrecoverable (not an active build), in which case cleaning it up first is appropriate."
+      ]
+    },
+    {
+      "condition": "Real available memory is below ~1GB before a build or a BitNet-triggering request.",
+      "action": "Check what's actually consuming memory (ps aux --sort=-%mem) before proceeding; wait for real contention to clear rather than launching into it and risking an OOM kill of unrelated work.",
+      "priority": 2,
+      "exceptions": []
+    }
+  ]
+}

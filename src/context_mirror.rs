@@ -88,7 +88,7 @@ fn resolve_scope(req: &MirrorRequest) -> (String, Option<u64>, Option<u64>) {
         _ => "workspace",
     };
     let mut ws = req.workspace_id;
-    let mut proj = req.project_id;
+    let proj = req.project_id;
 
     if req.kind == "claim" && scope == "global" {
         scope = "workspace"; // file paths are workspace-bound

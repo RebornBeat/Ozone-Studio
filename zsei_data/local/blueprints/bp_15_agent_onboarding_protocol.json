@@ -1,0 +1,116 @@
+{
+ "blueprint_id": 15,
+ "name": "Agent Onboarding Protocol",
+ "version": "2.0.0",
+ "description": "Onboard a coding agent (zcode/CC) onto this living system: shared-context protocol, file claims, task routing, honesty rules.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9
+  ],
+  "optional_pipelines": [],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   20,
+   26,
+   33,
+   43
+  ],
+  "suggested_methodologies": [
+   38,
+   39
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "read_state",
+   "description": "Read CHECKLIST.md, AGENTS.md, docs/STATE_CAPTURE.md, and the shared-context handoffs before touching anything",
+   "pipeline_id": 9,
+   "action": "read",
+   "outputs": [
+    "context"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "claim_and_route",
+   "description": "file_claim before editing; route work through host tasks; end sessions with a handoff note",
+   "pipeline_id": 9,
+   "action": "coordinate",
+   "outputs": [
+    "claims",
+    "tasks"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "verify_live",
+   "description": "Probe live state (health, task list, graph) before trusting docs \u2014 verify what's actually active, not just what's built",
+   "pipeline_id": 9,
+   "action": "verify",
+   "outputs": [
+    "live_state"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "agent",
+  "onboarding",
+  "protocol",
+  "coordination",
+  "claims"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

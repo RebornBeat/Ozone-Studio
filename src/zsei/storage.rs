@@ -620,19 +620,53 @@ impl ContainerStorage {
     }
     
     /// Delete a container
+    ///
+    /// Must zero the mmap/plain-file GlobalState record's container_id field
+    /// (not just drop `self.index`), otherwise `load_index`'s boot-time scan
+    /// - which reindexes every non-zero container_id it finds - resurrects
+    /// the deleted container on the next restart even without a crash. Reuses
+    /// the scanner's existing "container_id == 0 means skip" convention
+    /// (see `load_index`) instead of adding a new tombstone format.
     pub fn delete(&mut self, id: ContainerID) -> OzoneResult<()> {
         if id == 0 {
             return Err(OzoneError::StorageError("Cannot delete root container".into()));
         }
-        
-        self.index.remove(&id);
+
+        let offset = self.index.remove(&id);
         self.local_cache.remove(&id);
-        
+        self.child_ids_cache.remove(&id);
+
+        if let Some(offset) = offset {
+            let offset = offset as usize;
+            if let Some(ref mut mmap) = self.global_mmap {
+                if offset + 8 <= mmap.len() {
+                    mmap[offset..offset + 8].copy_from_slice(&0u64.to_le_bytes());
+                    mmap.flush().map_err(|e| {
+                        OzoneError::StorageError(format!("Failed to flush tombstone: {}", e))
+                    })?;
+                }
+            } else if let Some(ref file) = self.global_file {
+                use std::io::{Seek, SeekFrom, Write};
+                let mut file = file.try_clone().map_err(|e| {
+                    OzoneError::StorageError(format!("Failed to clone global file handle: {}", e))
+                })?;
+                file.seek(SeekFrom::Start(offset as u64)).map_err(|e| {
+                    OzoneError::StorageError(format!("Failed to seek global file: {}", e))
+                })?;
+                file.write_all(&0u64.to_le_bytes()).map_err(|e| {
+                    OzoneError::StorageError(format!("Failed to write tombstone: {}", e))
+                })?;
+                file.flush().map_err(|e| {
+                    OzoneError::StorageError(format!("Failed to flush global file: {}", e))
+                })?;
+            }
+        }
+
         let path = self.local_path.join(format!("{}.json", id));
         if path.exists() {
             fs::remove_file(&path).ok();
         }
-        
+
         Ok(())
     }
     

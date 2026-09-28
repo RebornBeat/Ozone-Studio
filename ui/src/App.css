@@ -1908,7 +1908,33 @@ body {
     position: relative;
 }
 
-.meta-content.has-overlay {
+/* Global/workspace chat context switcher, top of the META panel. */
+.chat-context-switcher {
+    flex-shrink: 0;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.chat-context-select {
+    width: 100%;
+    background: var(--color-bg-tertiary, rgba(255, 255, 255, 0.04));
+    color: var(--color-text-primary, #e8eaf0);
+    border: 1px solid var(--color-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12.5px;
+    cursor: pointer;
+}
+
+.chat-context-select:focus {
+    outline: 1px solid var(--color-accent, #6ec3ff);
+}
+
+/* Wraps just the emotion/reflection section so the consciousness-disabled
+   overlay (below) can be scoped to it alone via inset:0 — it used to be
+   absolutely positioned against the whole .meta-content box, which also
+   covered the real conversation transcript underneath. */
+.meta-decorative {
     position: relative;
 }
 
@@ -6115,3 +6141,515 @@ ui/component.js files
 }
 .dynamic-pipeline-ui-container ::-webkit-scrollbar { width: 8px; }
 .dynamic-pipeline-ui-container ::-webkit-scrollbar-thumb { background: #223046; border-radius: 4px; }
+
+/* ============================================================
+   Dynamic pipeline UI — shared modal + core layout patterns.
+   These pipeline UI components (workspace_tab/ui/component.js and
+   any future one) are loaded at runtime from the backend and were
+   using plain className strings (.modal-overlay, .modal, .btn-primary,
+   .workspace-panel, etc.) with NO corresponding CSS anywhere in this
+   app — confirmed by grep, zero matches. That's why "Create Workspace"
+   appeared to do nothing: the modal genuinely rendered into the DOM
+   (state change, handler, backend call all real and correct) but with
+   zero positioning/overlay/centering, so it was visually
+   indistinguishable from nothing happening. Scoped generically so any
+   dynamic pipeline UI reusing these common class names benefits, not
+   just workspace_tab. ============================================ */
+
+.dynamic-pipeline-ui-container .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(2px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.dynamic-pipeline-ui-container .modal {
+    background: var(--color-bg-elevated);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
+    width: 100%;
+    max-width: 420px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.dynamic-pipeline-ui-container .modal h3 {
+    margin: 0 0 var(--space-sm) 0;
+    color: var(--color-text);
+    font-size: 1.15rem;
+}
+
+.dynamic-pipeline-ui-container .modal .hint {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+    margin-bottom: var(--space-md);
+}
+
+.dynamic-pipeline-ui-container .modal input,
+.dynamic-pipeline-ui-container .modal textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--color-bg);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
+    color: var(--color-text);
+    font-size: 0.9rem;
+    margin-bottom: var(--space-md);
+    font-family: inherit;
+}
+
+.dynamic-pipeline-ui-container .modal input:focus,
+.dynamic-pipeline-ui-container .modal textarea:focus {
+    outline: none;
+    border-color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .modal textarea {
+    min-height: 70px;
+    resize: vertical;
+}
+
+.dynamic-pipeline-ui-container .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-sm);
+    margin-top: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .modal-actions button {
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    font-size: 0.9rem;
+}
+
+.dynamic-pipeline-ui-container .modal-actions button:hover {
+    background: var(--color-bg-tertiary);
+}
+
+.dynamic-pipeline-ui-container .btn-primary {
+    border: none !important;
+    background: var(--color-accent) !important;
+    color: #fff !important;
+    font-weight: 500;
+}
+
+.dynamic-pipeline-ui-container .btn-primary:hover:not(:disabled) {
+    background: var(--color-accent-hover) !important;
+}
+
+.dynamic-pipeline-ui-container .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Core workspace_tab layout — baseline structure/spacing so the tab is
+   genuinely usable, not the full visual pass (a larger, separate task). */
+.dynamic-pipeline-ui-container .workspace-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: var(--space-lg);
+    box-sizing: border-box;
+    overflow-y: auto;
+    color: var(--color-text);
+}
+
+.dynamic-pipeline-ui-container .panel-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-lg);
+}
+
+.dynamic-pipeline-ui-container .toolbar-actions {
+    display: flex;
+    gap: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .toolbar-btn,
+.dynamic-pipeline-ui-container .back-btn,
+.dynamic-pipeline-ui-container .btn-icon {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+
+.dynamic-pipeline-ui-container .toolbar-btn:hover,
+.dynamic-pipeline-ui-container .back-btn:hover,
+.dynamic-pipeline-ui-container .btn-icon:hover {
+    background: var(--color-bg-elevated);
+    border-color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .items-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: var(--space-md);
+}
+
+.dynamic-pipeline-ui-container .item-card {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    transition: border-color 0.15s, transform 0.1s;
+}
+
+.dynamic-pipeline-ui-container .item-card:hover {
+    border-color: var(--color-accent);
+    transform: translateY(-1px);
+}
+
+.dynamic-pipeline-ui-container .card-icon,
+.dynamic-pipeline-ui-container .ws-icon {
+    font-size: 1.5rem;
+}
+
+.dynamic-pipeline-ui-container .card-desc,
+.dynamic-pipeline-ui-container .workspace-description,
+.dynamic-pipeline-ui-container .project-description {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+}
+
+.dynamic-pipeline-ui-container .card-meta,
+.dynamic-pipeline-ui-container .project-stats {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+}
+
+.dynamic-pipeline-ui-container .workspace-empty,
+.dynamic-pipeline-ui-container .panel-empty-centered,
+.dynamic-pipeline-ui-container .empty-state-centered {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: var(--color-text-secondary);
+    padding: calc(var(--space-xl) * 2);
+    flex: 1;
+    gap: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .empty-icon {
+    font-size: 2.5rem;
+    opacity: 0.6;
+}
+
+.dynamic-pipeline-ui-container .panel-loading,
+.dynamic-pipeline-ui-container .workspace-loading,
+.dynamic-pipeline-ui-container .loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xl);
+    color: var(--color-text-secondary);
+}
+
+.dynamic-pipeline-ui-container .panel-error,
+.dynamic-pipeline-ui-container .error-icon {
+    color: var(--color-error);
+}
+
+.dynamic-pipeline-ui-container .info-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid var(--color-accent);
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) var(--space-md);
+    margin-bottom: var(--space-md);
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+}
+
+.dynamic-pipeline-ui-container .files-list,
+.dynamic-pipeline-ui-container .workspace-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+}
+
+.dynamic-pipeline-ui-container .file-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-md);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-subtle);
+}
+
+.dynamic-pipeline-ui-container .file-item:hover {
+    border-color: var(--color-border);
+    background: var(--color-bg-secondary);
+}
+
+.dynamic-pipeline-ui-container .file-unlink-btn {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+}
+
+.dynamic-pipeline-ui-container .file-unlink-btn:hover {
+    color: var(--color-error);
+}
+
+/* task_manager/ui/component.js — same systemic gap as workspace_tab above
+   (a real, styled dynamic pipeline UI with zero corresponding CSS
+   anywhere), which is the actual reason the Tasks tab looked rougher
+   than the native panels (Settings/Library/Monitor/Tools/Devices). */
+.dynamic-pipeline-ui-container .tasks-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: var(--space-lg);
+    box-sizing: border-box;
+    overflow-y: auto;
+    color: var(--color-text);
+}
+
+.dynamic-pipeline-ui-container .tasks-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: var(--space-lg);
+    gap: var(--space-md);
+    flex-wrap: wrap;
+}
+
+.dynamic-pipeline-ui-container .filter-buttons {
+    display: flex;
+    gap: var(--space-xs);
+}
+
+.dynamic-pipeline-ui-container .filter-buttons button {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-secondary);
+    padding: var(--space-xs) var(--space-md);
+    cursor: pointer;
+    font-size: 0.82rem;
+}
+
+.dynamic-pipeline-ui-container .filter-buttons button.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: #fff;
+}
+
+.dynamic-pipeline-ui-container .refresh-btn {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    padding: var(--space-sm);
+    cursor: pointer;
+}
+
+.dynamic-pipeline-ui-container .tasks-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .task-info {
+    background: var(--color-bg-secondary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-md) var(--space-lg);
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.dynamic-pipeline-ui-container .task-info:hover {
+    border-color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .task-name {
+    color: var(--color-text);
+    font-weight: 500;
+}
+
+.dynamic-pipeline-ui-container .task-time,
+.dynamic-pipeline-ui-container .meta-label {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+}
+
+.dynamic-pipeline-ui-container .meta-row {
+    display: flex;
+    gap: var(--space-md);
+    flex-wrap: wrap;
+    margin-top: var(--space-xs);
+}
+
+.dynamic-pipeline-ui-container .meta-value {
+    color: var(--color-text-secondary);
+    font-size: 0.82rem;
+}
+
+.dynamic-pipeline-ui-container .task-status {
+    display: inline-block;
+    padding: 2px var(--space-sm);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--color-bg-tertiary);
+    color: var(--color-text-secondary);
+}
+
+.dynamic-pipeline-ui-container .task-status.running,
+.dynamic-pipeline-ui-container .task-status.inprogress {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .task-status.completed {
+    background: rgba(74, 222, 128, 0.15);
+    color: var(--color-success);
+}
+
+.dynamic-pipeline-ui-container .task-status.failed,
+.dynamic-pipeline-ui-container .task-status.error {
+    background: rgba(248, 113, 113, 0.15);
+    color: var(--color-error);
+}
+
+/* .task-progress is the track; .progress-bar is the real component's own
+   inline-width fill div nested inside it (style={{width: `${pct}%`}}) —
+   matches that mechanism directly rather than inventing a different one. */
+.dynamic-pipeline-ui-container .task-progress {
+    height: 6px;
+    background: var(--color-bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .progress-bar {
+    height: 100%;
+    background: var(--color-accent);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+
+.dynamic-pipeline-ui-container .task-steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+}
+
+.dynamic-pipeline-ui-container .step-header {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
+.dynamic-pipeline-ui-container .step-status-icon {
+    width: 18px;
+    text-align: center;
+}
+
+.dynamic-pipeline-ui-container .step-name {
+    flex: 1;
+    color: var(--color-text);
+    font-size: 0.88rem;
+}
+
+.dynamic-pipeline-ui-container .step-tokens,
+.dynamic-pipeline-ui-container .step-number {
+    color: var(--color-text-muted);
+    font-size: 0.78rem;
+}
+
+.dynamic-pipeline-ui-container .step-stages {
+    display: flex;
+    gap: 4px;
+    margin-left: 26px;
+}
+
+.dynamic-pipeline-ui-container .stage-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+}
+
+.dynamic-pipeline-ui-container .stage-dot.done {
+    background: var(--color-success);
+    border-color: var(--color-success);
+}
+
+.dynamic-pipeline-ui-container .stage-dot.active {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .clarification-banner {
+    display: flex;
+    gap: var(--space-md);
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid var(--color-warning);
+    border-radius: var(--radius-md);
+    padding: var(--space-md);
+    margin-bottom: var(--space-md);
+}
+
+.dynamic-pipeline-ui-container .clarification-option-btn {
+    background: var(--color-bg-tertiary);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    padding: var(--space-sm) var(--space-md);
+    cursor: pointer;
+    margin: var(--space-xs) var(--space-xs) 0 0;
+}
+
+.dynamic-pipeline-ui-container .clarification-option-btn:hover {
+    border-color: var(--color-accent);
+}
+
+.dynamic-pipeline-ui-container .task-actions {
+    display: flex;
+    gap: var(--space-sm);
+    margin-top: var(--space-md);
+}
+
+.dynamic-pipeline-ui-container .btn-danger {
+    background: var(--color-error) !important;
+    border: none !important;
+    color: #fff !important;
+}
+
+.dynamic-pipeline-ui-container .task-error {
+    color: var(--color-error);
+    font-size: 0.85rem;
+}

@@ -10,6 +10,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Direct reference store
 lazy_static::lazy_static! {
     static ref REFERENCE_STORE: Mutex<ReferenceStore> = Mutex::new(ReferenceStore::new());

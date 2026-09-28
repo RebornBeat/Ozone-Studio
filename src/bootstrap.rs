@@ -839,7 +839,7 @@ impl BootstrapManager {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),
-            "methodology_count": 34,
+            "methodology_count": 44,
             "methodologies": [
                 {"methodology_id":1,"name":"Conversational Response","categories":["conversation","chat"],"file":"method_1_conversational.json"},
                 {"methodology_id":2,"name":"Contextual Awareness","categories":["context","understanding"],"file":"method_2_context.json"},
@@ -874,7 +874,16 @@ impl BootstrapManager {
                 {"methodology_id":31,"name":"Verify What's Actually Active, Not Just What's Built","categories":["configuration","debugging","cost_management","defaults"],"file":"method_31_verify_whats_actually_active.json"},
                 {"methodology_id":32,"name":"Self-Assessment Prompts Need a Calibration Bar","categories":["prompt_engineering","llm_gates","self_assessment","reliability"],"file":"method_32_self_assessment_needs_calibration_bar.json"},
                 {"methodology_id":33,"name":"Verify the Artifact, Not the Status","categories":["multi_agent","verification","resilience","coordination"],"file":"method_33_verify_the_artifact_not_the_status.json"},
-                {"methodology_id":34,"name":"Jurisdiction Source Maintenance Protocol","categories":["jurisdiction","legal_content","maintenance","content_sourcing"],"file":"method_34_jurisdiction_source_maintenance_protocol.json"}
+                {"methodology_id":35,"name":"Rescue JSON From Model Noise","categories":["llm_output_parsing","local_models","extraction"],"file":"method_35_rescue_json_from_model_noise.json"},
+                {"methodology_id":36,"name":"Persist Gates Must Measure Content Depth, Not Element Count","categories":["validation","gates","no_fabrication"],"file":"method_36_persist_gates_must_measure_content_depth_not_element_count.json"},
+                {"methodology_id":37,"name":"Canonical Container Resolution Must Be Order-Independent","categories":["storage","deduplication","boot"],"file":"method_37_canonical_container_resolution_must_be_order_independent.json"},
+                {"methodology_id":38,"name":"Tune From Measured Metrics, Never Preemptive Caps","categories":["performance","metrics","discipline"],"file":"method_38_tune_from_measured_metrics_never_preemptive_caps.json"},
+                {"methodology_id":39,"name":"A Guard Held Across a Forever-Loop Is a Permanent Lock","categories":["concurrency","locks","deadlock"],"file":"method_39_a_guard_held_across_a_forever_loop_is_a_permanent_lock.json"},
+                {"methodology_id":40,"name":"Persisted Shape Must Match the Loader's Parse Shape","categories":["persistence","serde","schema_evolution"],"file":"method_40_persisted_shape_must_match_the_loaders_parse_shape.json"},
+                {"methodology_id":41,"name":"New Nodes Link Through Relationship Paths First","categories":["graph","linking","relevance"],"file":"method_41_new_nodes_link_through_relationship_paths_first.json"},
+                {"methodology_id":42,"name":"Planning Artifacts Outlive the Process That Made Them","categories":["planning","persistence","sessions"],"file":"method_42_planning_artifacts_outlive_the_process_that_made_them.json"},
+                {"methodology_id":43,"name":"Every Failure Path Marks State Truthfully","categories":["honesty","reliability","state_machines"],"file":"method_43_every_failure_path_marks_state_truthfully.json"},
+                {"methodology_id":44,"name":"Session Token Metering","categories":["metering","budget","multi_agent"],"file":"method_44_session_token_metering.json"}
             ]
         })
     }
@@ -884,14 +893,27 @@ impl BootstrapManager {
         serde_json::json!({
             "version": 2,
             "last_updated": Self::now(),
-            "blueprint_count": 7,
+            "blueprint_count": 17,
             "blueprints": [
                 {"blueprint_id":1,"name":"General Assistant","signature_hash":"bp_general_assistant_v2","input_types":["text","image","audio","video","code"],"output_types":["text","code"],"keywords":["help","explain","what is","how does","question","assist"],"use_count":0,"success_rate":1.0,"file":"bp_1_general_assistant.json"},
                 {"blueprint_id":2,"name":"Code Review","signature_hash":"bp_code_review_v2","input_types":["code","file_reference"],"output_types":["code_analysis","suggestions"],"keywords":["review","code review","analyze code","check code","audit","quality"],"use_count":0,"success_rate":1.0,"file":"bp_2_code_review.json"},
                 {"blueprint_id":3,"name":"Documentation","signature_hash":"bp_documentation_v2","input_types":["code","text","requirements"],"output_types":["documentation","markdown"],"keywords":["document","documentation","readme","tutorial","guide","api docs"],"use_count":0,"success_rate":1.0,"file":"bp_3_documentation.json"},
                 {"blueprint_id":4,"name":"Code Creation","signature_hash":"bp_code_creation_v2","input_types":["specification","requirements","text"],"output_types":["code","documentation"],"keywords":["create","generate","write code","implement","build","scaffold"],"use_count":0,"success_rate":1.0,"file":"bp_4_code_creation.json"},
                 {"blueprint_id":6,"name":"Data Analysis","signature_hash":"bp_data_analysis_v2","input_types":["data","csv","json","text"],"output_types":["analysis","visualization","report"],"keywords":["analyze","analysis","data","statistics","chart","visualize","insights"],"use_count":0,"success_rate":1.0,"file":"bp_6_data_analysis.json"},
-                {"blueprint_id":7,"name":"Mathematical Proof Verification","signature_hash":"bp_math_proof_v2","input_types":["math","proof","text"],"output_types":["verification","analysis"],"keywords":["prove","proof","verify","theorem","lemma","mathematical","formal"],"use_count":0,"success_rate":1.0,"file":"bp_7_math_proof_verification.json"}
+                {"blueprint_id":7,"name":"Mathematical Proof Verification","signature_hash":"bp_math_proof_v2","input_types":["math","proof","text"],"output_types":["verification","analysis"],"keywords":["prove","proof","verify","theorem","lemma","mathematical","formal"],"use_count":0,"success_rate":1.0,"file":"bp_7_math_proof_verification.json"},
+                {"blueprint_id":8,"name":"Modality Pipeline Onboarding","signature_hash":"bp_modality_onboarding_v1","input_types":["code","text"],"output_types":["text","graph"],"keywords":["pipeline","modality","onboard","new modality","graph","persist"],"use_count":0,"success_rate":1.0,"file":"bp_8_modality_pipeline_onboarding.json"},
+                {"blueprint_id":9,"name":"Jurisdiction Expansion","signature_hash":"bp_jurisdiction_expansion_v1","input_types":["text","code"],"output_types":["text","graph"],"keywords":["jurisdiction","legal","country","regulation","compliance","rules"],"use_count":0,"success_rate":1.0,"file":"bp_9_jurisdiction_expansion.json"},
+                {"blueprint_id":10,"name":"Methodology Creation and Registration","signature_hash":"bp_methodology_creation_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["methodology","create","principles","decision rules","heuristics","knowledge"],"use_count":0,"success_rate":1.0,"file":"bp_10_methodology_creation_and_registration.json"},
+                {"blueprint_id":11,"name":"Living-Graph Linking Audit","signature_hash":"bp_linking_audit_v1","input_types":["code","text"],"output_types":["text","graph"],"keywords":["audit","links","graph","relationships","metrics","orphans"],"use_count":0,"success_rate":1.0,"file":"bp_11_living-graph_linking_audit.json"},
+                {"blueprint_id":12,"name":"Cross-Process Retrieval Hardening","signature_hash":"bp_cross_process_retrieval_v1","input_types":["code","text"],"output_types":["text","graph"],"keywords":["retrieval","cross-process","persistence","graphs","hardening"],"use_count":0,"success_rate":1.0,"file":"bp_12_cross-process_retrieval_hardening.json"},
+                {"blueprint_id":13,"name":"Text Document Analysis","signature_hash":"bp_text_document_analysis_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["text","document","analyze","summary","extract","keywords"],"use_count":0,"success_rate":1.0,"file":"bp_13_text_document_analysis.json"},
+                {"blueprint_id":14,"name":"Incident Postmortem to Methodology","signature_hash":"bp_postmortem_methodology_v1","input_types":["text","code"],"output_types":["text","graph"],"keywords":["postmortem","incident","lesson","regression","methodology","root cause"],"use_count":0,"success_rate":1.0,"file":"bp_14_incident_postmortem_to_methodology.json"},
+                {"blueprint_id":15,"name":"Agent Onboarding Protocol","signature_hash":"bp_agent_onboarding_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["agent","onboarding","protocol","coordination","claims","handoff"],"use_count":0,"success_rate":1.0,"file":"bp_15_agent_onboarding_protocol.json"},
+                {"blueprint_id":16,"name":"Data Integrity Audit and Repair","signature_hash":"bp_integrity_audit_v1","input_types":["code","text"],"output_types":["text","graph"],"keywords":["integrity","audit","duplicates","repair","cleanup","data quality"],"use_count":0,"success_rate":1.0,"file":"bp_16_data_integrity_audit_and_repair.json"},
+                {"blueprint_id":17,"name":"Fallback and Capture Verification","signature_hash":"bp_fallback_capture_v1","input_types":["text","code"],"output_types":["text","graph"],"keywords":["fallback","bitnet","verification","capture","resilience","rate limit"],"use_count":0,"success_rate":1.0,"file":"bp_17_fallback_and_capture_verification.json"},
+                {"blueprint_id":18,"name":"TD-1 Regulated Plan Review","signature_hash":"bp_td1_regulated_plan_review_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["top-down","jurisdiction","confirmation","capture-store","context-assurance"],"use_count":0,"success_rate":1.0,"file":"bp_18_td1_regulated_plan_review.json"},
+                {"blueprint_id":19,"name":"TD-2 Consciousness Full-Context","signature_hash":"bp_td2_consciousness_full_context_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["top-down","consciousness","stage-8","simulation","context-assurance"],"use_count":0,"success_rate":1.0,"file":"bp_19_td2_consciousness_full_context.json"},
+                {"blueprint_id":20,"name":"TD-3 Switch Coherence","signature_hash":"bp_td3_switch_coherence_v1","input_types":["text"],"output_types":["text","graph"],"keywords":["top-down","switch-coherence","bitnet","fallback","context-assurance"],"use_count":0,"success_rate":1.0,"file":"bp_20_td3_switch_coherence.json"}
             ]
         })
     }

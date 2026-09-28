@@ -34,8 +34,17 @@ fn ozone_host() -> String {
     env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
 }
 
+/// Process-wide HTTP client for host calls — keep-alive connection reuse.
+/// Measured (link_metrics, 2026-09-20): a fresh Client per zsei_query call
+/// costs a TCP connect every time; the shared client removes that from the
+/// per-edge linking cost without capping or batching anything.
+fn shared_http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = shared_http_client();
     let resp = client
         .post(format!("{}/zsei/query", ozone_host()))
         .json(&serde_json::json!({"query": query, "session_token": ""}))
@@ -198,7 +207,25 @@ async fn persist_graph_container(graph: &TextGraph, analysis: &TextAnalysisResul
 /// bidirectional Relation edge on both containers via UpdateContainer,
 /// skipping any relation that already exists (idempotent, safe to run again
 /// on a re-analysis). Returns the number of real edges wired.
-async fn link_related_containers(container_id: u64, own_keywords: &[String], own_topics: &[String]) -> usize {
+/// The live relevance policy from OZONE_RELEVANCE_POLICY (exported at boot
+/// by the host from the KAlgorithms registry's current preset). Falls back
+/// to the graph-first defaults when absent (older host binary).
+/// (graph_max_depth, neighborhood_shared_floor, seed_shared_floor, preset)
+fn relevance_policy() -> (u32, usize, usize, String) {
+    if let Ok(raw) = std::env::var("OZONE_RELEVANCE_POLICY") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            return (
+                v.get("graph_max_depth").and_then(|x| x.as_u64()).unwrap_or(2) as u32,
+                v.get("neighborhood_shared_floor").and_then(|x| x.as_u64()).unwrap_or(1) as usize,
+                v.get("seed_shared_floor").and_then(|x| x.as_u64()).unwrap_or(2) as usize,
+                v.get("preset").and_then(|x| x.as_str()).unwrap_or("graph-first").to_string(),
+            );
+        }
+    }
+    (2, 1, 2, "graph-first".to_string())
+}
+
+async fn link_related_containers(container_id: u64, project_id: u64, own_keywords: &[String], own_topics: &[String]) -> (usize, serde_json::Value) {
     fn is_infrastructure_container_type(t: &str) -> bool {
         matches!(
             t,
@@ -215,7 +242,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
     search_terms.sort();
     search_terms.dedup();
     if search_terms.is_empty() {
-        return 0;
+        return (0, serde_json::json!({"skipped": "no search terms"}));
     }
 
     let search_result = match zsei_query(serde_json::json!({
@@ -230,7 +257,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         Ok(v) => v,
         Err(e) => {
             eprintln!("link_related_containers: search failed (non-fatal): {}", e);
-            return 0;
+            return (0, serde_json::json!({"skipped": "keyword search failed", "error": e}));
         }
     };
 
@@ -241,28 +268,103 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         .unwrap_or_default();
 
     let own_set: HashSet<String> = search_terms.iter().cloned().collect();
-    let mut wired = 0usize;
+    let started = std::time::Instant::now();
+    let (walk_depth, nb_floor, seed_floor, preset_name) = relevance_policy();
 
-    for candidate_id in candidate_ids {
-        if candidate_id == container_id {
+    // ── Candidate source 1: the relationship neighborhood ──
+    // ONE structural Traverse from the project container — real graph edges
+    // (parent/child AND explicit Context.relationships, walked by the
+    // store's traversal engine). UNCAPPED per user directive: the walk
+    // depth is the only bound; max_results is set to an effectively
+    // unlimited value and the REAL returned count lands in the metrics so
+    // tuning decisions come from measured numbers, never preemptive caps.
+    let mut neighborhood: HashMap<u64, u32> = HashMap::new();
+    let mut traverse_returned = 0usize;
+    if walk_depth > 0 && project_id != 0 {
+        match zsei_query(serde_json::json!({
+            "Traverse": {
+                "start_container": project_id,
+                "mode": "Structural",
+                "filters": [],
+                "max_depth": walk_depth,
+                "max_results": 10_000_000u64,
+                "budget": { "max_hops": walk_depth, "max_containers": 10_000_000u64, "max_latency_ms": 3_600_000u64 },
+                "use_ml": false,
+                "include_methodologies": false,
+                "include_external_refs": false,
+            }
+        }))
+        .await
+        {
+            Ok(result) => {
+                if let Some(tr) = result.get("TraversalResult") {
+                    let containers = tr.get("containers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    let paths = tr.get("paths").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    traverse_returned = containers.len();
+                    for (cid, path) in containers.iter().zip(paths.iter()) {
+                        if let (Some(id), Some(hops)) = (
+                            cid.as_u64(),
+                            path.get("hops").and_then(|h| h.as_array()),
+                        ) {
+                            neighborhood.insert(id, hops.len().saturating_sub(1) as u32);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "link_related_containers: relationship walk failed (non-fatal, keyword seeds only): {}",
+                    e
+                );
+            }
+        }
+    }
+
+    // candidate_ids (keyword seeds, computed above) — source 2: they catch
+    // genuinely related containers with NO graph path yet; without them
+    // nothing would ever receive its FIRST relationship edge.
+
+    // ── Score: hop-aware, floors from the relevance policy, NO CAPS ──
+    // Neighborhood candidates ordered by hop distance first, keyword seeds
+    // after; every unique candidate is fetched and scored. Nothing is
+    // truncated — the write phase touches every candidate that clears its
+    // floor, however many that is.
+    // (candidate_id, container_json, context, shared_terms, hops)
+    let mut scored: Vec<(u64, serde_json::Value, serde_json::Value, usize, Option<u32>)> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut ordered: Vec<(u64, Option<u32>)> = {
+        let mut v: Vec<(u64, Option<u32>)> =
+            neighborhood.iter().map(|(id, h)| (*id, Some(*h))).collect();
+        v.sort_by_key(|(_, h)| *h);
+        v
+    };
+    for id in &candidate_ids {
+        ordered.push((*id, None));
+    }
+
+    let mut fetch_failures = 0usize;
+    for (candidate_id, hops) in ordered {
+        if candidate_id == container_id || !seen.insert(candidate_id) {
             continue;
         }
-
         let candidate = match zsei_query(serde_json::json!({
             "GetContainer": { "container_id": candidate_id }
         }))
         .await
         {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(_) => {
+                fetch_failures += 1;
+                continue;
+            }
         };
         let container_json = candidate.get("Container").cloned().unwrap_or(candidate);
 
-        let container_type = container_json
+        let candidate_type = container_json
             .pointer("/local_state/metadata/container_type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if is_infrastructure_container_type(container_type) {
+        if is_infrastructure_container_type(candidate_type) {
             continue;
         }
 
@@ -281,10 +383,33 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
             .collect();
 
         let shared_count = own_set.intersection(&candidate_terms).count();
-        if shared_count < 2 {
+        let floor = if hops.is_some() { nb_floor } else { seed_floor };
+        if shared_count < floor {
             continue;
         }
 
+        scored.push((candidate_id, container_json, candidate_context, shared_count, hops));
+    }
+
+    // Most graph-adjacent first, then strongest overlap.
+    scored.sort_by(|a, b| {
+        let ha = a.4.unwrap_or(u32::MAX);
+        let hb = b.4.unwrap_or(u32::MAX);
+        ha.cmp(&hb).then(b.3.cmp(&a.3))
+    });
+
+    // Stats captured BEFORE the write loop consumes `scored` — every value
+    // counted from what this run actually did.
+    let qualified_total = scored.len();
+    let qualified_neighborhood = scored.iter().filter(|c| c.4.is_some()).count();
+    let shared_max = scored.iter().map(|c| c.3).max().unwrap_or(0);
+    let shared_total: usize = scored.iter().map(|c| c.3).sum();
+
+    // ── Write phase: real bidirectional edges, one candidate at a time ──
+    let mut wired = 0usize;
+    let mut already_linked_skipped = 0usize;
+    let mut write_failures = 0usize;
+    for (candidate_id, _container_json, candidate_context, shared_count, hops) in scored {
         let mut relationships: Vec<serde_json::Value> = candidate_context
             .get("relationships")
             .and_then(|v| v.as_array())
@@ -294,18 +419,45 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
             r.get("target_id").and_then(|v| v.as_u64()) == Some(container_id)
         });
         if already_linked {
+            already_linked_skipped += 1;
             continue;
         }
 
         let confidence = (0.3 + 0.15 * shared_count as f32).min(0.9);
-
-        // Candidate -> this new container
-        relationships.push(serde_json::json!({
+        // E2: BORDERLINE CONFIRMATION — at the exact minimum floor, the
+        // formula is a guess; a real model call judges whether these two
+        // containers are genuinely related. Only fires on borderline hits
+        // (shared_count == the floor value); stronger overlap is trusted
+        // without a call. Frequency: bounded by floor hits per linking pass
+        // (typically 0-5).
+        // E2 NOTE (architectural finding): borderline confirmation was
+        // attempted here but pipelines can't call pipeline 9 (no auth).
+        // The confirmation belongs at the orchestrator level as a
+        // post-linking pass — captured in ZERO_SHOT_EXPANSION_GUIDE.md
+        // E2 with the corrected architecture.
+        // TWO distinct edges: the candidate points at the new graph, the
+        // new graph points at the candidate. (Found live: reusing ONE edge
+        // object for both sides wrote target_id=container_id into the new
+        // graph's OWN relationships — 7 self-loops.)
+        let mut new_edge = serde_json::json!({
             "target_id": container_id,
             "relation_type": "SimilarTo",
             "confidence": confidence,
             "discovered_via": "TextAnalysis"
-        }));
+        });
+        let mut reverse_edge = serde_json::json!({
+            "target_id": candidate_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "TextAnalysis"
+        });
+        if let Some(h) = hops {
+            new_edge["graph_hops"] = serde_json::json!(h);
+            reverse_edge["graph_hops"] = serde_json::json!(h);
+        }
+
+        // Candidate -> this new container
+        relationships.push(new_edge);
         let mut candidate_context_updated = candidate_context.clone();
         candidate_context_updated["relationships"] = serde_json::Value::Array(relationships);
         let update_a = zsei_query(serde_json::json!({
@@ -323,24 +475,25 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         .await
         {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(_) => {
+                write_failures += 1;
+                continue;
+            }
         };
         let own_container_json = own_container.get("Container").cloned().unwrap_or(own_container);
         let own_context = match own_container_json.pointer("/local_state/context") {
             Some(c) => c.clone(),
-            None => continue,
+            None => {
+                write_failures += 1;
+                continue;
+            }
         };
         let mut own_relationships: Vec<serde_json::Value> = own_context
             .get("relationships")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        own_relationships.push(serde_json::json!({
-            "target_id": candidate_id,
-            "relation_type": "SimilarTo",
-            "confidence": confidence,
-            "discovered_via": "TextAnalysis"
-        }));
+        own_relationships.push(reverse_edge);
         let mut own_context_updated = own_context.clone();
         own_context_updated["relationships"] = serde_json::Value::Array(own_relationships);
         let update_b = zsei_query(serde_json::json!({
@@ -354,6 +507,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         if update_a.is_ok() && update_b.is_ok() {
             wired += 1;
         } else {
+            write_failures += 1;
             eprintln!(
                 "link_related_containers: partial/failed write for {} <-> {} (non-fatal)",
                 container_id, candidate_id
@@ -361,7 +515,30 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         }
     }
 
-    wired
+    // ── Real captured metrics (user directive: optimize from measured
+    // numbers, never preemptive caps) — every value counted from what this
+    // run actually did. ──
+    let metrics = serde_json::json!({
+        "policy_preset": preset_name,
+        "graph_max_depth": walk_depth,
+        "neighborhood_shared_floor": nb_floor,
+        "seed_shared_floor": seed_floor,
+        "traverse_containers_returned": traverse_returned,
+        "neighborhood_candidates": neighborhood.len(),
+        "seed_candidates": candidate_ids.len(),
+        "unique_candidates": seen.len(),
+        "fetch_failures": fetch_failures,
+        "qualified": qualified_total + already_linked_skipped,
+        "qualified_neighborhood": qualified_neighborhood,
+        "qualified_seeds": qualified_total - qualified_neighborhood + already_linked_skipped,
+        "shared_terms_max": shared_max,
+        "shared_terms_total": shared_total,
+        "already_linked_skipped": already_linked_skipped,
+        "edges_written": wired,
+        "write_failures": write_failures,
+        "duration_ms": started.elapsed().as_millis() as u64,
+    });
+    (wired, metrics)
 }
 
 fn default_version() -> u32 {
@@ -1046,6 +1223,16 @@ pub enum TextModalityAction {
         project_id: u64,
         #[serde(default)]
         link_to_existing: bool,
+        /// Phase 3 grammar-native chunks (sentence nodes + their
+        /// grammar/cross-sentence/coreference relationships), when the
+        /// caller already ran ExtractGrammarFromGraphs and wants that real
+        /// data woven into the graph as real Sentence/GrammarSubject/
+        /// GrammarObject nodes and validated TextEdgeType edges instead of
+        /// staying a parallel, string-typed, never-graphed structure.
+        /// Additive/optional — omitted or empty is byte-identical to the
+        /// prior Document/Section/Entity/Topic/Keyword-only behavior.
+        #[serde(default)]
+        chunks: Vec<ProcessedChunk>,
     },
 
     /// Update existing graph with new text
@@ -1225,6 +1412,10 @@ pub struct TextModalityOutput {
     /// — constructed paragraphs). Prefer these over processed_chunks.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_chunks: Option<Vec<ProcessedChunk>>,
+
+    /// Real captured metrics from link_related_containers on CreateGraph.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_metrics: Option<Value>,
 }
 
 impl Default for TextModalityOutput {
@@ -1254,6 +1445,7 @@ impl Default for TextModalityOutput {
             true_text_spans: None,
             llm_tokens_used: None,
             updated_chunks: None,
+            link_metrics: None,
         }
     }
 }
@@ -2061,8 +2253,9 @@ impl TextModalityPipeline {
                 analysis_result,
                 project_id,
                 link_to_existing,
+                chunks,
             } => {
-                self.create_graph(analysis_result, project_id, link_to_existing)
+                self.create_graph(analysis_result, project_id, link_to_existing, chunks)
                     .await
             }
 
@@ -2267,7 +2460,23 @@ impl TextModalityPipeline {
         input: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         self.llm_calls.fetch_add(1, Ordering::Relaxed);
-        let result = self.executor.execute(pipeline_id, input).await?;
+        // C6-minimal capture: EVERY attempt (Ok, empty-Ok, and Err alike)
+        // leaves a durable row — the retry loops above this choke point
+        // each produce their own row, so exhaustion is visible as a run
+        // of `success:false` instead of vanishing with the stderr scroll.
+        let prompt_preview = input
+            .get("prompt")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let result = self.executor.execute(pipeline_id, input).await;
+        capture::capture_zero_shot_call(
+            "text",
+            "llm_execute",
+            &prompt_preview,
+            &result,
+        );
+        let result = result?;
         if let Some(tokens) = result.get("tokens_used").and_then(|t| t.as_u64()) {
             self.llm_tokens_used.fetch_add(tokens, Ordering::Relaxed);
         }
@@ -2792,19 +3001,41 @@ or {{"found": false}}"#,
             "system_context": "Section structure tracking. Return only valid JSON. No explanation."
         });
 
-        match self.llm_execute(9, input).await {
-            Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
-                let json_str = Self::extract_json_from_response(raw, '{', '}');
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&json_str).unwrap_or(serde_json::json!({"found": false}));
-                if parsed.get("found").and_then(|f| f.as_bool()).unwrap_or(false) {
-                    parsed.get("event").cloned()
-                } else {
-                    None
+        // Retry on confetti (>1 candidate object in one response) before
+        // accepting a result — a single call site, no chunk-cursor state is
+        // consumed here (scan_offset/chunk_index/carry are all read-only
+        // inputs owned by the caller), so retrying in place is safe and
+        // cannot desync the outer chunked scan.
+        const MAX_ATTEMPTS: u32 = 2;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let result = self.llm_execute(9, input.clone()).await;
+            let raw = match &result {
+                Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                Err(_) => String::new(),
+            };
+            let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
+            if candidates.len() > 1 {
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "extract_next_section_event: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                        candidates.len(),
+                        attempt
+                    );
+                    continue;
                 }
+                eprintln!("extract_next_section_event: still confetti after {} attempts, treating as not-found", attempt);
+                return None;
             }
-            Err(_) => None,
+            let json_str = candidates.into_iter().next().unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
+            let parsed: serde_json::Value =
+                serde_json::from_str(&json_str).unwrap_or(serde_json::json!({"found": false}));
+            return if parsed.get("found").and_then(|f| f.as_bool()).unwrap_or(false) {
+                parsed.get("event").cloned()
+            } else {
+                None
+            };
         }
     }
 
@@ -3546,55 +3777,83 @@ Return ONLY a valid JSON array:
             "system_context": "Grammar relationship extraction. Return only valid JSON array."
         });
 
-        match self.llm_execute(9, input).await {
-            Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("[]");
-                let json_str = Self::extract_json_from_response(raw, '[', ']');
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|v| {
-                        Some(ChunkGrammarRelationship {
-                            from_text: v.get("from_text")?.as_str()?.to_string(),
-                            to_text: v.get("to_text")?.as_str()?.to_string(),
-                            edge_type: v
-                                .get("edge_type")
-                                .and_then(|e| e.as_str())
-                                .unwrap_or("Affects")
-                                .to_string(),
-                            tense: v.get("tense").and_then(|t| t.as_str()).map(String::from),
-                            negated: v.get("negated").and_then(|b| b.as_bool()).unwrap_or(false),
-                            verb: v.get("verb").and_then(|s| s.as_str()).unwrap_or("").to_string(),
-                            verb_type: match v
-                                .get("verb_type")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("action")
-                            {
-                                "linking" => VerbType::Linking,
-                                "helping" => VerbType::Helping,
-                                _ => VerbType::Action,
-                            },
-                            subject: v
-                                .get("subject")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string(),
-                            object: v.get("object").and_then(|s| s.as_str()).map(String::from),
-                            source_sentence_start: v
-                                .get("source_sentence_start")
-                                .and_then(|n| n.as_u64())
-                                .map(|n| n as usize),
-                            source_sentence_end: v
-                                .get("source_sentence_end")
-                                .and_then(|n| n.as_u64())
-                                .map(|n| n as usize),
-                            chunk_index,
-                        })
-                    })
-                    .collect()
+        // Retry on confetti (>1 candidate array) before accepting a result —
+        // same pattern as extract_entities_from_text/extract_topics_attempt.
+        const MAX_ATTEMPTS: u32 = 2;
+        let mut attempt = 0;
+        let json_str = loop {
+            attempt += 1;
+            let result = self.llm_execute(9, input.clone()).await;
+            let raw = match &result {
+                Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("[]").to_string(),
+                Err(_) => return vec![],
+            };
+            let candidates = Self::extract_all_json_candidates(&raw, '[', ']');
+            if candidates.len() > 1 {
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "extract_grammar_relationships_from_text: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                        candidates.len(),
+                        attempt
+                    );
+                    continue;
+                }
+                eprintln!("extract_grammar_relationships_from_text: still confetti after {} attempts, giving up", attempt);
+                return vec![];
             }
-            Err(_) => vec![],
-        }
+            break candidates.into_iter().next().unwrap_or_else(|| Self::extract_json_from_response(&raw, '[', ']'));
+        };
+        serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| {
+                let parsed = (|| {
+                    Some(ChunkGrammarRelationship {
+                        from_text: v.get("from_text")?.as_str()?.to_string(),
+                        to_text: v.get("to_text")?.as_str()?.to_string(),
+                        edge_type: v
+                            .get("edge_type")
+                            .and_then(|e| e.as_str())
+                            .unwrap_or("Affects")
+                            .to_string(),
+                        tense: v.get("tense").and_then(|t| t.as_str()).map(String::from),
+                        negated: v.get("negated").and_then(|b| b.as_bool()).unwrap_or(false),
+                        verb: v.get("verb").and_then(|s| s.as_str()).unwrap_or("").to_string(),
+                        verb_type: match v
+                            .get("verb_type")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("action")
+                        {
+                            "linking" => VerbType::Linking,
+                            "helping" => VerbType::Helping,
+                            _ => VerbType::Action,
+                        },
+                        subject: v
+                            .get("subject")
+                            .and_then(|s| s.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                        object: v.get("object").and_then(|s| s.as_str()).map(String::from),
+                        source_sentence_start: v
+                            .get("source_sentence_start")
+                            .and_then(|n| n.as_u64())
+                            .map(|n| n as usize),
+                        source_sentence_end: v
+                            .get("source_sentence_end")
+                            .and_then(|n| n.as_u64())
+                            .map(|n| n as usize),
+                        chunk_index,
+                    })
+                })();
+                if parsed.is_none() {
+                    eprintln!(
+                        "extract_grammar_relationships_from_text: dropping malformed relationship element (missing required field): {}",
+                        v
+                    );
+                }
+                parsed
+            })
+            .collect()
     }
 
     // ========================================================================
@@ -3824,16 +4083,53 @@ RESPOND ONLY WITH JSON ARRAY."#,
             "system_context": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
         });
 
-        match self.executor.execute(9, input).await {
-            Ok(result) => result
-                .get("response")
+        // Retry on confetti (>1 candidate array in one response — same
+        // BitNet failure mode found and fixed elsewhere this session) or a
+        // hard error, not just accept whatever came back first. A single,
+        // real, non-empty candidate is parsed exactly as before.
+        const MAX_ATTEMPTS: u32 = 2;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let result = self.executor.execute(9, input.clone()).await;
+            let response_text = result
+                .as_ref()
+                .ok()
+                .and_then(|r| r.get("response"))
                 .and_then(|r| r.as_str())
-                .and_then(|s| {
-                    let json_str = Self::extract_json_from_response(s, '[', ']');
-                    serde_json::from_str::<Vec<serde_json::Value>>(&json_str).ok()
+                .unwrap_or("")
+                .to_string();
+            let candidates = Self::extract_all_json_candidates(&response_text, '[', ']');
+            if candidates.len() > 1 {
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "extract_entities_from_text: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                        candidates.len(),
+                        attempt
+                    );
+                    continue;
+                }
+                eprintln!("extract_entities_from_text: still confetti after {} attempts, giving up", attempt);
+                return Vec::new();
+            }
+            let parsed = candidates
+                .into_iter()
+                .next()
+                .or_else(|| {
+                    // No balanced-scan candidate found (e.g. malformed
+                    // brackets) — fall back to the original naive span for
+                    // this one real remaining case, matching prior behavior.
+                    if response_text.trim().is_empty() {
+                        None
+                    } else {
+                        Some(Self::extract_json_from_response(&response_text, '[', ']'))
+                    }
                 })
-                .map(|arr| {
-                    arr.iter()
+                .and_then(|json_str| serde_json::from_str::<Vec<serde_json::Value>>(&json_str).ok());
+            match parsed {
+                Some(arr) => {
+                    return arr
+                        .iter()
                         .filter_map(|v| {
                             Some(ExtractedEntity {
                                 text: v.get("text")?.as_str()?.to_string(),
@@ -3843,10 +4139,11 @@ RESPOND ONLY WITH JSON ARRAY."#,
                                 end_offset: None,
                             })
                         })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            Err(_) => Vec::new(),
+                        .collect();
+                }
+                None if attempt < MAX_ATTEMPTS => continue,
+                None => return Vec::new(),
+            }
         }
     }
 
@@ -3877,16 +4174,55 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             input["model_override_config"] = v.clone();
         }
 
-        let result = self.llm_execute(9, input).await?;
-        let response = result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("");
-        if response.trim().is_empty() {
-            return Err("empty response".to_string());
+        // Same confetti-retry treatment as extract_entities_from_text: a
+        // response containing >1 candidate JSON array is a real failure
+        // (BitNet's confirmed confetti behavior), not something to guess
+        // through — retry once before failing closed to the caller's own
+        // Err handling.
+        const MAX_ATTEMPTS: u32 = 2;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let result = self.llm_execute(9, input.clone()).await?;
+            let response = result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_string();
+            if response.trim().is_empty() {
+                if attempt < MAX_ATTEMPTS {
+                    continue;
+                }
+                return Err("empty response".to_string());
+            }
+            let candidates = Self::extract_all_json_candidates(&response, '[', ']');
+            if candidates.len() > 1 {
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "extract_topics_attempt: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                        candidates.len(),
+                        attempt
+                    );
+                    continue;
+                }
+                return Err(format!("{} conflicting JSON candidates (confetti) after {} attempts", candidates.len(), attempt));
+            }
+            let parsed = candidates
+                .into_iter()
+                .next()
+                .and_then(|c| serde_json::from_str::<Vec<String>>(&c).ok())
+                .or_else(|| Self::parse_json_array(&response));
+            match parsed {
+                Some(topics) => return Ok(topics),
+                None if attempt < MAX_ATTEMPTS => continue,
+                None => {
+                    return Err(format!(
+                        "invalid JSON array in response: {}",
+                        &response[..response.len().min(120)]
+                    ))
+                }
+            }
         }
-        Self::parse_json_array(response)
-            .ok_or_else(|| format!("invalid JSON array in response: {}", &response[..response.len().min(120)]))
     }
 
     /// Run an async extractor repeatedly until 5 consecutive passes find
@@ -5226,13 +5562,42 @@ Return ONLY valid JSON:
                     "system_context": "Grammar extraction. Return only valid JSON. No explanation."
                 });
 
-                if let Ok(response) = self.llm_execute(9, input).await {
-                    let raw = response
-                        .get("response")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
-                    let json_str = Self::extract_json_from_response(raw, '{', '}');
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                // Retry on confetti (>1 candidate object) or a parse failure
+                // before giving up on this sentence's grammar extraction.
+                const MAX_GRAMMAR_ATTEMPTS: u32 = 2;
+                let mut grammar_attempt = 0;
+                let parsed_opt: Option<serde_json::Value> = loop {
+                    grammar_attempt += 1;
+                    let result = self.llm_execute(9, input.clone()).await;
+                    let raw = match &result {
+                        Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+                        Err(_) => break None,
+                    };
+                    let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
+                    if candidates.len() > 1 {
+                        if grammar_attempt < MAX_GRAMMAR_ATTEMPTS {
+                            eprintln!(
+                                "extract_grammar_from_graphs (sentence grammar): {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                                candidates.len(),
+                                grammar_attempt
+                            );
+                            continue;
+                        }
+                        eprintln!("extract_grammar_from_graphs (sentence grammar): still confetti after {} attempts, dropping this sentence's grammar", grammar_attempt);
+                        break None;
+                    }
+                    let json_str = candidates
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(p) => break Some(p),
+                        Err(_) if grammar_attempt < MAX_GRAMMAR_ATTEMPTS => continue,
+                        Err(_) => break None,
+                    }
+                };
+                {
+                    if let Some(parsed) = parsed_opt {
                         let mut grammar_nodes = Vec::new();
                         let mut relationships: Vec<ChunkGrammarRelationship> = Vec::new();
 
@@ -5472,13 +5837,52 @@ If nothing relates, return empty arrays."#,
                     "system_context": "Cross-sentence relationship analysis. Return only valid JSON."
                 });
 
-                if let Ok(response) = self.llm_execute(9, input).await {
-                    let raw = response
-                        .get("response")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
-                    let json_str = Self::extract_json_from_response(raw, '{', '}');
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json_str) {
+                // Highest-value site in this file: the sole carrier of BOTH
+                // cross-sentence relationships (Contradicts/Elaborates/etc.)
+                // AND coreference chains in one payload — a bad parse here
+                // used to lose both relationship classes in one shot. The
+                // two sub-structures are independent top-level fields of one
+                // JSON object (not two separate documents), so they're
+                // already salvaged independently below via separate
+                // `if let Some(...)` blocks once a single valid candidate is
+                // parsed — the real fix needed is confetti-safe extraction
+                // of that one candidate in the first place (retry instead of
+                // risking a naive first-to-last-brace span merging multiple
+                // real candidates into one unparseable/wrong blob).
+                const MAX_CROSS_SENTENCE_ATTEMPTS: u32 = 2;
+                let mut cross_sentence_attempt = 0;
+                let parsed_opt: Option<serde_json::Value> = loop {
+                    cross_sentence_attempt += 1;
+                    let result = self.llm_execute(9, input.clone()).await;
+                    let raw = match &result {
+                        Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+                        Err(_) => break None,
+                    };
+                    let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
+                    if candidates.len() > 1 {
+                        if cross_sentence_attempt < MAX_CROSS_SENTENCE_ATTEMPTS {
+                            eprintln!(
+                                "extract_grammar_from_graphs (cross-sentence+coreference): {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                                candidates.len(),
+                                cross_sentence_attempt
+                            );
+                            continue;
+                        }
+                        eprintln!("extract_grammar_from_graphs (cross-sentence+coreference): still confetti after {} attempts, dropping both relationships and coreference for sentence {}", cross_sentence_attempt, from_id);
+                        break None;
+                    }
+                    let json_str = candidates
+                        .into_iter()
+                        .next()
+                        .unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
+                    match serde_json::from_str::<serde_json::Value>(&json_str) {
+                        Ok(p) => break Some(p),
+                        Err(_) if cross_sentence_attempt < MAX_CROSS_SENTENCE_ATTEMPTS => continue,
+                        Err(_) => break None,
+                    }
+                };
+                {
+                    if let Some(parsed) = parsed_opt {
                         if let Some(rels) = parsed.get("relationships").and_then(|r| r.as_array()) {
                             for rel in rels {
                                 let to_id = rel.get("to_id").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -5950,21 +6354,48 @@ RESPOND ONLY WITH JSON."#,
             "system_context": "Analyze sentiment. Respond with JSON only."
         });
 
-        match self.executor.execute(9, input).await {
-            Ok(result) => result
-                .get("response")
-                .and_then(|r| r.as_str())
-                .and_then(|s| {
-                    let json_str = Self::extract_json_from_response(s, '{', '}');
-                    serde_json::from_str::<serde_json::Value>(&json_str).ok()
-                })
-                .map(|v| Sentiment {
-                    overall: v.get("overall").and_then(|o| o.as_f64()).unwrap_or(0.0) as f32,
-                    positive: v.get("positive").and_then(|p| p.as_f64()).unwrap_or(0.33) as f32,
-                    negative: v.get("negative").and_then(|n| n.as_f64()).unwrap_or(0.33) as f32,
-                    neutral: v.get("neutral").and_then(|n| n.as_f64()).unwrap_or(0.34) as f32,
-                }),
-            Err(_) => None,
+        // Fails closed to None on parse failure already (safe, no corrupted
+        // data) — but previously had no retry, so real sentiment was
+        // silently lost on transient confetti. Retry on confetti/parse
+        // failure before giving up.
+        const MAX_ATTEMPTS: u32 = 2;
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let result = self.executor.execute(9, input.clone()).await;
+            let raw = match &result {
+                Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                Err(_) => return None,
+            };
+            let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
+            if candidates.len() > 1 {
+                if attempt < MAX_ATTEMPTS {
+                    eprintln!(
+                        "analyze_sentiment: {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                        candidates.len(),
+                        attempt
+                    );
+                    continue;
+                }
+                eprintln!("analyze_sentiment: still confetti after {} attempts, giving up", attempt);
+                return None;
+            }
+            let json_str = candidates
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
+            match serde_json::from_str::<serde_json::Value>(&json_str) {
+                Ok(v) => {
+                    return Some(Sentiment {
+                        overall: v.get("overall").and_then(|o| o.as_f64()).unwrap_or(0.0) as f32,
+                        positive: v.get("positive").and_then(|p| p.as_f64()).unwrap_or(0.33) as f32,
+                        negative: v.get("negative").and_then(|n| n.as_f64()).unwrap_or(0.33) as f32,
+                        neutral: v.get("neutral").and_then(|n| n.as_f64()).unwrap_or(0.34) as f32,
+                    });
+                }
+                Err(_) if attempt < MAX_ATTEMPTS => continue,
+                Err(_) => return None,
+            }
         }
     }
 
@@ -5995,6 +6426,7 @@ RESPOND ONLY WITH JSON."#,
         analysis: TextAnalysisResult,
         project_id: u64,
         link_to_existing: bool,
+        chunks: Vec<ProcessedChunk>,
     ) -> TextModalityOutput {
         let graph_id = Self::generate_id();
         let now = chrono::Utc::now().to_rfc3339();
@@ -6166,6 +6598,220 @@ RESPOND ONLY WITH JSON."#,
             node_id += 1;
         }
 
+        // Phase 3 grammar-native data (real Sentence/GrammarSubject/
+        // GrammarObject nodes + validated TextEdgeType edges), when the
+        // caller supplied real chunks from ExtractGrammarFromGraphs. Builds
+        // the first-ever real consumer for ChunkGrammarRelationship/
+        // CrossSentenceRelationship/CoreferenceChain — previously real,
+        // extracted data that never became a graph edge anywhere (see
+        // GRAPH_RELATIONSHIP_REGISTRY.md §3 "System C").
+        //
+        // Sentence nodes reuse their REAL, already-minted node_id
+        // (Self::generate_id(), assigned when the SentenceNode was first
+        // built during chunk processing) rather than this function's local
+        // sequential counter — that stable id is exactly what
+        // CrossSentenceRelationship.from_sentence_id/to_sentence_id and
+        // CoreferenceMention.sentence_id already reference, so no id
+        // remapping is needed for those two. ChunkGrammarRelationship is
+        // different: it has no node-id endpoints at all, only raw
+        // from_text/to_text spans (it's an intra-sentence subject/verb/
+        // object structure, not a link between two existing nodes) — those
+        // become new GrammarSubject/GrammarObject nodes, parented under
+        // their sentence, deduped per-sentence by exact text match so a
+        // repeated subject/object phrase within one sentence doesn't
+        // proliferate duplicate nodes.
+        let mut sentence_ids_present: HashSet<u64> = HashSet::new();
+
+        for chunk in &chunks {
+            for sentence in &chunk.sentence_nodes {
+                let sentence_node_id = sentence.node_id;
+                nodes.push(Self::text_new_node(
+                    sentence_node_id,
+                    TextNodeType::Sentence,
+                    sentence.content.clone(),
+                    Some(sentence.position.clone()),
+                    {
+                        let mut props = HashMap::new();
+                        props.insert(
+                            "chunk_id".to_string(),
+                            serde_json::json!(sentence.chunk_id),
+                        );
+                        props
+                    },
+                ));
+                sentence_ids_present.insert(sentence_node_id);
+
+                edges.push(Self::text_new_edge(
+                    edge_id,
+                    doc_node_id,
+                    sentence_node_id,
+                    TextEdgeType::Contains,
+                    1.0,
+                ));
+                edge_id += 1;
+
+                // Intra-sentence grammar relationships: from_text/to_text
+                // are raw spans, not node ids — dedup per-sentence by exact
+                // text so a repeated phrase reuses one node.
+                let mut span_ids: HashMap<String, u64> = HashMap::new();
+                for rel in &sentence.grammar_relationships {
+                    let Some(resolved_type) = Self::resolve_text_edge_type(&rel.edge_type) else {
+                        eprintln!(
+                            "create_graph: unrecognized grammar edge_type '{}' on sentence {}, skipping (not fabricating a type)",
+                            rel.edge_type, sentence_node_id
+                        );
+                        continue;
+                    };
+
+                    let from_id = *span_ids.entry(rel.from_text.clone()).or_insert_with(|| {
+                        let id = node_id;
+                        node_id += 1;
+                        nodes.push(Self::text_new_node(
+                            id,
+                            TextNodeType::GrammarSubject,
+                            rel.from_text.clone(),
+                            None,
+                            HashMap::new(),
+                        ));
+                        edges.push(Self::text_new_edge(
+                            edge_id,
+                            sentence_node_id,
+                            id,
+                            TextEdgeType::Contains,
+                            1.0,
+                        ));
+                        edge_id += 1;
+                        id
+                    });
+
+                    let to_id = *span_ids.entry(rel.to_text.clone()).or_insert_with(|| {
+                        let id = node_id;
+                        node_id += 1;
+                        nodes.push(Self::text_new_node(
+                            id,
+                            TextNodeType::GrammarObject,
+                            rel.to_text.clone(),
+                            None,
+                            HashMap::new(),
+                        ));
+                        edges.push(Self::text_new_edge(
+                            edge_id,
+                            sentence_node_id,
+                            id,
+                            TextEdgeType::Contains,
+                            1.0,
+                        ));
+                        edge_id += 1;
+                        id
+                    });
+
+                    let mut props = HashMap::new();
+                    props.insert("verb".to_string(), serde_json::json!(rel.verb));
+                    if let Some(tense) = &rel.tense {
+                        props.insert("tense".to_string(), serde_json::json!(tense));
+                    }
+                    props.insert("negated".to_string(), serde_json::json!(rel.negated));
+                    let mut edge = Self::text_new_edge(edge_id, from_id, to_id, resolved_type, 1.0);
+                    edge.properties = props;
+                    edges.push(edge);
+                    edge_id += 1;
+                }
+            }
+        }
+
+        // Cross-sentence relationships: real sentence-id endpoints already
+        // (CrossSentenceRelationship.from_sentence_id/to_sentence_id), so
+        // just validate the type string and check both ends were actually
+        // constructed above (a chain can reference a sentence from a chunk
+        // outside this call's batch — skip + log rather than emit a
+        // dangling edge to a node that doesn't exist in this graph).
+        for chunk in &chunks {
+            for rel in &chunk.cross_sentence_relationships {
+                if !sentence_ids_present.contains(&rel.from_sentence_id)
+                    || !sentence_ids_present.contains(&rel.to_sentence_id)
+                {
+                    eprintln!(
+                        "create_graph: cross-sentence relationship references a sentence outside this call's chunks ({} -> {}), skipping",
+                        rel.from_sentence_id, rel.to_sentence_id
+                    );
+                    continue;
+                }
+                let Some(resolved_type) = Self::resolve_text_edge_type(&rel.relationship_type)
+                else {
+                    eprintln!(
+                        "create_graph: unrecognized cross-sentence relationship_type '{}', skipping (not fabricating a type)",
+                        rel.relationship_type
+                    );
+                    continue;
+                };
+                let mut props = HashMap::new();
+                props.insert("evidence".to_string(), serde_json::json!(rel.evidence));
+                let mut edge = Self::text_new_edge(
+                    edge_id,
+                    rel.from_sentence_id,
+                    rel.to_sentence_id,
+                    resolved_type,
+                    1.0,
+                );
+                edge.properties = props;
+                edges.push(edge);
+                edge_id += 1;
+            }
+        }
+
+        // Coreference chains: no dedicated TextEdgeType variant exists for
+        // coreference, so this uses SimilarTo (a deliberate choice, not a
+        // fabricated new type) — star topology from the chain's first
+        // mention to every other mention, avoiding O(n^2) edges on long
+        // chains while keeping the chain's component discoverable via one
+        // traversal hop from any mention to the anchor.
+        for chunk in &chunks {
+            for chain in &chunk.coreference_chains {
+                let Some(anchor) = chain.mentions.first() else {
+                    continue;
+                };
+                if !sentence_ids_present.contains(&anchor.sentence_id) {
+                    continue;
+                }
+                for mention in chain.mentions.iter().skip(1) {
+                    if mention.sentence_id == anchor.sentence_id {
+                        continue;
+                    }
+                    if !sentence_ids_present.contains(&mention.sentence_id) {
+                        eprintln!(
+                            "create_graph: coreference mention references a sentence outside this call's chunks ({}), skipping",
+                            mention.sentence_id
+                        );
+                        continue;
+                    }
+                    let mut props = HashMap::new();
+                    props.insert(
+                        "canonical_form".to_string(),
+                        serde_json::json!(chain.canonical_form),
+                    );
+                    props.insert("chain_id".to_string(), serde_json::json!(chain.chain_id));
+                    props.insert(
+                        "mention_text".to_string(),
+                        serde_json::json!(mention.text),
+                    );
+                    props.insert(
+                        "grammar_role".to_string(),
+                        serde_json::json!(mention.grammar_role),
+                    );
+                    let mut edge = Self::text_new_edge(
+                        edge_id,
+                        anchor.sentence_id,
+                        mention.sentence_id,
+                        TextEdgeType::SimilarTo,
+                        1.0,
+                    );
+                    edge.properties = props;
+                    edges.push(edge);
+                    edge_id += 1;
+                }
+            }
+        }
+
         let graph = TextGraph {
             graph_id,
             modality: PIPELINE_MODALITY.to_string(),
@@ -6199,18 +6845,18 @@ RESPOND ONLY WITH JSON."#,
         // the caller gets a working in-process graph_id for this run even if
         // ZSEI is unreachable, same graceful-degradation posture the rest of
         // this pipeline already uses for optional integrations.
+        let mut link_metrics: Option<Value> = None;
         let mut graph = graph;
         match persist_graph_container(&graph, &analysis, project_id).await {
             Ok((container_id, keywords, topics)) => {
                 graph.graph_id = container_id;
                 if link_to_existing {
-                    let wired = link_related_containers(container_id, &keywords, &topics).await;
-                    if wired > 0 {
-                        eprintln!(
-                            "link_related_containers: wired {} real cross-relationship edge(s) for container {}",
-                            wired, container_id
-                        );
-                    }
+                    let (wired, metrics) = link_related_containers(container_id, project_id, &keywords, &topics).await;
+                    eprintln!(
+                        "link_related_containers: wired {} edge(s) for container {}, metrics: {}",
+                        wired, container_id, metrics
+                    );
+                    link_metrics = Some(metrics);
                 }
             }
             Err(e) => {
@@ -6228,6 +6874,7 @@ RESPOND ONLY WITH JSON."#,
             success: true,
             graph_id: Some(graph.graph_id),
             graph: Some(graph),
+            link_metrics,
             ..Default::default()
         }
     }
@@ -6566,6 +7213,64 @@ RESPOND ONLY WITH JSON."#,
         }
     }
 
+    /// Validate a raw, LLM-produced relationship-type string against the
+    /// real TextEdgeType vocabulary — case-insensitive exact match only.
+    /// Returns None (never a fabricated/default variant) on anything that
+    /// doesn't match a real variant name; callers log and skip rather than
+    /// construct an edge with a guessed type.
+    fn resolve_text_edge_type(raw: &str) -> Option<TextEdgeType> {
+        let normalized = raw.trim().to_lowercase().replace(['_', '-', ' '], "");
+        match normalized.as_str() {
+            "contains" => Some(TextEdgeType::Contains),
+            "containedby" => Some(TextEdgeType::ContainedBy),
+            "follows" => Some(TextEdgeType::Follows),
+            "precedes" => Some(TextEdgeType::Precedes),
+            "references" => Some(TextEdgeType::References),
+            "contradicts" => Some(TextEdgeType::Contradicts),
+            "supports" => Some(TextEdgeType::Supports),
+            "elaborates" => Some(TextEdgeType::Elaborates),
+            "summarizes" => Some(TextEdgeType::Summarizes),
+            "describescode" => Some(TextEdgeType::DescribesCode),
+            "describesimage" => Some(TextEdgeType::DescribesImage),
+            "describesaudio" => Some(TextEdgeType::DescribesAudio),
+            "describesvideo" => Some(TextEdgeType::DescribesVideo),
+            "transcribedfrom" => Some(TextEdgeType::TranscribedFrom),
+            "performs" => Some(TextEdgeType::Performs),
+            "affects" => Some(TextEdgeType::Affects),
+            "implies" => Some(TextEdgeType::Implies),
+            "temporalprecedes" => Some(TextEdgeType::TemporalPrecedes),
+            "temporalfollows" => Some(TextEdgeType::TemporalFollows),
+            "causedby" | "causes" => Some(TextEdgeType::CausedBy),
+            "enables" => Some(TextEdgeType::Enables),
+            "prevents" => Some(TextEdgeType::Prevents),
+            "partof" => Some(TextEdgeType::PartOf),
+            "haspart" => Some(TextEdgeType::HasPart),
+            "functionalrole" => Some(TextEdgeType::FunctionalRole),
+            "instanceof" => Some(TextEdgeType::InstanceOf),
+            "hasinstance" => Some(TextEdgeType::HasInstance),
+            "similarto" => Some(TextEdgeType::SimilarTo),
+            "relatesto" => Some(TextEdgeType::RelatesTo),
+            "derivedfrom" => Some(TextEdgeType::DerivedFrom),
+            "versionof" => Some(TextEdgeType::VersionOf),
+            "refinesto" => Some(TextEdgeType::RefinesTo),
+            "forkedfrom" => Some(TextEdgeType::ForkedFrom),
+            "referencesmodality" => Some(TextEdgeType::ReferencesModality),
+            "referencedby" => Some(TextEdgeType::ReferencedBy),
+            "describedby" => Some(TextEdgeType::DescribedBy),
+            "describes" => Some(TextEdgeType::Describes),
+            "implementedin" => Some(TextEdgeType::ImplementedIn),
+            "implements" => Some(TextEdgeType::Implements),
+            "visualizedas" => Some(TextEdgeType::VisualizedAs),
+            "visualizes" => Some(TextEdgeType::Visualizes),
+            "syncedto" => Some(TextEdgeType::SyncedTo),
+            "syncedby" => Some(TextEdgeType::SyncedBy),
+            "annotatedby" => Some(TextEdgeType::AnnotatedBy),
+            "supplementsprompt" => Some(TextEdgeType::SupplementsPrompt),
+            "contextprovides" => Some(TextEdgeType::ContextProvides),
+            _ => None,
+        }
+    }
+
     fn node_to_core(node: &TextGraphNode) -> NodeCore {
         NodeCore {
             node_id: node.node_id,
@@ -6607,6 +7312,83 @@ RESPOND ONLY WITH JSON."#,
             }
         }
         trimmed.to_string()
+    }
+
+    /// Balanced-scan, multi-candidate JSON extractor — same pattern already
+    /// proven this session in the orchestrator (decision_review.rs,
+    /// amt_loop.rs, meta_loop.rs) to detect BitNet "confetti" (a single
+    /// response containing multiple conflicting JSON candidates), which
+    /// `extract_json_from_response`'s naive first-`start_char`-to-last-
+    /// `end_char` span cannot: on a confetti response it silently splices
+    /// unrelated candidates into one unparseable (or worse, wrongly-
+    /// parseable) span. Generic over `{}`/`[]` matching this file's own
+    /// `extract_json_from_response(s, start_char, end_char)` convention,
+    /// since this file's calls are a mix of object- and array-shaped
+    /// responses. Returns every non-empty, individually-parseable
+    /// candidate in order; callers treat `len() > 1` as confetti (unusable,
+    /// retry) same as the three orchestrator call sites do — not retrofitted
+    /// for every one of this file's ~12 real `extract_json_from_response`
+    /// call sites in this pass (real, separate, flagged follow-on work),
+    /// only the two highest-value ones retrofitted below.
+    fn extract_all_json_candidates(s: &str, start_char: char, end_char: char) -> Vec<String> {
+        let chars: Vec<char> = s.chars().collect();
+        let mut candidates = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] != start_char {
+                i += 1;
+                continue;
+            }
+            let start = i;
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut end = None;
+            let mut j = i;
+            while j < chars.len() {
+                let c = chars[j];
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == '\\' {
+                        escaped = true;
+                    } else if c == '"' {
+                        in_string = false;
+                    }
+                } else {
+                    if c == '"' {
+                        in_string = true;
+                    } else if c == start_char {
+                        depth += 1;
+                    } else if c == end_char {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(j);
+                            break;
+                        }
+                    }
+                }
+                j += 1;
+            }
+            match end {
+                Some(e) => {
+                    let candidate: String = chars[start..=e].iter().collect();
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&candidate) {
+                        let is_empty = match &parsed {
+                            serde_json::Value::Object(o) => o.is_empty(),
+                            serde_json::Value::Array(a) => a.is_empty(),
+                            _ => true,
+                        };
+                        if !is_empty {
+                            candidates.push(candidate);
+                        }
+                    }
+                    i = e + 1;
+                }
+                None => break,
+            }
+        }
+        candidates
     }
 }
 
@@ -6716,9 +7498,16 @@ impl PipelineExecutor for StubExecutor {
 /// as-is. `OZONE_PROMPT_PIPELINE_PATH` is set once at host boot
 /// (src/lib.rs) and inherited by every spawned pipeline subprocess
 /// (`Command` inherits the full parent environment by default). If it's
-/// unset or the binary doesn't exist, this honestly falls back to the same
-/// empty response `StubExecutor` always returned — never a fabricated
-/// success.
+/// unset or the binary doesn't exist, or the spawned pipeline fails
+/// (non-zero exit — total model failure is the common case), this returns
+/// a LOUD Err (fixed 2026-09-27, found live by the pipeline capture
+/// layer: the old `Ok({"response": "[]"})` conversions turned every
+/// total-model-failure into a fabricated success — success=true rows with
+/// empty extractions and no upstream record, exactly the
+/// invisible-failure class this system exists to prevent). Graceful
+/// degradation still holds: the extractor CALLERS already map Err to
+/// empty extraction and the graph persists — but now the retry loops and
+/// the capture store see the real failure instead of a fake success.
 struct SubprocessExecutor;
 
 #[async_trait::async_trait]
@@ -6731,8 +7520,11 @@ impl PipelineExecutor for SubprocessExecutor {
         if pipeline_id != 9 {
             // This pipeline only ever calls out to pipeline 9 (Prompt) for
             // its own internal LLM needs — anything else has no real
-            // subprocess to spawn here.
-            return Ok(serde_json::json!({"response": "[]"}));
+            // subprocess to spawn here. Err, not a fake success.
+            return Err(format!(
+                "text SubprocessExecutor: no internal executor for pipeline {} (only pipeline 9 is wired)",
+                pipeline_id
+            ));
         }
 
         let path = match std::env::var("OZONE_PROMPT_PIPELINE_PATH") {
@@ -6743,7 +7535,9 @@ impl PipelineExecutor for SubprocessExecutor {
                      missing (env={:?}) — internal LLM call unavailable this run",
                     other
                 );
-                return Ok(serde_json::json!({"response": "[]"}));
+                return Err(
+                    "text SubprocessExecutor: OZONE_PROMPT_PIPELINE_PATH not set or binary missing — internal LLM call unavailable".to_string(),
+                );
             }
         };
 
@@ -6771,11 +7565,20 @@ impl PipelineExecutor for SubprocessExecutor {
         .map_err(|e| format!("failed to spawn internal prompt pipeline: {}", e))?;
 
         if !output.status.success() {
+            // LOUD failure (was: Ok({"response": "[]"})). The stderr
+            // carries the real provider error (rate limit, 401, 402);
+            // surface it so capture records the cause and the retry loop
+            // can actually react.
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             eprintln!(
                 "SubprocessExecutor: internal prompt pipeline exited non-zero: {}",
-                String::from_utf8_lossy(&output.stderr)
+                stderr
             );
-            return Ok(serde_json::json!({"response": "[]"}));
+            return Err(format!(
+                "internal prompt pipeline failed (exit {:?}): {}",
+                output.status.code(),
+                stderr.trim()
+            ));
         }
 
         serde_json::from_slice(&output.stdout)
@@ -6824,6 +7627,14 @@ mod k_validation;
 /// K-ALGORITHM loop-discipline contracts (shared — single source).
 #[path = "../../../../shared/contracts/k_loops.rs"]
 mod k_loops;
+
+/// Pipeline-side model-call capture (C6-minimal, shared — single source).
+/// Every llm_execute attempt lands in
+/// `{data_dir}/model_calls/pipeline_zero_shot_calls.jsonl` — the durable
+/// record extraction calls never had (see the module's own doc for the
+/// invisible-failure class this closes).
+#[path = "../../shared/capture.rs"]
+mod capture;
 
 #[tokio::main]
 async fn main() {
@@ -6972,6 +7783,7 @@ mod tests {
                 analysis_result: analysis,
                 project_id: 1,
                 link_to_existing: false,
+                chunks: vec![],
             },
         };
 
@@ -7030,5 +7842,65 @@ mod tests {
 
         assert!(result.success);
         assert_eq!(result.reconstructed_text.unwrap(), "First chunk.");
+    }
+
+    /// T-T3 (GRAPH_TEST_PLAN §3) — cross-process retrieval. The disk loader
+    /// IS the whole cross-process boundary (every CLI invocation starts with
+    /// an empty cache), so a persisted file + loader roundtrip in a fresh
+    /// temp data dir is exactly the guarantee: a LATER invocation sees an
+    /// EARLIER invocation's persisted graph. Regression for the session's
+    /// cross-process retrieval fix (task 70 proved it live with container
+    /// 30372; this codifies it).
+    #[tokio::test]
+    async fn t_t3_cross_process_retrieval_from_disk() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "ozone_t_t3_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(dir.join("graphs")).unwrap();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir);
+
+        let graph_id: u64 = 778001;
+        let graph_json = serde_json::json!({
+            "graph_id": graph_id,
+            "modality": "Text",
+            "version": "1",
+            "nodes": [{
+                "node_id": 1,
+                "node_type": "Paragraph",
+                "content": "persisted paragraph",
+                "position": null,
+                "properties": {},
+                "semantic_annotations": []
+            }],
+            "edges": [],
+            "metadata": {},
+            "created_at": "2026-09-19T00:00:00Z",
+            "updated_at": "2026-09-19T00:00:00Z"
+        });
+
+        // "First process": persist the graph file.
+        std::fs::write(
+            dir.join(format!("graphs/text_{}.json", graph_id)),
+            graph_json.to_string(),
+        )
+        .unwrap();
+
+        // "Second process": fresh pipeline (empty cache) must find it.
+        let executor = Arc::new(MockExecutor);
+        let pipeline = TextModalityPipeline::new(executor);
+        let loaded = pipeline.load_graph_from_disk(graph_id).await;
+        assert!(
+            loaded.is_some(),
+            "cross-process retrieval must find the persisted graph"
+        );
+        assert_eq!(loaded.unwrap().graph_id, graph_id);
+
+        std::env::remove_var("OZONE_ZSEI_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

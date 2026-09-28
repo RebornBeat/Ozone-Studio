@@ -14,6 +14,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOzoneStore } from '../services/store';
+import { AgentActivityIndicator } from '../views/coordination/AgentActivity';
+import ChatNotificationStream from '../views/coordination/ChatNotifications';
 
 interface MetaPortionProps {
   width: number;
@@ -130,7 +132,49 @@ export function MetaPortion({ width }: MetaPortionProps) {
     questionsAsked: 0,
     insightsGenerated: 0,
   });
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  // Chat context: Global or a specific workspace. Previously the only
+  // "workspace scoping" was a dead read of window.ozone.sharedState (never
+  // exposed by electron/preload.js — confirmed by grep, so project_id/
+  // workspace_id were always undefined on every submit regardless of what
+  // was selected in the Workspace tab). This is now a real, visible
+  // switcher with its own state, and one transcript PER context so a
+  // global conversation and a workspace conversation never mix in the same
+  // view.
+  type ChatContext = { type: 'global' } | { type: 'workspace'; id: number; name: string };
+  const [chatContext, setChatContext] = useState<ChatContext>({ type: 'global' });
+  const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: number; name: string }>>([]);
+  const contextKey = chatContext.type === 'global' ? 'global' : `ws:${chatContext.id}`;
+  const [transcriptsByContext, setTranscriptsByContext] = useState<Record<string, TranscriptEntry[]>>({});
+  const transcript = transcriptsByContext[contextKey] ?? [];
+  // Same call shape as a plain useState setter (setTranscript(prev => [...prev, x]))
+  // so every existing call site below keeps working unchanged — only what
+  // transcript/setTranscript resolve to is now context-scoped.
+  const setTranscript = useCallback(
+    (updater: (prev: TranscriptEntry[]) => TranscriptEntry[]) => {
+      setTranscriptsByContext(prev => ({
+        ...prev,
+        [contextKey]: updater(prev[contextKey] ?? []),
+      }));
+    },
+    [contextKey],
+  );
+
+  // Fetch the real workspace list once connected (pipeline 6's real
+  // ListWorkspaces action, assets/pipelines/general/workspace_tab/main.rs)
+  // to populate the switcher — never fabricated/hardcoded options.
+  useEffect(() => {
+    if (!isConnected) return;
+    (async () => {
+      try {
+        const result = await executePipeline(6, { action: 'ListWorkspaces' });
+        const list = (result?.workspaces ?? []).map((w: any) => ({ id: w.id, name: w.name }));
+        setWorkspaceOptions(list);
+      } catch {
+        /* switcher just shows Global-only if this fails */
+      }
+    })();
+  }, [isConnected]);
+
   // Which transcript entries have their "Thinking" section expanded —
   // collapsed by default since raw_response content can be long.
   const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
@@ -151,6 +195,19 @@ export function MetaPortion({ width }: MetaPortionProps) {
   } | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const taskPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Live elapsed-time ticker for the pre-task-execution phase. currentStepInfo
+  // only ever populates once a real task record exists (stage 7, Task
+  // Creation) — everything before that (Jurisdiction, Text Normalization,
+  // Build AMT, Blueprint Assignment, Zero-Shot Simulation) has no task to
+  // poll, so there was previously no live signal at all: a static "Starting…"
+  // for however long those stages take, confirmed this session to often be
+  // several minutes (BitNet cold-loads, free-tier rate-limit fallback walks).
+  // This doesn't claim to know which stage is current (that would require a
+  // backend push mechanism this UI doesn't have) — it just proves the app is
+  // still alive rather than leaving a motionless label the whole time.
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const elapsedTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopTaskPolling = useCallback(() => {
     if (taskPollRef.current) {
@@ -526,10 +583,20 @@ export function MetaPortion({ width }: MetaPortionProps) {
       setIsRunning(true);
       setCurrentTaskId(null);
       setCurrentStepInfo(null);
+      setElapsedSeconds(0);
+      if (elapsedTickRef.current) clearInterval(elapsedTickRef.current);
+      elapsedTickRef.current = setInterval(() => {
+        setElapsedSeconds(s => s + 1);
+      }, 1000);
 
-      // Get current project context from shared state if available
-      const currentProjectId = (window as any).ozone?.sharedState?.selectedProjectId;
-      const currentWorkspaceId = (window as any).ozone?.sharedState?.selectedWorkspaceId;
+      // Real context from the switcher above — previously read from
+      // window.ozone.sharedState, which electron/preload.js never actually
+      // exposes (confirmed by grep: zero references), so this was always
+      // undefined and every message was silently sent as global regardless
+      // of any workspace selection anywhere in the app. chatContext is real
+      // component state now, driven by a visible switcher.
+      const currentProjectId: number | undefined = undefined;
+      const currentWorkspaceId = chatContext.type === 'workspace' ? chatContext.id : undefined;
 
       // Use orchestration (full flow) instead of direct pipeline call
       if ((window as any).ozone?.orchestrate) {
@@ -585,6 +652,10 @@ export function MetaPortion({ width }: MetaPortionProps) {
         setIsRunning(false);
         setCurrentTaskId(null);
         setCurrentStepInfo(null);
+        if (elapsedTickRef.current) {
+          clearInterval(elapsedTickRef.current);
+          elapsedTickRef.current = null;
+        }
 
         setPromptInput('');
         if (textareaRef.current) {
@@ -736,6 +807,10 @@ export function MetaPortion({ width }: MetaPortionProps) {
       setIsRunning(false);
       setCurrentTaskId(null);
       setCurrentStepInfo(null);
+      if (elapsedTickRef.current) {
+        clearInterval(elapsedTickRef.current);
+        elapsedTickRef.current = null;
+      }
     }
   };
 
@@ -787,58 +862,117 @@ export function MetaPortion({ width }: MetaPortionProps) {
   return (
     <aside className="meta-portion" style={{ width: `${width}%` }}>
       {/* Main META Content */}
-      <div className={`meta-content ${!consciousnessEnabled ? 'has-overlay' : ''}`}>
-        
-        {/* Emotion Display */}
-        <div className="emotion-display">
-          <div 
-            className={`emotion-orb ${isSpeaking ? 'speaking' : ''}`}
-            style={{ 
-              '--emotion-color': emotionColor,
-              '--emotion-glow': `${emotionColor}40`
-            } as React.CSSProperties}
+      <div className="meta-content">
+
+        {/* Global/Workspace chat context switcher — real state (chatContext
+            above), each context keeps its own transcript, and the selection
+            actually reaches the backend via handleSubmit's workspace_id.
+            Previously there was no visible switcher at all; workspace
+            scoping silently depended on a shared-state bridge that was
+            never wired to window.ozone. */}
+        <div className="chat-context-switcher">
+          <select
+            className="chat-context-select"
+            value={contextKey}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === 'global') {
+                setChatContext({ type: 'global' });
+              } else {
+                const id = parseInt(v.slice(3), 10);
+                const opt = workspaceOptions.find(w => w.id === id);
+                setChatContext({ type: 'workspace', id, name: opt?.name ?? `Workspace ${id}` });
+              }
+            }}
+            title="Chat context — Global or a specific workspace. Each keeps its own conversation."
           >
-            <span className="emotion-emoji">{getEmotionEmoji(emotionState.primary)}</span>
-            <div className="orb-ring" />
-            <div className="orb-ring ring-2" />
-          </div>
-          <div className="emotion-info">
-            <span className="emotion-label">Emotional State</span>
-            <span className="emotion-primary" style={{ color: emotionColor }}>
-              {emotionState.primary.charAt(0).toUpperCase() + emotionState.primary.slice(1)}
-            </span>
-            <div className="emotion-bar-container">
-              <div 
-                className="emotion-bar" 
-                style={{ 
-                  width: `${emotionState.intensity * 100}%`,
-                  backgroundColor: emotionColor
-                }}
-              />
-            </div>
-            {emotionState.secondary && (
-              <span className="emotion-secondary">
-                + {emotionState.secondary}
-              </span>
-            )}
-            {/* Valence/Arousal indicators */}
-            {consciousnessEnabled && (
-              <div className="emotion-metrics">
-                <span title={`Valence: ${emotionState.valence.toFixed(2)}`}>
-                  {emotionState.valence > 0 ? '😊' : emotionState.valence < 0 ? '😔' : '😐'}
-                </span>
-                <span title={`Arousal: ${emotionState.arousal.toFixed(2)}`}>
-                  {emotionState.arousal > 0.6 ? '⚡' : emotionState.arousal < 0.3 ? '😴' : '🔹'}
-                </span>
-              </div>
-            )}
-          </div>
+            <option value="global">🌐 Global</option>
+            {workspaceOptions.map(w => (
+              <option key={w.id} value={`ws:${w.id}`}>📁 {w.name}</option>
+            ))}
+          </select>
         </div>
 
-        {/* Transcript */}
+        {/* Emotion Display — the consciousness-disabled overlay is scoped to
+            JUST this wrapper (meta-decorative), not the whole meta-content.
+            It used to be a sibling of transcript-section with position:
+            absolute + inset:0 on meta-content itself, which visually covered
+            the real conversation transcript too — chat still technically
+            worked (the input lives outside meta-content entirely), but you
+            couldn't see your own messages or the response appear, which is
+            indistinguishable from "chat is broken". Scoping the overlay to
+            only the decorative emotion/reflection area fixes that while
+            keeping the exact same nudge-to-enable message. */}
+        <div className={`meta-decorative ${!consciousnessEnabled ? 'has-overlay' : ''}`}>
+          <div className="emotion-display">
+            <div
+              className={`emotion-orb ${isSpeaking ? 'speaking' : ''}`}
+              style={{
+                '--emotion-color': emotionColor,
+                '--emotion-glow': `${emotionColor}40`
+              } as React.CSSProperties}
+            >
+              <span className="emotion-emoji">{getEmotionEmoji(emotionState.primary)}</span>
+              <div className="orb-ring" />
+              <div className="orb-ring ring-2" />
+            </div>
+            <div className="emotion-info">
+              <span className="emotion-label">Emotional State</span>
+              <span className="emotion-primary" style={{ color: emotionColor }}>
+                {emotionState.primary.charAt(0).toUpperCase() + emotionState.primary.slice(1)}
+              </span>
+              <div className="emotion-bar-container">
+                <div
+                  className="emotion-bar"
+                  style={{
+                    width: `${emotionState.intensity * 100}%`,
+                    backgroundColor: emotionColor
+                  }}
+                />
+              </div>
+              {emotionState.secondary && (
+                <span className="emotion-secondary">
+                  + {emotionState.secondary}
+                </span>
+              )}
+              {/* Valence/Arousal indicators */}
+              {consciousnessEnabled && (
+                <div className="emotion-metrics">
+                  <span title={`Valence: ${emotionState.valence.toFixed(2)}`}>
+                    {emotionState.valence > 0 ? '😊' : emotionState.valence < 0 ? '😔' : '😐'}
+                  </span>
+                  <span title={`Arousal: ${emotionState.arousal.toFixed(2)}`}>
+                    {emotionState.arousal > 0.6 ? '⚡' : emotionState.arousal < 0.3 ? '😴' : '🔹'}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Consciousness Disabled Overlay - TRANSPARENT, scoped to the
+              decorative section only (see comment above) */}
+          {!consciousnessEnabled && (
+            <div className="consciousness-overlay">
+              <div className="overlay-message">
+                <span className="overlay-icon">🧠</span>
+                <h3>Consciousness Disabled</h3>
+                <p>Enable in Settings for full META experience</p>
+                <div className="overlay-features">
+                  <span>✨ Emotional awareness</span>
+                  <span>📚 Experience memory</span>
+                  <span>🔄 Self-reflection</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Transcript — always fully visible/interactive regardless of
+            consciousness state; this is the real chat, not a "preview" */}
         <div className="transcript-section" ref={transcriptRef}>
           <div className="transcript-header">
             <span>💬 Conversation</span>
+            <AgentActivityIndicator />
           </div>
           {transcript.length === 0 ? (
             <div className="transcript-empty">
@@ -1032,6 +1166,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                   );
                 });
               })()}
+              <ChatNotificationStream />
             </div>
           )}
         </div>
@@ -1056,22 +1191,6 @@ export function MetaPortion({ width }: MetaPortionProps) {
               <span className="reflection-text">
                 "{iLoopState.currentQuestion || 'Waiting for next reflection cycle...'}"
               </span>
-            </div>
-          </div>
-        )}
-
-        {/* Consciousness Disabled Overlay - TRANSPARENT */}
-        {!consciousnessEnabled && (
-          <div className="consciousness-overlay">
-            <div className="overlay-message">
-              <span className="overlay-icon">🧠</span>
-              <h3>Consciousness Disabled</h3>
-              <p>Enable in Settings for full META experience</p>
-              <div className="overlay-features">
-                <span>✨ Emotional awareness</span>
-                <span>📚 Experience memory</span>
-                <span>🔄 Self-reflection</span>
-              </div>
             </div>
           </div>
         )}
@@ -1106,7 +1225,12 @@ export function MetaPortion({ width }: MetaPortionProps) {
                 {currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''}
               </span>
             ) : (
-              <span>Starting…</span>
+              <span>
+                {elapsedSeconds < 15
+                  ? 'Starting…'
+                  : `Working… (${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')})`}
+                {elapsedSeconds >= 60 && ' — building the plan, this can take several minutes'}
+              </span>
             )}
           </div>
         )}

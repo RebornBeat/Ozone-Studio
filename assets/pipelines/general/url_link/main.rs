@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::fs;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Same real-ZSEI-over-HTTP pattern as text/code modality, file_link, and
 // context_aggregation.
 fn ozone_host() -> String {

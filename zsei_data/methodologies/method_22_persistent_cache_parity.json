@@ -1,0 +1,42 @@
+{
+  "principles": [
+    {
+      "statement": "A field that is mutated through a write path but only ever stored in an in-process cache — never actually serialized into the durable storage format — will silently reset to empty/default on every process restart, with no error, warning, or visible symptom until something downstream depends on it being populated.",
+      "rationale": "Confirmed live 2026-09-15: ZSEI's ContainerStorage kept `GlobalState.child_ids` (a variable-length list) solely in an in-memory `child_ids_cache: HashMap`, populated only by this process's own `store()` calls, while the fixed-width mmap header only ever persisted `container_id`/`child_count`/`version`/`parent_id`. Every restart silently reset every container's child_ids to empty. Nothing crashed or logged an error — the system just quietly behaved as if no children existed until this session's own writes rebuilt part of the picture.",
+      "applicability": ["storage", "persistence", "caching", "restart_safety"]
+    },
+    {
+      "statement": "When a storage format has both a durable representation (disk/mmap) and a derived in-memory structure, verify at review time that the in-memory structure is actually reconstructed FROM the durable representation on load — not just populated forward from future writes.",
+      "rationale": "The asymmetry is easy to miss because the write path looks completely correct in isolation (store() does update child_ids_cache) — the bug only exists in the gap between 'what gets written' and 'what gets read back after a restart', which a write-path-only review will never surface.",
+      "applicability": ["storage", "code_review", "persistence"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Ask 'Does This Survive a Restart' For Every Cache",
+      "description": "For any HashMap/cache field alongside a durable store, explicitly ask: if the process restarted right now with zero in-memory state, would this field be correctly repopulated from disk alone? If the honest answer is 'only partially, from whatever this session happens to create fresh,' that is a real, live bug, not a performance nuance.",
+      "when_to_apply": "Reviewing or writing any storage layer that combines a durable on-disk format with an in-memory cache/index structure.",
+      "examples": [
+        "child_ids_cache in src/zsei/storage.rs looked completely correct from its write side (store() always updated it) but was never rebuilt from the durable parent_id links already persisted per-container — confirmed by asking exactly this question during an unrelated post-restart investigation."
+      ]
+    },
+    {
+      "name": "Derive What's Missing From What's Actually Persisted",
+      "description": "When a derived field can't be stored directly in a fixed-format record (e.g. a variable-length list in a fixed-width binary header), check whether it can be reconstructed on load from OTHER fields that ARE correctly persisted, rather than requiring a storage-format rewrite.",
+      "when_to_apply": "Fixing a missing-on-reload field where a full storage-format change would be high-risk or out of scope.",
+      "examples": [
+        "child_ids couldn't fit the fixed 64-byte header record, but parent_id (which every child already persists about itself) could be reverse-indexed at boot into a correct child_ids_cache with one cheap extra pass over already-loaded containers — no format change needed."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A field lives in both a durable store and an in-memory cache/index, and something downstream (an idempotency check, a traversal, a count) depends on that field being accurate immediately after a restart.",
+      "action": "Verify with a real restart test (not just a read of the write-path code) that the field is correctly non-empty for pre-existing data on the very first read after the process comes back up.",
+      "priority": 1,
+      "exceptions": [
+        "The field is explicitly documented and intended as session-scoped/ephemeral (e.g. a request-rate counter), not something meant to reflect durable state."
+      ]
+    }
+  ]
+}

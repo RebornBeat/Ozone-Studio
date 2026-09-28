@@ -12,7 +12,6 @@ use crate::types::container::{
     IntegrityData, LocalState, Metadata, Modality, StoragePointers, TraversalHints,
     CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
 };
-use crate::zsei::ZSEI;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -106,6 +105,16 @@ impl ConsciousnessStore {
     pub fn set_store(&mut self, store: Arc<dyn crate::orchestrator::StoreAccess>) {
         self.store = Some(store);
         tracing::info!("ConsciousnessStore: store integration enabled");
+    }
+
+    /// Graph traversal as a sense (TOP_DOWN_REVIEW_GUIDE.md §8, item 2):
+    /// the store contract was already wired in via `set_store` for writes
+    /// (experience persistence); this is the same handle, exposed for
+    /// reads — a consciousness review pass (see `consciousness::review`)
+    /// clones this Arc and traverses with it, never holding this struct's
+    /// own lock across the await.
+    pub fn store_handle(&self) -> Option<Arc<dyn crate::orchestrator::StoreAccess>> {
+        self.store.clone()
     }
 
     pub fn load_from_disk(&mut self) {

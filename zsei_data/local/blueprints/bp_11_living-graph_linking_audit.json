@@ -1,0 +1,124 @@
+{
+ "blueprint_id": 11,
+ "name": "Living-Graph Linking Audit",
+ "version": "2.0.0",
+ "description": "Audit a project's link quality: uncapped neighborhood linking metrics, placeholder detection, and orphaned-duplicate discovery.",
+ "modality_config": {
+  "primary_modality": "code",
+  "secondary_modalities": [
+   "text"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 101,
+  "required_pipelines": [
+   101,
+   100,
+   105
+  ],
+  "optional_pipelines": [
+   9
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   41,
+   38,
+   36
+  ],
+  "suggested_methodologies": [
+   37
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": true,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "collect_metrics",
+   "description": "CreateGraph with link_to_existing on fresh signals; capture link_metrics (candidates, qualified, edges, duration)",
+   "pipeline_id": 101,
+   "action": "measure",
+   "outputs": [
+    "link_metrics"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "reject_placeholders",
+   "description": "Verify no persisted edge or child is placeholder echo (content-depth rules)",
+   "pipeline_id": 101,
+   "action": "verify",
+   "outputs": [
+    "clean_content"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "find_duplicates",
+   "description": "Scan the project subtree for duplicate names; resolve canonical by min id; report scatter",
+   "pipeline_id": 9,
+   "action": "audit",
+   "outputs": [
+    "dup_report"
+   ]
+  }
+ ],
+ "provisional_node_schema": {
+  "id_prefix": "bp11_",
+  "id_field": "step_id"
+ },
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "audit",
+  "links",
+  "graph",
+  "metrics",
+  "orphans",
+  "duplicates"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "code",
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

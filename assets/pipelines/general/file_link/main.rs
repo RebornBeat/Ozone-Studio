@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Same real-ZSEI-over-HTTP pattern as text/code modality and
 // context_aggregation — ZSEIQuery is externally-tagged, wire format
 // {"VariantName": {fields...}}.

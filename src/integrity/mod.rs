@@ -376,3 +376,186 @@ impl IntegrityMonitor {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Local container fixture (same shape as graph_events' tiny_container —
+    /// kept local because that one is cfg(test)-private to its module).
+    fn tiny_fixture(keywords: Vec<String>) -> crate::types::container::Container {
+        use crate::types::container::*;
+        Container {
+            global_state: GlobalState {
+                container_id: 0,
+                parent_id: 0,
+                child_ids: vec![],
+                child_count: 0,
+                version: 1,
+            },
+            local_state: LocalState {
+                metadata: Metadata {
+                    container_type: ContainerType::CoordinationEvent,
+                    modality: Modality::Unknown,
+                    created_at: 0,
+                    updated_at: 0,
+                    provenance: "test".into(),
+                    permissions: 0,
+                    owner_id: 0,
+                    name: None,
+                    materialized_path: None,
+                },
+                context: Context {
+                    categories: vec![],
+                    methodologies: vec![],
+                    keywords,
+                    topics: vec![],
+                    relationships: vec![],
+                    learned_associations: vec![],
+                    embedding: None,
+                },
+                storage: StoragePointers {
+                    db_shard_id: None,
+                    vector_index_ref: None,
+                    object_store_path: None,
+                    compression_type: CompressionType::None,
+                },
+                hints: Default::default(),
+                integrity: IntegrityData::default(),
+                file_context: None,
+                code_context: None,
+                text_context: None,
+                external_ref: None,
+            },
+        }
+    }
+
+    fn test_config(tag: &str) -> IntegrityConfig {
+        let dir = std::env::temp_dir().join(format!(
+            "ozone_integrity_{}_{}",
+            std::process::id(),
+            tag
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        IntegrityConfig {
+            enabled: true,
+            check_interval_secs: 3600,
+            rollback_path: dir.to_string_lossy().into(),
+            max_versions: 10,
+        }
+    }
+
+    /// T-I4 (GRAPH_TEST_PLAN §10) — blake3 tampering detection on a real
+    /// snapshot: a clean snapshot passes the periodic check; flipping one
+    /// byte in the snapshot file must surface as a real integrity issue.
+    #[tokio::test]
+    async fn snapshot_tampering_detected_by_run_check() {
+        let config = test_config("tamper");
+        let monitor = IntegrityMonitor::new(&config).unwrap();
+
+        monitor
+            .create_snapshot(4242, b"original container content")
+            .await
+            .unwrap();
+
+        // Clean state: the check must pass with the container counted.
+        let clean = monitor.run_check().await.unwrap();
+        assert!(clean.passed, "untampered snapshot must pass: {:?}", clean.issues);
+        assert_eq!(clean.containers_checked, 1);
+
+        // Tamper: rewrite the snapshot file with different content — the
+        // recorded blake3 hash no longer matches.
+        let snapshot_path = {
+            let versions = monitor.versions.read().await;
+            versions.get(&4242).unwrap().last().unwrap().snapshot_path.clone()
+        };
+        std::fs::write(&snapshot_path, b"tampered container content").unwrap();
+
+        let result = monitor.run_check().await.unwrap();
+        assert!(!result.passed, "tampered snapshot must fail the check");
+        assert!(result.issues_found >= 1, "tampering must be reported");
+    }
+
+    /// T-I4 call-site proof — the ZSEI write choke point now feeds the
+    /// integrity monitor: an UpdateContainer must leave a PRE-WRITE
+    /// snapshot of the container's OLD content in the rollback layer.
+    /// (Until 2026-09-19 create_snapshot had no caller at all.)
+    #[tokio::test]
+    async fn zsei_update_snapshots_pre_write_content() {
+        use crate::types::zsei::ZSEIQuery;
+
+        // ZSEI with its own temp store + monitor with its own rollback dir.
+        let zdir = std::env::temp_dir().join(format!("ozone_ti4_zsei_{}", std::process::id()));
+        std::fs::create_dir_all(&zdir).unwrap();
+        let zsei_config = crate::config::ZSEIConfig {
+            global_path: zdir.join("global.mmap").to_string_lossy().into(),
+            local_path: zdir.join("local").to_string_lossy().into(),
+            cache_path: zdir.join("cache").to_string_lossy().into(),
+            ml_path: zdir.join("ml").to_string_lossy().into(),
+            max_containers_in_memory: 100,
+            mmap_enabled: false,
+            embedding_dimension: 64,
+            pipeline_index_path: zdir.join("pi.json").to_string_lossy().into(),
+            methodology_index_path: zdir.join("mi.json").to_string_lossy().into(),
+            blueprint_index_path: zdir.join("bi.json").to_string_lossy().into(),
+        };
+        let mut zsei = crate::zsei::ZSEI::new(&zsei_config).unwrap();
+
+        let rollback_dir = std::env::temp_dir().join(format!("ozone_ti4_rb_{}", std::process::id()));
+        let monitor = IntegrityMonitor::new(&IntegrityConfig {
+            enabled: true,
+            check_interval_secs: 3600,
+            rollback_path: rollback_dir.to_string_lossy().into(),
+            max_versions: 10,
+        })
+        .unwrap();
+        zsei.set_integrity(Arc::new(tokio::sync::RwLock::new(monitor)));
+
+        // Create a named container, then update its name.
+        let mut container = tiny_fixture(vec!["ti4".to_string()]);
+        container.local_state.metadata.name = Some("pre-update name".to_string());
+        let new_id = match zsei
+            .query(ZSEIQuery::CreateContainer { parent_id: 0, container })
+            .await
+            .unwrap()
+        {
+            crate::types::zsei::ZSEIQueryResult::ContainerID(id) => id,
+            other => panic!("expected ContainerID, got {:?}", other),
+        };
+
+        let mut updates = crate::types::zsei::ContainerUpdate::default();
+        updates.metadata = Some(crate::types::container::Metadata {
+            container_type: crate::types::container::ContainerType::CoordinationEvent,
+            modality: crate::types::container::Modality::Unknown,
+            created_at: 0,
+            updated_at: 1,
+            provenance: "test-update".into(),
+            permissions: 0,
+            owner_id: 0,
+            name: Some("post-update name".to_string()),
+            materialized_path: None,
+        });
+        zsei.query(ZSEIQuery::UpdateContainer { container_id: new_id, updates })
+            .await
+            .unwrap();
+
+        // The rollback layer must hold the PRE-WRITE content.
+        let snapshots: Vec<_> = std::fs::read_dir(&rollback_dir)
+            .expect("rollback dir exists")
+            .flatten()
+            .collect();
+        assert!(
+            !snapshots.is_empty(),
+            "UpdateContainer must leave a pre-write snapshot"
+        );
+        let raw = std::fs::read_to_string(snapshots[0].path()).unwrap();
+        assert!(
+            raw.contains("pre-update name"),
+            "snapshot must capture the OLD content, not the new"
+        );
+        assert!(!raw.contains("post-update name"));
+
+        let _ = std::fs::remove_dir_all(&zdir);
+        let _ = std::fs::remove_dir_all(&rollback_dir);
+    }
+}

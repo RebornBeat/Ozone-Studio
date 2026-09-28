@@ -1,0 +1,35 @@
+{
+  "principles": [
+    {
+      "statement": "When a value looks wrong, stale, or unexpectedly reset across a process boundary (a restart, a fresh CLI invocation, a new session), the bug most often lives in the asymmetry between the write path and the read/reconstruction path — not in either one examined alone. Reviewing only 'where does this get set' produces false confidence, because a write-only review of a correct-looking write call cannot reveal that nothing rebuilds the same state on load.",
+      "rationale": "This exact technique found method 22's bug: reading src/lib.rs's jurisdiction self-heal alone showed correct logic; reading ZSEI's CreateContainer handler alone showed child_ids correctly appended and stored; only tracing the SPECIFIC field (child_ids) all the way from get_container -> storage.load -> load_global -> child_ids_cache -> back to what populates that cache -> ContainerStorage::new() revealed the gap: nothing in new()/load_index() ever rebuilds child_ids_cache from durable state. The same technique had already found this exact bug CLASS twice earlier this session (text/code modality's cross-process graph-retrieval cache, and the CWD-dependent asset-path resolution bug) — it is a recurring, high-value investigation pattern for this codebase specifically.",
+      "applicability": ["debugging", "code_review", "restart_safety", "cross_process_state"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Follow One Specific Field End to End, Not the Whole Subsystem",
+      "description": "Pick the exact field that looks wrong (not 'the storage system' in general) and trace only that field: every place it's written, every place it's read, and — critically — every place that's supposed to reconstruct it from durable state after a restart. This is a narrower, more tractable investigation than a general subsystem review and reliably surfaces write/read asymmetry bugs.",
+      "when_to_apply": "A value is empty, stale, or duplicated after a restart/new-process boundary, and a first read of the obvious write-path code looks correct.",
+      "examples": [
+        "Tracing child_ids specifically (not 'the ZSEI storage layer' broadly) through get_container -> load -> load_global -> child_ids_cache -> store() -> new() took a handful of targeted greps and reads, and found the exact gap precisely because the trace was narrow and complete rather than broad and shallow."
+      ]
+    },
+    {
+      "name": "A Symptom in One Subsystem May Be a Generic Bug Surfacing Locally",
+      "description": "Before treating a bug as specific to the subsystem where it was noticed (e.g. 'jurisdiction registration is buggy'), check whether the same root-cause field/pattern is used elsewhere in the codebase — a generic storage-layer bug will affect every caller, not just the one that happened to surface it.",
+      "when_to_apply": "After finding a concrete bug, before writing the fix.",
+      "examples": [
+        "The child_ids bug was noticed via jurisdiction's duplicate-registration symptom, but grep confirmed `get_children()` (used by EVERY structural traversal mode, not just jurisdiction's self-heal) reads the exact same broken field — so the fix (rebuild child_ids_cache from persisted parent_id links at boot) was placed at the shared storage layer, not patched locally in the jurisdiction self-heal code alone."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A value is unexpectedly empty/stale/reset after a restart or process boundary, and the obvious write-path code looks correct on read-through.",
+      "action": "Trace that specific field's full write-to-read path (not the whole subsystem) before concluding the bug doesn't exist or guessing at unrelated causes.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

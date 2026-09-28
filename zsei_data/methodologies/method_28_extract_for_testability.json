@@ -1,0 +1,42 @@
+{
+  "principles": [
+    {
+      "statement": "When real logic worth testing directly (branch/edge-case coverage, not just \"the whole pipeline runs\") is only reachable as a local fn/closure buried inside a large, heavily-coupled method, extracting it to a module-level free function with identical behavior — and leaving an explicit comment at both the extraction site and the original call site explaining WHY (testability, not a bug fix) — is a legitimate, low-risk move that should be made rather than skipping the test or writing a shallow one.",
+      "rationale": "Confirmed live 2026-09-15: AMTRelation's cross-reference reconciliation logic (collect_relationship_targets/find_amt_node_by_id/related_chunk_indices) was three local fn/closures inside stage_3_blueprint_assignment, a ~400-line orchestrator method requiring a full LLM-call-coupled setup to exercise at all. None of them captured any environment (pure functions in spirit already), so moving them to module scope was a zero-behavior-change, mechanical extraction that unlocked 3 real, direct unit tests (T-A5) that would otherwise have been skipped or replaced with a much weaker integration-only check.",
+      "applicability": ["testing", "code_review", "refactoring", "test_coverage"]
+    },
+    {
+      "statement": "A test mock must actually capture the specific value the test needs to assert on — reusing a generic pre-existing mock that returns a fixed value regardless of input can silently make a regression test unable to catch the exact regression it's meant to catch.",
+      "rationale": "This crate's existing shared MockZSEI test double returns a fixed container id from create_container regardless of the parent_id argument — reusing it for T-A2 (proving AMT containers parent to the real project, not a hardcoded 0) would have produced a test that always passes whether the parenting bug was present or not. Built a distinct RecordingStore instead, whose only job is capturing the exact argument under test.",
+      "applicability": ["testing", "mocking", "regression_tests"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Ask 'Can This Actually Fail' Before Trusting a Mock-Backed Test",
+      "description": "Before treating a test as real coverage, mentally reintroduce the bug it's supposed to catch and check whether the test would actually go red — if the mock returns a fixed/generic value untouched by the code path under test, the answer is often no.",
+      "when_to_apply": "Writing or reviewing any test that uses a shared or pre-existing mock rather than a purpose-built one.",
+      "examples": [
+        "Checked whether T-A2 using the crate's existing MockZSEI would catch a reintroduced hardcoded-parent_id-0 bug — it would not, since that mock's create_container ignores its parent_id argument entirely. Built RecordingStore instead."
+      ]
+    },
+    {
+      "name": "Mark an Extraction-for-Testability Comment at Both Ends",
+      "description": "When moving logic out of a large method purely to make it independently testable, leave a short comment both where it now lives (why it's here) and at the original call site (why it moved) — otherwise a future reader sees an unexplained structural change in a diff and can't tell a deliberate, zero-risk testability move from an accidental behavior change.",
+      "when_to_apply": "Any time production logic is relocated (not rewritten) specifically to unlock a test.",
+      "examples": [
+        "stages.rs's call site keeps a comment pointing at the new module-level functions and naming the test file/plan entry that motivated the move; the functions themselves note they were extracted with no behavior change."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Writing a test plan's item requires exercising logic that is currently only reachable inside a large, heavily-coupled function, and the logic itself has no external dependencies (no captured environment, no I/O beyond what's passed in).",
+      "action": "Extract it to a module-level function with identical logic and a why-comment at both ends, then test the extracted function directly, rather than skipping the test or writing a much weaker integration-only check.",
+      "priority": 2,
+      "exceptions": [
+        "The logic genuinely captures meaningful environment (closures over real state) such that extraction would change behavior, not just location — in that case, testing through the real call path (even if heavier) is more honest than a superficially similar but behaviorally different extracted copy."
+      ]
+    }
+  ]
+}

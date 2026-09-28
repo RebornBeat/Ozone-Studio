@@ -1,24 +1,25 @@
 {
   "tasks": {
-    "6": {
-      "task_id": 6,
+    "14": {
+      "task_id": 14,
       "blueprint_id": null,
-      "status": "interrupted",
-      "progress": 0.0,
-      "created_at": 1789439841,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790562626,
       "started_at": null,
-      "completed_at": null,
+      "completed_at": 1790562626,
       "user_id": 0,
       "device_id": 0,
       "workspace_id": null,
       "project_id": null,
       "parent_task_id": null,
       "inputs": {
-        "assignee": "zcode",
-        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links",
-        "source": "zcode"
+        "prompt": "AMT re-expansion [GraphRipple] container 501 — deepen unverified branch",
+        "source": "amt-loop"
       },
-      "outputs": null,
+      "outputs": {
+        "deepened": true
+      },
       "steps": [],
       "total_tokens": 0,
       "error": null,
@@ -26,25 +27,26 @@
       "thinking_log": [],
       "amt_summary": null
     },
-    "7": {
-      "task_id": 7,
+    "16": {
+      "task_id": 16,
       "blueprint_id": null,
-      "status": "queued",
-      "progress": 0.0,
-      "created_at": 1789446522,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790587591,
       "started_at": null,
-      "completed_at": null,
+      "completed_at": 1790587591,
       "user_id": 0,
       "device_id": 0,
       "workspace_id": null,
       "project_id": null,
       "parent_task_id": null,
       "inputs": {
-        "assignee": "zcode",
-        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links — graph relationships for coordination state",
-        "source": "zcode"
+        "prompt": "AMT re-expansion [GraphRipple] container 500 — deepen unverified branch",
+        "source": "amt-loop"
       },
-      "outputs": null,
+      "outputs": {
+        "deepened": true
+      },
       "steps": [],
       "total_tokens": 0,
       "error": null,
@@ -52,25 +54,26 @@
       "thinking_log": [],
       "amt_summary": null
     },
-    "10": {
-      "task_id": 10,
+    "21": {
+      "task_id": 21,
       "blueprint_id": null,
-      "status": "queued",
-      "progress": 0.0,
-      "created_at": 1789446650,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790591521,
       "started_at": null,
-      "completed_at": null,
+      "completed_at": 1790591521,
       "user_id": 0,
       "device_id": 0,
       "workspace_id": null,
       "project_id": null,
       "parent_task_id": null,
       "inputs": {
-        "assignee": "zcode",
-        "prompt": "[mcp] Wire orchestrator stages to issue McpCall (POST /mcp/call) for tool needs",
-        "source": "zcode"
+        "prompt": "AMT re-expansion [GraphRipple] container 502 — deepen unverified branch",
+        "source": "amt-loop"
       },
-      "outputs": null,
+      "outputs": {
+        "resolved_otherwise": true
+      },
       "steps": [],
       "total_tokens": 0,
       "error": null,
@@ -78,182 +81,26 @@
       "thinking_log": [],
       "amt_summary": null
     },
-    "3": {
-      "task_id": 3,
+    "15": {
+      "task_id": 15,
       "blueprint_id": null,
-      "status": "interrupted",
-      "progress": 0.0,
-      "created_at": 1789437507,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790562626,
       "started_at": null,
-      "completed_at": null,
+      "completed_at": 1790562626,
       "user_id": 0,
       "device_id": 0,
       "workspace_id": null,
       "project_id": null,
       "parent_task_id": null,
       "inputs": {
-        "assignee": "claude-code",
-        "prompt": "Review CHECKLIST.md pending items: model_used live confirmation, BitNet repeat-penalty catch",
-        "source": "zcode"
+        "prompt": "AMT re-expansion [GraphRipple] container 502 — deepen unverified branch",
+        "source": "amt-loop"
       },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "12": {
-      "task_id": 12,
-      "blueprint_id": null,
-      "status": "queued",
-      "progress": 0.0,
-      "created_at": 1789451974,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "assignee": "claude-code",
-        "prompt": "[host-ops] Verify methodology 16 (Host Lifecycle Management) registered as ZSEI container on next boot (index entry live + bootstrap default). Then wire: restart requests = host tasks tagged [host-ops]; agents NEVER hold the host process — operator runs ./target/release/ozone-studio from REPO ROOT (cwd discipline = data continuity). Post-restore ladder: /health, /pipelines/remote repopulated, /mcp/tools self-registered, /task/list coordination tasks queued, jurisdiction region detected in boot log.",
-        "source": "zcode"
+      "outputs": {
+        "resolved_otherwise": true
       },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "8": {
-      "task_id": 8,
-      "blueprint_id": null,
-      "status": "queued",
-      "progress": 0.0,
-      "created_at": 1789446650,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "assignee": "zcode",
-        "prompt": "[orchestrator] Route shared-context notes + MCP call results into AMT stage context — AMT is the source of truth",
-        "source": "zcode"
-      },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "1": {
-      "task_id": 1,
-      "blueprint_id": null,
-      "status": "interrupted",
-      "progress": 0.0,
-      "created_at": 1789436783,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "assignee": "zcode",
-        "prompt": "Mirror shared-context notes/claims as ZSEI containers with file links (graph relationships)",
-        "source": "zcode"
-      },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "2": {
-      "task_id": 2,
-      "blueprint_id": null,
-      "status": "interrupted",
-      "progress": 0.0,
-      "created_at": 1789436808,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "assignee": "claude-code",
-        "prompt": "Review CHECKLIST.md and pick up model_used live-test confirmations",
-        "source": "zcode"
-      },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "9": {
-      "task_id": 9,
-      "blueprint_id": null,
-      "status": "queued",
-      "progress": 0.0,
-      "created_at": 1789446650,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "assignee": "claude-code",
-        "prompt": "[orchestrate] Confirm model_used live-reporting + chat switch notification, then RETIRE CHECKLIST.md with a final pointer to Ozone tasks",
-        "source": "zcode"
-      },
-      "outputs": null,
-      "steps": [],
-      "total_tokens": 0,
-      "error": null,
-      "gate_result": null,
-      "thinking_log": [],
-      "amt_summary": null
-    },
-    "4": {
-      "task_id": 4,
-      "blueprint_id": null,
-      "status": "interrupted",
-      "progress": 0.0,
-      "created_at": 1789438194,
-      "started_at": null,
-      "completed_at": null,
-      "user_id": 0,
-      "device_id": 0,
-      "workspace_id": null,
-      "project_id": null,
-      "parent_task_id": null,
-      "inputs": {
-        "amt_container_id": 1001,
-        "amt_intent": "Process user request",
-        "blueprint_id": null,
-        "prompt": ""
-      },
-      "outputs": null,
       "steps": [],
       "total_tokens": 0,
       "error": null,
@@ -320,7 +167,9 @@
             }
           ],
           "methodology_ids_applied": [],
-          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf"
+          "model_used": "bitnet:/home/rebornbeat/ozone-models/bitnet/ggml-model-i2_s.gguf",
+          "context_assembled": null,
+          "context_sources": []
         }
       ],
       "total_tokens": 5902,
@@ -372,6 +221,191 @@
         "validation_status": "Validated"
       }
     },
+    "3": {
+      "task_id": 3,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789437507,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "Review CHECKLIST.md pending items: model_used live confirmation, BitNet repeat-penalty catch",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "13": {
+      "task_id": 13,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790562626,
+      "started_at": null,
+      "completed_at": 1790562626,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "prompt": "AMT re-expansion [GraphRipple] container 500 — deepen unverified branch",
+        "source": "amt-loop"
+      },
+      "outputs": {
+        "deepened": true
+      },
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "12": {
+      "task_id": 12,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789451974,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "[host-ops] Verify methodology 16 (Host Lifecycle Management) registered as ZSEI container on next boot (index entry live + bootstrap default). Then wire: restart requests = host tasks tagged [host-ops]; agents NEVER hold the host process — operator runs ./target/release/ozone-studio from REPO ROOT (cwd discipline = data continuity). Post-restore ladder: /health, /pipelines/remote repopulated, /mcp/tools self-registered, /task/list coordination tasks queued, jurisdiction region detected in boot log.",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "18": {
+      "task_id": 18,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790587591,
+      "started_at": null,
+      "completed_at": 1790587591,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "prompt": "AMT re-expansion [GraphRipple] container 502 — deepen unverified branch",
+        "source": "amt-loop"
+      },
+      "outputs": {
+        "resolved_otherwise": true
+      },
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "8": {
+      "task_id": 8,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[orchestrator] Route shared-context notes + MCP call results into AMT stage context — AMT is the source of truth",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "2": {
+      "task_id": 2,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789436808,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "Review CHECKLIST.md and pick up model_used live-test confirmations",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "4": {
+      "task_id": 4,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789438194,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "amt_container_id": 1001,
+        "amt_intent": "Process user request",
+        "blueprint_id": null,
+        "prompt": ""
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
     "11": {
       "task_id": 11,
       "blueprint_id": null,
@@ -397,11 +431,245 @@
       "gate_result": null,
       "thinking_log": [],
       "amt_summary": null
+    },
+    "1": {
+      "task_id": 1,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789436783,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "Mirror shared-context notes/claims as ZSEI containers with file links (graph relationships)",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "7": {
+      "task_id": 7,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446522,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links — graph relationships for coordination state",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "9": {
+      "task_id": 9,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "claude-code",
+        "prompt": "[orchestrate] Confirm model_used live-reporting + chat switch notification, then RETIRE CHECKLIST.md with a final pointer to Ozone tasks",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "10": {
+      "task_id": 10,
+      "blueprint_id": null,
+      "status": "queued",
+      "progress": 0.0,
+      "created_at": 1789446650,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[mcp] Wire orchestrator stages to issue McpCall (POST /mcp/call) for tool needs",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "6": {
+      "task_id": 6,
+      "blueprint_id": null,
+      "status": "interrupted",
+      "progress": 0.0,
+      "created_at": 1789439841,
+      "started_at": null,
+      "completed_at": null,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "assignee": "zcode",
+        "prompt": "[shared-context] Mirror notes/claims as ZSEI containers with file links",
+        "source": "zcode"
+      },
+      "outputs": null,
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "19": {
+      "task_id": 19,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790591521,
+      "started_at": null,
+      "completed_at": 1790591521,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "prompt": "AMT re-expansion [GraphRipple] container 500 — deepen unverified branch",
+        "source": "amt-loop"
+      },
+      "outputs": {
+        "deepened": true
+      },
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "17": {
+      "task_id": 17,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790587591,
+      "started_at": null,
+      "completed_at": 1790587591,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "prompt": "AMT re-expansion [GraphRipple] container 501 — deepen unverified branch",
+        "source": "amt-loop"
+      },
+      "outputs": {
+        "deepened": true
+      },
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
+    },
+    "20": {
+      "task_id": 20,
+      "blueprint_id": null,
+      "status": "completed",
+      "progress": 1.0,
+      "created_at": 1790591521,
+      "started_at": null,
+      "completed_at": 1790591521,
+      "user_id": 0,
+      "device_id": 0,
+      "workspace_id": null,
+      "project_id": null,
+      "parent_task_id": null,
+      "inputs": {
+        "prompt": "AMT re-expansion [GraphRipple] container 501 — deepen unverified branch",
+        "source": "amt-loop"
+      },
+      "outputs": {
+        "deepened": true
+      },
+      "steps": [],
+      "total_tokens": 0,
+      "error": null,
+      "gate_result": null,
+      "thinking_log": [],
+      "amt_summary": null
     }
   },
   "logs": {
-    "9": [],
-    "3": [],
+    "16": [
+      {
+        "timestamp": 1790587591,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "18": [
+      {
+        "timestamp": 1790587591,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "20": [
+      {
+        "timestamp": 1790591521,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "11": [],
     "5": [
       {
         "timestamp": 1789439802,
@@ -410,15 +678,64 @@
         "metadata": {}
       }
     ],
-    "10": [],
-    "8": [],
-    "7": [],
-    "6": [],
     "4": [],
-    "12": [],
-    "11": [],
+    "3": [],
+    "7": [],
+    "10": [],
+    "6": [],
     "2": [],
-    "1": []
+    "1": [],
+    "15": [
+      {
+        "timestamp": 1790562626,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "12": [],
+    "8": [],
+    "14": [
+      {
+        "timestamp": 1790562626,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "9": [],
+    "21": [
+      {
+        "timestamp": 1790591521,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "17": [
+      {
+        "timestamp": 1790587591,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "19": [
+      {
+        "timestamp": 1790591521,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ],
+    "13": [
+      {
+        "timestamp": 1790562626,
+        "level": "Info",
+        "message": "Task completed",
+        "metadata": {}
+      }
+    ]
   },
-  "next_id": 13
+  "next_id": 22
 }

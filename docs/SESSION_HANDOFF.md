@@ -1,12 +1,51 @@
 # Session Handoff — Claude Code → ZCode (2026-09-15 / 09-16)
 
-Written at session-limit time — this is the full, honest capture of everything from
-this session: what's done and verified, what's in-flight and unverified, what's
-still open, and what ZCode should independently check before trusting any of it.
-Per this session's own standing discipline: **nothing here should be trusted purely
-because it's written down — independently verify anything you're about to build on**,
-the same way every item below was itself independently verified (or explicitly
-flagged as not yet).
+> **UPDATE 2026-09-20, Claude Code**: everything below this banner is the original
+> 09-16 handoff, kept as-is for history. It's now superseded — ZCode ran three more
+> full sessions (09-19, then 09-20 sessions 1-5) and closed out nearly everything
+> section 1-4 below left open. **Read `CHECKLIST.md`'s entries from `## 2026-09-19`
+> onward first** (very long file, that's the newest ~110 lines) — that's the real,
+> detailed record. This file's original content below is useful for the *earlier*
+> architecture context (why things are shaped the way they are) but its "still
+> open" lists are stale. See the new section immediately below this banner for the
+> current, actually-accurate state as of tonight, verified directly, not just read
+> from ZCode's own notes.
+
+---
+
+## CURRENT STATE — 2026-09-20, independently re-verified by Claude Code
+
+**What ZCode's last three sessions actually closed (cross-checked against real code/data, not just their notes):**
+- Tasks 47, 57, 60, 64, 65 — all genuinely closed with live E2E proof (cross-process retrieval for text/code/math; cross-relationship linking now spans text+code+math; file/url/package links are real ZSEI containers with bidirectional relations).
+- Real bugs found and fixed since 09-16: a code-modality loader parsing the wrong persisted shape (silently failed on every real graph); a relationship-write bug creating self-loops; `serde` silently stripping a new `graph_hops` field on every round-trip; a real deadlock (integrity monitor held a write-lock across a forever-loop, blocking every write); a connection-per-call performance bug fixed to real keep-alive (~80x faster linking, measured: 13,106ms → 199ms); BitNet's JSON extraction was burning genuinely-usable answers as parse failures (first-`{`-to-last-`}` slicing across prompt echo/scaffolding — replaced with a real balanced-brace scan); a placeholder-content gate added after BitNet's example-echo got persisted as real tree content once.
+- Jurisdiction edge-count nondeterminism was root-caused **twice** (first fix assumed `child_ids` order was stable across restarts — it isn't; final fix resolves the canonical container per scope by **minimum container id**, which is order-independent). Live-predicted and confirmed: wired 21 → 0 on the next boot.
+- 231 duplicate jurisdiction containers deleted with real user approval (root 7: 298 → 67 children at the time).
+- Methodology store: 21 → 44 real entries. Blueprint store: 6 empty shells → 17 real, executable blueprints.
+- BitNet coherency confirmed for 3 of 4 real call-site prompt shapes (deepening, meta-loop draft, keyword extraction); the 4th (zero-shot simulation) produces valid-but-wrong-schema JSON — a real, scoped, not-yet-done follow-up.
+- A Linux UI build exists: `ui/dist-electron/Ozone Studio-0.4.0.AppImage` + a `.deb`.
+- Test suite: **76/76, independently re-run by me just now, real exit code 0.**
+
+**Two things I found tonight that need attention before trusting the record above at face value:**
+
+1. **The running host predates the latest binary.** `curl :50051/health` shows `uptime_secs: 7790` (boot ≈ 17:33 AST); `target/release/ozone-studio`'s mtime is 18:57 AST — over an hour *after* boot. ZCode's own handoff note explicitly warned this could happen ("check binary vs boot time before trusting convergence claims") — it did. **A restart is needed** to actually run the code all the claims above describe.
+
+2. **The "231 duplicates deleted, 0 remaining" claim does not hold right now** — I counted directly on disk (`target/release/zsei_data/local/*.json`, `container_type == JurisdictionRuleSet`, grouped by scope keyword): **68 total containers, 41 unique scopes, 27 scopes with exactly one duplicate each.** Every duplicate's `created_at` timestamp is one of two values — most originals sit at `1789434755`-`1789434907` (the post-cleanup baseline), and **27 of them have a second copy all created at the identical timestamp `1789452450`** — a single later boot event that re-registered 27 scopes as "new" even though they already existed. This is consistent with a restart happening on a binary *between* the cleanup and the final min-id-canonical fix (or between two of the fix iterations) — the exact failure mode ZCode's own session chronicles (their first fix, "oldest by child_ids order," was proven unstable; the min-id fix came after). **Real, concrete next step**: restart onto the actual current binary (18:57), confirm the boot log shows `wired=0` (or a final one-time convergence pass), then re-run the same disk check above — if duplicates are still appearing after the *true* latest binary boots, the min-id fix itself needs another look; if not, this was exactly the stale-intermediate-restart explanation and it's now resolved by simply restarting properly.
+
+**Full, complete, current TODO list** (merging what's actually left across both this file's original list and CHECKLIST.md's newest sessions):
+
+- [ ] **Restart onto the current binary** — required before any of the above can be trusted live. Batches everything from 09-16 through session 5.
+- [ ] **Re-verify jurisdiction duplicate convergence** after that restart (see finding #2 above) — this is the single most concrete, checkable action item.
+- [ ] **12 of the original 16 bootstrap methodologies still have zero real content** (ids 1,2,6-15) — genuinely phantom containers, confirmed on disk both 09-16 and not mentioned as fixed in any later session entry. Real decision needed: write real content, or retire the index entries. Not decided.
+- [ ] **Text/code modality cross-relationship linking's real end-to-end reliability** — the 09-16 finding (1-of-3 nested extraction calls failing under real orchestration) was never conclusively re-tested under low contention; ZCode's 09-19/09-20 sessions fixed the *retrieval* half (task 47/60) but I don't see a specific re-test of the *original* end-to-end linking reliability question in their notes — worth a clean, uncontended re-check.
+- [ ] **Zero-shot simulation's BitNet schema mismatch** (`step_N` keys vs `step_predictions` array) — schema-flexible parsing in stage 7, flagged as a real, scoped follow-up by ZCode.
+- [ ] **3 open metering gaps** in `methodology_gaps.json`, tied to methodology 44 (Session Token Metering) — drafting under live gates per ZCode's last note.
+- [ ] **VoiceConfig fields** — explicitly flagged as user-edit-only, not an agent task.
+- [ ] **The 24-hour AMT-loop interval fallback** — a real decision ZCode flagged as needing the user's input, not decided.
+- [ ] **One unexplained host crash** (2026-09-20 ~07:40 AST during a real orchestrate) — no panic captured; AMT islands + ZSEI data survived it, reconciliation handled it honestly, but the actual cause is still unknown. Capture the terminal tail if it recurs.
+- [ ] **T-I1/T-I3 unit-codification** wants a mockable ZSEI client — not built.
+- [ ] **Remaining jurisdiction countries** never deepened past the original 3-topic baseline: `ar bd do ec id ke ma my ng no pe ph pk se th vn` (per the 09-16 count — verify current list against `assets/jurisdiction/national/` directly, more may have landed since).
+- [ ] **`/orchestrate`'s authentication status** — the original 09-16 checklist claims zero authentication exists; my own direct investigation earlier that same night found a real ed25519 challenge/response flow (`/auth/challenge`, `/auth/authenticate`) already exists for `/zsei/query`. Whether `/orchestrate` itself specifically enforces this was never resolved — **this specific claim in the old checklist is likely stale and should be re-verified directly, not trusted either way.**
+- [ ] Everything else in the original 09-16 handoff below this banner that neither this update nor CHECKLIST.md's newer sessions mention as done: `ContextSource` traversal-vs-keyword provenance, dead `keyword_filter`/`topic_filter` fields on `TraversalRequest`, `mmap_enabled:false` silently no-oping writes (real data-loss path, found by a test fixture, never fixed), `docs/GRAPH_TEST_PLAN.md`'s remaining unchecked items (T-G4, T-X2/X3, T-T2/T4/T5, T-C2, T-I2/I4 — though T-I2 and T-I4 are marked done in CHECKLIST's session-4-final entry, worth a quick cross-check against the actual doc file).
 
 ---
 

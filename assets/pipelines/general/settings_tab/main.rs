@@ -17,6 +17,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fs;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ============================================================================
 // Storage Layer - File-based persistence
 // ============================================================================

@@ -134,6 +134,7 @@ pub fn compute_jurisdiction_edges_to_add(
                 relation_type: RelationType::RelatedTo,
                 confidence: 0.9,
                 discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
             });
         }
     }
@@ -148,6 +149,7 @@ pub fn compute_jurisdiction_edges_to_add(
                     relation_type: RelationType::RelatedTo,
                     confidence: 0.9,
                     discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
                 });
             }
         }
@@ -259,6 +261,23 @@ impl OzoneRuntime {
             k.set_pairwise_preset(&config.k_algorithms.pairwise_preset);
         }
 
+        // RELEVANCE POLICY BRIDGE — modality pipelines read
+        // OZONE_RELEVANCE_POLICY from their inherited environment (same
+        // pattern as OZONE_FALLBACK_CHAIN) so the registry's live preset
+        // governs how they link new graphs into the living graph without
+        // any config file reaching the pipeline crates.
+        {
+            let k = crate::k_registry::KAlgorithms::global();
+            let policy = k.current_relevance_policy();
+            let wire = serde_json::json!({
+                "preset": k.relevance.read().map(|p| p.default_name().to_string()).unwrap_or_default(),
+                "graph_max_depth": policy.graph_max_depth,
+                "neighborhood_shared_floor": policy.neighborhood_shared_floor,
+                "seed_shared_floor": policy.seed_shared_floor,
+            });
+            std::env::set_var("OZONE_RELEVANCE_POLICY", wire.to_string());
+        }
+
         // Initialize ZSEI
         let zsei = zsei::ZSEI::new(&config.zsei)?;
 
@@ -346,7 +365,7 @@ impl OzoneRuntime {
                     Container, Context, GlobalState, LocalState, Metadata, Modality,
                     BLUEPRINT_ROOT_ID, METHODOLOGY_ROOT_ID, PIPELINE_ROOT_ID, ROOT_CONTAINER_ID,
                 };
-                let mut zsei = zsei_arc.write().await;
+                let zsei = zsei_arc.write().await;
                 for (id, name, mat_path, container_type) in
                     crate::bootstrap::BootstrapManager::structural_root_specs()
                 {
@@ -425,6 +444,7 @@ impl OzoneRuntime {
                 StoragePointers, TraversalHints, ContainerType, JURISDICTION_ROOT_ID,
             };
 
+            let data_dir = std::path::PathBuf::from(&config.zsei.local_path);
             let jurisdiction_dir = std::path::PathBuf::from(&config.general.data_dir).join("jurisdiction");
 
             // Self-heal the copy itself, not just the container registration —
@@ -497,7 +517,7 @@ impl OzoneRuntime {
             }
 
             if !candidates.is_empty() {
-                let mut zsei = zsei_arc.write().await;
+                let zsei = zsei_arc.write().await;
 
                 // Existing registered scopes, so re-running this on every
                 // boot never creates duplicates.
@@ -539,7 +559,46 @@ impl OzoneRuntime {
                             context: Context {
                                 categories: vec![],
                                 methodologies: vec![],
-                                keywords: vec![scope.clone()],
+                                // GAP-C1 (CONTEXT_REGISTRY §3): real content
+                                // keywords from the rules' own conditions —
+                                // with only [scope, "jurisdiction"] here, no
+                                // content graph ever shares >=2 terms, so
+                                // content<->jurisdiction edge-mixing never
+                                // fires. Conditions are the rules' actual
+                                // subject matter; deriving keywords from
+                                // them lets the existing uncapped linking
+                                // wire content graphs to the rules that
+                                // govern them.
+                                keywords: {
+                                    let mut kws = vec![scope.clone()];
+                                    let abs = if rel_path.is_absolute() {
+                                        rel_path.clone()
+                                    } else {
+                                        data_dir.join(&rel_path)
+                                    };
+                                    if let Ok(rules_raw) = std::fs::read_to_string(&abs) {
+                                        if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(rules_raw.as_bytes()) {
+                                            let empty = Vec::new();
+                                            let rules = parsed
+                                                .get("rules")
+                                                .and_then(|r| r.as_array())
+                                                .unwrap_or(&empty);
+                                            for rule in rules.iter() {
+                                                if let Some(cond) = rule.get("condition").and_then(|c| c.as_str()) {
+                                                    for word in cond.split(|c: char| !c.is_alphanumeric()) {
+                                                        let w = word.to_lowercase();
+                                                        if w.len() >= 4 && !kws.contains(&w) {
+                                                            kws.push(w);
+                                                        }
+                                                        if kws.len() >= 12 { break; }
+                                                    }
+                                                }
+                                                if kws.len() >= 12 { break; }
+                                            }
+                                        }
+                                    }
+                                    kws
+                                },
                                 topics: vec!["jurisdiction".to_string()],
                                 relationships: vec![],
                                 learned_associations: vec![],
@@ -604,14 +663,142 @@ impl OzoneRuntime {
             use crate::types::ContainerID;
             use crate::types::container::JURISDICTION_ROOT_ID;
 
-            let mut zsei = zsei_arc.write().await;
+            let zsei = zsei_arc.write().await;
             if let Ok(Some(root)) = zsei.get_container(JURISDICTION_ROOT_ID).await {
+                // GAP-C1 COMPLETION (2026-09-22): the registration-side
+                // keyword derivation only fires for NEW registrations
+                // ("0 new registrations" every boot), so all 41 existing
+                // scope containers still carry the bare [scope,
+                // "jurisdiction"] keywords and content<->jurisdiction
+                // edge-mixing never fires for them. One-time enrichment,
+                // idempotent by the thin-keywords condition: any scope
+                // container whose keywords are still the bare pair gets
+                // the real content keywords derived from its own rules
+                // file (same derivation as registration). Containers that
+                // already enriched (or were registered with derived
+                // keywords) are untouched.
+                {
+                    let data_dir =
+                        std::path::PathBuf::from(&config.general.data_dir);
+                    let mut enriched = 0usize;
+                    if let Ok(Some(root)) = zsei.get_container(JURISDICTION_ROOT_ID).await {
+                        for child_id in &root.global_state.child_ids {
+                            let child = match zsei.get_container(*child_id).await {
+                                Ok(Some(c)) => c,
+                                _ => continue,
+                            };
+                            let kws: Vec<String> = child
+                                .local_state
+                                .context
+                                .keywords
+                                .clone();
+                            if kws.len() > 2 {
+                                continue; // already enriched (or genuinely rich)
+                            }
+                            let scope = match kws.first() {
+                                Some(s) => s.clone(),
+                                None => continue,
+                            };
+                            let rel = if scope == "global" {
+                                std::path::PathBuf::from("jurisdiction/global.json")
+                            } else {
+                                std::path::PathBuf::from("jurisdiction/national")
+                                    .join(format!("{}.json", scope))
+                            };
+                            let abs = if rel.is_absolute() {
+                                rel.clone()
+                            } else {
+                                data_dir.join(&rel)
+                            };
+                            let Ok(rules_raw) = std::fs::read_to_string(&abs) else {
+                                continue;
+                            };
+                            let Ok(parsed) =
+                                serde_json::from_slice::<serde_json::Value>(rules_raw.as_bytes())
+                            else {
+                                continue;
+                            };
+                            let mut new_kws = kws.clone();
+                            if let Some(rules) =
+                                parsed.get("rules").and_then(|r| r.as_array())
+                            {
+                                for rule in rules {
+                                    if let Some(cond) =
+                                        rule.get("condition").and_then(|c| c.as_str())
+                                    {
+                                        for word in
+                                            cond.split(|c: char| !c.is_alphanumeric())
+                                        {
+                                            let w = word.to_lowercase();
+                                            if w.len() >= 4 && !new_kws.contains(&w) {
+                                                new_kws.push(w);
+                                            }
+                                            if new_kws.len() >= 12 {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if new_kws.len() >= 12 {
+                                        break;
+                                    }
+                                }
+                            }
+                            if new_kws.len() > kws.len() {
+                                let mut new_context = child.local_state.context.clone();
+                                new_context.keywords = new_kws;
+                                match zsei
+                                    .query(crate::types::zsei::ZSEIQuery::UpdateContainer {
+                                        container_id: *child_id,
+                                        updates: crate::types::zsei::ContainerUpdate {
+                                            context: Some(new_context),
+                                            ..Default::default()
+                                        },
+                                    })
+                                    .await
+                                {
+                                    Ok(_) => enriched += 1,
+                                    Err(e) => tracing::warn!(
+                                        container_id = *child_id,
+                                        error = %e,
+                                        "Jurisdiction keyword enrichment failed"
+                                    ),
+                                }
+                            }
+                        }
+                    }
+                    if enriched > 0 {
+                        tracing::info!(
+                            "Jurisdiction keyword enrichment: {} scope containers gained real content keywords (GAP-C1)",
+                            enriched
+                        );
+                    }
+                }
+
                 let mut scope_to_id: std::collections::HashMap<String, ContainerID> =
                     std::collections::HashMap::new();
                 for child_id in &root.global_state.child_ids {
                     if let Ok(Some(child)) = zsei.get_container(*child_id).await {
                         if let Some(kw) = child.local_state.context.keywords.first() {
-                            scope_to_id.insert(kw.clone(), *child_id);
+                            // CANONICAL resolution (found live 2026-09-20): the
+                            // tree holds historical duplicate scope containers
+                            // from pre-dedup-fix boots (root 7: 298 children,
+                            // 67 unique names — up to 8 copies per scope).
+                            // `insert` kept the LAST match = the newest
+                            // duplicate every boot. First-occurrence-in-
+                            // child_ids ALSO proved unstable (live: wired 27
+                            // then 30 on consecutive boots — child_ids ORDER
+                            // itself reshuffles across restarts), so the only
+                            // order-independent canonical is the MINIMUM
+                            // container id per scope: oldest creation, stable
+                            // regardless of how child_ids come back.
+                            scope_to_id
+                                .entry(kw.clone())
+                                .and_modify(|e| {
+                                    if *child_id < *e {
+                                        *e = *child_id;
+                                    }
+                                })
+                                .or_insert(*child_id);
                         }
                     }
                 }
@@ -734,7 +921,14 @@ impl OzoneRuntime {
         let auth = auth::AuthSystem::new(&config.auth)?;
 
         // Initialize integrity monitor
-        let integrity = integrity::IntegrityMonitor::new(&config.integrity)?;
+        let integrity = Arc::new(RwLock::new(integrity::IntegrityMonitor::new(
+            &config.integrity,
+        )?));
+        // T-I4 call site — feed every container mutation's pre-write content
+        // into the monitor's blake3-verified rollback layer (see
+        // ZSEI::pre_write_snapshot). Until now create_snapshot had no caller
+        // and the periodic check verified an empty version set.
+        zsei_arc.write().await.set_integrity(integrity.clone());
 
         // Initialize network manager
         let mut network = network::NetworkManager::new(config.network.clone()).await?;
@@ -757,7 +951,7 @@ impl OzoneRuntime {
             pipeline_registry: Arc::new(RwLock::new(pipeline_registry)),
             task_manager: Arc::new(RwLock::new(task_manager)),
             auth: Arc::new(RwLock::new(auth)),
-            integrity: Arc::new(RwLock::new(integrity)),
+            integrity: integrity.clone(),
             network: Arc::new(RwLock::new(network)),
             session: Arc::new(RwLock::new(None)),
             consciousness,
@@ -772,9 +966,19 @@ impl OzoneRuntime {
         let runtime = Arc::new(RwLock::new(self));
 
         // Start integrity monitoring
+        // DEADLOCK FIX (found live 2026-09-19): this used to be
+        // `integrity.write().await.start_monitoring()` — the write guard is
+        // a temporary held across the await, and start_monitoring loops
+        // until stopped, so the monitor's OWN outer RwLock stayed
+        // write-locked forever. The first ZSEI pre-write snapshot (T-I4,
+        // takes integrity.read()) then blocked forever, hanging every
+        // UpdateContainer and, through the link fan-out, every pipeline
+        // execution behind the executor lock. start_monitoring only needs
+        // &self (all state is interior Arc/RwLock), so take a READ guard;
+        // nothing else ever takes the outer write lock.
         let integrity = runtime.read().await.integrity.clone();
         tokio::spawn(async move {
-            if let Err(e) = integrity.write().await.start_monitoring().await {
+            if let Err(e) = integrity.read().await.start_monitoring().await {
                 tracing::error!("Integrity monitoring failed: {}", e);
             }
         });
@@ -835,6 +1039,7 @@ impl OzoneRuntime {
                 refinement_config,
                 available_models,
                 meta_fallback,
+                runtime.read().await.task_manager.clone(),
             ));
 
             // GRAPH RIPPLE → AMT SYNC (task 43 groundwork): graph writes in
@@ -1002,9 +1207,25 @@ impl OzoneRuntime {
             meta_fallback_free_only: self.config.models.meta_fallback.free_only,
         };
 
-        let executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+        let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
             registry: self.pipeline_registry.clone(),
         });
+        // WIRE-BEFORE-DROP (docs/TOP_DOWN_REVIEW_GUIDE.md §3.3): pipeline 39
+        // is intercepted at the executor layer — jurisdiction's confirmation
+        // reviews and the stage-8 consciousness gate keep calling
+        // execute(39) UNCHANGED, but the decision now comes from a real
+        // model (fallback walk, balanced-scan gates, ReviewPending on
+        // total failure) instead of decision_gate's hardcoded simulation.
+        // Every review is captured to
+        // {data_dir}/model_calls/decision_review.jsonl.
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::decision_review::DecisionReviewExecutor {
+                inner: base_executor_adapter,
+                available_models: self.config.models.available_models.clone(),
+                fallback_order: self.config.models.fallback.order.clone(),
+                fallback_free_only: self.config.models.fallback.free_only,
+                data_dir: self.config.general.data_dir.clone(),
+            });
         let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
             zsei: self.zsei.clone(),
         });
@@ -1016,6 +1237,7 @@ impl OzoneRuntime {
             Arc::new(RwLock::new(None)),
             self.config.models.context_length as u32,
             self.config.jurisdiction.clone(),
+            self.config.general.data_dir.clone(),
         );
 
         let response = orchestrator.orchestrate(request).await;

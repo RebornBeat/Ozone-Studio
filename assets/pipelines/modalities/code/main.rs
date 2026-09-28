@@ -14,6 +14,19 @@ use std::env;
 use std::path::PathBuf;
 use regex::Regex;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
+/// Pipeline-side model-call capture (C6-minimal, shared — single source).
+/// DORMANT today: code extraction is regex/mechanical and makes ZERO
+/// pipeline-9 calls (verified by exhaustive grep, 2026-09-27) — nothing
+/// to capture. The mod lights up with this codebase's first real model
+/// call site; wire `capture::capture_zero_shot_call("code", <site>, ...)
+/// around it, same one-line pattern text/math use.
+#[allow(dead_code)]
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // Same real-ZSEI-over-HTTP pattern as the text modality pipeline (100) and
 // context_aggregation (21): ZSEIQuery is externally-tagged, wire format
 // {"VariantName": {fields...}}.
@@ -21,8 +34,17 @@ fn ozone_host() -> String {
     env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
 }
 
+/// Process-wide HTTP client for host calls — keep-alive connection reuse.
+/// Measured (link_metrics, 2026-09-20): a fresh Client per zsei_query call
+/// costs a TCP connect every time; the shared client removes that from the
+/// per-edge linking cost without capping or batching anything.
+fn shared_http_client() -> &'static reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT.get_or_init(reqwest::Client::new)
+}
+
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = shared_http_client();
     let resp = client
         .post(format!("{}/zsei/query", ozone_host()))
         .json(&serde_json::json!({"query": query, "session_token": ""}))
@@ -342,7 +364,25 @@ async fn assemble_dependency_graph(project_id: u64, include_external: bool) -> R
 /// the real Pipeline-registry-leak hallucination bug this project already
 /// fixed once). Only real difference: `discovered_via: "CodeAnalysis"`,
 /// this modality's own real discovery-method provenance, not text's.
-async fn link_related_containers(container_id: u64, own_keywords: &[String], own_topics: &[String]) -> usize {
+/// The live relevance policy from OZONE_RELEVANCE_POLICY (exported at boot
+/// by the host from the KAlgorithms registry's current preset). Falls back
+/// to the graph-first defaults when absent (older host binary).
+/// (graph_max_depth, neighborhood_shared_floor, seed_shared_floor, preset)
+fn relevance_policy() -> (u32, usize, usize, String) {
+    if let Ok(raw) = std::env::var("OZONE_RELEVANCE_POLICY") {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) {
+            return (
+                v.get("graph_max_depth").and_then(|x| x.as_u64()).unwrap_or(2) as u32,
+                v.get("neighborhood_shared_floor").and_then(|x| x.as_u64()).unwrap_or(1) as usize,
+                v.get("seed_shared_floor").and_then(|x| x.as_u64()).unwrap_or(2) as usize,
+                v.get("preset").and_then(|x| x.as_str()).unwrap_or("graph-first").to_string(),
+            );
+        }
+    }
+    (2, 1, 2, "graph-first".to_string())
+}
+
+async fn link_related_containers(container_id: u64, project_id: u64, own_keywords: &[String], own_topics: &[String]) -> (usize, serde_json::Value) {
     fn is_infrastructure_container_type(t: &str) -> bool {
         matches!(
             t,
@@ -359,7 +399,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
     search_terms.sort();
     search_terms.dedup();
     if search_terms.is_empty() {
-        return 0;
+        return (0, serde_json::json!({"skipped": "no search terms"}));
     }
 
     let search_result = match zsei_query(serde_json::json!({
@@ -374,7 +414,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         Ok(v) => v,
         Err(e) => {
             eprintln!("link_related_containers: search failed (non-fatal): {}", e);
-            return 0;
+            return (0, serde_json::json!({"skipped": "keyword search failed", "error": e}));
         }
     };
 
@@ -385,28 +425,103 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         .unwrap_or_default();
 
     let own_set: HashSet<String> = search_terms.iter().cloned().collect();
-    let mut wired = 0usize;
+    let started = std::time::Instant::now();
+    let (walk_depth, nb_floor, seed_floor, preset_name) = relevance_policy();
 
-    for candidate_id in candidate_ids {
-        if candidate_id == container_id {
+    // ── Candidate source 1: the relationship neighborhood ──
+    // ONE structural Traverse from the project container — real graph edges
+    // (parent/child AND explicit Context.relationships, walked by the
+    // store's traversal engine). UNCAPPED per user directive: the walk
+    // depth is the only bound; max_results is set to an effectively
+    // unlimited value and the REAL returned count lands in the metrics so
+    // tuning decisions come from measured numbers, never preemptive caps.
+    let mut neighborhood: HashMap<u64, u32> = HashMap::new();
+    let mut traverse_returned = 0usize;
+    if walk_depth > 0 && project_id != 0 {
+        match zsei_query(serde_json::json!({
+            "Traverse": {
+                "start_container": project_id,
+                "mode": "Structural",
+                "filters": [],
+                "max_depth": walk_depth,
+                "max_results": 10_000_000u64,
+                "budget": { "max_hops": walk_depth, "max_containers": 10_000_000u64, "max_latency_ms": 3_600_000u64 },
+                "use_ml": false,
+                "include_methodologies": false,
+                "include_external_refs": false,
+            }
+        }))
+        .await
+        {
+            Ok(result) => {
+                if let Some(tr) = result.get("TraversalResult") {
+                    let containers = tr.get("containers").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    let paths = tr.get("paths").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+                    traverse_returned = containers.len();
+                    for (cid, path) in containers.iter().zip(paths.iter()) {
+                        if let (Some(id), Some(hops)) = (
+                            cid.as_u64(),
+                            path.get("hops").and_then(|h| h.as_array()),
+                        ) {
+                            neighborhood.insert(id, hops.len().saturating_sub(1) as u32);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "link_related_containers: relationship walk failed (non-fatal, keyword seeds only): {}",
+                    e
+                );
+            }
+        }
+    }
+
+    // candidate_ids (keyword seeds, computed above) — source 2: they catch
+    // genuinely related containers with NO graph path yet; without them
+    // nothing would ever receive its FIRST relationship edge.
+
+    // ── Score: hop-aware, floors from the relevance policy, NO CAPS ──
+    // Neighborhood candidates ordered by hop distance first, keyword seeds
+    // after; every unique candidate is fetched and scored. Nothing is
+    // truncated — the write phase touches every candidate that clears its
+    // floor, however many that is.
+    // (candidate_id, container_json, context, shared_terms, hops)
+    let mut scored: Vec<(u64, serde_json::Value, serde_json::Value, usize, Option<u32>)> = Vec::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut ordered: Vec<(u64, Option<u32>)> = {
+        let mut v: Vec<(u64, Option<u32>)> =
+            neighborhood.iter().map(|(id, h)| (*id, Some(*h))).collect();
+        v.sort_by_key(|(_, h)| *h);
+        v
+    };
+    for id in &candidate_ids {
+        ordered.push((*id, None));
+    }
+
+    let mut fetch_failures = 0usize;
+    for (candidate_id, hops) in ordered {
+        if candidate_id == container_id || !seen.insert(candidate_id) {
             continue;
         }
-
         let candidate = match zsei_query(serde_json::json!({
             "GetContainer": { "container_id": candidate_id }
         }))
         .await
         {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(_) => {
+                fetch_failures += 1;
+                continue;
+            }
         };
         let container_json = candidate.get("Container").cloned().unwrap_or(candidate);
 
-        let container_type = container_json
+        let candidate_type = container_json
             .pointer("/local_state/metadata/container_type")
             .and_then(|v| v.as_str())
             .unwrap_or("");
-        if is_infrastructure_container_type(container_type) {
+        if is_infrastructure_container_type(candidate_type) {
             continue;
         }
 
@@ -425,10 +540,33 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
             .collect();
 
         let shared_count = own_set.intersection(&candidate_terms).count();
-        if shared_count < 2 {
+        let floor = if hops.is_some() { nb_floor } else { seed_floor };
+        if shared_count < floor {
             continue;
         }
 
+        scored.push((candidate_id, container_json, candidate_context, shared_count, hops));
+    }
+
+    // Most graph-adjacent first, then strongest overlap.
+    scored.sort_by(|a, b| {
+        let ha = a.4.unwrap_or(u32::MAX);
+        let hb = b.4.unwrap_or(u32::MAX);
+        ha.cmp(&hb).then(b.3.cmp(&a.3))
+    });
+
+    // Stats captured BEFORE the write loop consumes `scored` — every value
+    // counted from what this run actually did.
+    let qualified_total = scored.len();
+    let qualified_neighborhood = scored.iter().filter(|c| c.4.is_some()).count();
+    let shared_max = scored.iter().map(|c| c.3).max().unwrap_or(0);
+    let shared_total: usize = scored.iter().map(|c| c.3).sum();
+
+    // ── Write phase: real bidirectional edges, one candidate at a time ──
+    let mut wired = 0usize;
+    let mut already_linked_skipped = 0usize;
+    let mut write_failures = 0usize;
+    for (candidate_id, _container_json, candidate_context, shared_count, hops) in scored {
         let mut relationships: Vec<serde_json::Value> = candidate_context
             .get("relationships")
             .and_then(|v| v.as_array())
@@ -438,18 +576,34 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
             r.get("target_id").and_then(|v| v.as_u64()) == Some(container_id)
         });
         if already_linked {
+            already_linked_skipped += 1;
             continue;
         }
 
         let confidence = (0.3 + 0.15 * shared_count as f32).min(0.9);
-
-        // Candidate -> this new container
-        relationships.push(serde_json::json!({
+        // TWO distinct edges: the candidate points at the new graph, the
+        // new graph points at the candidate. (Found live: reusing ONE edge
+        // object for both sides wrote target_id=container_id into the new
+        // graph's OWN relationships — 7 self-loops.)
+        let mut new_edge = serde_json::json!({
             "target_id": container_id,
             "relation_type": "SimilarTo",
             "confidence": confidence,
             "discovered_via": "CodeAnalysis"
-        }));
+        });
+        let mut reverse_edge = serde_json::json!({
+            "target_id": candidate_id,
+            "relation_type": "SimilarTo",
+            "confidence": confidence,
+            "discovered_via": "CodeAnalysis"
+        });
+        if let Some(h) = hops {
+            new_edge["graph_hops"] = serde_json::json!(h);
+            reverse_edge["graph_hops"] = serde_json::json!(h);
+        }
+
+        // Candidate -> this new container
+        relationships.push(new_edge);
         let mut candidate_context_updated = candidate_context.clone();
         candidate_context_updated["relationships"] = serde_json::Value::Array(relationships);
         let update_a = zsei_query(serde_json::json!({
@@ -467,24 +621,25 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         .await
         {
             Ok(v) => v,
-            Err(_) => continue,
+            Err(_) => {
+                write_failures += 1;
+                continue;
+            }
         };
         let own_container_json = own_container.get("Container").cloned().unwrap_or(own_container);
         let own_context = match own_container_json.pointer("/local_state/context") {
             Some(c) => c.clone(),
-            None => continue,
+            None => {
+                write_failures += 1;
+                continue;
+            }
         };
         let mut own_relationships: Vec<serde_json::Value> = own_context
             .get("relationships")
             .and_then(|v| v.as_array())
             .cloned()
             .unwrap_or_default();
-        own_relationships.push(serde_json::json!({
-            "target_id": candidate_id,
-            "relation_type": "SimilarTo",
-            "confidence": confidence,
-            "discovered_via": "CodeAnalysis"
-        }));
+        own_relationships.push(reverse_edge);
         let mut own_context_updated = own_context.clone();
         own_context_updated["relationships"] = serde_json::Value::Array(own_relationships);
         let update_b = zsei_query(serde_json::json!({
@@ -498,6 +653,7 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         if update_a.is_ok() && update_b.is_ok() {
             wired += 1;
         } else {
+            write_failures += 1;
             eprintln!(
                 "link_related_containers: partial/failed write for {} <-> {} (non-fatal)",
                 container_id, candidate_id
@@ -505,7 +661,30 @@ async fn link_related_containers(container_id: u64, own_keywords: &[String], own
         }
     }
 
-    wired
+    // ── Real captured metrics (user directive: optimize from measured
+    // numbers, never preemptive caps) — every value counted from what this
+    // run actually did. ──
+    let metrics = serde_json::json!({
+        "policy_preset": preset_name,
+        "graph_max_depth": walk_depth,
+        "neighborhood_shared_floor": nb_floor,
+        "seed_shared_floor": seed_floor,
+        "traverse_containers_returned": traverse_returned,
+        "neighborhood_candidates": neighborhood.len(),
+        "seed_candidates": candidate_ids.len(),
+        "unique_candidates": seen.len(),
+        "fetch_failures": fetch_failures,
+        "qualified": qualified_total + already_linked_skipped,
+        "qualified_neighborhood": qualified_neighborhood,
+        "qualified_seeds": qualified_total - qualified_neighborhood + already_linked_skipped,
+        "shared_terms_max": shared_max,
+        "shared_terms_total": shared_total,
+        "already_linked_skipped": already_linked_skipped,
+        "edges_written": wired,
+        "write_failures": write_failures,
+        "duration_ms": started.elapsed().as_millis() as u64,
+    });
+    (wired, metrics)
 }
 
 // ============================================================================
@@ -654,6 +833,13 @@ pub struct CodeModalityOutput {
     /// to a given query, which is exactly what this pass is fixing.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query_result: Option<Value>,
+
+    /// Real captured metrics from link_related_containers on CreateGraph —
+    /// candidate counts, shared-term distribution, edges written, duration.
+    /// Every value counted from what the run actually did (user directive:
+    /// tune from measured numbers, never preemptive caps).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub link_metrics: Option<Value>,
 }
 
 impl Default for CodeModalityOutput {
@@ -671,6 +857,7 @@ impl Default for CodeModalityOutput {
             suggested_methodologies: None,
             hook_result: None,
             query_result: None,
+            link_metrics: None,
         }
     }
 }
@@ -1085,24 +1272,30 @@ pub struct HookResult {
 
 /// Load a CodeGraph from the persisted JSON file.
 /// Tries multiple data dir locations (matching persist_graph_container's
-/// write paths).
+/// write paths). Parses the REAL disk shape (`PersistedCodeGraph` — the
+/// file carries `analysis`, not `modality`/`metadata`) and converts, so a
+/// parse failure here is a genuinely corrupt file rather than a guaranteed
+/// shape mismatch on every single persisted graph.
 fn load_code_graph_from_disk(graph_id: u64) -> Option<CodeGraph> {
     let dirs = [
         std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string()),
         "zsei_data".to_string(),
     ];
     for dir in &dirs {
-        let path = format!("{}/graphs/code_{}.json", dir, graph_id);
-        if let Ok(raw) = std::fs::read_to_string(&path) {
-            if let Ok(graph) = serde_json::from_str::<CodeGraph>(&raw) {
-                return Some(graph);
-            }
-        }
-        // Also try the text-persist pattern
-        let path2 = format!("{}/graphs/code_graph_{}.json", dir, graph_id);
-        if let Ok(raw) = std::fs::read_to_string(&path2) {
-            if let Ok(graph) = serde_json::from_str::<CodeGraph>(&raw) {
-                return Some(graph);
+        for path in [
+            format!("{}/graphs/code_{}.json", dir, graph_id),
+            format!("{}/graphs/code_graph_{}.json", dir, graph_id),
+        ] {
+            if let Ok(raw) = std::fs::read_to_string(&path) {
+                if let Ok(persisted) = serde_json::from_str::<PersistedCodeGraph>(&raw) {
+                    return Some(CodeGraph {
+                        graph_id: persisted.graph_id,
+                        modality: "Code".to_string(),
+                        nodes: persisted.nodes,
+                        edges: persisted.edges,
+                        metadata: HashMap::new(),
+                    });
+                }
             }
         }
     }
@@ -1177,6 +1370,26 @@ fn delete_provisional_session(session_id: &str) -> Vec<ProvisionalNode> {
     let discarded = load_provisional_session(session_id);
     let _ = std::fs::remove_file(provisional_session_path(session_id));
     discarded
+}
+
+/// Container-id-keyed load with an object_store_path fallback — covers
+/// graphs persisted before persist_graph_container began writing the
+/// container-id copy: their files exist only under the path the container
+/// itself records, so that's the honest second place to look.
+async fn load_code_graph_for_container(container_id: u64) -> Option<CodeGraph> {
+    if let Some(graph) = load_code_graph_from_disk(container_id) {
+        return Some(graph);
+    }
+    match read_code_graph(container_id).await {
+        Ok(persisted) => Some(CodeGraph {
+            graph_id: persisted.graph_id,
+            modality: "Code".to_string(),
+            nodes: persisted.nodes,
+            edges: persisted.edges,
+            metadata: HashMap::new(),
+        }),
+        Err(_) => None,
+    }
 }
 
 pub struct CodeModalityPipeline {
@@ -1263,10 +1476,17 @@ impl CodeModalityPipeline {
         let variables = self.extract_variables(code, &language);
         let type_definitions = self.extract_types(code, &language);
         let comments = self.extract_comments(code, &language);
-        let function_calls = if matches!(depth, AnalysisDepth::Deep) {
-            self.extract_function_calls(code, &language, &functions)
-        } else {
+        // Deep and the default Standard depth both extract calls (same
+        // regex-scan cost class as the functions/classes/imports extraction
+        // already run at Standard depth above) — only Surface ("just
+        // structure, fast") skips it. Previously gated to Deep-only while
+        // Standard is the real #[default], so Calls edges almost never
+        // populated in practice even after build_graph_nodes_edges below
+        // was fixed to wire them.
+        let function_calls = if matches!(depth, AnalysisDepth::Surface) {
             Vec::new()
+        } else {
+            self.extract_function_calls(code, &language, &functions)
         };
         
         let complexity_metrics = self.compute_complexity(code, &functions);
@@ -1431,35 +1651,54 @@ impl CodeModalityPipeline {
         };
         
         let re = Regex::new(pattern).unwrap();
-        
+
         for (line_num, line) in code.lines().enumerate() {
             if let Some(caps) = re.captures(line) {
-                let name = match language {
-                    "rust" => caps.get(3).map(|m| m.as_str().to_string()),
-                    "python" => caps.get(2).map(|m| m.as_str().to_string()),
-                    "javascript" | "typescript" | "java" => caps.get(2).or(caps.get(3)).map(|m| m.as_str().to_string()),
-                    _ => None,
+                // Group indices differ per pattern (Java has an extra optional
+                // "public " group before the class name that JS/TS doesn't),
+                // so name/extends/implements must be read per-language rather
+                // than at one fixed index — a prior fixed-index version
+                // silently misattributed Java's "public " capture as the
+                // class name and read JS/TS's implements group as extends.
+                let (name, extends, implements): (Option<String>, Option<String>, Vec<String>) = match language {
+                    "rust" => (caps.get(3).map(|m| m.as_str().to_string()), None, Vec::new()),
+                    "python" => (caps.get(2).map(|m| m.as_str().to_string()), None, Vec::new()),
+                    "javascript" | "typescript" => (
+                        caps.get(2).map(|m| m.as_str().to_string()),
+                        caps.get(3).map(|m| m.as_str().trim().to_string()),
+                        caps.get(4)
+                            .map(|m| m.as_str().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                            .unwrap_or_default(),
+                    ),
+                    "java" => (
+                        caps.get(3).map(|m| m.as_str().to_string()),
+                        caps.get(4).map(|m| m.as_str().trim().to_string()),
+                        caps.get(5)
+                            .map(|m| m.as_str().split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
+                            .unwrap_or_default(),
+                    ),
+                    _ => (None, None, Vec::new()),
                 };
-                
+
                 if let Some(name) = name {
                     let is_public = line.contains("pub ") || line.contains("public ") || line.contains("export ");
                     let end_line = self.find_block_end(code, line_num);
-                    
+
                     classes.push(ClassDef {
                         name,
                         start_line: line_num + 1,
                         end_line,
                         methods: Vec::new(),
                         fields: Vec::new(),
-                        extends: caps.get(4).map(|m| m.as_str().trim().to_string()),
-                        implements: Vec::new(),
+                        extends,
+                        implements,
                         is_public,
                         doc_comment: None,
                     });
                 }
             }
         }
-        
+
         classes
     }
     
@@ -1879,17 +2118,17 @@ impl CodeModalityPipeline {
         // in-process id for this run) rather than failing the whole
         // analysis — same graceful-degradation posture as text modality's
         // identical call.
+        let mut link_metrics: Option<Value> = None;
         match persist_graph_container(&graph.nodes, &graph.edges, &analysis, graph.graph_id, project_id).await {
             Ok((container_id, keywords, topics)) => {
                 graph.graph_id = container_id;
                 if link_to_existing {
-                    let wired = link_related_containers(container_id, &keywords, &topics).await;
-                    if wired > 0 {
-                        eprintln!(
-                            "link_related_containers: wired {} real cross-relationship edge(s) for container {}",
-                            wired, container_id
-                        );
-                    }
+                    let (wired, metrics) = link_related_containers(container_id, project_id, &keywords, &topics).await;
+                    eprintln!(
+                        "link_related_containers: wired {} edge(s) for container {}, metrics: {}",
+                        wired, container_id, metrics
+                    );
+                    link_metrics = Some(metrics);
                 }
             }
             Err(e) => {
@@ -1901,34 +2140,53 @@ impl CodeModalityPipeline {
             success: true,
             graph_id: Some(graph.graph_id),
             graph: Some(graph),
+            link_metrics,
             ..Default::default()
         }
     }
     
-    async fn update_graph(&self, graph_id: u64, _delta: CodeDelta) -> CodeModalityOutput {
-        // Cross-process: load from disk, apply, re-persist
-        if let Some(mut graph) = load_code_graph_from_disk(graph_id) {
-            graph.metadata.insert(
-                "last_accessed".to_string(),
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            );
-            let _ = save_code_graph_to_disk(&graph);
-            return CodeModalityOutput {
-                success: true,
-                graph_id: Some(graph_id),
+    async fn update_graph(&self, graph_id: u64, delta: CodeDelta) -> CodeModalityOutput {
+        // Cross-process (task 65): load the REAL persisted shape, record the
+        // delta as an honest provenance note, re-persist UNCHANGED IN SHAPE.
+        // The previous version rewrote the file in the in-process CodeGraph
+        // shape — silently dropping the analysis section every other reader
+        // (dependency assembly, GetGraphWithProvisional) needs.
+        match read_code_graph(graph_id).await {
+            Ok(mut persisted) => {
+                let note = serde_json::json!({
+                    "operation": delta.operation,
+                    "file_path": delta.file_path,
+                    "affected_nodes": delta.affected_nodes,
+                    "recorded_at": chrono::Utc::now().to_rfc3339(),
+                });
+                if let Ok(json) = serde_json::to_string_pretty(&serde_json::json!({
+                    "graph_id": persisted.graph_id,
+                    "nodes": persisted.nodes,
+                    "edges": persisted.edges,
+                    "analysis": persisted.analysis,
+                    "last_delta": note,
+                })) {
+                    let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+                    let _ = std::fs::create_dir_all(format!("{}/graphs", data_dir));
+                    let _ = std::fs::write(format!("{}/graphs/code_{}.json", data_dir, graph_id), json);
+                }
+                CodeModalityOutput {
+                    success: true,
+                    graph_id: Some(graph_id),
+                    ..Default::default()
+                }
+            }
+            Err(e) => CodeModalityOutput {
+                success: false,
+                error: Some(format!("graph {} not found on disk: {}", graph_id, e)),
                 ..Default::default()
-            };
-        }
-        CodeModalityOutput {
-            success: false,
-            error: Some(format!("graph {} not found on disk", graph_id)),
-            ..Default::default()
+            },
         }
     }
     
     async fn query_graph(&self, graph_id: u64, _query: CodeGraphQuery) -> CodeModalityOutput {
-        // Cross-process retrieval (task 47): on cache miss, load from disk
-        if let Some(graph) = load_code_graph_from_disk(graph_id) {
+        // Cross-process retrieval (task 47) with object_store_path fallback
+        if let Some(graph) = load_code_graph_for_container(graph_id).await {
             return CodeModalityOutput {
                 success: true,
                 graph_id: Some(graph_id),
@@ -2049,10 +2307,14 @@ impl CodeModalityPipeline {
         // alongside what actually exists instead of silently losing either.
         let provisional = load_provisional_session(session_id);
         let graph_ids = find_project_code_graphs(project_id).await.unwrap_or_default();
-        let graph = graph_ids.first().and_then(|id| {
+        let mut graph = None;
+        for id in graph_ids {
             eprintln!("get_graph_with_provisional: project {} graph container {}, loading from disk", project_id, id);
-            load_code_graph_from_disk(*id)
-        });
+            if let Some(loaded) = load_code_graph_for_container(id).await {
+                graph = Some(loaded);
+                break;
+            }
+        }
         if graph.is_none() && provisional.is_empty() {
             return CodeModalityOutput {
                 success: false,
@@ -2360,6 +2622,8 @@ fn build_graph_nodes_edges(
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut node_id = 1u64;
+    let mut function_name_to_id: HashMap<String, u64> = HashMap::new();
+    let mut class_name_to_id: HashMap<String, u64> = HashMap::new();
 
     // File root node
     let file_node_id = node_id;
@@ -2408,6 +2672,7 @@ fn build_graph_nodes_edges(
             properties: HashMap::new(),
         });
 
+        function_name_to_id.insert(func.name.clone(), func_node_id);
         node_id += 1;
     }
 
@@ -2443,7 +2708,63 @@ fn build_graph_nodes_edges(
             properties: HashMap::new(),
         });
 
+        class_name_to_id.insert(class.name.clone(), class_node_id);
         node_id += 1;
+    }
+
+    // Extends/Implements edges (class -> class), same-file resolution only —
+    // extends/implements only ever captures a bare identifier, not a
+    // qualified path, so cross-file resolution isn't attempted here (same
+    // real scope as extract_function_calls below).
+    for class in &analysis.classes {
+        if let Some(&class_node_id) = class_name_to_id.get(&class.name) {
+            if let Some(parent) = &class.extends {
+                if let Some(&parent_id) = class_name_to_id.get(parent) {
+                    edges.push(CodeGraphEdge {
+                        from_node: class_node_id,
+                        to_node: parent_id,
+                        edge_type: CodeEdgeType::Extends,
+                        weight: 1.0,
+                        properties: HashMap::new(),
+                    });
+                }
+            }
+            for iface in &class.implements {
+                if let Some(&iface_id) = class_name_to_id.get(iface) {
+                    edges.push(CodeGraphEdge {
+                        from_node: class_node_id,
+                        to_node: iface_id,
+                        edge_type: CodeEdgeType::Implements,
+                        weight: 1.0,
+                        properties: HashMap::new(),
+                    });
+                }
+            }
+        }
+    }
+
+    // Calls edges (function -> function), same-file resolution only —
+    // extract_function_calls only ever matches callees present in this
+    // file's own function_names, so nothing here is dropped that the
+    // extractor wouldn't already have dropped.
+    for call in &analysis.function_calls {
+        if let (Some(&caller_id), Some(&callee_id)) = (
+            function_name_to_id.get(&call.caller),
+            function_name_to_id.get(&call.callee),
+        ) {
+            edges.push(CodeGraphEdge {
+                from_node: caller_id,
+                to_node: callee_id,
+                edge_type: CodeEdgeType::Calls,
+                weight: 1.0,
+                properties: {
+                    let mut props = HashMap::new();
+                    props.insert("line".to_string(), serde_json::json!(call.line));
+                    props.insert("is_method".to_string(), serde_json::json!(call.is_method));
+                    props
+                },
+            });
+        }
     }
 
     // Import nodes + edges
@@ -2580,5 +2901,78 @@ mod tests {
             !suggestions.iter().any(|s| s.methodology_id == 10 && s.reason == "Test code detected"),
             "must not suggest methodology 10 (API Design) for test code"
         );
+    }
+
+    /// T-C3 (GRAPH_TEST_PLAN §4) — cross-process retrieval. Regression for
+    /// the two real bugs this session fixed in the loader: (1) it parsed the
+    /// in-process CodeGraph shape while persist_graph_container writes the
+    /// PersistedCodeGraph shape (analysis instead of modality/metadata), so
+    /// every parse silently failed; (2) files were keyed by a local
+    /// timestamp id nothing outside the creating process had ever been told.
+    /// Both fixed; this pins the working loader behavior.
+    #[test]
+    fn t_c3_cross_process_retrieval_parses_real_disk_shape() {
+        static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
+        let dir = std::env::temp_dir().join(format!(
+            "ozone_t_c3_{}_{}",
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::create_dir_all(dir.join("graphs")).unwrap();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir);
+
+        let graph_id: u64 = 778002;
+        // The REAL disk shape persist_graph_container writes — analysis
+        // included, no modality/metadata fields.
+        let persisted = serde_json::json!({
+            "graph_id": graph_id,
+            "nodes": [{
+                "node_id": 1,
+                "node_type": "File",
+                "name": "session.rs",
+                "position": null,
+                "properties": {}
+            }],
+            "edges": [],
+            "analysis": {
+                "language": "rust",
+                "file_path": "src/session.rs",
+                "line_count": 7,
+                "functions": [],
+                "classes": [],
+                "imports": [],
+                "exports": [],
+                "variables": [],
+                "type_definitions": [],
+                "comments": [],
+                "function_calls": [],
+                "complexity_metrics": {
+                    "cyclomatic_complexity": 1,
+                    "cognitive_complexity": 1,
+                    "halstead_metrics": null,
+                    "maintainability_index": 100.0
+                }
+            }
+        });
+        std::fs::write(
+            dir.join(format!("graphs/code_{}.json", graph_id)),
+            persisted.to_string(),
+        )
+        .unwrap();
+
+        let loaded = load_code_graph_from_disk(graph_id);
+        assert!(
+            loaded.is_some(),
+            "loader must parse the REAL PersistedCodeGraph disk shape"
+        );
+        let graph = loaded.unwrap();
+        assert_eq!(graph.graph_id, graph_id);
+        assert_eq!(graph.nodes.len(), 1);
+        assert_eq!(graph.modality, "Code");
+
+        std::env::remove_var("OZONE_ZSEI_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

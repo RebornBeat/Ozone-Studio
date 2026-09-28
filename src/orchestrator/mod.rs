@@ -46,6 +46,7 @@ pub mod amt_loop;
 
 /// AMT expansion candidates — unified store (routes, append, review).
 pub mod amt_candidates;
+pub mod decision_review;
 pub mod jurisdiction;
 pub mod jurisdiction_search;
 
@@ -95,6 +96,15 @@ fn executor_model_str(e: ExecutorModelKind) -> &'static str {
         ExecutorModelKind::Slm => "Slm",
         ExecutorModelKind::Omex => "Omex",
     }
+}
+
+/// The result of a REAL model-based gate review (decision_review.rs's
+/// wrapper). decision is lowercase "proceed" or "decline".
+pub(crate) struct DecisionReview {
+    pub decision: String,
+    pub confidence: Option<f32>,
+    pub reasoning: String,
+    pub model_used: String,
 }
 
 /// Orchestration request from UI
@@ -1082,6 +1092,14 @@ pub(crate) struct OrchestrationState {
     /// somehow never ran; Some(_) with rules_loaded: 0 is the honest
     /// default for every instance until a human loads real content.
     pub jurisdiction_gate_result: Option<jurisdiction::JurisdictionGateResult>,
+    /// Set by stage_4_zero_shot_simulation — the simulation's real
+    /// per-step predictions + feasibility, previously parsed then
+    /// discarded (only clarifications_needed survived into state). Stage
+    /// 8's consciousness review already claims to carry "the simulation's
+    /// own self-critique" (stages.rs's own doc comment, TOP_DOWN_REVIEW_
+    /// GUIDE.md §3.2) — this field is what makes that claim true instead
+    /// of aspirational.
+    pub simulation_result: Option<SimulationOutcome>,
 
     // Model context management
     model_context_limit: u32,
@@ -1178,6 +1196,27 @@ pub(crate) struct OrchestrationState {
 pub struct ComplianceCheckResult {
     pub compliant: bool,
     pub reason: String,
+}
+
+/// One step's real zero-shot simulation prediction (stage 4's real output —
+/// previously parsed into `sim_json` then discarded; only
+/// `clarifications_needed` survived into `state`). `step` matches the
+/// blueprint step's own `step_index`.
+#[derive(Debug, Clone)]
+pub(crate) struct SimulationStepPrediction {
+    pub step: u32,
+    pub needs: Vec<String>,
+    pub produces: Vec<String>,
+    pub risks: Vec<String>,
+}
+
+/// The simulation stage's real result, stored so a later stage — currently
+/// stage 8's consciousness review — can see the system's own self-critique
+/// of the plan instead of it being computed then thrown away.
+#[derive(Debug, Clone)]
+pub(crate) struct SimulationOutcome {
+    pub overall_feasibility: String,
+    pub step_predictions: Vec<SimulationStepPrediction>,
 }
 
 #[derive(Debug, Clone)]
@@ -1377,6 +1416,12 @@ pub struct PromptOrchestrator {
     /// See src/orchestrator/jurisdiction.rs — base safety-layer config,
     /// deliberately separate from the optional consciousness system.
     jurisdiction_config: crate::config::JurisdictionConfig,
+    /// Same real base directory `DecisionReviewExecutor` uses
+    /// (`config.general.data_dir`) — needed here so `metered_execute_
+    /// resilient`'s per-call metrics capture (`zero_shot_calls.jsonl`)
+    /// lands as a real sibling of `decision_review.jsonl` under
+    /// `{data_dir}/model_calls/`, not a second, inconsistent base.
+    data_dir: String,
 }
 
 impl PromptOrchestrator {
@@ -1387,6 +1432,7 @@ impl PromptOrchestrator {
         pipeline_index: Arc<RwLock<Option<PipelineIndex>>>,
         default_context_limit: u32,
         jurisdiction_config: crate::config::JurisdictionConfig,
+        data_dir: String,
     ) -> Self {
         Self {
             executor,
@@ -1395,6 +1441,7 @@ impl PromptOrchestrator {
             pipeline_index,
             default_context_limit,
             jurisdiction_config,
+            data_dir,
         }
     }
 
@@ -1532,6 +1579,7 @@ impl PromptOrchestrator {
             stages: Vec::new(),
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
+            simulation_result: None,
             model_context_limit,
             tokens_used_so_far: prompt_tokens,
             raw_chunks: Vec::new(),
@@ -1769,14 +1817,51 @@ impl PromptOrchestrator {
                     )
                     .await?;
 
-                let graph_input = serde_json::json!({
-                    "action": {
-                        "type": "CreateGraph",
-                        "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
-                        "project_id": state.request.project_id.unwrap_or(0),
-                        "link_to_existing": true
-                    }
-                });
+                // Math (105) has a fundamentally different output/input
+                // contract than text/code — confirmed live 2026-09-21: its
+                // CreateGraph action requires a field literally named
+                // `analysis` (typed MathAnalysisResult), not `analysis_result`
+                // copied from a generic `.get("analysis")` lookup (math's own
+                // output has no such key — MathModalityOutput has no
+                // top-level "analysis" convenience field, only `result`,
+                // unlike text/code's output shape). Sending the generic
+                // analysis_result-keyed payload failed outright ("missing
+                // field `analysis`"), silently masked downstream (see
+                // graph_id fallback below) rather than surfacing loudly.
+                // ParseExpression's own output (analysis_result here) puts
+                // the real ParseResult directly under "result" (MathResult is
+                // #[serde(untagged)]), so it's wrapped as parse_result and
+                // the rest of MathAnalysisResult is synthesized around it.
+                let graph_input = if effective_pipeline == 105 {
+                    let parse_result = analysis_result.get("result").cloned();
+                    let confidence = parse_result
+                        .as_ref()
+                        .and_then(|p| p.get("confidence"))
+                        .and_then(|c| c.as_f64())
+                        .unwrap_or(0.5) as f32;
+                    serde_json::json!({
+                        "action": {
+                            "type": "CreateGraph",
+                            "analysis": {
+                                "analysis_type": "Expression",
+                                "parse_result": parse_result,
+                                "proof_analysis": null,
+                                "confidence": confidence
+                            },
+                            "project_id": state.request.project_id.unwrap_or(0),
+                            "link_to_existing": true
+                        }
+                    })
+                } else {
+                    serde_json::json!({
+                        "action": {
+                            "type": "CreateGraph",
+                            "analysis_result": analysis_result.get("analysis").cloned().unwrap_or_default(),
+                            "project_id": state.request.project_id.unwrap_or(0),
+                            "link_to_existing": true
+                        }
+                    })
+                };
 
                 let graph_result = self
                     .executor
@@ -1784,10 +1869,27 @@ impl PromptOrchestrator {
                     .await
                     .unwrap_or_default();
 
-                let graph_id = graph_result
-                    .get("graph_id")
-                    .and_then(|g| g.as_u64())
-                    .unwrap_or(Self::generate_id_static());
+                // Math's CreateGraph result (MathGraph, via #[serde(untagged)]
+                // MathResult::Graph) nests graph_id under "result" — unlike
+                // code/text's CodeModalityOutput-style shape, which puts
+                // graph_id at the output's top level. Using the top-level
+                // lookup unconditionally previously always missed for math,
+                // silently minting a fresh unlinked id instead of the real
+                // persisted one (the CreateGraph call would fail before this
+                // even mattered, per the analysis/analysis_result bug above —
+                // but this would have bitten separately once that was fixed).
+                let graph_id = if effective_pipeline == 105 {
+                    graph_result
+                        .get("result")
+                        .and_then(|r| r.get("graph_id"))
+                        .and_then(|g| g.as_u64())
+                        .unwrap_or(Self::generate_id_static())
+                } else {
+                    graph_result
+                        .get("graph_id")
+                        .and_then(|g| g.as_u64())
+                        .unwrap_or(Self::generate_id_static())
+                };
 
                 state
                     .file_graphs
@@ -2206,15 +2308,34 @@ impl PromptOrchestrator {
     }
 
     /// True if `result` should be treated as "not good enough to use" for
-    /// pipeline 9 (Prompt) specifically — either a hard error, or an `Ok`
-    /// response whose `response` text field is empty/missing. Confirmed
-    /// live this session as a real, recurring backend behavior
-    /// (particularly OpenRouter): a technically-successful call that
-    /// returned nothing usable, which `result.is_err()` alone misses,
-    /// silently letting a caller proceed with empty content instead of
-    /// retrying or falling back. Only applied to pipeline 9 — other
-    /// pipelines have different success shapes where an empty string may
-    /// be entirely valid (e.g. "no entities found").
+    /// pipeline 9 (Prompt) specifically — either a hard error, an `Ok`
+    /// response whose `response` text field is empty/missing, OR a
+    /// "confetti" response (more than one distinct, non-empty, parseable
+    /// JSON candidate — object or array — in the same text). Confirmed
+    /// live this session as a real, recurring BitNet behavior: a single
+    /// response can contain multiple conflicting JSON candidates
+    /// (`Decide 0.9 → Reject 0.8 → Proceed 0.7 → ...`, confidence
+    /// descending, interleaved with prose/code-fences/hallucinated
+    /// follow-up text) — a real generation-quality problem, not a parsing
+    /// problem, so it's treated as unusable here (at the single chokepoint
+    /// every `metered_execute_resilient`-routed call site already shares)
+    /// rather than parsed-around individually at each call site. This
+    /// closes the systemic exposure flagged 2026-09-22 after `decision_
+    /// review.rs`, `amt_loop.rs`, and `meta_loop.rs` each needed their own
+    /// local confetti fix. `amt_loop.rs`/`meta_loop.rs` are fully
+    /// unaffected (detached background loops, confirmed zero references to
+    /// this function). `decision_review.rs`'s PRIMARY attempt keeps its own
+    /// local `pipeline9_unusable`/`is_confetti` check, unaffected — but its
+    /// FALLBACK step (`walk_fallback_chain_standalone`, which already calls
+    /// this function per-candidate) now gets confetti protection for the
+    /// first time: previously a confetti response from a FALLBACK model was
+    /// silently accepted, only the primary attempt was checked. Every other
+    /// real zero-shot call site (`metered_execute_resilient`'s ~15 sites,
+    /// the primary step-execution dispatch) is now transitively protected
+    /// with zero changes needed at each site.
+    /// Empty-response check still applies first — a hard error or missing
+    /// text is empty, not "one real candidate," so this never contradicts
+    /// the original check.
     pub(crate) fn is_unusable_pipeline9_result(
         pipeline_id: u64,
         result: &Result<serde_json::Value, String>,
@@ -2224,12 +2345,312 @@ impl PromptOrchestrator {
         }
         match result {
             Err(_) => true,
-            Ok(v) => v
-                .get("response")
-                .and_then(|r| r.as_str())
-                .map(|s| s.trim().is_empty())
-                .unwrap_or(true),
+            Ok(v) => {
+                let text = v.get("response").and_then(|r| r.as_str()).unwrap_or("");
+                if text.trim().is_empty() {
+                    return true;
+                }
+                Self::extract_all_json_candidates_shared(text).len() > 1
+            }
         }
+    }
+
+    /// Every non-empty, parseable, top-level JSON candidate in a noisy
+    /// model response, in order — object (`{...}`) or array (`[...]`)
+    /// shape (different real call sites parse different top-level shapes,
+    /// e.g. File Role Classification parses an array). Generalizes
+    /// `decision_review.rs`'s `extract_all_json_objects` (object-only,
+    /// proven live against real BitNet confetti) to both shapes so
+    /// `is_unusable_pipeline9_result` can detect confetti for every real
+    /// call site, not just object-returning ones. A count > 1 here is
+    /// confetti; skipping empty objects `{}` matters for the same reason
+    /// `extract_json_object_shared` skips them — BitNet frequently emits a
+    /// bare `{}` before its real answer, and an empty object parses fine
+    /// but carries nothing.
+    pub(crate) fn extract_all_json_candidates_shared(response: &str) -> Vec<String> {
+        // TOP-LEVEL ONLY, BOTH SHAPES AS ONE TREE (fixed 2026-09-27; found
+        // by the E4 fork's code read, confirmed by zcode against source).
+        // The original double-scanned the bytes — once for `{...}` and
+        // once for `[...]` — AND restarted at every open byte, so ONE
+        // well-formed nested value like `{"steps":[{"a":1},{"b":2}]}`
+        // yielded multiple "candidates" (outer object + inner array +
+        // inner objects), and `is_unusable_pipeline9_result` treats >1 as
+        // confetti — every successful nested-JSON response (blueprint
+        // assignment, simulation, AMT — all nested shapes) would have been
+        // retried into the fallback chain once models answer (masked until
+        // now only by the OpenRouter credits failure). ONE scan now:
+        // `{`/`[` push depth, `}`/`]` pop; a candidate is emitted only
+        // when the depth returns to 0 (a completed TOP-LEVEL value), then
+        // scanning resumes at end+1. Sibling top-level values remain N
+        // candidates (real confetti detection unchanged); an unbalanced
+        // prefix still advances one byte so later candidates remain
+        // findable (the old fallback behavior, preserved).
+        let bytes = response.as_bytes();
+        let mut out = Vec::new();
+        let mut start = 0usize;
+        while start < bytes.len() {
+            let open = bytes[start];
+            if open != b'{' && open != b'[' {
+                start += 1;
+                continue;
+            }
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut end = None;
+            for (i, &c) in bytes.iter().enumerate().skip(start) {
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == b'\\' {
+                        escaped = true;
+                    } else if c == b'"' {
+                        in_string = false;
+                    }
+                    continue;
+                }
+                if c == b'"' {
+                    in_string = true;
+                } else if c == b'{' || c == b'[' {
+                    depth += 1;
+                } else if c == b'}' || c == b']' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+            }
+            match end {
+                Some(end) => {
+                    let candidate = &response[start..=end];
+                    let accepted = serde_json::from_str::<serde_json::Value>(candidate)
+                        .ok()
+                        .map(|v| match (open == b'{', v) {
+                            (true, serde_json::Value::Object(o)) => !o.is_empty(),
+                            (false, serde_json::Value::Array(a)) => !a.is_empty(),
+                            _ => false,
+                        })
+                        .unwrap_or(false);
+                    if accepted {
+                        out.push(candidate.to_string());
+                    }
+                    start = end + 1;
+                }
+                None => {
+                    start += 1;
+                }
+            }
+        }
+        out
+    }
+
+    /// Balanced-scan JSON extraction (shared core of the amt_loop/meta_loop
+    /// extractors — methodology 35): find the FIRST '{' whose braces balance
+    /// (string-aware) AND that parses as JSON. Naive first-{-to-last-}
+    /// slicing spans prompt echo and hallucinated follow-ups and fails on
+    /// every noisy-but-usable local-model response.
+    pub(crate) fn extract_json_object_shared(response: &str) -> String {
+        let bytes = response.as_bytes();
+        for start in 0..bytes.len() {
+            if bytes[start] != b'{' {
+                continue;
+            }
+            let mut depth = 0usize;
+            let mut in_string = false;
+            let mut escaped = false;
+            let mut end = None;
+            for (i, &c) in bytes.iter().enumerate().skip(start) {
+                if in_string {
+                    if escaped {
+                        escaped = false;
+                    } else if c == b'\\' {
+                        escaped = true;
+                    } else if c == b'"' {
+                        in_string = false;
+                    }
+                    continue;
+                }
+                match c {
+                    b'"' => in_string = true,
+                    b'{' => depth += 1,
+                    b'}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            end = Some(i);
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(end) = end {
+                let candidate = &response[start..=end];
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(candidate) {
+                    // Found live 2026-09-22 (BitNet): models frequently emit
+                    // a bare `{}` before their real answer — an empty object
+                    // parses fine but carries nothing, and accepting it made
+                    // every downstream field lookup fail with "missing
+                    // field". Skip empty objects; the first NON-EMPTY
+                    // parseable candidate is the answer.
+                    if parsed.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                        return candidate.to_string();
+                    }
+                }
+            }
+        }
+        "{}".to_string()
+    }
+
+    /// Shared retry-then-fallback wrapper for pipeline-9 calls, extracted
+    /// from the one place in this codebase that already handled this
+    /// correctly (the primary step-execution dispatch, `stages.rs`'s
+    /// `execute_step`) so every other call site can share the identical,
+    /// proven behavior instead of re-deriving it. Confirmed live, more than
+    /// once: pipeline 9 (especially OpenRouter) can return `Ok` with a
+    /// genuinely empty `response` field despite real, non-zero
+    /// `tokens_used` — a real, recurring backend behavior, not a hard
+    /// error, and not a hypothetical. `is_unusable_pipeline9_result` alone
+    /// (checking only `.is_err()`) misses this; retrying the same call a
+    /// couple of times with a short backoff resolves many transient cases,
+    /// and if it's still unusable, `try_fallback_chain` walks the user's
+    /// configured multi-provider chain rather than silently proceeding with
+    /// nothing. Callers get back the same `Result` shape `metered_execute`
+    /// already returns, so this is a drop-in replacement at any pipeline-9
+    /// call site.
+    /// Token-aware output budget (registry §9's fix shape; methodology 38):
+    /// derived from the EFFECTIVE model context as a per-kind fraction with
+    /// an absolute floor (the shipped `mod.rs` `(limit/4).max(256)`
+    /// precedent) — never a flat constant tuned against one model. Callers
+    /// opt in per site by setting `input["_budget_fraction"]` (e.g. 0.10 =
+    /// a tenth of the effective context); the derivation lands HERE for the
+    /// primary attempt, and `walk_fallback_chain_standalone` re-derives
+    /// from each CANDIDATE model's own context_length on every fallback
+    /// attempt (fixed 2026-09-22 — the budget previously froze at the
+    /// primary model's context across the whole walk).
+    fn derive_output_budget(model_context_limit: u64, fraction: f32) -> u32 {
+        ((model_context_limit as f32 * fraction) as u32).max(256)
+    }
+
+    /// `call_site`: a stable, human-readable label identifying which of
+    /// the real zero-shot call sites this invocation came from (see
+    /// `docs/ZERO_SHOT_CALL_REGISTRY.md` §1 for the real inventory this
+    /// mirrors) — captured alongside every call's real outcome to
+    /// `{data_dir}/model_calls/zero_shot_calls.jsonl`, the general-purpose
+    /// per-call-site metrics log (user directive 2026-09-22: track real
+    /// outcomes across every step/stage/model so behavior — e.g. BitNet vs
+    /// OpenRouter retry rates per call site — is measured, not guessed).
+    /// This is the ONE chokepoint ~19 of ~20 real call sites already share,
+    /// so capture lands here once instead of at every site individually.
+    async fn metered_execute_resilient(
+        &self,
+        state: &mut OrchestrationState,
+        mut input: serde_json::Value,
+        call_site: &str,
+    ) -> Result<serde_json::Value, String> {
+        // Token-aware derivation (see derive_output_budget): callers mark
+        // the fraction; the budget follows whatever model the walk ends at.
+        // Real bug found+fixed this session: `_budget_fraction` used to be
+        // consumed (removed) right here, so `max_tokens` was derived ONCE
+        // from `state.model_context_limit` — the PRIMARY model's context,
+        // fixed for the whole request — and that frozen value then rode
+        // unchanged into `try_fallback_chain` below even when the walk
+        // switches to a smaller/larger-context fallback model. `_budget_
+        // fraction` is now left IN `input` (not removed) specifically so
+        // `walk_fallback_chain_standalone`'s per-candidate loop can re-
+        // derive `max_tokens` from each real candidate's own context_length
+        // — see the matching re-derivation there. This block still sets an
+        // initial value for the primary attempt (and the same-model retry
+        // loop just below, which never changes model) since neither of
+        // those goes through the fallback walk.
+        if let Some(fraction) = input
+            .get("_budget_fraction")
+            .and_then(|f| f.as_f64())
+        {
+            if let Some(obj) = input.as_object_mut() {
+                obj.insert(
+                    "max_tokens".to_string(),
+                    serde_json::json!(Self::derive_output_budget(
+                        state.model_context_limit as u64,
+                        fraction as f32
+                    )),
+                );
+            }
+        }
+        let mut result = self.metered_execute(state, 9, input.clone()).await;
+        let mut retries = 0;
+        while Self::is_unusable_pipeline9_result(9, &result) && retries < 2 {
+            retries += 1;
+            tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
+            result = self.metered_execute(state, 9, input.clone()).await;
+        }
+        let mut used_fallback = false;
+        if Self::is_unusable_pipeline9_result(9, &result) {
+            used_fallback = true;
+            let last_error = result
+                .clone()
+                .err()
+                .unwrap_or_else(|| "primary model returned an empty response".to_string());
+            result = self.try_fallback_chain(state, 9, input.clone(), last_error).await;
+        }
+        self.capture_zero_shot_call(call_site, state, &result, retries, used_fallback);
+        result
+    }
+
+    /// Real per-call metrics capture — the general-purpose sibling of
+    /// `DecisionReviewExecutor::capture()` (`decision_review.rs`), same
+    /// proven append-only-JSONL pattern, same base directory
+    /// (`{data_dir}/model_calls/`), separate file
+    /// (`zero_shot_calls.jsonl`) so pipeline-39 reviews and general
+    /// zero-shot calls don't mix in one log. Never panics/blocks the real
+    /// call on a logging failure — best-effort, matching the reference
+    /// implementation's own posture.
+    fn capture_zero_shot_call(
+        &self,
+        call_site: &str,
+        state: &OrchestrationState,
+        result: &Result<serde_json::Value, String>,
+        retries: u32,
+        used_fallback: bool,
+    ) {
+        use std::io::Write;
+        let dir = format!("{}/model_calls", self.data_dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let path = format!("{}/zero_shot_calls.jsonl", dir);
+        let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+            return;
+        };
+        let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+        let (success, model_used, tokens_used, response_preview) = match result {
+            Ok(v) => (
+                !Self::is_unusable_pipeline9_result(9, result),
+                v.get("model_used").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+                v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0),
+                v.get("response").and_then(|r| r.as_str()).map(|s| cut(s, 500)).unwrap_or_default(),
+            ),
+            Err(e) => (false, String::new(), 0, cut(e, 300)),
+        };
+        // RAW THOUGHT CONTEXT MARKERS (CONTEXT_REGISTRY S10/S11): every
+        // model response is correlated to its graph position — the AMT
+        // container it was built from, the blueprint it was drafted for,
+        // and the project it belongs to. This is what makes a raw thought
+        // queryable: "show me every thought about container X" or "what
+        // did model M say about blueprint B" are jsonl greps.
+        let record = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "call_site": call_site,
+            "model_used": model_used,
+            "tokens_used": tokens_used,
+            "retry_count": retries,
+            "used_fallback": used_fallback,
+            "success": success,
+            "response_preview": response_preview,
+            "amt_container_id": state.amt_container_id,
+            "blueprint_id": state.blueprint_id,
+            "project_id": state.request.project_id,
+            "prompt_preview": cut(&state.request.prompt, 200),
+        });
+        let _ = writeln!(f, "{}", record);
     }
 
     /// The free-function core of `walk_fallback_chain`, usable by callers
@@ -2264,6 +2685,25 @@ impl PromptOrchestrator {
                 error = ?result.as_ref().err(),
                 "Pipeline call failed, trying next fallback"
             );
+            // PER-ATTEMPT BUDGET RE-DERIVATION — fixed 2026-09-22 (CC's
+            // doc-verification fork caught it; the comment previously
+            // claimed "the budget follows whatever model the walk ends at"
+            // while the code froze max_tokens from the PRIMARY model's
+            // context before the walk ever started). When the caller
+            // marked `_budget_fraction`, derive max_tokens from the
+            // CANDIDATE model's own context_length — the budget now
+            // genuinely follows the model being asked.
+            if let Some(fraction) = input.get("_budget_fraction").and_then(|f| f.as_f64()) {
+                if let Some(obj) = input.as_object_mut() {
+                    obj.insert(
+                        "max_tokens".to_string(),
+                        serde_json::json!(Self::derive_output_budget(
+                            profile.context_length as u64,
+                            fraction as f32
+                        )),
+                    );
+                }
+            }
             let override_cfg = ModelConfigOverride {
                 model_type: Some(profile.model_type.clone()),
                 model_identifier: Some(profile.identifier.clone()),
@@ -2279,6 +2719,29 @@ impl PromptOrchestrator {
             };
             if let Ok(v) = serde_json::to_value(&override_cfg) {
                 input["model_override_config"] = v;
+            }
+            // Real bug fix (this session): token-aware callers set
+            // `_budget_fraction` (see `metered_execute_resilient`/
+            // `derive_output_budget`) expecting the output budget to
+            // "follow whatever model the walk ends at" — but `max_tokens`
+            // was previously derived ONCE from the primary model's context
+            // before this walk even started, then reused unchanged for
+            // every fallback candidate regardless of that candidate's real
+            // (possibly much smaller) context. Re-derive here, per
+            // candidate, from `profile.context_length` — the real value
+            // this loop already has in hand for the model it's about to
+            // call — so a fallback to a small-context local model gets a
+            // budget sized for ITS context, not the original model's.
+            if let Some(fraction) = input.get("_budget_fraction").and_then(|f| f.as_f64()) {
+                if let Some(obj) = input.as_object_mut() {
+                    obj.insert(
+                        "max_tokens".to_string(),
+                        serde_json::json!(Self::derive_output_budget(
+                            profile.context_length as u64,
+                            fraction as f32
+                        )),
+                    );
+                }
             }
             result = executor.execute(pipeline_id, input.clone()).await;
             if !Self::is_unusable_pipeline9_result(pipeline_id, &result) {
@@ -2309,7 +2772,25 @@ impl PromptOrchestrator {
                 let input = k_validation::yes_no_input(&prompt);
                 let t = t.clone();
                 async move {
-                    match self.executor.execute(9, input).await {
+                    // Same Ok-but-empty behavior as metered_execute_resilient,
+                    // scoped down to what's reachable here: this closure has
+                    // no OrchestrationState (it must stay re-callable across
+                    // the strength-N confirmation loop, which a &mut borrow
+                    // can't satisfy), so a full fallback-chain walk isn't
+                    // available — but a same-call retry needs no state and
+                    // directly reduces wasted votes from a transient empty
+                    // response, the same real backend behavior confirmed
+                    // live elsewhere this session.
+                    let mut attempt_result = self.executor.execute(9, input.clone()).await;
+                    let mut retries = 0;
+                    while PromptOrchestrator::is_unusable_pipeline9_result(9, &attempt_result)
+                        && retries < 2
+                    {
+                        retries += 1;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
+                        attempt_result = self.executor.execute(9, input.clone()).await;
+                    }
+                    match attempt_result {
                         Ok(result) => {
                             if let Some(tok) =
                                 result.get("tokens_used").and_then(|x| x.as_u64())
@@ -2431,7 +2912,7 @@ impl PromptOrchestrator {
             "system_context": "AMT alignment review. Return only valid JSON."
         });
 
-        if let Ok(result) = self.metered_execute(state, 9, input).await {
+        if let Ok(result) = self.metered_execute_resilient(state, input, "on_step_complete_alignment").await {
             self.record_thinking(state, "AMT Alignment Review", &result);
             let raw = result
                 .get("response")
@@ -2984,6 +3465,7 @@ mod tests {
             Arc::new(RwLock::new(None)),
             200000,
             crate::config::JurisdictionConfig::default(),
+            "zsei_data".to_string(),
         );
 
         let request = OrchestrationRequest {
@@ -3050,5 +3532,63 @@ mod tests {
             5
         );
         assert_eq!(PromptOrchestrator::estimate_tokens(""), 0);
+    }
+
+    #[test]
+    fn nested_json_is_one_candidate_not_confetti() {
+        // Regression guard for the 2026-09-27 top-level-only fix (found by
+        // the E4 fork's code read): the scan previously restarted at every
+        // open byte, so ONE well-formed nested response counted as 4
+        // "candidates" and is_unusable_pipeline9_result would have judged
+        // every successful nested-JSON response (blueprint assignment,
+        // simulation, AMT — all nested shapes) confetti and retried it
+        // into the ground. Nested structures are ONE candidate; real
+        // confetti (two SIBLING top-level objects) is still two.
+        let nested = r#"{"steps":[{"a":1},{"b":2}]}"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(nested).len(),
+            1,
+            "one nested object with an inner array must be exactly 1 candidate"
+        );
+
+        let nested_deep = r#"Here is the plan: {"steps":[{"n":1,"sub":{"x":[1,2]}},{"n":2}]} done"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(nested_deep).len(),
+            1,
+            "arbitrary nesting depth stays 1 candidate"
+        );
+
+        // The actual confetti shape BitNet produced live: sibling
+        // top-level objects (with the leading empty {} that the
+        // non-empty filter drops) — still detected as confetti.
+        let confetti = r#"{} {"decision":"Proceed","reasoning":"ok"} {"decision":"Decline","reasoning":"no"}"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(confetti).len(),
+            2,
+            "sibling top-level objects are 2 candidates (confetti) — empty {{}} filtered"
+        );
+
+        // Two clean sibling objects (no empties): still confetti.
+        let siblings = r#"{"a":1} {"b":2}"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(siblings).len(),
+            2
+        );
+
+        // Unbalanced prefix must not hide a later real candidate (old
+        // fallback behavior preserved by the advance-by-one path).
+        let unbalanced_then_real = r#"{"broken": [1, 2 {"decision":"Proceed","reasoning":"fine"}"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(unbalanced_then_real).len(),
+            1
+        );
+
+        // Array top-level shape (File Role Classification parses arrays).
+        let array_shape = r#"The roles: [{"file":"a.rs","role":"primary"},{"file":"b.rs","role":"raw"}]"#;
+        assert_eq!(
+            PromptOrchestrator::extract_all_json_candidates_shared(array_shape).len(),
+            1,
+            "one top-level array with inner objects is 1 candidate"
+        );
     }
 }

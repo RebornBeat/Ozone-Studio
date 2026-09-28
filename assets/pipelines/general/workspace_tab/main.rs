@@ -13,6 +13,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::fs;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum WorkspaceInput {
@@ -95,8 +98,22 @@ pub struct WorkspaceOutput {
 
 /// Storage path for workspace data
 fn storage_path() -> PathBuf {
-    let base = std::env::var("OZONE_DATA_PATH")
-        .unwrap_or_else(|_| "./data".to_string());
+    // OZONE_DATA_PATH's bare "./data" fallback is CWD-relative — this
+    // pipeline runs as a subprocess spawned by the host (no explicit
+    // current_dir set at the spawn site, src/pipeline/executor.rs), so it
+    // silently inherits whatever CWD the host itself happens to have. That
+    // has worked by coincidence every session so far (the host is always
+    // launched from target/release/), but it's the same fragile-relative-
+    // path class already found and fixed 3+ times elsewhere this session
+    // (amt_loop.rs, jurisdiction.rs, amt.rs — all resolved by anchoring to
+    // the same OZONE_ZSEI_DATA_DIR-style stable base rather than a bare
+    // relative default). Anchoring this pipeline's own flat-file storage
+    // alongside the real zsei_data root, not a separate ad-hoc "./data"
+    // tree, for the same stability guarantee.
+    let base = std::env::var("OZONE_DATA_PATH").unwrap_or_else(|_| {
+        let zsei_base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        format!("{}/workspace_tab_data", zsei_base)
+    });
     PathBuf::from(base).join("workspaces")
 }
 

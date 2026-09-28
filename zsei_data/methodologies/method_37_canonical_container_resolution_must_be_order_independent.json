@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "When duplicates of a logical entity exist, resolve the canonical one by a stable, order-independent key \u2014 minimum container id \u2014 never by iteration order.",
+   "rationale": "Live-confirmed 2026-09-20 twice: root 7 held 41 scope codes duplicated up to 8x; 'insert into map' resolved to the NEWEST duplicate each boot (edges scattered, count never converged), and 'first occurrence in child_ids' broke when the storage layer reshuffled child_ids across restarts (wired 27 then 30 on consecutive boots).",
+   "applicability": [
+    "storage",
+    "deduplication",
+    "boot",
+    "idempotency"
+   ]
+  },
+  {
+   "statement": "A boot-time idempotency claim is only proven when the wired/created count converges to zero across real restarts \u2014 the unit-test guarantee does not survive an unstable input ordering.",
+   "rationale": "The T-J5 idempotency test passed while live boots kept wiring fresh scaffolds, because the test's input order was stable and production's was not.",
+   "applicability": [
+    "boot",
+    "testing",
+    "idempotency"
+   ]
+  },
+  {
+   "statement": "Data-integrity bugs announce themselves as counts that drift: identical data producing different totals across runs.",
+   "rationale": "'Jurisdiction graph: wired 27/35/24/21 relationship edges' across boots on unchanged files was the entire bug report \u2014 the varying number WAS the finding.",
+   "applicability": [
+    "debugging",
+    "monitoring",
+    "boot"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Building a name/scope -> container-id map over children that may contain historical duplicates.",
+   "description": "Keep the MINIMUM container id per key (entry().and_modify with a min-compare). Insertion order, hash order, and reload order all lie; ids don't.",
+   "when_to_apply": "Any boot-time or query-time resolution over a graph with possible duplicates."
+  },
+  {
+   "name": "A convergence count (wired/registered/repaired) does not reach zero on the second identical run.",
+   "description": "Stop adding special cases; dump the full set of targets, diff them across two runs, and find what is unstable before touching the algorithm again.",
+   "when_to_apply": "Boot blocks and background loops."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "Wiring or updating entities resolved through a container map.",
+   "action": "Resolve canonically by min-id first; verify the second identical run performs zero writes before considering the feature done."
+  }
+ ]
+}

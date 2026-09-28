@@ -305,7 +305,7 @@ Return ONLY the rendered text. No explanation. No markdown."#
                 "temperature": 0.4,
                 "system_context": "Constrained surface realization. Render only what the graph contains."
             });
-            if let Ok(result) = self.metered_execute(state, 9, input).await {
+            if let Ok(result) = self.metered_execute_resilient(state, input, "response_graph_render").await {
                 self.record_thinking(state, "Response Rendering (Tier 1)", &result);
                 if let Some(text) = result.get("response").and_then(|r| r.as_str()) {
                     let text = text.trim().to_string();

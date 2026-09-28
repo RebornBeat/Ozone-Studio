@@ -1,0 +1,15 @@
+{
+  "category_id": 1,
+  "decision_rules": [],
+  "description": "test",
+  "heuristics": [
+    {
+      "description": "y",
+      "examples": [],
+      "name": "x",
+      "when_to_apply": "x"
+    }
+  ],
+  "name": "test methodology",
+  "principles": []
+}

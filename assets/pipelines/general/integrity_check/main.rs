@@ -10,6 +10,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Direct integrity store - persists check results
 lazy_static::lazy_static! {
     static ref INTEGRITY_STORE: Mutex<IntegrityStore> = Mutex::new(IntegrityStore::new());

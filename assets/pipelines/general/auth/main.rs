@@ -18,6 +18,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Session store - in production, this is shared with the core runtime
 // For built-in pipelines, we access it directly
 lazy_static::lazy_static! {

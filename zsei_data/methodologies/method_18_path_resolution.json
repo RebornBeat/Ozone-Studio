@@ -1,0 +1,48 @@
+{
+  "principles": [
+    {
+      "statement": "Never resolve a filesystem path relative to the current working directory when that code might run with different launch-time CWDs. Use a CWD-independent resolver anchored to the binary's own location (or an explicit env var override), the same pattern bootstrap.rs's resolve_assets_dir() already establishes.",
+      "rationale": "This exact bug class was found and fixed THREE separate times in one session (2026-09-15): methodology/jurisdiction content files silently invisible when the host launched from the wrong directory, a pipeline binary writing data to the wrong zsei_data/, and a naive 'assets/jurisdiction' relative path that would have silently resolved to nothing when launched the traditional way. Each instance was the same root mistake in a different place.",
+      "applicability": ["filesystem", "bootstrap", "self_heal", "code_review"]
+    },
+    {
+      "statement": "A self-healing registration/copy step that reads real content from disk is only as reliable as its path resolution — a correct registration algorithm silently does nothing useful if it's looking in the wrong directory, and this fails silently (empty result, not an error) rather than loudly.",
+      "rationale": "Confirmed live: a real, correctly-written self-heal registration block found zero candidates and correctly logged nothing wrong — the actual bug was entirely upstream, in how the source directory was located, and would have been easy to miss without independently checking the real filesystem state.",
+      "applicability": ["filesystem", "debugging", "verification"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Prefer the Established Resolver",
+      "description": "Before writing a new function that needs to find assets/, config/, or data directories, check whether an existing CWD-independent resolver (e.g. BootstrapManager::resolve_assets_dir()) already solves this, and reuse or extend it rather than writing a new relative-path lookup.",
+      "when_to_apply": "Any new code that reads bundled/shipped content from disk at runtime.",
+      "examples": [
+        "Needed to find assets/jurisdiction/ for a new self-heal copy step — reused resolve_assets_dir() (made pub) instead of a relative 'assets/jurisdiction' literal, which would have broken under the host's normal target/release launch convention."
+      ]
+    },
+    {
+      "name": "Verify Path Resolution Against Both Real Launch Conventions",
+      "description": "When a host or tool can legitimately be launched from more than one working directory (e.g. repo root vs. target/release), explicitly test path-dependent logic under both before considering it fixed — don't assume a fix that works under the CWD you happened to test is CWD-independent.",
+      "when_to_apply": "After any fix touching file-path resolution, self-heal, or data-directory logic.",
+      "examples": [
+        "A fix built and tested only from target/release passed; the SAME fix, tested from repo root, revealed the real bug (a relative path that only worked from one of the two conventions)."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "New code needs to locate a file or directory that ships with the application (assets, config, data).",
+      "action": "Use an existing CWD-independent resolver if one exists; if none exists, anchor resolution to std::env::current_exe() or an explicit env var override, never a bare relative path literal.",
+      "priority": 1,
+      "exceptions": [
+        "A one-off script explicitly documented as 'run only from directory X' where CWD independence is genuinely not needed."
+      ]
+    },
+    {
+      "condition": "A self-heal or registration step reports zero real changes ('0 new registrations') when real new content was expected.",
+      "action": "Before assuming the registration logic itself is broken, independently verify the source files are actually visible from the process's real CWD (check /proc/<pid>/cwd and test the exact resolved path) — this failure mode is silent, not an error.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

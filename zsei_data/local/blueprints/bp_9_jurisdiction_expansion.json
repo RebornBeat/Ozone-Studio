@@ -1,0 +1,127 @@
+{
+ "blueprint_id": 9,
+ "name": "Jurisdiction Expansion",
+ "version": "2.0.0",
+ "description": "Add a new national jurisdiction: real sourced rules, source registry regeneration, scope container registration, and canonical graph wiring.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [
+   "code"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9
+  ],
+  "optional_pipelines": [
+   100
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   21,
+   34
+  ],
+  "suggested_methodologies": [
+   43
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "source_rules",
+   "description": "Research and hand-curate real rules with source citations (condition/action/source; no fabricated citations)",
+   "pipeline_id": 9,
+   "action": "research",
+   "outputs": [
+    "rules_json"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "register_scope",
+   "description": "Register the scope file under jurisdiction/national/ \u2014 boot dedup reuses existing scope containers",
+   "pipeline_id": 9,
+   "action": "register",
+   "outputs": [
+    "scope_container"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "regenerate_registry",
+   "description": "Regenerate SOURCE_REGISTRY.md/json from real content (generate_jurisdiction_registry.py)",
+   "pipeline_id": 9,
+   "action": "generate",
+   "outputs": [
+    "registry_files"
+   ]
+  },
+  {
+   "step_id": 4,
+   "name": "wire_graph",
+   "description": "Boot wiring (or manual canonical pass) links the new scope to Global/EU baselines by min-id canonical",
+   "pipeline_id": 9,
+   "action": "wire",
+   "outputs": [
+    "edges"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "jurisdiction",
+  "legal",
+  "country",
+  "rules",
+  "compliance"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "text",
+  "code"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

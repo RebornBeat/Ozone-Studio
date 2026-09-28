@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "Failure states are named, persisted, and bounded: interrupted is not completed, failed_after_max_attempts is not retried forever, discarded is not accepted.",
+   "rationale": "Live-verified across the whole system: boot reconciliation marks stranded tasks interrupted; the meta-loop's 10-attempt cap writes outcome=failed_after_max_attempts; shell drafts are logged as discarded with the reason; rollback reports what it threw away.",
+   "applicability": [
+    "honesty",
+    "reliability",
+    "state_machines",
+    "recovery"
+   ]
+  },
+  {
+   "statement": "Never fabricate success to close a loop: a discard is a discard, a skip is a skip, and an honest failure is a valid terminal state.",
+   "rationale": "Placeholder drafts are discarded rather than persisted, gaps stay open rather than being covered by shells, and rate-limited attempts are counted as attempts \u2014 the system never manufactures a green check.",
+   "applicability": [
+    "no_fabrication",
+    "discipline",
+    "loops"
+   ]
+  },
+  {
+   "statement": "Restart reconciliation is part of the failure contract: whatever a crash strands must be found, named, and honestly re-queued or marked.",
+   "rationale": "Boot reconciliation interrupted stranded tasks; AMT islands and gap queues survived crashes intact because their state is durable first and in-memory only second.",
+   "applicability": [
+    "recovery",
+    "restart_safety",
+    "state_machines"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Writing any loop, queue, or workflow state machine.",
+   "description": "Every terminal state has a name, a persisted marker, and a bounded path to reach it; nothing times out into ambiguity.",
+   "when_to_apply": "All background loops and task flows."
+  },
+  {
+   "name": "Handling a flaky dependency (LLM APIs, rate limits, local models).",
+   "description": "Count the attempt, escalate through real fallbacks, cap honestly, and record the outcome \u2014 the count and the cap are the honesty contract.",
+   "when_to_apply": "All external-call loops."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A run ends without its goal.",
+   "action": "Mark the durable state with the named failure outcome and the reason; the next pass decides from that record, never from silence."
+  }
+ ]
+}

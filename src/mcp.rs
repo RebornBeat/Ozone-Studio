@@ -22,7 +22,8 @@ use tokio::sync::RwLock;
 
 /// Transport a tool speaks over. `stdio` tools are child processes on the
 /// host; `http`/`sse` tools live at a URL.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum McpTransport {
     Stdio,
     Http,
@@ -49,7 +50,7 @@ impl McpTransport {
 }
 
 /// One registered tool.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct McpTool {
     pub name: String,
     pub transport: McpTransport,
@@ -95,12 +96,16 @@ pub async fn call_global(call: McpCall) -> McpResult {
 #[derive(Default)]
 pub struct McpRegistry {
     tools: RwLock<HashMap<String, McpTool>>,
+    /// When set, register/unregister rewrite this file and `load_persisted`
+    /// restores it at boot (registry-persistence fix, 2026-09-28).
+    persist_path: Option<String>,
 }
 
 impl McpRegistry {
     pub fn new() -> Self {
         Self {
             tools: RwLock::new(HashMap::new()),
+            persist_path: None,
         }
     }
 
@@ -108,11 +113,50 @@ impl McpRegistry {
     pub async fn register(&self, tool: McpTool) -> bool {
         let replaced = self.tools.read().await.contains_key(&tool.name);
         self.tools.write().await.insert(tool.name.clone(), tool);
+        self.persist().await;
         replaced
     }
 
     pub async fn unregister(&self, name: &str) -> bool {
-        self.tools.write().await.remove(name).is_some()
+        let removed = self.tools.write().await.remove(name).is_some();
+        if removed {
+            self.persist().await;
+        }
+        removed
+    }
+
+    /// PERSISTED REGISTRATIONS (fixed 2026-09-28, gap found live: the
+    /// registry was in-memory, so every host restart wiped all registered
+    /// tools — the 67 bridge tools + 2 terminal tools vanished and had to
+    /// be re-registered by hand). When a persist path is configured, every
+    /// register/unregister rewrites the file, and `load_persisted` restores
+    /// it at boot. External tools self-heal across restarts like every
+    /// other registry in this codebase.
+    pub fn with_persistence(mut self, path: String) -> Self {
+        self.persist_path = Some(path);
+        self
+    }
+
+    async fn persist(&self) {
+        if let Some(path) = &self.persist_path {
+            let tools = self.tools.read().await;
+            let list: Vec<&McpTool> = tools.values().collect();
+            if let Ok(json) = serde_json::to_string_pretty(&list) {
+                let _ = std::fs::write(path, json);
+            }
+        }
+    }
+
+    pub async fn load_persisted(&self) -> usize {
+        let Some(path) = &self.persist_path else { return 0 };
+        let Ok(content) = std::fs::read_to_string(path) else { return 0 };
+        let Ok(tools) = serde_json::from_str::<Vec<McpTool>>(&content) else { return 0 };
+        let count = tools.len();
+        let mut map = self.tools.write().await;
+        for tool in tools {
+            map.entry(tool.name.clone()).or_insert(tool);
+        }
+        count
     }
 
     pub async fn get(&self, name: &str) -> Option<McpTool> {
@@ -378,7 +422,7 @@ impl McpRegistry {
 
         if let Some(hub) = activity {
             let (level, msg) = match &result {
-                Ok(v) => (
+                Ok(_v) => (
                     crate::monitor::ActivityLevel::Info,
                     format!("{} called tool {} — ok", call.agent, call.tool),
                 ),

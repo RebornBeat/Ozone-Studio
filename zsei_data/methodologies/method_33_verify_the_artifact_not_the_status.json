@@ -1,0 +1,37 @@
+{
+  "principles": [
+    {
+      "statement": "A dispatched agent's terminal status (completed/failed/rate-limited) is not the same fact as whether its real work survived. Session-level interruptions (rate limits, timeouts) can cut an agent off after the substantive work is genuinely done but before it writes up/reports/releases claims — treat 'failed' and 'completed' status alike as something to verify against the actual filesystem/build/live-behavior state, not as ground truth on their own.",
+      "rationale": "Confirmed live this session: two dispatched forks both hit a genuine mid-run HTTP 429 session rate limit. One delivered a stale-looking 'failed' status whose last visible message was 'Clean release build. Now updating the docs and posting the report' — the real code (17 new passing tests, 836 lines) was already complete and correct; only the documentation/handoff note never happened, purely because the interruption landed after the work but before the write-up. The other fork's status flipped from 'failed' to a later 'completed' with a report that included a claim OUTSIDE its original scope — verifying independently (not trusting either status OR the report content) was the only way to correctly conclude: the extra claim was real (confirmed via direct live-binary execution), and the rate-limited fork's undocumented work was also real (confirmed via git diff + running the real test suite).",
+      "applicability": ["multi_agent", "verification", "resilience", "coordination"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "A 'Failed' Status Still Gets a Real Diff Check",
+      "description": "When a dispatched agent's status is 'failed' (rate limit, timeout, crash), don't assume zero real progress — check `git diff --stat` / `git status` for the files it was assigned before concluding nothing survived. Real, valuable, already-correct work is commonly cut off right before the reporting step, which is the least essential part of the work to have happen synchronously.",
+      "when_to_apply": "Any dispatched agent (fork, subagent) reports 'failed' due to an infrastructure interruption (rate limit, timeout) rather than a logical error in its own work.",
+      "examples": [
+        "The task-59 fork's 'failed' status looked like total loss at first glance — `git diff --stat` immediately showed 836 real lines across 4 files, and running the actual test suite confirmed 17 new tests, all passing. Only the doc/handoff-note step was actually lost."
+      ]
+    },
+    {
+      "name": "An Unsolicited Claim Deserves the Strongest Verification, Not Automatic Distrust or Trust",
+      "description": "When a report includes a claim outside what was asked (e.g. work on a different task than dispatched), neither dismiss it as fabrication nor accept it as bonus value without checking — verify it with the same or greater rigor as any other claim, since a genuinely-completed-but-unplanned finding and a confused/hallucinated report look identical from the outside.",
+      "when_to_apply": "A dispatched agent's report includes content beyond its original scope, especially following a session interruption that could plausibly cause context confusion.",
+      "examples": [
+        "A fork dispatched for code-modality work also claimed a separate architecture task was closed — verified by building the code myself and directly executing the live binary three times against the running host, not by re-reading the diff alone. It was real."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A dispatched agent's status is 'failed' due to an infrastructure interruption (rate limit, timeout) rather than an error in its own logic.",
+      "action": "Check the real filesystem diff for the files it was assigned before concluding the dispatch was wasted — finish any missing documentation/reporting steps yourself if the underlying work is confirmed real, rather than re-dispatching a duplicate task.",
+      "priority": 1,
+      "exceptions": [
+        "The diff shows clearly broken/incomplete code (e.g. mid-edit syntax errors) — then the interruption genuinely did cut off unfinished work, and completing or reverting it is a real judgment call, not a pure documentation gap."
+      ]
+    }
+  ]
+}

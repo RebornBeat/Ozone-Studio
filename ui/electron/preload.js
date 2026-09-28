@@ -112,6 +112,28 @@ contextBridge.exposeInMainWorld("ozone", {
   },
 
   // ========================================================================
+  // Guarded file content I/O (F0) — real read/write, restricted by main.js
+  // to paths that are really registered as a FileReference container. Not
+  // general filesystem access.
+  // ========================================================================
+  files: {
+    /**
+     * @param {string} filePath
+     * @returns {Promise<{path,content,sizeBytes,mtimeMs,truncated}>}
+     */
+    read: (filePath) => ipcRenderer.invoke("files:read", filePath),
+
+    /**
+     * @param {string} filePath
+     * @param {string} content
+     * @param {number} [expectedMtimeMs] - optimistic-concurrency guard
+     * @returns {Promise<{ok:true,mtimeMs:number}>}
+     */
+    write: (filePath, content, expectedMtimeMs) =>
+      ipcRenderer.invoke("files:write", { path: filePath, content, expectedMtimeMs }),
+  },
+
+  // ========================================================================
   // Task Management
   // ========================================================================
   task: {

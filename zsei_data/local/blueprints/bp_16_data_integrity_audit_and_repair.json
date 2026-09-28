@@ -1,0 +1,131 @@
+{
+ "blueprint_id": 16,
+ "name": "Data Integrity Audit and Repair",
+ "version": "2.0.0",
+ "description": "Audit a data subtree for duplicates, placeholders, and shape drift; repair in place with full accounting; never drop silently.",
+ "modality_config": {
+  "primary_modality": "code",
+  "secondary_modalities": [
+   "text"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 101,
+  "required_pipelines": [
+   101
+  ],
+  "optional_pipelines": [
+   9
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   37,
+   36,
+   43
+  ],
+  "suggested_methodologies": [
+   23
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": true,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "enumerate_and_group",
+   "description": "Enumerate the subtree, group by logical identity, count duplicates (full accounting before any change)",
+   "pipeline_id": 101,
+   "action": "enumerate",
+   "outputs": [
+    "dup_report"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "canonical_resolve",
+   "description": "Resolve canonical by min id (order-independent); verify wiring/consumers target canonicals",
+   "pipeline_id": 101,
+   "action": "resolve",
+   "outputs": [
+    "canonical_set"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "repair_with_accounting",
+   "description": "Delete/annotate non-canonical copies with the approved plan; log deleted/kept counts and zero-failure check",
+   "pipeline_id": 101,
+   "action": "repair",
+   "outputs": [
+    "accounting"
+   ]
+  },
+  {
+   "step_id": 4,
+   "name": "verify_convergence",
+   "description": "Re-run the consumer that drifted (e.g. boot wiring) and verify the convergence count is 0",
+   "pipeline_id": 101,
+   "action": "verify",
+   "outputs": [
+    "converged"
+   ]
+  }
+ ],
+ "provisional_node_schema": {
+  "id_prefix": "bp16_",
+  "id_field": "step_id"
+ },
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "integrity",
+  "audit",
+  "duplicates",
+  "repair",
+  "cleanup"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "code",
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

@@ -3,6 +3,9 @@
 
 use serde::{Deserialize, Serialize};
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum TaskRecommendInput {

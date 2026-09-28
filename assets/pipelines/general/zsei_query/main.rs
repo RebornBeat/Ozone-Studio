@@ -23,6 +23,9 @@ use std::env;
 #[cfg(feature = "integrated")]
 use ozone_studio::zsei::{ZSEIStorage, ZSEIQuery as CoreQuery, ZSEIResult};
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 /// Pipeline input - mirrors ZSEIQuery from types
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "query_type")]

@@ -18,6 +18,7 @@
 //! enabled = true  # or false
 //! ```
 
+pub mod review;
 pub mod store;
 
 pub use store::*;

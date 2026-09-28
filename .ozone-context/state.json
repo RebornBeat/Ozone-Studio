@@ -16,5 +16,26 @@
       "last_seen": 1789494417096
     }
   },
-  "claims": {}
+  "claims": {
+    "ui/src/views/files/FileEditor.tsx": {
+      "agent": "claude-code",
+      "reason": "F5 file editor",
+      "at": 1790231909126
+    },
+    "ui/src/views/files/CodeNodeLinks.tsx": {
+      "agent": "claude-code",
+      "reason": "F4: code viewer jump-to-node mapping",
+      "at": 1790231910369
+    },
+    "ui/src/views/files/CodeViewer.tsx": {
+      "agent": "claude-code",
+      "reason": "F3 code viewer",
+      "at": 1790244022387
+    },
+    "ui/src/views/capture/ReliabilityDashboard.tsx": {
+      "agent": "claude-code",
+      "reason": "E7 reliability dashboard (post-write claim; file was created before the claim call)",
+      "at": 1790244054807
+    }
+  }
 }

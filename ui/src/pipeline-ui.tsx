@@ -17,6 +17,14 @@ import PipelinesPanel from './components/PipelinesPanel';
 import MonitoringPanel from './components/MonitoringPanel';
 import ToolsPanel from './components/ToolsPanel';
 import PairingPanel from './components/PairingPanel';
+import GraphView from './components/GraphView';
+import FabricPanel from './panels/FabricPanel';
+import HierarchyPanel from './panels/HierarchyPanel';
+import CapturePanel from './panels/CapturePanel';
+import FilesPanel from './panels/FilesPanel';
+import EnginesPanel from './panels/EnginesPanel';
+import CoordinationPanel from './panels/CoordinationPanel';
+import LivingNetworkPanel from './panels/LivingNetworkPanel';
 
 // ============================================================================
 // Module Cache
@@ -215,6 +223,18 @@ export const CORE_TAB_DEFINITIONS = [
   { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 4 },
   { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 5 },
   { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 6 },
+  // Context Viewer: Graph View (Batch C, fork C1) — real per-project
+  // modality-graph node/edge rendering. Same synthetic-id convention as
+  // monitor/tools/devices above (host-side UI surface, not a pipeline).
+  { id: 'graph-view', pipelineId: 1003, label: 'Graph View', icon: '🕸️', order: 7 },
+  // Context Viewer family + capture/files/engines/coordination surfaces (UI/UX fork plan Batches D-J).
+  { id: 'fabric-view',    pipelineId: 1004, label: 'Fabric',       icon: '🧭', order: 8 },
+  { id: 'hierarchy-view', pipelineId: 1005, label: 'Hierarchy',    icon: '🌳', order: 9 },
+  { id: 'capture-viewer', pipelineId: 1006, label: 'Raw Thoughts', icon: '🧠', order: 10 },
+  { id: 'files-viewer',   pipelineId: 1007, label: 'Files',        icon: '📂', order: 11 },
+  { id: 'engines',        pipelineId: 1008, label: 'Engines',      icon: '🧩', order: 12 },
+  { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 13 },
+  { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 14 },
 ] as const;
 
 export function getPipelineIcon(pipelineId: number): string {
@@ -249,6 +269,14 @@ export function createCoreTabs(): InjectedTab[] {
     monitor: MonitoringPanel,
     tools: ToolsPanel,
     devices: PairingPanel,
+    'graph-view': GraphView,
+    'fabric-view': FabricPanel,
+    'hierarchy-view': HierarchyPanel,
+    'capture-viewer': CapturePanel,
+    'files-viewer': FilesPanel,
+    'engines': EnginesPanel,
+    'coordination': CoordinationPanel,
+    'living-network': LivingNetworkPanel,
   };
 
   return CORE_TAB_DEFINITIONS.map(def => ({

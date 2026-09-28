@@ -338,19 +338,51 @@ async fn call_anthropic_api(
     let result: serde_json::Value = response.json().await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
     
-    // Extract response from Anthropic format
-    let content = result["content"][0]["text"]
-        .as_str()
+    // Extract response from Anthropic format. Search every content block
+    // for the first one with type=="text" rather than blindly indexing 0 —
+    // a response can carry non-text blocks first (e.g. a `thinking` block
+    // under extended-thinking configs), which would silently read as empty
+    // content despite the real answer sitting in a later block.
+    let content = result["content"]
+        .as_array()
+        .and_then(|blocks| {
+            blocks
+                .iter()
+                .find(|b| b["type"].as_str() == Some("text"))
+        })
+        .and_then(|b| b["text"].as_str())
         .unwrap_or("")
         .to_string();
-    
+
     let tokens = result["usage"]["output_tokens"]
         .as_u64()
         .map(|t| t as u32);
-    
+
     let finish_reason = result["stop_reason"]
         .as_str()
         .map(|s| s.to_string());
+
+    // Diagnostic only, never changes behavior: when content still ends up
+    // empty despite a successful (2xx) response, capture WHY so a future
+    // debugging session doesn't have to re-derive it from scratch — the
+    // caller-side retry/fallback (is_unusable_pipeline9_result and callers)
+    // already handles the empty case correctly regardless of the reason.
+    if content.trim().is_empty() {
+        let block_types: Vec<String> = result["content"]
+            .as_array()
+            .map(|blocks| {
+                blocks
+                    .iter()
+                    .map(|b| b["type"].as_str().unwrap_or("?").to_string())
+                    .collect()
+            })
+            .unwrap_or_default();
+        eprintln!(
+            "prompt pipeline: Anthropic response had no usable text content \
+             (stop_reason={:?}, content block types={:?})",
+            finish_reason, block_types
+        );
+    }
 
     // Report the real model the API actually used, not just the identifier
     // requested — Anthropic's response echoes the resolved model at the top
@@ -436,6 +468,24 @@ async fn call_openai_api(
     let finish_reason = result["choices"][0]["finish_reason"]
         .as_str()
         .map(|s| s.to_string());
+
+    // Diagnostic only, never changes behavior: confirmed live this session
+    // (real OpenRouter key, real tokens_used, empty content) — capture WHY
+    // when it happens so a future debugging session doesn't have to
+    // re-derive it. The caller-side retry/fallback (is_unusable_pipeline9_
+    // result and callers) already handles the empty case correctly
+    // regardless of the reason; this is purely so the reason is visible in
+    // logs instead of requiring a fresh investigation each time.
+    if content.trim().is_empty() {
+        let message_preview = serde_json::to_string(&result["choices"][0]["message"])
+            .unwrap_or_default();
+        let message_preview: String = message_preview.chars().take(300).collect();
+        eprintln!(
+            "prompt pipeline: OpenAI-compatible response had no usable content \
+             (finish_reason={:?}, message={})",
+            finish_reason, message_preview
+        );
+    }
 
     // Report the real model that actually served this call, not just the
     // requested identifier — this matters specifically for "auto" routing

@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "A plan created in one process must be readable, finalizable, and discardable by a later process \u2014 session stores are files, not memory.",
+   "rationale": "Live 2026-09-20: provisional plans (CreateProvisionalNodes) died with their process, so the finalize/rollback calls that needed them found nothing. A durable session store ({data_dir}/provisional/session_{id}.json) made the chain real, proven across fresh processes.",
+   "applicability": [
+    "planning",
+    "persistence",
+    "sessions",
+    "cross_process"
+   ]
+  },
+  {
+   "statement": "Finalization must record what became real (provisional id -> actual container id) in a durable place, not just return success.",
+   "rationale": "The materialization record is the correlation planning systems need; without it 'success' is unprovable after the fact and rollback has nothing to discard honestly.",
+   "applicability": [
+    "provenance",
+    "planning",
+    "persistence"
+   ]
+  },
+  {
+   "statement": "Rollback must report exactly what it discarded.",
+   "rationale": "An honest rollback returns the discarded set \u2014 silence hides whether anything was ever at risk.",
+   "applicability": [
+    "rollback",
+    "honesty",
+    "planning"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Any plan/queue/draft state consumed by a later step or call.",
+   "description": "Persist at creation keyed by session id (filesystem-safe sanitized), record materializations durably, and make discard return what it discarded.",
+   "when_to_apply": "Provisional nodes, candidate queues, staged writes."
+  },
+  {
+   "name": "Designing a multi-call workflow across process boundaries.",
+   "description": "Assume every call is a fresh process; the plan file is the only shared state, so its schema and location are the workflow's API.",
+   "when_to_apply": "Workflow design."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A planning step completes in-process.",
+   "action": "Persist the plan durably before returning success; a step whose output dies with the process is not complete."
+  }
+ ]
+}

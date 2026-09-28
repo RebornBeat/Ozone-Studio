@@ -76,6 +76,19 @@ impl PromptOrchestrator {
                                     project_id,
                                     &unverified.content,
                                 );
+                            } else if amt.children.is_empty() {
+                                // ThinTree route — a persisted tree with no
+                                // branches has nothing unverified to trigger
+                                // on, but it is exactly what the re-expansion
+                                // loop exists to deepen. The loop's target
+                                // selection treats a childless root as the
+                                // deepening target (see amt_loop).
+                                crate::orchestrator::amt_candidates::append(
+                                    id,
+                                    Some(project_id),
+                                    "ThinTree",
+                                    Some("AMT persisted with no branches — root queued for deepening"),
+                                );
                             }
                         }
                     }
@@ -158,10 +171,35 @@ impl PromptOrchestrator {
             keywords.push("amt-main".to_string());
         }
 
+        // Mirror the lineage into the generic content-relationship graph
+        // (RelationType::ForkOf) so TraversalEngine — which only ever reads
+        // Context.relationships, never the AMT-only JSON blob above — can
+        // actually walk fork/main lineage. Previously this ZSEI container
+        // hardcoded an empty relationships array and lineage was invisible
+        // to every traversal/relevance query.
+        let container_relationships: Vec<serde_json::Value> = match fork_of {
+            Some(prior) => vec![serde_json::json!({
+                "target_id": prior,
+                "relation_type": "ForkOf",
+                "confidence": 1.0,
+                "discovered_via": "Manual"
+            })],
+            None => vec![],
+        };
+
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let amt_dir = format!("{}/amt", data_dir);
         let _ = std::fs::create_dir_all(&amt_dir);
-        let file_name = format!("amt_{}_{}.json", now, amt.id);
+        // Project-scoped file name — merge-back finds a project's main AMT
+        // by scanning for amt_p{project_id}_*; without the project encoded,
+        // the earliest file GLOBALLY would win and a second project's
+        // branches would graft into the wrong project's main tree. Legacy
+        // untagged files keep their names (they predate multi-project AMT
+        // traffic and are honestly ambiguous, so merge-back skips them).
+        let file_name = match state.request.project_id {
+            Some(project_id) => format!("amt_p{}_{}_{}.json", project_id, now, amt.id),
+            None => format!("amt_{}_{}.json", now, amt.id),
+        };
         let file_path = format!("{}/{}", amt_dir, file_name);
         if let Ok(json) = serde_json::to_string_pretty(&amt) {
             std::fs::write(&file_path, json).map_err(|e| format!("Failed to write AMT tree file: {}", e))?;
@@ -193,7 +231,7 @@ impl PromptOrchestrator {
                     "methodologies": amt.methodology_ids.clone(),
                     "keywords": keywords,
                     "topics": state.topics.clone(),
-                    "relationships": [],
+                    "relationships": container_relationships,
                     "learned_associations": [],
                     "embedding": null
                 },
@@ -233,6 +271,71 @@ impl PromptOrchestrator {
         let parent_id = state.request.project_id.unwrap_or(0);
         let new_id = self.store.create_container(parent_id, container).await?;
 
+        // Reverse edge: write RelationType::ContinuedBy into the PRIOR
+        // container so lineage is reverse-discoverable (the old
+        // amt-fork-of:<id> keyword was one-directional — the prior
+        // container never knew a fork existed). Read-modify-write on the
+        // prior's full context (ContainerUpdate replaces context wholesale,
+        // same contract lib.rs's jurisdiction-enrichment pass relies on).
+        // Idempotent: skips if this exact (ContinuedBy, new_id) edge is
+        // somehow already present.
+        if let Some(prior) = fork_of {
+            if let Ok(Some(prior_container)) = self.store.get_container(prior).await {
+                let mut context_val = prior_container
+                    .get("local_state")
+                    .and_then(|l| l.get("context"))
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({
+                        "categories": [], "methodologies": [], "keywords": [],
+                        "topics": [], "relationships": [], "learned_associations": [],
+                        "embedding": null
+                    }));
+                let already_linked = context_val
+                    .get("relationships")
+                    .and_then(|r| r.as_array())
+                    .map(|arr| arr.iter().any(|rel| {
+                        rel.get("relation_type").and_then(|t| t.as_str()) == Some("ContinuedBy")
+                            && rel.get("target_id").and_then(|t| t.as_u64()) == Some(new_id)
+                    }))
+                    .unwrap_or(false);
+                if !already_linked {
+                    if context_val.get("relationships").and_then(|r| r.as_array()).is_none() {
+                        context_val["relationships"] = serde_json::json!([]);
+                    }
+                    if let Some(relationships) =
+                        context_val.get_mut("relationships").and_then(|r| r.as_array_mut())
+                    {
+                        relationships.push(serde_json::json!({
+                            "target_id": new_id,
+                            "relation_type": "ContinuedBy",
+                            "confidence": 1.0,
+                            "discovered_via": "Manual"
+                        }));
+                    }
+                    if let Err(e) = self
+                        .store
+                        .update_container(
+                            prior,
+                            serde_json::json!({
+                                "metadata": null,
+                                "context": context_val,
+                                "storage": null,
+                                "hints": null
+                            }),
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            prior_container = prior,
+                            new_container = new_id,
+                            error = %e,
+                            "Failed to write reverse AMT lineage edge (ContinuedBy)"
+                        );
+                    }
+                }
+            }
+        }
+
         let route = if fork_of.is_some() { "Continuation" } else { "InitialBuild" };
         let _ = crate::orchestrator::amt_candidates::append(
             new_id,
@@ -264,25 +367,32 @@ impl PromptOrchestrator {
         let amt_dir = format!("{}/amt", data_dir);
         let _ = std::fs::create_dir_all(&amt_dir);
 
-        // Find the main AMT file (earliest created for this project).
+        // Find this PROJECT's main AMT file — the earliest created
+        // amt_p{project_id}_* file. Project-scoped by design: the previous
+        // global-earliest scan would graft a second project's verified
+        // branches into whichever project happened to build the first AMT.
+        // Ordering uses the millisecond timestamp embedded in the file name
+        // (amt_p{project}_{millis}_{id}.json) — deterministic and
+        // sub-second precise, unlike fs created()'s whole-second truncation.
+        // Legacy amt_{ts}_{id}.json files carry no project identity and are
+        // deliberately skipped rather than guessed at.
+        let prefix = format!("amt_p{}_", project_id);
         let mut main_file: Option<String> = None;
         let mut earliest = u64::MAX;
         if let Ok(entries) = std::fs::read_dir(&amt_dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with("amt_") && name.ends_with(".json") {
-                        if let Ok(metadata) = entry.metadata() {
-                            let created = metadata
-                                .created()
-                                .ok()
-                                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                .map(|d| d.as_secs())
-                                .unwrap_or(u64::MAX);
-                            if created < earliest {
-                                earliest = created;
-                                main_file = Some(path.to_string_lossy().into_owned());
-                            }
+                    if name.starts_with(&prefix) && name.ends_with(".json") {
+                        let created = name
+                            .trim_start_matches(&prefix)
+                            .split('_')
+                            .next()
+                            .and_then(|ts| ts.parse::<u64>().ok())
+                            .unwrap_or(u64::MAX);
+                        if created < earliest {
+                            earliest = created;
+                            main_file = Some(path.to_string_lossy().into_owned());
                         }
                     }
                 }
@@ -418,6 +528,19 @@ impl PromptOrchestrator {
             // No graph to traverse — fall back to the legacy loop.
             return self.build_amt_layer_by_layer(state).await;
         }
+
+        // Jurisdiction's real outcome (fully resolved at stage 0, well
+        // before AMT building runs) and this request's own attached-file
+        // relationship edges — confirmed live this session that neither
+        // ever reached AMT building before, so a Warn/RequireConfirmation
+        // match or a genuine file-to-file relationship shaped nothing
+        // about what branches got proposed. Computed once, reused across
+        // the per-methodology branch-discovery loop below (see
+        // stages.rs::jurisdiction_summary/file_relationship_summary for
+        // the shared implementation, also used by blueprint assignment).
+        let jurisdiction_ctx = Self::jurisdiction_summary(state);
+        let file_relationships = self.file_relationship_summary(state).await;
+        let standing_ctx = self.standing_context_summary(state);
 
         let id_to_idx: HashMap<u64, usize> = all_sentences
             .iter()
@@ -857,6 +980,10 @@ USER INTENTS:
 ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
 {}
 
+JURISDICTION CONTEXT: {jurisdiction_ctx}
+{standing_ctx}
+{file_relationships}
+
 Based on this methodology, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
 Only suggest branches NOT already in the known list.
 
@@ -885,7 +1012,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                         "system_context": "Suggest branches per methodology. Return only valid JSON. No explanation."
                     });
 
-                    if let Ok(result) = self.metered_execute(state, 9, branch_input).await {
+                    if let Ok(result) = self.metered_execute_resilient(state, branch_input, "amt_branch_graph_native").await {
                         self.record_thinking(state, "Build AMT — branch discovery", &result);
                         let response =
                             result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
@@ -1100,6 +1227,15 @@ If no new branches apply, return: {{"branches": []}}"#,
         let mut consecutive_no_new = 0u32;
         let mut node_id_counter = 1u64;
 
+        // Same shared context as build_amt_from_graphs (see that function's
+        // matching comment) — this is the path every real orchestration
+        // this session actually used (Mode: ChunkZeroShot in every log),
+        // so this is the one that matters most for jurisdiction/
+        // relationship context to actually reach a real request.
+        let jurisdiction_ctx = Self::jurisdiction_summary(state);
+        let file_relationships = self.file_relationship_summary(state).await;
+        let standing_ctx = self.standing_context_summary(state);
+
         // Initial modality graphs are available in state.modality_graphs.
         // Branch discovery prompts can reference detected modalities from graph metadata.
         // Use state.root_modality_list.verified_modalities for evidence of what's present.
@@ -1191,7 +1327,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Extract new intents not already listed. Return only valid JSON. No explanation."
                 });
 
-                if let Ok(result) = self.metered_execute(state, 9, intent_input).await {
+                if let Ok(result) = self.metered_execute_resilient(state, intent_input, "amt_intent_extraction").await {
                     self.record_thinking(state, "Build AMT — intent extraction", &result);
                     let response = result
                         .get("response")
@@ -1324,6 +1460,10 @@ If no new branches apply, return: {{"branches": []}}"#,
         ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
         {}
 
+        JURISDICTION CONTEXT: {jurisdiction_ctx}
+{standing_ctx}
+        {file_relationships}
+
         Based on this methodology, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
         Only suggest branches NOT already in the known list.
 
@@ -1351,7 +1491,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                         "system_context": "Suggest branches per methodology. Return only valid JSON. No explanation."
                     });
 
-                    if let Ok(result) = self.metered_execute(state, 9, branch_input).await {
+                    if let Ok(result) = self.metered_execute_resilient(state, branch_input, "amt_branch_generation").await {
                         self.record_thinking(state, "Build AMT — branch refinement", &result);
                         let response = result
                             .get("response")
@@ -1535,7 +1675,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Extract details per branch. Return only valid JSON. No explanation."
                 });
 
-                if let Ok(result) = self.metered_execute(state, 9, detail_input).await {
+                if let Ok(result) = self.metered_execute_resilient(state, detail_input, "amt_detail_extraction").await {
                     self.record_thinking(state, "Build AMT — detail extraction", &result);
                     let response = result
                         .get("response")
@@ -1814,7 +1954,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Identify cross-branch relationships. Return only valid JSON."
                 });
 
-                if let Ok(result) = self.metered_execute(state, 9, crossref_input).await {
+                if let Ok(result) = self.metered_execute_resilient(state, crossref_input, "amt_cross_ref").await {
                     self.record_thinking(state, "Build AMT — cross-reference", &result);
                     let response = result
                         .get("response")
@@ -2589,7 +2729,7 @@ If no new branches apply, return: {{"branches": []}}"#,
             "system_context": "Methodology domain identification. Return only valid JSON array."
         });
 
-        let required_domains: Vec<String> = match self.metered_execute(state, 9, input).await {
+        let required_domains: Vec<String> = match self.metered_execute_resilient(state, input, "methodology_domain_id").await {
             Ok(result) => {
                 self.record_thinking(state, "Build AMT — required domains", &result);
                 let raw = result
@@ -2639,14 +2779,26 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Methodology synthesis. Return only valid JSON."
                 });
 
-                if let Ok(synth_result) = self.metered_execute(state, 9, synth_input).await {
+                if let Ok(synth_result) = self.metered_execute_resilient(state, synth_input, "methodology_synthesis").await {
                     self.record_thinking(state, "Methodology Synthesis", &synth_result);
                     let raw = synth_result
                         .get("response")
                         .and_then(|r| r.as_str())
                         .unwrap_or("{}");
-                    let start = raw.find('{').unwrap_or(0);
-                    let end = raw.rfind('}').map(|i| i + 1).unwrap_or(raw.len());
+                    // Was raw.find('{')/.rfind('}') directly on the whole
+                    // response — first-to-last-brace across ANY prose,
+                    // trailing hallucinated text, or a confetti-style
+                    // multi-candidate burst (the exact class of BitNet
+                    // behavior found and fixed elsewhere this session)
+                    // could silently splice unrelated content into the
+                    // parse span or fail outright, with the fallback
+                    // `.unwrap_or_default()` on the outer parse turning a
+                    // real, substantive draft into a silent `null` "storage"
+                    // field rather than surfacing the loss. Using this
+                    // file's own shared extractor for consistency with
+                    // every other parse site here (not a full fix for the
+                    // confetti class — flagged separately, see report).
+                    let json_str = Self::extract_json_from_response(raw, '{', '}');
 
                     let methodology_container = serde_json::json!({
                         "container_type": "Methodology",
@@ -2659,7 +2811,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                             "keywords": [domain.to_lowercase()],
                             "topics": [domain.to_lowercase()]
                         },
-                        "storage": serde_json::from_str::<serde_json::Value>(&raw[start..end])
+                        "storage": serde_json::from_str::<serde_json::Value>(json_str)
                             .unwrap_or_default()
                     });
 
@@ -2673,6 +2825,15 @@ If no new branches apply, return: {{"branches": []}}"#,
 
         findings
     }
+}
+
+#[cfg(test)]
+pub(crate) mod test_env {
+    /// Serializes every test that mutates the process-global
+    /// OZONE_ZSEI_DATA_DIR env (amt.rs AND amt_loop.rs test modules —
+    /// cargo runs them in parallel threads; without the lock one test's
+    /// set_var lands mid-another and files land in the wrong data dir).
+    pub(crate) static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 }
 
 #[cfg(test)]
@@ -2821,6 +2982,7 @@ mod tests {
             stages: Vec::new(),
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
+            simulation_result: None,
             model_context_limit: 200_000,
             tokens_used_so_far: 0,
             raw_chunks: Vec::new(),
@@ -2887,6 +3049,7 @@ mod tests {
             Arc::new(RwLock::new(None)),
             200_000,
             crate::config::JurisdictionConfig::default(),
+            tmp.to_string(),
         )
     }
 
@@ -2933,8 +3096,13 @@ mod tests {
 
     // MAIN/FORK lifecycle (island model), sequential — both phases share
     // the process-global OZONE_ZSEI_DATA_DIR env, so they run in one test.
+    // ENV_LOCK (shared with amt_loop's tests) serializes every test that
+    // mutates that process-global env — cargo test runs them in parallel
+    // threads and one test's set_var landing mid-another sends files to
+    // the wrong data dir.
     #[tokio::test]
     async fn amt_persist_main_then_fork_lifecycle() {
+        let _env_guard = super::test_env::ENV_LOCK.lock().unwrap();
         let base = format!("/tmp/amt_lifecycle_{}", std::process::id());
 
         // ── Phase 1: first generation = MAIN ──
@@ -3030,5 +3198,117 @@ mod tests {
         assert!(kws
             .iter()
             .any(|k| k.as_str().unwrap_or("").starts_with("amt-fork-of:")));
+    }
+
+    fn verified_child(content: &str) -> AMTNode {
+        AMTNode {
+            id: 0,
+            node_type: AMTNodeType::Branch,
+            content: content.to_string(),
+            source_chunk_indices: vec![0],
+            children: vec![],
+            relationships: vec![],
+            methodology_ids: vec![],
+            metadata: Default::default(),
+            depth: 1,
+            verified: true,
+            confidence: 1.0,
+        }
+    }
+
+    // MERGE-BACK v2 (island model): a fork's verified branches graft into
+    // the PROJECT's main AMT file — deduped by content, isolated per
+    // project. Sequential: all phases share the process-global
+    // OZONE_ZSEI_DATA_DIR env. Regression for the global-earliest-scan bug
+    // (a second project's branches used to graft into whichever project
+    // happened to build the first AMT).
+    #[tokio::test]
+    async fn amt_merge_back_grafts_fork_branches_into_project_main() {
+        let _env_guard = super::test_env::ENV_LOCK.lock().unwrap();
+        let base = format!("/tmp/amt_mergeback_{}", std::process::id());
+        let dir = format!("{}/data", base);
+        std::fs::create_dir_all(format!("{}/amt", dir)).unwrap();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &dir);
+        let amt_dir = format!("{}/amt", dir);
+
+        // ── Phase 1: project 885's MAIN (root + one verified branch) ──
+        let mut main_tree = root_amt();
+        main_tree.children.push(verified_child("shared branch"));
+        let store = Arc::new(RecordingStore::with_project(885, vec![]));
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            &format!("{}/tasks", dir),
+        );
+        let state = test_state(Some(885));
+        orchestrator
+            .persist_amt_container(&state, &main_tree)
+            .await
+            .unwrap();
+
+        let main_path = std::fs::read_dir(&amt_dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.path())
+            .find(|p| p.file_name().unwrap().to_str().unwrap().starts_with("amt_p885_"))
+            .expect("main AMT file with project-scoped name");
+        std::thread::sleep(std::time::Duration::from_millis(3));
+
+        // ── Phase 2: project 885's FORK — one branch already in main
+        //    (dedup), one genuinely new (graft) ──
+        let mut fork_tree = root_amt();
+        fork_tree.children.push(verified_child("shared branch"));
+        fork_tree.children.push(verified_child("novel fork branch"));
+        let store = Arc::new(RecordingStore::with_project(885, vec![600]));
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            &format!("{}/tasks", dir),
+        );
+        let state = test_state(Some(885));
+        orchestrator
+            .persist_amt_container(&state, &fork_tree)
+            .await
+            .unwrap();
+
+        let merged: AMTNode =
+            serde_json::from_str(&std::fs::read_to_string(&main_path).unwrap()).unwrap();
+        let contents: Vec<&str> = merged.children.iter().map(|c| c.content.as_str()).collect();
+        assert!(
+            contents.contains(&"novel fork branch"),
+            "fork's novel verified branch must graft into main"
+        );
+        assert_eq!(
+            contents.iter().filter(|c| **c == "shared branch").count(),
+            1,
+            "content-match dedup: exactly one copy of the shared branch"
+        );
+        let main_before_wrong_project =
+            std::fs::read_to_string(&main_path).unwrap();
+
+        std::thread::sleep(std::time::Duration::from_millis(3));
+
+        // ── Phase 3: project 886's fork in the SAME data dir — isolation:
+        //    its branches must NOT land in 885's main ──
+        let mut other_tree = root_amt();
+        other_tree.children.push(verified_child("project 886 branch"));
+        let store = Arc::new(RecordingStore::with_project(886, vec![]));
+        let orchestrator = test_orchestrator(
+            store.clone() as Arc<dyn StoreAccess>,
+            &format!("{}/tasks", dir),
+        );
+        let state = test_state(Some(886));
+        orchestrator
+            .persist_amt_container(&state, &other_tree)
+            .await
+            .unwrap();
+
+        let main_after = std::fs::read_to_string(&main_path).unwrap();
+        assert_eq!(
+            main_before_wrong_project, main_after,
+            "another project's merge-back must not touch project 885's main"
+        );
+        assert!(!main_after.contains("project 886 branch"));
+
+        std::env::remove_var("OZONE_ZSEI_DATA_DIR");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

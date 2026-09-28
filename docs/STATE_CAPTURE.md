@@ -1,6 +1,15 @@
 # OZONE STUDIO — COMPREHENSIVE STATE CAPTURE
 ## 2026-09-17 · ZCode + Claude Code joint session · living graph operational
 
+> **UPDATE 2026-09-20 (zcode, session 4-5)** — read the 2026-09-17 base below, then these deltas:
+> - **Jurisdiction**: root 7 deduplicated (231 scaffolds deleted, user-approved); canonical wiring = MIN container id (child_ids order reshuffles across boots — only min-id is stable); convergence proven (wired 21 → 0).
+> - **Knowledge base**: 44 methodologies (35-44 new, real session lessons incl. method_44 Session Token Metering), 17 blueprints (8-17, real executable plans with pipeline ids + methodology configs). Registered in bootstrap defaults + both stores.
+> - **BitNet coherency** (forced through pipeline 9): deepening / meta-loop draft / keyword extraction fully coherent (60-84s per call, correct schema, no placeholders); zero-shot sim returns valid JSON with wrong schema (step_N keys) — schema-flexible stage-7 parsing is the open follow-up.
+> - **Loops**: both meta-loops have balanced-scan JSON capture, placeholder-content gates, fallback escalation (all call sites audited), 10-attempt honest caps. The 3 metering gaps are open and drafting under these gates.
+> - **Known numbers**: linking keep-alive 80x (13.1s→199ms); AMT deepening arc completed live (7 attempts, BitNet fallback); one unexplained host crash 2026-09-20 ~07:40 AST (no panic captured — watch for it).
+> - **Open, user-gated**: VoiceConfig fields; 24h meta-loop interval decision; crash-cause terminal capture if it recurs.
+
+
 > This is the authoritative roadmap. Every item is verified by a test, a live
 > check, or a code read — never a claim. Cross-referenced with
 > CHECKLIST.md (CC's historical detail), docs/SESSION_HANDOFF.md (CC's

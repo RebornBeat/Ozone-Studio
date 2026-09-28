@@ -1,164 +1,454 @@
 {
-  "last_updated": 1789436717,
-  "methodologies": [
-    {
-      "categories": [
-        "conversation",
-        "chat"
-      ],
-      "file": "method_1_conversational.json",
-      "methodology_id": 1,
-      "name": "Conversational Response"
-    },
-    {
-      "categories": [
-        "context",
-        "understanding"
-      ],
-      "file": "method_2_context.json",
-      "methodology_id": 2,
-      "name": "Contextual Awareness"
-    },
-    {
-      "categories": [
-        "code",
-        "development",
-        "quality"
-      ],
-      "file": "method_3_clean_code.json",
-      "methodology_id": 3,
-      "name": "Clean Code Principles"
-    },
-    {
-      "categories": [
-        "code",
-        "review",
-        "analysis"
-      ],
-      "file": "method_4_code_review.json",
-      "methodology_id": 4,
-      "name": "Code Review Best Practices"
-    },
-    {
-      "categories": [
-        "security",
-        "code",
-        "safety"
-      ],
-      "file": "method_5_security.json",
-      "methodology_id": 5,
-      "name": "Security Awareness"
-    },
-    {
-      "categories": [
-        "code",
-        "architecture",
-        "planning"
-      ],
-      "file": "method_6_impact_first.json",
-      "methodology_id": 6,
-      "name": "Impact-First Development"
-    },
-    {
-      "categories": [
-        "code",
-        "testing",
-        "quality"
-      ],
-      "file": "method_7_test_driven.json",
-      "methodology_id": 7,
-      "name": "Test-Driven Development"
-    },
-    {
-      "categories": [
-        "code",
-        "iteration",
-        "agile"
-      ],
-      "file": "method_8_incremental.json",
-      "methodology_id": 8,
-      "name": "Incremental Development"
-    },
-    {
-      "categories": [
-        "data",
-        "analysis",
-        "statistics"
-      ],
-      "file": "method_9_data_analysis.json",
-      "methodology_id": 9,
-      "name": "Data Analysis Methodology"
-    },
-    {
-      "categories": [
-        "code",
-        "api",
-        "design"
-      ],
-      "file": "method_10_api_design.json",
-      "methodology_id": 10,
-      "name": "API Design Principles"
-    },
-    {
-      "categories": [
-        "documentation",
-        "writing"
-      ],
-      "file": "method_11_documentation.json",
-      "methodology_id": 11,
-      "name": "Documentation Standards"
-    },
-    {
-      "categories": [
-        "writing",
-        "documentation",
-        "clarity"
-      ],
-      "file": "method_12_technical_writing.json",
-      "methodology_id": 12,
-      "name": "Technical Writing"
-    },
-    {
-      "categories": [
-        "data",
-        "exploration",
-        "discovery"
-      ],
-      "file": "method_13_exploratory.json",
-      "methodology_id": 13,
-      "name": "Exploratory Analysis"
-    },
-    {
-      "categories": [
-        "math",
-        "proof",
-        "formal"
-      ],
-      "file": "method_14_formal_proof.json",
-      "methodology_id": 14,
-      "name": "Formal Proof Methods"
-    },
-    {
-      "categories": [
-        "math",
-        "rigor",
-        "verification"
-      ],
-      "file": "method_15_mathematical_rigor.json",
-      "methodology_id": 15,
-      "name": "Mathematical Rigor"
-    },
-    {
-      "methodology_id": 16,
-      "name": "Host Lifecycle Management",
-      "categories": [
-        "host_operations",
-        "deployment",
-        "recovery"
-      ],
-      "file": "method_16_host_lifecycle.json"
-    }
-  ],
-  "methodology_count": 16,
-  "version": 2
+ "last_updated": 1789968000,
+ "methodologies": [
+  {
+   "categories": [
+    "conversation",
+    "chat"
+   ],
+   "file": "method_1_conversational.json",
+   "methodology_id": 1,
+   "name": "Conversational Response"
+  },
+  {
+   "categories": [
+    "context",
+    "understanding"
+   ],
+   "file": "method_2_context.json",
+   "methodology_id": 2,
+   "name": "Contextual Awareness"
+  },
+  {
+   "categories": [
+    "code",
+    "development",
+    "quality"
+   ],
+   "file": "method_3_clean_code.json",
+   "methodology_id": 3,
+   "name": "Clean Code Principles"
+  },
+  {
+   "categories": [
+    "code",
+    "review",
+    "analysis"
+   ],
+   "file": "method_4_code_review.json",
+   "methodology_id": 4,
+   "name": "Code Review Best Practices"
+  },
+  {
+   "categories": [
+    "security",
+    "code",
+    "safety"
+   ],
+   "file": "method_5_security.json",
+   "methodology_id": 5,
+   "name": "Security Awareness"
+  },
+  {
+   "categories": [
+    "code",
+    "architecture",
+    "planning"
+   ],
+   "file": "method_6_impact_first.json",
+   "methodology_id": 6,
+   "name": "Impact-First Development"
+  },
+  {
+   "categories": [
+    "code",
+    "testing",
+    "quality"
+   ],
+   "file": "method_7_test_driven.json",
+   "methodology_id": 7,
+   "name": "Test-Driven Development"
+  },
+  {
+   "categories": [
+    "code",
+    "iteration",
+    "agile"
+   ],
+   "file": "method_8_incremental.json",
+   "methodology_id": 8,
+   "name": "Incremental Development"
+  },
+  {
+   "categories": [
+    "data",
+    "analysis",
+    "statistics"
+   ],
+   "file": "method_9_data_analysis.json",
+   "methodology_id": 9,
+   "name": "Data Analysis Methodology"
+  },
+  {
+   "categories": [
+    "code",
+    "api",
+    "design"
+   ],
+   "file": "method_10_api_design.json",
+   "methodology_id": 10,
+   "name": "API Design Principles"
+  },
+  {
+   "categories": [
+    "documentation",
+    "writing"
+   ],
+   "file": "method_11_documentation.json",
+   "methodology_id": 11,
+   "name": "Documentation Standards"
+  },
+  {
+   "categories": [
+    "writing",
+    "documentation",
+    "clarity"
+   ],
+   "file": "method_12_technical_writing.json",
+   "methodology_id": 12,
+   "name": "Technical Writing"
+  },
+  {
+   "categories": [
+    "data",
+    "exploration",
+    "discovery"
+   ],
+   "file": "method_13_exploratory.json",
+   "methodology_id": 13,
+   "name": "Exploratory Analysis"
+  },
+  {
+   "categories": [
+    "math",
+    "proof",
+    "formal"
+   ],
+   "file": "method_14_formal_proof.json",
+   "methodology_id": 14,
+   "name": "Formal Proof Methods"
+  },
+  {
+   "categories": [
+    "math",
+    "rigor",
+    "verification"
+   ],
+   "file": "method_15_mathematical_rigor.json",
+   "methodology_id": 15,
+   "name": "Mathematical Rigor"
+  },
+  {
+   "methodology_id": 16,
+   "name": "Host Lifecycle Management",
+   "categories": [
+    "host_operations",
+    "deployment",
+    "recovery"
+   ],
+   "file": "method_16_host_lifecycle.json"
+  },
+  {
+   "methodology_id": 17,
+   "name": "Memory-Pressure-Aware Build Sequencing",
+   "categories": [
+    "build",
+    "host_operations",
+    "multi_agent"
+   ],
+   "file": "method_17_build_sequencing.json"
+  },
+  {
+   "methodology_id": 18,
+   "name": "CWD-Independent Path Resolution",
+   "categories": [
+    "filesystem",
+    "bootstrap",
+    "code_review"
+   ],
+   "file": "method_18_path_resolution.json"
+  },
+  {
+   "methodology_id": 19,
+   "name": "Retry Escalation Must Cycle",
+   "categories": [
+    "retry_logic",
+    "fallback",
+    "code_review"
+   ],
+   "file": "method_19_retry_escalation.json"
+  },
+  {
+   "methodology_id": 20,
+   "name": "Cross-Agent Claim Verification",
+   "categories": [
+    "multi_agent",
+    "verification",
+    "coordination"
+   ],
+   "file": "method_20_cross_agent_verification.json"
+  },
+  {
+   "methodology_id": 21,
+   "name": "Jurisdiction Content Sourcing Standard",
+   "categories": [
+    "jurisdiction",
+    "legal_content",
+    "content_sourcing"
+   ],
+   "file": "method_21_jurisdiction_sourcing.json"
+  },
+  {
+   "methodology_id": 22,
+   "name": "Persistent-vs-Cached Field Parity",
+   "categories": [
+    "storage",
+    "persistence",
+    "caching",
+    "restart_safety"
+   ],
+   "file": "method_22_persistent_cache_parity.json"
+  },
+  {
+   "methodology_id": 23,
+   "name": "Idempotency Checks Must Read Durable State",
+   "categories": [
+    "idempotency",
+    "self_heal",
+    "deduplication",
+    "storage"
+   ],
+   "file": "method_23_idempotency_check_durability.json"
+  },
+  {
+   "methodology_id": 24,
+   "name": "Incremental Layering Requires Reconciliation",
+   "categories": [
+    "code_hygiene",
+    "storage",
+    "css",
+    "technical_debt"
+   ],
+   "file": "method_24_incremental_layering_reconciliation.json"
+  },
+  {
+   "methodology_id": 25,
+   "name": "Trace the Full Write-to-Read Path",
+   "categories": [
+    "debugging",
+    "code_review",
+    "restart_safety"
+   ],
+   "file": "method_25_trace_full_write_read_path.json"
+  },
+  {
+   "methodology_id": 26,
+   "name": "Attribution Requires a Capability Check",
+   "categories": [
+    "multi_agent",
+    "verification",
+    "attribution",
+    "coordination"
+   ],
+   "file": "method_26_attribution_requires_capability_check.json"
+  },
+  {
+   "methodology_id": 27,
+   "name": "Broad Relevance Discovery Pattern",
+   "categories": [
+    "search",
+    "relationship_discovery",
+    "cross_modality",
+    "storage"
+   ],
+   "file": "method_27_broad_relevance_discovery_pattern.json"
+  },
+  {
+   "methodology_id": 28,
+   "name": "Extract for Testability",
+   "categories": [
+    "testing",
+    "code_review",
+    "refactoring"
+   ],
+   "file": "method_28_extract_for_testability.json"
+  },
+  {
+   "methodology_id": 29,
+   "name": "Verify Test Assumptions Against Documented Exceptions Before Trusting a Failure",
+   "categories": [
+    "testing",
+    "code_review",
+    "content_integrity"
+   ],
+   "file": "method_29_verify_test_assumptions_against_exceptions.json"
+  },
+  {
+   "methodology_id": 30,
+   "name": "Enforcement Actions Need Real Behavior, Not Just Labels",
+   "categories": [
+    "safety",
+    "enforcement",
+    "content_moderation",
+    "code_review"
+   ],
+   "file": "method_30_enforcement_actions_need_real_behavior.json"
+  },
+  {
+   "methodology_id": 31,
+   "name": "Verify What's Actually Active, Not Just What's Built",
+   "categories": [
+    "configuration",
+    "debugging",
+    "cost_management",
+    "defaults"
+   ],
+   "file": "method_31_verify_whats_actually_active.json"
+  },
+  {
+   "methodology_id": 32,
+   "name": "Self-Assessment Prompts Need a Calibration Bar",
+   "categories": [
+    "prompt_engineering",
+    "llm_gates",
+    "self_assessment",
+    "reliability"
+   ],
+   "file": "method_32_self_assessment_needs_calibration_bar.json"
+  },
+  {
+   "methodology_id": 33,
+   "name": "Verify the Artifact, Not the Status",
+   "categories": [
+    "multi_agent",
+    "verification",
+    "resilience",
+    "coordination"
+   ],
+   "file": "method_33_verify_the_artifact_not_the_status.json"
+  },
+  {
+   "methodology_id": 34,
+   "name": "Jurisdiction Source Maintenance Protocol",
+   "categories": [
+    "jurisdiction",
+    "legal_content",
+    "maintenance",
+    "content_sourcing"
+   ],
+   "file": "method_34_jurisdiction_source_maintenance_protocol.json"
+  },
+  {
+   "methodology_id": 35,
+   "name": "Rescue JSON From Model Noise",
+   "categories": [
+    "llm_output_parsing",
+    "local_models",
+    "extraction"
+   ],
+   "file": "method_35_rescue_json_from_model_noise.json"
+  },
+  {
+   "methodology_id": 36,
+   "name": "Persist Gates Must Measure Content Depth, Not Element Count",
+   "categories": [
+    "validation",
+    "gates",
+    "no_fabrication"
+   ],
+   "file": "method_36_persist_gates_must_measure_content_depth_not_element_count.json"
+  },
+  {
+   "methodology_id": 37,
+   "name": "Canonical Container Resolution Must Be Order-Independent",
+   "categories": [
+    "storage",
+    "deduplication",
+    "boot"
+   ],
+   "file": "method_37_canonical_container_resolution_must_be_order_independent.json"
+  },
+  {
+   "methodology_id": 38,
+   "name": "Tune From Measured Metrics, Never Preemptive Caps",
+   "categories": [
+    "performance",
+    "metrics",
+    "discipline"
+   ],
+   "file": "method_38_tune_from_measured_metrics_never_preemptive_caps.json"
+  },
+  {
+   "methodology_id": 39,
+   "name": "A Guard Held Across a Forever-Loop Is a Permanent Lock",
+   "categories": [
+    "concurrency",
+    "locks",
+    "deadlock"
+   ],
+   "file": "method_39_a_guard_held_across_a_forever_loop_is_a_permanent_lock.json"
+  },
+  {
+   "methodology_id": 40,
+   "name": "Persisted Shape Must Match the Loader's Parse Shape",
+   "categories": [
+    "persistence",
+    "serde",
+    "schema_evolution"
+   ],
+   "file": "method_40_persisted_shape_must_match_the_loaders_parse_shape.json"
+  },
+  {
+   "methodology_id": 41,
+   "name": "New Nodes Link Through Relationship Paths First",
+   "categories": [
+    "graph",
+    "linking",
+    "relevance"
+   ],
+   "file": "method_41_new_nodes_link_through_relationship_paths_first.json"
+  },
+  {
+   "methodology_id": 42,
+   "name": "Planning Artifacts Outlive the Process That Made Them",
+   "categories": [
+    "planning",
+    "persistence",
+    "sessions"
+   ],
+   "file": "method_42_planning_artifacts_outlive_the_process_that_made_them.json"
+  },
+  {
+   "methodology_id": 43,
+   "name": "Every Failure Path Marks State Truthfully",
+   "categories": [
+    "honesty",
+    "reliability",
+    "state_machines"
+   ],
+   "file": "method_43_every_failure_path_marks_state_truthfully.json"
+  },
+  {
+   "methodology_id": 44,
+   "name": "Session Token Metering",
+   "categories": [
+    "metering",
+    "budget",
+    "multi_agent"
+   ],
+   "file": "method_44_session_token_metering.json"
+  }
+ ],
+ "methodology_count": 44,
+ "version": 2
 }

@@ -11,6 +11,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Direct methodology storage - mirrors ZSEI container structure
 lazy_static::lazy_static! {
     static ref METHODOLOGY_STORE: Mutex<MethodologyStore> = Mutex::new(MethodologyStore::new());

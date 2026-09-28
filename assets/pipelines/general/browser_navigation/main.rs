@@ -25,6 +25,9 @@ use std::env;
 use std::sync::Mutex;
 use std::collections::HashMap;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref BROWSER_SESSIONS: Mutex<HashMap<String, BrowserSession>> = Mutex::new(HashMap::new());
     static ref VIRTUAL_DISPLAYS: Mutex<HashMap<String, DisplaySession>> = Mutex::new(HashMap::new());

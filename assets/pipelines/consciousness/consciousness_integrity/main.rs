@@ -12,6 +12,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use sha2::{Sha256, Digest};
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref INTEGRITY_STORE: Mutex<IntegrityStore> = Mutex::new(IntegrityStore::new());
 }

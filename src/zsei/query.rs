@@ -75,6 +75,40 @@ impl QueryProcessor {
                 }
             }
 
+            ZSEIQuery::GetContainerContent { container_id } => {
+                let Some(container) = storage.load(container_id)? else {
+                    return Err(crate::types::OzoneError::NotFound(format!("Container {} not found", container_id)));
+                };
+                let Some(object_store_path) = container.local_state.storage.object_store_path.clone() else {
+                    // Honest absence — this container's content lives entirely
+                    // inline in local_state, not a separate file. Not an error.
+                    return Ok(ZSEIQueryResult::Content { container_id, json: None, raw: None });
+                };
+                // Same absolute-path-is-used-as-is / relative-path-joins-data-dir
+                // convention already established this session (amt_loop.rs,
+                // jurisdiction.rs, amt.rs) — a bare format! would garbage-join an
+                // absolute object_store_path against the data dir.
+                let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+                let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
+                    object_store_path.clone()
+                } else {
+                    format!("{}/{}", data_dir, object_store_path)
+                };
+                let raw = std::fs::read_to_string(&full_path).map_err(|e| {
+                    crate::types::OzoneError::StorageError(format!(
+                        "GetContainerContent: failed to read {} (object_store_path={}): {}",
+                        full_path, object_store_path, e
+                    ))
+                })?;
+                match serde_json::from_str::<serde_json::Value>(&raw) {
+                    Ok(json) => Ok(ZSEIQueryResult::Content { container_id, json: Some(json), raw: None }),
+                    // Not JSON (or malformed) — return the real raw text honestly
+                    // rather than dropping it; the caller decides what to do with
+                    // a non-JSON content file instead of us silently erroring.
+                    Err(_) => Ok(ZSEIQueryResult::Content { container_id, json: None, raw: Some(raw) }),
+                }
+            }
+
             ZSEIQuery::GetCategories { modality, parent_category } => {
                 let ids = self.find_categories(storage, modality, parent_category)?;
                 Ok(ZSEIQueryResult::Containers(ids))

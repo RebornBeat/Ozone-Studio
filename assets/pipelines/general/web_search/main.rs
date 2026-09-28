@@ -29,6 +29,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum WebSearchAction {

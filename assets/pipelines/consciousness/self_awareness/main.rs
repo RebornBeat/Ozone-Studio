@@ -15,6 +15,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref META_STORE: Mutex<MetaCognitiveStore> = Mutex::new(MetaCognitiveStore::new());
 }

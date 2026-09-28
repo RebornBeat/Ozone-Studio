@@ -35,6 +35,9 @@ use std::collections::HashSet;
 use std::env;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ========== Input Types ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

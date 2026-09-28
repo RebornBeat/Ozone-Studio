@@ -10,6 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref GATE_STORE: Mutex<GateStore> = Mutex::new(GateStore::new());
 }

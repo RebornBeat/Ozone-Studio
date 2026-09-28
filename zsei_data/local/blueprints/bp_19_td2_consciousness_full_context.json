@@ -1,0 +1,110 @@
+{
+ "blueprint_id": 19,
+ "name": "TD-2 Consciousness Full-Context",
+ "version": "1.0.0",
+ "description": "Top-down context-assurance test (TOP_DOWN_REVIEW_GUIDE.md §4, TD-2): submit a consciousness-enabled request end to end, then assert from the real decision-review capture store that the stage-8 Consciousness Gate review genuinely references both the AMT's own branch content and the zero-shot simulation's risk/feasibility predictions — the two context pieces confirmed wired into stage 8 this session (2026-09-22).",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "text": 100
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9,
+   39
+  ],
+  "optional_pipelines": [
+   100
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 39,
+   "ethical_check_id": 39,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   35,
+   36,
+   43
+  ],
+  "suggested_methodologies": [],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated"
+  ],
+  "cross_modality_linking": false,
+  "link_to_existing": false
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "submit_consciousness_enabled_prompt",
+   "description": "Submit a real /orchestrate request with consciousness_enabled: true, a prompt substantive enough to produce a real multi-branch AMT and a zero-shot simulation with at least one real risk/clarification, through the full 14-stage pipeline including stage 8.",
+   "pipeline_id": 9,
+   "action": "submit",
+   "outputs": [
+    "task_id"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "read_capture_store",
+   "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the stage-8 consciousness review line this request produced.",
+   "pipeline_id": 9,
+   "action": "read_capture",
+   "outputs": [
+    "capture_line"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "assert_amt_and_simulation_citation",
+   "description": "Assert the review's reasoning_preview references concrete AMT branch content AND concrete simulation risk/feasibility content — both, not just one — proving stage 8 genuinely saw the full traversed picture per the doctrine, not a partial or generic one.",
+   "pipeline_id": 9,
+   "action": "assert",
+   "outputs": [
+    "assertion_result"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "top-down",
+  "consciousness",
+  "stage-8",
+  "simulation",
+  "context-assurance"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_22",
+  "created_by": "claude-code",
+  "honest_note": "Same honest scoping as bp_18: 'read_capture'/'assert' are descriptive test-plan markers, not yet a mechanically-enforcing harness. This blueprint is real and correctly targets the real fix (OrchestrationState.simulation_result, stage_5_consciousness_gate's SIMULATION PREDICTIONS section) confirmed live this session."
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

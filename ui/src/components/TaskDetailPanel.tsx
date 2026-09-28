@@ -10,6 +10,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { useOzoneStore } from "../services/store";
+import TaskInsightSections from "../views/task/TaskInsightSections";
 
 interface TaskStep {
   step_index: number;
@@ -410,6 +411,7 @@ export const TaskDetailPanel: React.FC = () => {
               </div>
             </div>
           )}
+          <TaskInsightSections task={task} />
         </>
       )}
     </div>

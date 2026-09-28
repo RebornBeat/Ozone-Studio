@@ -1,0 +1,122 @@
+{
+ "blueprint_id": 12,
+ "name": "Cross-Process Retrieval Hardening",
+ "version": "2.0.0",
+ "description": "Prove and harden retrieval across process boundaries: dual-key persistence, real-shape parsing, object_store_path fallback.",
+ "modality_config": {
+  "primary_modality": "code",
+  "secondary_modalities": [
+   "text"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 101,
+  "required_pipelines": [
+   101
+  ],
+  "optional_pipelines": [
+   100,
+   105
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   40,
+   25
+  ],
+  "suggested_methodologies": [
+   23,
+   29
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": true,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "dual_key_write",
+   "description": "persist_graph_container writes under BOTH object_store_path (local id) and container-id key (text convention)",
+   "pipeline_id": 101,
+   "action": "persist",
+   "outputs": [
+    "graph_files"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "shape_true_load",
+   "description": "Loader parses the REAL persisted shape (PersistedCodeGraph) and converts \u2014 with object_store_path fallback",
+   "pipeline_id": 101,
+   "action": "load",
+   "outputs": [
+    "graph"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "fresh_process_proof",
+   "description": "A fresh process retrieves the graph non-empty and complete (the cross-process guarantee, as a test)",
+   "pipeline_id": 101,
+   "action": "verify",
+   "outputs": [
+    "retrieval_ok"
+   ]
+  }
+ ],
+ "provisional_node_schema": {
+  "id_prefix": "bp12_",
+  "id_field": "step_id"
+ },
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "retrieval",
+  "cross",
+  "process",
+  "persistence",
+  "graphs"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "code",
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

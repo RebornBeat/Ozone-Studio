@@ -30,6 +30,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────

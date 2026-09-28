@@ -8,6 +8,7 @@
 //! | `pairwise` | pairwise passes | `default` (window 8 / 50 pairs), `wide` (16 / 100) |
 //! | `convergence` | refinement bounds | `fast` (2 passes, default), `deep` (5) |
 //! | `search` | store search strategies | `scan` (default), `scan-legacy` (preserved pre-fix behavior), `exact` — trait registry, extensible |
+//! | `relevance` | relationship-path linking | `graph-first` (default: 2-hop walk, floors 1/2), `keywords-only` (legacy: no walk, floor 2/2) |
 //!
 //! Store backends (StoreAccess) and wire protocols (pipeline-9 adapters) have
 //! their own contracts — see docs/CONTRACTS.md.
@@ -21,6 +22,7 @@ use std::sync::{Arc, RwLock};
 use crate::shared_contracts::k_loops::{
     ConvergencePolicy, Ordered1x1Policy, PairwisePolicy,
 };
+use crate::shared_contracts::k_relevance::RelevancePolicy;
 use crate::shared_contracts::k_registry::{KAlgorithmKind, NamedPresets};
 use crate::shared_contracts::k_validation::ValidationPolicy;
 use crate::zsei::search::SearchRegistry;
@@ -29,10 +31,14 @@ use crate::zsei::search::SearchRegistry;
 /// Fields are `RwLock`-wrapped so `set_default` can actually be called at
 /// runtime (config load, `/config/set`) — the registry existed with a
 /// `set_default` API long before anything could reach it through the
-/// `&'static` global. Only `convergence` and `pairwise` currently have a
-/// live consumer (`orchestrator/amt.rs`); `validation`/`ordered_loop` are
-/// wrapped for structural consistency but changing their default has no
-/// observable effect yet — not exposed in config/UI for that reason.
+/// `&'static` global. `convergence` and `pairwise` have a live consumer in
+/// `orchestrator/amt.rs`; `relevance` has a separate live consumer in the
+/// modality pipelines' `link_related_containers` (reads
+/// `OZONE_RELEVANCE_POLICY`, exported at boot — see `src/lib.rs`, consumed
+/// e.g. in `assets/pipelines/modalities/code/main.rs`'s `relevance_policy()`).
+/// `validation`/`ordered_loop` are wrapped for structural consistency but
+/// changing their default has no observable effect yet — not exposed in
+/// config/UI for that reason.
 pub struct KAlgorithms {
     /// `validation` presets: strength = consecutive affirmations required.
     pub validation: RwLock<NamedPresets<ValidationPolicy>>,
@@ -44,6 +50,9 @@ pub struct KAlgorithms {
     pub convergence: RwLock<NamedPresets<ConvergencePolicy>>,
     /// `search` strategies — trait-object family (scan/exact/…).
     pub search: Arc<SearchRegistry>,
+    /// `relevance` presets: how new graphs link into the living graph
+    /// (neighborhood walk depth + per-scope shared-term floors).
+    pub relevance: RwLock<NamedPresets<RelevancePolicy>>,
 }
 
 impl KAlgorithms {
@@ -75,13 +84,36 @@ impl KAlgorithms {
             NamedPresets::new(KAlgorithmKind::Convergence, "fast", ConvergencePolicy { max_passes: 2 });
         convergence.register("deep", ConvergencePolicy { max_passes: 5 });
 
+        let mut relevance = NamedPresets::new(
+            KAlgorithmKind::Relevance,
+            "graph-first",
+            RelevancePolicy::graph_first(),
+        );
+        relevance.register("keywords-only", RelevancePolicy::keywords_only());
+
         Self {
             validation: RwLock::new(validation),
             ordered_loop: RwLock::new(ordered_loop),
             pairwise: RwLock::new(pairwise),
             convergence: RwLock::new(convergence),
             search: Arc::new(SearchRegistry::new()),
+            relevance: RwLock::new(relevance),
         }
+    }
+
+    /// The live default relevance policy, for the pipeline env bridge
+    /// (OZONE_RELEVANCE_POLICY) and config surfaces.
+    pub fn current_relevance_policy(&self) -> RelevancePolicy {
+        self.relevance
+            .read()
+            .map(|p| *p.default_preset())
+            .unwrap_or_default()
+    }
+
+    /// Switch the live default relevance preset. Returns false (no-op) if
+    /// `name` isn't a registered preset.
+    pub fn set_relevance_preset(&self, name: &str) -> bool {
+        self.relevance.write().map(|mut p| p.set_default(name)).unwrap_or(false)
     }
 
     /// Process-global instance. Selection is data-driven at runtime via

@@ -11,6 +11,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref CONFIG_STORE: Mutex<ConfigStore> = Mutex::new(ConfigStore::new());
 }

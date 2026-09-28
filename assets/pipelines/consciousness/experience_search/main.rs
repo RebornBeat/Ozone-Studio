@@ -13,6 +13,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 fn get_storage_path() -> String {
     std::env::var("OZONE_CONSCIOUSNESS_PATH")
         .unwrap_or_else(|_| "./zsei_data/consciousness".to_string())

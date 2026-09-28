@@ -1,0 +1,51 @@
+{
+ "principles": [
+  {
+   "statement": "Every agent's model and tool usage is metered per day and per tool in a durable ledger \u2014 usage is a counted fact, never an estimate.",
+   "rationale": "The usage ledger keys buckets by (agent, day, tool) and increments on every call, refused or not: refusals are metering events too, and the gate refuses with a real structured error when the daily budget is exhausted.",
+   "applicability": [
+    "metering",
+    "budget",
+    "multi_agent",
+    "accounting"
+   ]
+  },
+  {
+   "statement": "A budget gate must refuse with real, actionable structure \u2014 the caller receives an explicit McpResult error naming the limit \u2014 never a silent empty result or a fabricated partial answer.",
+   "rationale": "The gate's refusal is itself a metered, logged event; 'no budget' and 'no answer' are different facts and the system says which one happened.",
+   "applicability": [
+    "gates",
+    "honesty",
+    "api_design",
+    "budget"
+   ]
+  },
+  {
+   "statement": "Metering exists to enable tuning decisions from real numbers \u2014 the ledger is the reference dataset for cost questions.",
+   "rationale": "Per-tool breakdown answers 'what does an agent actually spend on'; without the breakdown a budget is a guess enforced by a guess.",
+   "applicability": [
+    "metrics",
+    "cost_management",
+    "accounting"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Adding any new agent, tool, or model call path.",
+   "description": "Wire it through the metered call surface (McpCall -> ledger increment) in the same change; an unmetered path is a missing feature, not a shortcut.",
+   "when_to_apply": "All agent/tool integrations."
+  },
+  {
+   "name": "Investigating cost or budget questions.",
+   "description": "Read the ledger's per-agent/day/tool buckets; never reconstruct usage from memory or logs after the fact.",
+   "when_to_apply": "Operations."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "An agent's daily usage reaches its budget.",
+   "action": "Refuse further calls with a real structured limit error naming agent, day, and tool; still record the refused attempt in the ledger."
+  }
+ ]
+}

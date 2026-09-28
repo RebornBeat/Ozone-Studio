@@ -1,0 +1,45 @@
+{
+  "principles": [
+    {
+      "statement": "A new test failing against real shipped data is evidence of a mismatch, not proof of which side — the test's assumption or the data — is actually wrong. Before concluding the data is a bug, check whether the codebase's own documentation already describes a legitimate, intentional exception the test simply didn't account for.",
+      "rationale": "Confirmed live 2026-09-15: a new jurisdiction content-honesty test asserted `action: Log` universally across all jurisdiction files and failed against `assets/jurisdiction/global.json`'s real `Warn`/`RequireConfirmation`/`Block` rules (discrimination, child exploitation/abuse, self-harm — hand-curated from UDHR/CRC articles). The file's content was correct and intentional; the test's blanket assumption was wrong. The correct exception was already documented elsewhere in the same codebase (`JurisdictionRule::retrieved_snippet`'s own doc comment explicitly calls out 'hand-curated rules e.g. the Global UDHR/CRC set' as distinct from auto-populated content) — reading that before 'fixing' the content would have avoided treating a real, deliberate design decision as a bug.",
+      "applicability": ["testing", "code_review", "content_integrity"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Read the Module's Own Doc Comments Before Writing an Integrity Test Against It",
+      "description": "Before writing a test that asserts a blanket invariant over a module's real data (every X must have property Y), read that module's existing doc comments for any already-documented exceptions — they're often written precisely because a past agent or human already discovered and deliberately carved out the same case.",
+      "when_to_apply": "Writing a content-integrity or invariant test over real, already-populated data (config files, shipped JSON content, database rows) rather than a fresh fixture.",
+      "examples": [
+        "JurisdictionRule::retrieved_snippet's doc comment already named the Global UDHR/CRC set as hand-curated and exempt from the auto-populated content rules — reading it before writing T-J4 would have scoped the test correctly on the first attempt instead of needing a fix-after-failure."
+      ]
+    },
+    {
+      "name": "On Test Failure, Inspect the Actual Failing Data Before Assuming Which Side Is Wrong",
+      "description": "When a new test fails, read the specific real content that triggered the failure (not just the assertion diff) and ask whether it looks like a genuine mistake or a deliberate, reasoned choice — a hand-authored rule tied to a specific named legal source (UDHR Article 3, CRC Article 34) reads very differently from an auto-generated placeholder, and that difference is real evidence about which side of the test is actually wrong.",
+      "when_to_apply": "Any test failure against real (not freshly-authored) data, before deciding whether to fix the test or the data.",
+      "examples": [
+        "Printed the actual global.json rules (condition, action, source) rather than just seeing 'assertion failed: Warn != Log' — the presence of specific UDHR/CRC article citations was the signal that this was deliberate content, not a bug."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A newly-written test fails against real, already-shipped data (not a fixture you just authored).",
+      "action": "Before changing the data to make the test pass, (1) read the actual failing content directly, (2) check the relevant module's existing doc comments for a documented exception, (3) only conclude the data is wrong if neither supports it being intentional.",
+      "priority": 2,
+      "exceptions": [
+        "The failure is a clear parse/format error (malformed JSON, missing required field) rather than a value-level disagreement — those are almost always real bugs in the data, not undocumented intent."
+      ]
+    },
+    {
+      "condition": "The documented exception found in step (2) above governs content with real safety/policy consequences (e.g. enforcement severity on child-safety, self-harm, or discrimination content) rather than a purely technical convention.",
+      "action": "Surface the finding to the user explicitly and let them decide, even though the investigation correctly identified the exception as historically intentional — 'this was a deliberate, documented choice when it was made' and 'this is still the right choice now that it's visible against the current, stricter convention' are different questions, and only the second one is what actually matters for shipped behavior. Do not resolve by unilaterally scoping the test to preserve the old exception, and do not unilaterally weaken the content either.",
+      "priority": 1,
+      "exceptions": [
+        "The user has already given a standing, explicit rule covering exactly this case (not just a related one) — then apply it directly without re-asking."
+      ]
+    }
+  ]
+}

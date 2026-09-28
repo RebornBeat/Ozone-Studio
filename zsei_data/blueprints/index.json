@@ -1,162 +1,398 @@
 {
-  "blueprint_count": 7,
-  "blueprints": [
-    {
-      "blueprint_id": 1,
-      "file": "bp_1_general_assistant.json",
-      "input_types": [
-        "text",
-        "image",
-        "audio",
-        "video",
-        "code"
-      ],
-      "keywords": [
-        "help",
-        "explain",
-        "what is",
-        "how does",
-        "question",
-        "assist"
-      ],
-      "name": "General Assistant",
-      "output_types": [
-        "text",
-        "code"
-      ],
-      "signature_hash": "bp_general_assistant_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    },
-    {
-      "blueprint_id": 2,
-      "file": "bp_2_code_review.json",
-      "input_types": [
-        "code",
-        "file_reference"
-      ],
-      "keywords": [
-        "review",
-        "code review",
-        "analyze code",
-        "check code",
-        "audit",
-        "quality"
-      ],
-      "name": "Code Review",
-      "output_types": [
-        "code_analysis",
-        "suggestions"
-      ],
-      "signature_hash": "bp_code_review_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    },
-    {
-      "blueprint_id": 3,
-      "file": "bp_3_documentation.json",
-      "input_types": [
-        "code",
-        "text",
-        "requirements"
-      ],
-      "keywords": [
-        "document",
-        "documentation",
-        "readme",
-        "tutorial",
-        "guide",
-        "api docs"
-      ],
-      "name": "Documentation",
-      "output_types": [
-        "documentation",
-        "markdown"
-      ],
-      "signature_hash": "bp_documentation_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    },
-    {
-      "blueprint_id": 4,
-      "file": "bp_4_code_creation.json",
-      "input_types": [
-        "specification",
-        "requirements",
-        "text"
-      ],
-      "keywords": [
-        "create",
-        "generate",
-        "write code",
-        "implement",
-        "build",
-        "scaffold"
-      ],
-      "name": "Code Creation",
-      "output_types": [
-        "code",
-        "documentation"
-      ],
-      "signature_hash": "bp_code_creation_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    },
-    {
-      "blueprint_id": 6,
-      "file": "bp_6_data_analysis.json",
-      "input_types": [
-        "data",
-        "csv",
-        "json",
-        "text"
-      ],
-      "keywords": [
-        "analyze",
-        "analysis",
-        "data",
-        "statistics",
-        "chart",
-        "visualize",
-        "insights"
-      ],
-      "name": "Data Analysis",
-      "output_types": [
-        "analysis",
-        "visualization",
-        "report"
-      ],
-      "signature_hash": "bp_data_analysis_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    },
-    {
-      "blueprint_id": 7,
-      "file": "bp_7_math_proof_verification.json",
-      "input_types": [
-        "math",
-        "proof",
-        "text"
-      ],
-      "keywords": [
-        "prove",
-        "proof",
-        "verify",
-        "theorem",
-        "lemma",
-        "mathematical",
-        "formal"
-      ],
-      "name": "Mathematical Proof Verification",
-      "output_types": [
-        "verification",
-        "analysis"
-      ],
-      "signature_hash": "bp_math_proof_v2",
-      "success_rate": 1.0,
-      "use_count": 0
-    }
-  ],
-  "last_updated": 1789436717,
-  "version": 2
+ "blueprint_count": 16,
+ "blueprints": [
+  {
+   "blueprint_id": 1,
+   "file": "bp_1_general_assistant.json",
+   "input_types": [
+    "text",
+    "image",
+    "audio",
+    "video",
+    "code"
+   ],
+   "keywords": [
+    "help",
+    "explain",
+    "what is",
+    "how does",
+    "question",
+    "assist"
+   ],
+   "name": "General Assistant",
+   "output_types": [
+    "text",
+    "code"
+   ],
+   "signature_hash": "bp_general_assistant_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 2,
+   "file": "bp_2_code_review.json",
+   "input_types": [
+    "code",
+    "file_reference"
+   ],
+   "keywords": [
+    "review",
+    "code review",
+    "analyze code",
+    "check code",
+    "audit",
+    "quality"
+   ],
+   "name": "Code Review",
+   "output_types": [
+    "code_analysis",
+    "suggestions"
+   ],
+   "signature_hash": "bp_code_review_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 3,
+   "file": "bp_3_documentation.json",
+   "input_types": [
+    "code",
+    "text",
+    "requirements"
+   ],
+   "keywords": [
+    "document",
+    "documentation",
+    "readme",
+    "tutorial",
+    "guide",
+    "api docs"
+   ],
+   "name": "Documentation",
+   "output_types": [
+    "documentation",
+    "markdown"
+   ],
+   "signature_hash": "bp_documentation_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 4,
+   "file": "bp_4_code_creation.json",
+   "input_types": [
+    "specification",
+    "requirements",
+    "text"
+   ],
+   "keywords": [
+    "create",
+    "generate",
+    "write code",
+    "implement",
+    "build",
+    "scaffold"
+   ],
+   "name": "Code Creation",
+   "output_types": [
+    "code",
+    "documentation"
+   ],
+   "signature_hash": "bp_code_creation_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 6,
+   "file": "bp_6_data_analysis.json",
+   "input_types": [
+    "data",
+    "csv",
+    "json",
+    "text"
+   ],
+   "keywords": [
+    "analyze",
+    "analysis",
+    "data",
+    "statistics",
+    "chart",
+    "visualize",
+    "insights"
+   ],
+   "name": "Data Analysis",
+   "output_types": [
+    "analysis",
+    "visualization",
+    "report"
+   ],
+   "signature_hash": "bp_data_analysis_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 7,
+   "file": "bp_7_math_proof_verification.json",
+   "input_types": [
+    "math",
+    "proof",
+    "text"
+   ],
+   "keywords": [
+    "prove",
+    "proof",
+    "verify",
+    "theorem",
+    "lemma",
+    "mathematical",
+    "formal"
+   ],
+   "name": "Mathematical Proof Verification",
+   "output_types": [
+    "verification",
+    "analysis"
+   ],
+   "signature_hash": "bp_math_proof_v2",
+   "success_rate": 1.0,
+   "use_count": 0
+  },
+  {
+   "blueprint_id": 8,
+   "name": "Modality Pipeline Onboarding",
+   "signature_hash": "bp_modality_onboarding_v1",
+   "input_types": [
+    "code",
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "pipeline",
+    "modality",
+    "onboard",
+    "new modality",
+    "graph",
+    "persist"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_8_modality_pipeline_onboarding.json"
+  },
+  {
+   "blueprint_id": 9,
+   "name": "Jurisdiction Expansion",
+   "signature_hash": "bp_jurisdiction_expansion_v1",
+   "input_types": [
+    "text",
+    "code"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "jurisdiction",
+    "legal",
+    "country",
+    "regulation",
+    "compliance",
+    "rules"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_9_jurisdiction_expansion.json"
+  },
+  {
+   "blueprint_id": 10,
+   "name": "Methodology Creation and Registration",
+   "signature_hash": "bp_methodology_creation_v1",
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "methodology",
+    "create",
+    "principles",
+    "decision rules",
+    "heuristics",
+    "knowledge"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_10_methodology_creation_and_registration.json"
+  },
+  {
+   "blueprint_id": 11,
+   "name": "Living-Graph Linking Audit",
+   "signature_hash": "bp_linking_audit_v1",
+   "input_types": [
+    "code",
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "audit",
+    "links",
+    "graph",
+    "relationships",
+    "metrics",
+    "orphans"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_11_living-graph_linking_audit.json"
+  },
+  {
+   "blueprint_id": 12,
+   "name": "Cross-Process Retrieval Hardening",
+   "signature_hash": "bp_cross_process_retrieval_v1",
+   "input_types": [
+    "code",
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "retrieval",
+    "cross-process",
+    "persistence",
+    "graphs",
+    "hardening"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_12_cross-process_retrieval_hardening.json"
+  },
+  {
+   "blueprint_id": 13,
+   "name": "Text Document Analysis",
+   "signature_hash": "bp_text_document_analysis_v1",
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "text",
+    "document",
+    "analyze",
+    "summary",
+    "extract",
+    "keywords"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_13_text_document_analysis.json"
+  },
+  {
+   "blueprint_id": 14,
+   "name": "Incident Postmortem to Methodology",
+   "signature_hash": "bp_postmortem_methodology_v1",
+   "input_types": [
+    "text",
+    "code"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "postmortem",
+    "incident",
+    "lesson",
+    "regression",
+    "methodology",
+    "root cause"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_14_incident_postmortem_to_methodology.json"
+  },
+  {
+   "blueprint_id": 15,
+   "name": "Agent Onboarding Protocol",
+   "signature_hash": "bp_agent_onboarding_v1",
+   "input_types": [
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "agent",
+    "onboarding",
+    "protocol",
+    "coordination",
+    "claims",
+    "handoff"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_15_agent_onboarding_protocol.json"
+  },
+  {
+   "blueprint_id": 16,
+   "name": "Data Integrity Audit and Repair",
+   "signature_hash": "bp_integrity_audit_v1",
+   "input_types": [
+    "code",
+    "text"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "integrity",
+    "audit",
+    "duplicates",
+    "repair",
+    "cleanup",
+    "data quality"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_16_data_integrity_audit_and_repair.json"
+  },
+  {
+   "blueprint_id": 17,
+   "name": "Fallback and Capture Verification",
+   "signature_hash": "bp_fallback_capture_v1",
+   "input_types": [
+    "text",
+    "code"
+   ],
+   "output_types": [
+    "text",
+    "graph"
+   ],
+   "keywords": [
+    "fallback",
+    "bitnet",
+    "verification",
+    "capture",
+    "resilience",
+    "rate limit"
+   ],
+   "use_count": 0,
+   "success_rate": 1.0,
+   "file": "bp_17_fallback_and_capture_verification.json"
+  }
+ ],
+ "last_updated": 1790188000,
+ "version": 2
 }

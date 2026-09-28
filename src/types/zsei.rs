@@ -133,6 +133,16 @@ pub enum ZSEIQuery {
     /// resolving a SearchContainersByKeywords hit into real content) had no
     /// way to fetch a container at all over /zsei/query.
     GetContainer { container_id: ContainerID },
+    /// Resolve a container's real `object_store_path` and return the actual
+    /// file content it points to — GetContainer only ever returns the
+    /// pointer, never what it points at. Found needed 2026-09-23: AMT trees
+    /// and persisted modality graphs are real, on-disk, and fully described
+    /// by a queryable container, but were structurally unreachable over
+    /// /zsei/query because nothing ever read the pointed-to file. Parses
+    /// the file as JSON when possible (the real shape for AMT trees and
+    /// persisted graphs); falls back to the raw string on parse failure so
+    /// non-JSON content files are still honestly returned, not dropped.
+    GetContainerContent { container_id: ContainerID },
     GetFileReferences { project_id: ContainerID },
     GetExternalReferences { project_id: ContainerID },
     
@@ -226,6 +236,17 @@ pub struct ContainerUpdate {
 pub enum ZSEIQueryResult {
     Containers(Vec<ContainerID>),
     Container(Container),
+    /// Real content of a container's `object_store_path` file — parsed JSON
+    /// when the file is JSON (the real, common case), the raw file text
+    /// when it isn't or parsing fails, or `None` when the container has no
+    /// `object_store_path` at all (content lives entirely inline in
+    /// `local_state` for some container types — honest absence, not an
+    /// error). Never a fabricated/placeholder value on any path.
+    Content {
+        container_id: ContainerID,
+        json: Option<serde_json::Value>,
+        raw: Option<String>,
+    },
     ContainerID(ContainerID),
     TraversalResult(TraversalResult),
     Success,

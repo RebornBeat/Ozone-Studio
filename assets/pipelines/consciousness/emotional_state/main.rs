@@ -15,6 +15,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref EMOTIONAL_STORE: Mutex<EmotionalStore> = Mutex::new(EmotionalStore::new());
 }

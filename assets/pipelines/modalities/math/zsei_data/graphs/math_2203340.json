@@ -1,0 +1,122 @@
+{
+  "content_type": "Proof",
+  "created_at": "2026-09-27T20:45:57.002204138+00:00",
+  "edges": [
+    {
+      "edge_id": 1,
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 2,
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 3,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 3,
+      "edge_type": "FollowsStep",
+      "from_node": 3,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 4,
+      "edge_type": "Contains",
+      "from_node": 1,
+      "properties": {},
+      "to_node": 4,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 5,
+      "edge_type": "FollowsStep",
+      "from_node": 4,
+      "properties": {},
+      "to_node": 3,
+      "weight": 1.0
+    },
+    {
+      "edge_id": 6,
+      "edge_type": "Uses",
+      "from_node": 4,
+      "properties": {},
+      "to_node": 2,
+      "weight": 1.0
+    }
+  ],
+  "graph_id": 40123,
+  "metadata": {
+    "assumptions_count": 0,
+    "cross_modal_links": 0,
+    "edge_count": 6,
+    "is_verified": false,
+    "node_count": 4,
+    "proof_steps": 3,
+    "semantic_enriched": false,
+    "variables_count": 0,
+    "verification_confidence": 0.8999999761581421
+  },
+  "modality": "math",
+  "name": "Math Graph 2203340",
+  "nodes": [
+    {
+      "annotations": [],
+      "confidence": 0.8999999761581421,
+      "content": "Proof analysis",
+      "label": "Mathematical Content",
+      "node_id": 1,
+      "node_type": "Root",
+      "properties": {},
+      "step_number": null
+    },
+    {
+      "annotations": [],
+      "confidence": 0.8500000238418579,
+      "content": "Let x be an integer.",
+      "label": "Step 1",
+      "node_id": 2,
+      "node_type": "ProofStep",
+      "properties": {
+        "justification": "Given",
+        "step_type": "Given"
+      },
+      "step_number": 1
+    },
+    {
+      "annotations": [],
+      "confidence": 0.8500000238418579,
+      "content": "Let y be an integer.",
+      "label": "Step 2",
+      "node_id": 3,
+      "node_type": "ProofStep",
+      "properties": {
+        "justification": "LogicalRule",
+        "step_type": "Deduction"
+      },
+      "step_number": 2
+    },
+    {
+      "annotations": [],
+      "confidence": 0.8500000238418579,
+      "content": "Using step 1, x is real.",
+      "label": "Step 3",
+      "node_id": 4,
+      "node_type": "ProofStep",
+      "properties": {
+        "justification": "PreviousResult",
+        "step_type": "Conclusion"
+      },
+      "step_number": 3
+    }
+  ],
+  "project_id": 1,
+  "scope_tree": null,
+  "updated_at": "2026-09-27T20:45:57.002204138+00:00"
+}

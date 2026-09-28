@@ -23,7 +23,7 @@
 //! not built here.
 
 use crate::config::{AvailableModel, ModelFallbackConfig};
-use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, PromptOrchestrator, StoreAccess};
+use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, StoreAccess};
 use crate::task::RefinementConfig;
 use std::sync::Arc;
 
@@ -111,6 +111,32 @@ async fn review_methodology_gaps_once(
             .search_by_keywords(&keywords, Some("Methodology"))
             .await
             .unwrap_or_default();
+        // Retired shells still carry the gap's keywords verbatim (that is
+        // HOW they were created — the model parroted the signal), so a
+        // keyword-only coverage match keeps re-covering gaps with garbage.
+        // A methodology whose name carries the retirement marker is not
+        // coverage (found live 2026-09-20: shell 30420 re-covered its gaps
+        // within one pass of them being re-opened).
+        let mut existing = existing;
+        if !existing.is_empty() {
+            let mut live = Vec::new();
+            for id in existing {
+                let retired = store
+                    .get_container(id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .and_then(|c| {
+                        c.get("local_state")?.get("metadata")?.get("name")?.as_str().map(|s| s.to_string())
+                    })
+                    .map(|name| name.starts_with("[placeholder shell"))
+                    .unwrap_or(false);
+                if !retired {
+                    live.push(id);
+                }
+            }
+            existing = live;
+        }
         if !existing.is_empty() {
             tracing::info!(
                 ?keywords,
@@ -245,7 +271,29 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
         };
 
         let response_text = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
-        let json_str = extract_json_object(response_text);
+        // BitNet "confetti" (found live 2026-09-22 in decision_review.rs,
+        // same vulnerability confirmed here): a response can contain
+        // MULTIPLE conflicting JSON candidates (a leading empty `{}`,
+        // prose, a real draft, more JSON). The old single-candidate
+        // extract_json_object returns the first candidate that merely
+        // parses — an empty `{}` parses fine, so `has_decision_rules`/
+        // `has_heuristics` below would both silently read false, and a
+        // genuinely real draft later in the response gets discarded and
+        // logged as "no real decision_rules or heuristics — discarding
+        // rather than persisting a shell" — indistinguishable from BitNet
+        // actually producing a shell, when it may not have. Detect
+        // confetti explicitly and treat it as a real failure to retry,
+        // not a shell to reject.
+        let candidates = extract_all_json_objects(response_text);
+        if candidates.len() > 1 {
+            tracing::warn!(
+                count = candidates.len(),
+                ?keywords,
+                "Methodology meta-loop: draft response contained conflicting JSON candidates (confetti) — refusing to guess which is real, will retry next cycle"
+            );
+            continue;
+        }
+        let json_str = candidates.into_iter().next().unwrap_or_else(|| extract_json_object(response_text));
         let parsed: serde_json::Value = match serde_json::from_str(json_str.trim()) {
             Ok(v) => v,
             Err(_) => {
@@ -277,6 +325,35 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
             .unwrap_or(false);
         if !has_decision_rules && !has_heuristics {
             tracing::warn!(?keywords, "Methodology meta-loop: draft had no real decision_rules or heuristics — discarding rather than persisting a shell");
+            continue;
+        }
+
+        // CONTENT-DEPTH gate (live catch 2026-09-20): methodology 30420
+        // passed the length gate above with one heuristic whose every field
+        // was literal "..." — placeholder shells are not content, and
+        // marking a gap "covered" by one corrupts the gap queue. At least
+        // one rule/heuristic must carry REAL text.
+        fn is_placeholder_text(s: &str) -> bool {
+            let t = s.trim();
+            t.is_empty() || t == "..." || t == "…"
+        }
+        fn entry_has_real_text(entry: &serde_json::Value, fields: &[&str]) -> bool {
+            fields
+                .iter()
+                .any(|f| entry.get(f).and_then(|v| v.as_str()).map(|s| !is_placeholder_text(s)).unwrap_or(false))
+        }
+        let has_real_content = parsed
+            .get("decision_rules")
+            .and_then(|d| d.as_array())
+            .map(|a| a.iter().any(|e| entry_has_real_text(e, &["condition", "outcome", "name", "description"])))
+            .unwrap_or(false)
+            || parsed
+                .get("heuristics")
+                .and_then(|h| h.as_array())
+                .map(|a| a.iter().any(|e| entry_has_real_text(e, &["condition", "action", "when_to_apply", "description", "name"])))
+                .unwrap_or(false);
+        if !has_real_content {
+            tracing::warn!(?keywords, "Methodology meta-loop: draft's rules/heuristics are pure placeholders (\"...\") — discarding rather than persisting a shell");
             continue;
         }
 
@@ -320,14 +397,116 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
     Ok(())
 }
 
-fn extract_json_object(s: &str) -> &str {
-    let trimmed = s.trim();
-    if let Some(start) = trimmed.find('{') {
-        if let Some(end) = trimmed.rfind('}') {
-            if end > start {
-                return &trimmed[start..=end];
+/// Confetti detection (found live 2026-09-22, `decision_review.rs`; same
+/// vulnerability confirmed and fixed here): scans the WHOLE response for
+/// every balanced, parseable `{...}` candidate, not just the first, and
+/// returns only the non-empty ones (a bare `{}` carries nothing and would
+/// otherwise masquerade as "the model said nothing useful"). More than one
+/// candidate means the response is confetti — multiple conflicting JSON
+/// objects in one generation — which the caller treats as a real failure
+/// requiring retry, not a shell draft to reject.
+fn extract_all_json_objects(s: &str) -> Vec<String> {
+    let bytes = s.as_bytes();
+    let mut found = Vec::new();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        if bytes[start] != b'{' {
+            start += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (i, &c) in bytes.iter().enumerate().skip(start) {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == b'\\' {
+                    escaped = true;
+                } else if c == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match c {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match end {
+            Some(end) => {
+                let candidate = &s[start..=end];
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(candidate) {
+                    if parsed.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                        found.push(candidate.to_string());
+                    }
+                }
+                start = end + 1;
+            }
+            None => start += 1,
+        }
+    }
+    found
+}
+
+/// Extract the first well-formed JSON object from a raw LLM response.
+/// Small local models (BitNet i2_s — live-observed 2026-09-20) wrap usable
+/// JSON in prompt echo, `skip:` scaffolding, code fences, and hallucinated
+/// follow-up instructions; a naive first-`{`-to-last-`}` slice spans all of
+/// that noise and fails to parse every time ("trailing characters"). Scans
+/// every `{` as a candidate start, tracks brace depth string-aware, and
+/// returns the first candidate that both balances AND parses as JSON — an
+/// answer embedded in noise is rescued instead of burned as a failed
+/// attempt.
+fn extract_json_object(s: &str) -> String {
+    let bytes = s.as_bytes();
+    for start in 0..bytes.len() {
+        if bytes[start] != b'{' {
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (i, &c) in bytes.iter().enumerate().skip(start) {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == b'\\' {
+                    escaped = true;
+                } else if c == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match c {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(end) = end {
+            let candidate = &s[start..=end];
+            if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                return candidate.to_string();
             }
         }
     }
-    trimmed
+    "{}".to_string()
 }

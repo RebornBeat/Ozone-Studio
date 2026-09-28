@@ -151,6 +151,7 @@ pub async fn run_amt_reexpansion_loop(
     config: RefinementConfig,
     available_models: Vec<AvailableModel>,
     meta_fallback: ModelFallbackConfig,
+    tasks: Arc<tokio::sync::RwLock<crate::task::TaskManager>>,
 ) {
     if !config.enabled {
         tracing::info!("AMT re-expansion loop disabled (RefinementConfig.enabled = false)");
@@ -175,8 +176,14 @@ pub async fn run_amt_reexpansion_loop(
         }
 
         tracing::info!("AMT re-expansion loop: starting review pass");
-        if let Err(e) =
-            review_amt_candidates_once(&executor, &store, &available_models, &meta_fallback).await
+        if let Err(e) = review_amt_candidates_once(
+            &executor,
+            &store,
+            &available_models,
+            &meta_fallback,
+            &tasks,
+        )
+        .await
         {
             tracing::warn!(error = %e, "AMT re-expansion loop review pass failed");
         }
@@ -195,6 +202,7 @@ async fn review_amt_candidates_once(
     store: &Arc<dyn StoreAccess>,
     available_models: &[AvailableModel],
     meta_fallback: &ModelFallbackConfig,
+    tasks: &Arc<tokio::sync::RwLock<crate::task::TaskManager>>,
 ) -> Result<(), String> {
     let mut candidates = crate::orchestrator::amt_candidates::load_all_at(&candidates_log_path());
     if candidates.is_empty() {
@@ -212,6 +220,45 @@ async fn review_amt_candidates_once(
         };
         let attempts_before = candidate.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
 
+        // §9 CANDIDATE → TASK REGISTRATION (universal native task ordering,
+        // operator architecture): a consumed candidate is no longer a
+        // shadow-queue entry only — it registers as a real source-tagged
+        // task so the global order shows the work as live, and its outcome
+        // (completed/failed) lands in the task lifecycle like every other
+        // job. Discovery layer = this candidate store; execution layer =
+        // the task store.
+        let route_label = candidate
+            .get("route")
+            .and_then(|r| r.as_str())
+            .unwrap_or("UnknownNode")
+            .to_string();
+        let task_prompt = format!(
+            "AMT re-expansion [{}] container {} — {}",
+            route_label,
+            container_id,
+            candidate
+                .get("detail")
+                .and_then(|d| d.as_str())
+                .unwrap_or("deepen unverified branch")
+        );
+        let mut inputs = std::collections::HashMap::new();
+        inputs.insert("prompt".to_string(), serde_json::json!(task_prompt));
+        inputs.insert("source".to_string(), serde_json::json!("amt-loop"));
+        let expand_task_id = {
+            let mut tm = tasks.write().await;
+            tm.enqueue_task(
+                None,
+                inputs,
+                0,
+                0,
+                None,
+                None,
+                crate::task::TaskPriority::Normal,
+            )
+            .await
+            .ok()
+        };
+
         match try_reexpand_one(
             executor,
             store,
@@ -226,6 +273,13 @@ async fn review_amt_candidates_once(
                 tracing::info!(container_id, "AMT re-expansion: branch deepened");
                 candidate["handled"] = serde_json::json!(true);
                 any_change = true;
+                if let Some(tid) = &expand_task_id {
+                    let _ = tasks
+                        .write()
+                        .await
+                        .complete_task(*tid, Some(serde_json::json!({"deepened": true})), 0)
+                        .await;
+                }
                 // MERGE-BACK V2 (main/fork islands): when a fork deepens,
                 // notify the living graph so subscribers know the AMT
                 // evolved. The Continues relation already links fork→main;
@@ -249,6 +303,13 @@ async fn review_amt_candidates_once(
                 // this project's AMT is rebuilt if the branch is still thin.
                 candidate["handled"] = serde_json::json!(true);
                 any_change = true;
+                if let Some(tid) = &expand_task_id {
+                    let _ = tasks
+                        .write()
+                        .await
+                        .complete_task(*tid, Some(serde_json::json!({"resolved_otherwise": true})), 0)
+                        .await;
+                }
             }
             Err(e) => {
                 // Retry cap — same reasoning as the methodology meta-loop's
@@ -262,6 +323,13 @@ async fn review_amt_candidates_once(
                 let attempts = attempts_before + 1;
                 candidate["attempts"] = serde_json::json!(attempts);
                 any_change = true;
+                if let Some(tid) = &expand_task_id {
+                    let _ = tasks
+                        .write()
+                        .await
+                        .fail_task(*tid, e.clone())
+                        .await;
+                }
                 if attempts >= MAX_REEXPAND_ATTEMPTS {
                     tracing::warn!(
                         container_id,
@@ -306,6 +374,22 @@ async fn try_reexpand_one(
         return Ok(false);
     };
 
+    // RICH PROMPT CONTEXT (user directive: nothing dropped at call sites) —
+    // the container carries the run's real extracted keywords/topics; the
+    // deepening prompt previously ignored them entirely.
+    let container_keywords: Vec<String> = container
+        .get("local_state")
+        .and_then(|ls| ls.get("context"))
+        .and_then(|c| c.get("keywords"))
+        .and_then(|k| serde_json::from_value(k.clone()).ok())
+        .unwrap_or_default();
+    let container_topics: Vec<String> = container
+        .get("local_state")
+        .and_then(|ls| ls.get("context"))
+        .and_then(|c| c.get("topics"))
+        .and_then(|t| serde_json::from_value(t.clone()).ok())
+        .unwrap_or_default();
+
     let object_store_path = container
         .get("local_state")
         .and_then(|ls| ls.get("storage"))
@@ -325,9 +409,21 @@ async fn try_reexpand_one(
     let raw = std::fs::read_to_string(&full_path).map_err(|e| e.to_string())?;
     let mut amt: AMTNode = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
 
-    let Some(target_node) = find_unverified_node(&amt) else {
-        tracing::info!(container_id, "AMT expansion: branch already resolved since recording");
-        return Ok(false); // already resolved since the candidate was recorded
+    let target_node = match find_unverified_node(&amt) {
+        Some(n) => n,
+        // THIN-TREE doctrine: a tree whose root has NO children is
+        // definitionally un-expanded — "keep revisiting and deepening
+        // already-found branches" applies to it even though the root carries
+        // chunk provenance and is therefore verified by the uniform rule.
+        // Deepening = concrete sub-branches under the root itself (found
+        // live 2026-09-20: both real-orchestrate AMTs were bare verified
+        // roots, so the loop marked them handled without deepening and no
+        // tree ever grew past its root).
+        None if amt.children.is_empty() => &amt,
+        None => {
+            tracing::info!(container_id, "AMT expansion: branch already resolved since recording");
+            return Ok(false); // already resolved since the candidate was recorded
+        }
     };
     let target_content = target_node.content.clone();
     let target_methodology_ids = target_node.methodology_ids.clone();
@@ -384,12 +480,20 @@ async fn try_reexpand_one(
         Some(text) => format!("\n\nRELATED BRANCHES ALREADY IN THIS TREE (for context — stay consistent with these, don't duplicate them):\n- {}", text),
         None => String::new(),
     };
+    let signals_block = if container_keywords.is_empty() && container_topics.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\nSIGNALS FROM THE ORIGINAL REQUEST (ground your details in these):\n- Keywords: {}\n- Topics: {}\n",
+            container_keywords.join(", "),
+            container_topics.join(", ")
+        )
+    };
     let prompt = format!(
         r#"You are deepening one specific branch of an existing analysis tree.
 
 OVERALL REQUEST: {}
-
-BRANCH TO DEEPEN (currently has no concrete supporting detail): {}{}{}
+{}BRANCH TO DEEPEN (currently has no concrete supporting detail): {}{}{}
 
 Provide 1-3 concrete, specific details, requirements, or sub-points that would genuinely
 strengthen this branch — not a restatement of the branch itself, not generic filler.
@@ -400,7 +504,7 @@ Return ONLY valid JSON:
     "details": ["specific detail 1", "specific detail 2"]
 }}
 If nothing substantive can be added, return: {{"details": []}}"#,
-        root_content, target_content, guidance_block, related_block
+        root_content, signals_block, target_content, guidance_block, related_block
     );
 
     let mut input = serde_json::json!({
@@ -451,7 +555,32 @@ If nothing substantive can be added, return: {{"details": []}}"#,
     if response.trim().is_empty() {
         return Err("prompt pipeline returned an empty response".to_string());
     }
-    let json_str = extract_json_object(response);
+    // BitNet "confetti" (found live 2026-09-22 in decision_review.rs, same
+    // vulnerability confirmed here): a response can contain MULTIPLE
+    // conflicting JSON candidates (a leading empty `{}`, prose, real
+    // content, more JSON) — the old single-candidate `extract_json_object`
+    // returns the FIRST candidate that merely parses, which is often the
+    // empty `{}`. That parses fine as valid JSON, so `.get("details")`
+    // silently returns None -> empty Vec via `unwrap_or_default()` below —
+    // no error, no retry, the model's real (possibly substantive) answer
+    // later in the response is discarded and this pass looks like
+    // "nothing to add" instead of a genuine extraction failure. Detect
+    // confetti explicitly: if more than one non-empty candidate exists,
+    // this response is unusable — fail this attempt (the caller's
+    // existing cross-pass escalation via `attempts_before` already retries
+    // with an escalated fallback model next pass, same mechanism as an
+    // empty response above) rather than guessing which candidate is real.
+    let candidates = extract_all_json_objects(response);
+    if candidates.len() > 1 {
+        return Err(format!(
+            "response contained {} conflicting JSON candidates (confetti) — refusing to guess which is real",
+            candidates.len()
+        ));
+    }
+    let json_str = candidates
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| "{}".to_string());
     let parsed: serde_json::Value = serde_json::from_str(json_str.trim())
         .map_err(|e| format!("draft response wasn't valid JSON: {}", e))?;
 
@@ -461,11 +590,20 @@ If nothing substantive can be added, return: {{"details": []}}"#,
         .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
         .unwrap_or_default();
 
-    if details.is_empty() {
+    // Placeholder rejection (user no-fabrication doctrine): BitNet parroted
+    // the prompt example verbatim ("specific detail 1/2/3") and those got
+    // persisted as real children. Filter them; nothing substantive left is
+    // an honest "no usable answer".
+    let substantive: Vec<String> = details
+        .into_iter()
+        .filter(|d| !is_placeholder_text(d))
+        .collect();
+    if substantive.is_empty() {
+        tracing::info!(container_id, "AMT re-expansion: response was pure placeholder/example echo — not persisting");
         return Ok(false);
     }
 
-    if !add_children_to_unverified(&mut amt, &target_content, &details) {
+    if !add_children_to_unverified(&mut amt, &target_content, &substantive) {
         tracing::warn!(container_id, target = %target_content, "AMT expansion: target branch not found (tree changed since detection)");
         return Ok(false);
     }
@@ -512,7 +650,11 @@ fn find_node_by_id(node: &AMTNode, target_id: u64) -> Option<&AMTNode> {
 /// provenance), but the branch is now genuinely deeper. Returns false if
 /// the target node couldn't be found (tree changed since detection).
 fn add_children_to_unverified(node: &mut AMTNode, target_content: &str, details: &[String]) -> bool {
-    if node.content == target_content && !node.verified {
+    // Thin-tree relaxation: a CHILDLESS node is a valid deepening target
+    // even when verified — "verified" means provenance-backed, not
+    // fully-expanded (found by the thin-tree test: the bare-root case
+    // targeted the root, then this guard refused to add to it).
+    if node.content == target_content && (!node.verified || node.children.is_empty()) {
         let mut next_id = node
             .children
             .iter()
@@ -546,13 +688,139 @@ fn add_children_to_unverified(node: &mut AMTNode, target_content: &str, details:
     false
 }
 
-fn extract_json_object(response: &str) -> &str {
-    let start = response.find('{');
-    let end = response.rfind('}');
-    match (start, end) {
-        (Some(s), Some(e)) if e >= s => &response[s..=e],
-        _ => "{}",
+/// Extract the first well-formed JSON object from a raw LLM response.
+/// Small local models (BitNet i2_s — live-observed 2026-09-20) wrap usable
+/// JSON in prompt echo, `skip:` scaffolding, code fences, and hallucinated
+/// follow-up instructions; the previous first-`{`-to-last-`}` slice spanned
+/// all of that noise and failed to parse every time ("trailing characters").
+/// Scans every `{` as a candidate start, tracks brace depth string-aware,
+/// and returns the first candidate that both balances AND parses as JSON —
+/// an answer embedded in noise is rescued instead of burned as a failed
+/// attempt.
+/// Placeholder-content detector — small models parrot the prompt's own
+/// example values or emit "..." ellipsis shells (live-observed 2026-09-20:
+/// BitNet persisted "specific detail 1/2/3" as AMT children and a
+/// methodology whose only heuristic was {"name": "...", "description":
+/// "..."}). Text that is empty, ellipsis-only, or an exact prompt-example
+/// echo is NOT content.
+fn is_placeholder_text(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() || t == "..." || t == "…" {
+        return true;
     }
+    // The deepening prompt's own JSON example — verbatim parrot bait.
+    if t.eq_ignore_ascii_case("specific detail 1")
+        || t.eq_ignore_ascii_case("specific detail 2")
+        || t.eq_ignore_ascii_case("specific detail 3")
+    {
+        return true;
+    }
+    false
+}
+
+/// Confetti detection (found live 2026-09-22, `decision_review.rs`; same
+/// vulnerability confirmed and fixed here): scans the WHOLE response for
+/// every balanced, parseable `{...}` candidate — not just the first — and
+/// returns only the non-empty ones (a bare `{}` carries nothing and would
+/// otherwise masquerade as "the model's real answer"). More than one
+/// candidate here means the response is confetti (multiple conflicting
+/// JSON objects in one generation), which the caller treats as a real
+/// failure requiring retry, not a value to guess between.
+fn extract_all_json_objects(response: &str) -> Vec<String> {
+    let bytes = response.as_bytes();
+    let mut found = Vec::new();
+    let mut start = 0usize;
+    while start < bytes.len() {
+        if bytes[start] != b'{' {
+            start += 1;
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (i, &c) in bytes.iter().enumerate().skip(start) {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == b'\\' {
+                    escaped = true;
+                } else if c == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match c {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        match end {
+            Some(end) => {
+                let candidate = &response[start..=end];
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(candidate) {
+                    if parsed.as_object().map(|o| !o.is_empty()).unwrap_or(false) {
+                        found.push(candidate.to_string());
+                    }
+                }
+                start = end + 1;
+            }
+            None => start += 1,
+        }
+    }
+    found
+}
+
+fn extract_json_object(response: &str) -> String {
+    let bytes = response.as_bytes();
+    for start in 0..bytes.len() {
+        if bytes[start] != b'{' {
+            continue;
+        }
+        let mut depth = 0usize;
+        let mut in_string = false;
+        let mut escaped = false;
+        let mut end = None;
+        for (i, &c) in bytes.iter().enumerate().skip(start) {
+            if in_string {
+                if escaped {
+                    escaped = false;
+                } else if c == b'\\' {
+                    escaped = true;
+                } else if c == b'"' {
+                    in_string = false;
+                }
+                continue;
+            }
+            match c {
+                b'"' => in_string = true,
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Some(end) = end {
+            let candidate = &response[start..=end];
+            if serde_json::from_str::<serde_json::Value>(candidate).is_ok() {
+                return candidate.to_string();
+            }
+        }
+    }
+    "{}".to_string()
 }
 
 #[cfg(test)]
@@ -669,10 +937,143 @@ mod tests {
         assert_eq!(got, None);
     }
 
+    // BITNET CAPTURE (2026-09-20) — real response shapes from the operator's
+    // logs: small local models wrap usable JSON in prompt echo, skip
+    // scaffolding, code fences, and hallucinated follow-ups. The old
+    // first-{ -to-last-} slice burned every one of these as a failed attempt.
+    #[test]
+    fn extract_rescues_json_from_real_bitnet_noise() {
+        // 1. valid object + trailing chatter (the live "trailing characters
+        //    at line 3 column 2" failure)
+        let r = extract_json_object(r#"{"details": ["concrete sub-detail"]}
+
+Some trailing model chatter."#);
+        assert_eq!(r, r#"{"details": ["concrete sub-detail"]}"#);
+
+        // 2. leading junk + skip object + more junk (meta-loop shape)
+        let r = extract_json_object(".
+
+skip: {\"reason\": \"too vague\"}
+
+more noise {\"a\": 1}");
+        assert_eq!(r, "{\"reason\": \"too vague\"}");
+
+        // 3. prompt echo, good object, hallucinated follow-up with fence
+        let r = extract_json_object(r#"skip: false
+
+{"name": "Real Draft", "decision_rules": [{"name": "r", "condition": "c", "outcome": "o"}]}
+
+skip: true
+}
+```
+
+Instruction with added constraints: IPv4 and IPv6..."#);
+        assert!(r.contains("Real Draft"));
+        assert!(serde_json::from_str::<serde_json::Value>(&r).is_ok());
+
+        // 4. object containing strings with braces/escapes (string-aware depth)
+        let r = extract_json_object(r#"{"content": "literal } and { inside", "n": 1} tail"#);
+        assert_eq!(r, r#"{"content": "literal } and { inside", "n": 1}"#);
+
+        // 5. no object at all
+        assert_eq!(extract_json_object("no json here at all"), "{}");
+
+        // 6. balanced but invalid JSON is skipped for a later valid one
+        let r = extract_json_object(r#"{"broken": ,} {"ok": true}"#);
+        assert_eq!(r, "{\"ok\": true}");
+    }
+
+    // THIN-TREE (2026-09-20): a bare verified root (no children — the exact
+    // shape real orchestrates produced) must be deepened via the root
+    // itself, not marked handled-without-deepening.
+    #[tokio::test]
+    async fn review_pass_deepens_bare_thin_tree_root() {
+        let _env_guard = crate::orchestrator::amt::test_env::ENV_LOCK.lock().unwrap();
+        let path = temp_path("thin");
+        let data_dir = std::path::Path::new(&path)
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &data_dir);
+
+        let store = MockStore::with_project_amt_bare(7, 501);
+        process_graph_event(&store, &path, &scoped_event(Some(7), false, "updated"))
+            .await
+            .unwrap();
+
+        let executor: std::sync::Arc<dyn PipelineExecutor> =
+            std::sync::Arc::new(MockExecutor::success(r#"{"details": ["root sub-point A"]}"#));
+        let models = vec![];
+        let fallback = ModelFallbackConfig::default();
+        let (review_store, review_amt_file) = store_for_review_bare();
+        review_amt_candidates_once(&executor, &review_store, &models, &fallback, &std::sync::Arc::new(tokio::sync::RwLock::new(crate::task::TaskManager::new(crate::task::TaskQueueConfig::default(), Default::default()).unwrap())))
+            .await
+            .unwrap();
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&review_amt_file).unwrap()).unwrap();
+        let kids = updated["children"].as_array().unwrap();
+        assert!(
+            !kids.is_empty(),
+            "bare verified root must gain children via the thin-tree path"
+        );
+        assert_eq!(kids[0]["content"], "root sub-point A");
+    }
+
+    // PLACEHOLDER REJECTION (2026-09-20): BitNet parroted the prompt's own
+    // example values verbatim and they were persisted as real children.
+    // A pure-example-echo response must be an honest "no usable answer"
+    // (handled, nothing persisted), not fake content.
+    #[tokio::test]
+    async fn review_pass_rejects_placeholder_example_echo() {
+        let _env_guard = crate::orchestrator::amt::test_env::ENV_LOCK.lock().unwrap();
+        let path = temp_path("parrot");
+        let data_dir = std::path::Path::new(&path)
+            .parent()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        std::env::set_var("OZONE_ZSEI_DATA_DIR", &data_dir);
+
+        let store = MockStore::with_project_amt_bare(7, 502);
+        process_graph_event(&store, &path, &scoped_event(Some(7), false, "updated"))
+            .await
+            .unwrap();
+
+        let executor: std::sync::Arc<dyn PipelineExecutor> = std::sync::Arc::new(
+            MockExecutor::success(
+                r#"{"details": ["specific detail 1", "specific detail 2", "specific detail 3"]}"#,
+            ),
+        );
+        let models = vec![];
+        let fallback = ModelFallbackConfig::default();
+        let store2 = std::sync::Arc::new(MockStore::with_project_amt_bare(7, 502));
+        let review_amt_file = store2.amt_file.clone();
+        review_amt_candidates_once(&executor, &(store2 as Arc<dyn StoreAccess>), &models, &fallback, &std::sync::Arc::new(tokio::sync::RwLock::new(crate::task::TaskManager::new(crate::task::TaskQueueConfig::default(), Default::default()).unwrap())))
+            .await
+            .unwrap();
+
+        let updated: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&review_amt_file).unwrap()).unwrap();
+        assert!(
+            updated["children"].as_array().unwrap().is_empty(),
+            "parroted prompt-example details must never be persisted as children"
+        );
+
+        // The candidate is marked handled — honest no-usable-answer, no retry loop.
+        let candidates = crate::orchestrator::amt_candidates::load_all_at(&path);
+        assert!(candidates.iter().all(|c| c.get("handled").and_then(|h| h.as_bool()) == Some(true)));
+    }
+
     // T-S5: full consumption — review pass deepens the AMT file through the
     // mock executor and marks the candidate handled.
     #[tokio::test]
     async fn review_pass_consumes_ripple_candidate_end_to_end() {
+        // Mutates the process-global OZONE_ZSEI_DATA_DIR — hold the shared
+        // test-env lock (see amt::test_env) so parallel env-mutating tests
+        // in sibling modules can't interleave.
+        let _env_guard = crate::orchestrator::amt::test_env::ENV_LOCK.lock().unwrap();
         let path = temp_path("s5");
         // review_amt_candidates_once resolves its candidates file from
         // OZONE_ZSEI_DATA_DIR — point it at this test's dir.
@@ -693,7 +1094,7 @@ mod tests {
         let models = vec![];
         let fallback = ModelFallbackConfig::default();
         let (review_store, review_amt_file) = store_for_review();
-        review_amt_candidates_once(&executor, &review_store, &models, &fallback)
+        review_amt_candidates_once(&executor, &review_store, &models, &fallback, &std::sync::Arc::new(tokio::sync::RwLock::new(crate::task::TaskManager::new(crate::task::TaskQueueConfig::default(), Default::default()).unwrap())))
             .await
             .unwrap();
 
@@ -969,6 +1370,35 @@ mod tests {
             Self { project_id, amt_id, calls: AtomicU32::new(0), amt_file }
         }
 
+        /// Bare verified root, NO children — the shape real orchestrates
+        /// produced (2026-09-20): the loop's thin-tree path must target the
+        /// root itself.
+        fn with_project_amt_bare(project_id: u64, amt_id: u64) -> Self {
+            static SEQ: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1000);
+            let amt_file = format!(
+                "{}_{}.json",
+                MockStore::amt_file_base(),
+                SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            );
+            let amt = serde_json::json!({
+                "content": "project root analysis",
+                "node_type": "Root",
+                "verified": true,
+                "confidence": 1.0,
+                "id": 0,
+                "depth": 0,
+                "source_chunk_indices": [],
+                "relationships": [],
+                "methodology_ids": [],
+                "metadata": {},
+                "children": []
+            });
+            let path = std::path::PathBuf::from(&amt_file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, serde_json::to_string_pretty(&amt).unwrap()).unwrap();
+            Self { project_id, amt_id, calls: AtomicU32::new(0), amt_file }
+        }
+
         fn amt_file_base() -> String {
             let dir = std::env::temp_dir().join(format!("amt_loop_files_{}", std::process::id()));
             std::fs::create_dir_all(&dir).unwrap();
@@ -1089,6 +1519,12 @@ mod tests {
         // — same mock, fresh counters. Returns its AMT file path so the
         // test asserts the file the review actually wrote.
         let store = std::sync::Arc::new(MockStore::with_project_amt(7, 500));
+        let file = store.amt_file.clone();
+        (store, file)
+    }
+
+    fn store_for_review_bare() -> (Arc<dyn StoreAccess>, String) {
+        let store = std::sync::Arc::new(MockStore::with_project_amt_bare(7, 501));
         let file = store.amt_file.clone();
         (store, file)
     }

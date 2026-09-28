@@ -101,35 +101,85 @@ impl PromptOrchestrator {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            let analyze_input = serde_json::json!({
-                "action": {
-                    "type": "Analyze",
-                    "text": if modality == "text" {
-                        state.cleaned_prompt.clone()
-                    } else {
-                        modality_text
-                    },
-                    "depth": "Standard",
-                    "extract_entities": true,
-                    "extract_topics": true,
-                    "extract_structure": false
-                }
-            });
+            // Math (105) has no "Analyze" action at all (real MathAction
+            // vocabulary is ParseExpression/AnalyzeProof/etc, confirmed
+            // live 2026-09-21 — see process_modality's own math branch
+            // below, and the identical fix in mod.rs's STEP 0 attached-file
+            // loop) and its CreateGraph needs a field literally named
+            // `analysis` (typed MathAnalysisResult), not `analysis_result`
+            // copied from a generic text/code-shaped Analyze response. This
+            // path (stage 4b, prompt-driven modality graphs) mirrors that
+            // same fix rather than reusing process_modality directly, since
+            // it operates over aggregated modality text, not a single file.
+            let graph_input = if pipeline_id == 105 {
+                let parse_action = serde_json::json!({
+                    "action": {
+                        "type": "ParseExpression",
+                        "expression": if modality == "text" {
+                            state.cleaned_prompt.clone()
+                        } else {
+                            modality_text.clone()
+                        },
+                        "format": "LaTeX",
+                        "extract_variables": true,
+                        "simplify": false
+                    }
+                });
+                let parse_out = self
+                    .executor
+                    .execute(pipeline_id, parse_action)
+                    .await
+                    .unwrap_or_default();
+                let parse_result = parse_out.get("result").cloned();
+                let confidence = parse_result
+                    .as_ref()
+                    .and_then(|p| p.get("confidence"))
+                    .and_then(|c| c.as_f64())
+                    .unwrap_or(0.5) as f32;
+                serde_json::json!({
+                    "action": {
+                        "type": "CreateGraph",
+                        "analysis": {
+                            "analysis_type": "Expression",
+                            "parse_result": parse_result,
+                            "proof_analysis": null,
+                            "confidence": confidence
+                        },
+                        "project_id": project_id,
+                        "link_to_existing": false
+                    }
+                })
+            } else {
+                let analyze_input = serde_json::json!({
+                    "action": {
+                        "type": "Analyze",
+                        "text": if modality == "text" {
+                            state.cleaned_prompt.clone()
+                        } else {
+                            modality_text.clone()
+                        },
+                        "depth": "Standard",
+                        "extract_entities": true,
+                        "extract_topics": true,
+                        "extract_structure": false
+                    }
+                });
 
-            let analysis = self
-                .executor
-                .execute(pipeline_id, analyze_input)
-                .await
-                .unwrap_or_default();
+                let analysis = self
+                    .executor
+                    .execute(pipeline_id, analyze_input)
+                    .await
+                    .unwrap_or_default();
 
-            let graph_input = serde_json::json!({
-                "action": {
-                    "type": "CreateGraph",
-                    "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
-                    "project_id": project_id,
-                    "link_to_existing": false
-                }
-            });
+                serde_json::json!({
+                    "action": {
+                        "type": "CreateGraph",
+                        "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
+                        "project_id": project_id,
+                        "link_to_existing": false
+                    }
+                })
+            };
 
             let graph_result = self
                 .executor
@@ -137,10 +187,22 @@ impl PromptOrchestrator {
                 .await
                 .unwrap_or_default();
 
-            let graph_id = graph_result
-                .get("graph_id")
-                .and_then(|g| g.as_u64())
-                .unwrap_or(Self::generate_id_static());
+            // Same top-level-vs-nested graph_id split as mod.rs's STEP 0 fix:
+            // math's CreateGraph result nests graph_id under "result"
+            // (MathResult is #[serde(untagged)]), unlike code/text's
+            // CodeModalityOutput-style shape which puts it at the top level.
+            let graph_id = if pipeline_id == 105 {
+                graph_result
+                    .get("result")
+                    .and_then(|r| r.get("graph_id"))
+                    .and_then(|g| g.as_u64())
+                    .unwrap_or(Self::generate_id_static())
+            } else {
+                graph_result
+                    .get("graph_id")
+                    .and_then(|g| g.as_u64())
+                    .unwrap_or(Self::generate_id_static())
+            };
 
             state.modality_graphs.insert(modality.clone(), graph_id);
             state.graph_states.insert(
@@ -426,55 +488,109 @@ impl PromptOrchestrator {
             "system_context": "File role classification. Return only valid JSON array."
         });
 
-        let result = match self.metered_execute(state, 9, input).await {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    "File role classification LLM call failed — classified_file_graphs will be empty this run"
-                );
-                serde_json::Value::default()
-            }
-        };
-        self.record_thinking(state, "File Role Classification", &result);
-        let raw = result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("[]");
-        let json_str = Self::extract_json_from_response(raw, '[', ']');
-
-        let classifications: Vec<ClassifiedFileGraph> =
-            match serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-                Ok(arr) => arr,
+        // Completeness check, not just emptiness: confirmed real gap (audit
+        // 2026-09-22) — metered_execute_resilient already retries/falls
+        // back on an EMPTY response, but a model can return a real,
+        // non-empty, parseable array that's simply short (classified 2 of 3
+        // attached files) or has individual malformed entries silently
+        // dropped by the filter_map below — neither case was previously
+        // detected, so classified_file_graphs quietly ended up partial with
+        // no warning and no retry. Bounded retry (same "few attempts, then
+        // proceed with what's real" posture used elsewhere in this
+        // codebase) on incompleteness specifically, distinct from the
+        // transport-level retry metered_execute_resilient already does.
+        const MAX_COMPLETENESS_RETRIES: u32 = 2;
+        let mut attempt = 0;
+        let mut classifications: Vec<ClassifiedFileGraph> = Vec::new();
+        loop {
+            attempt += 1;
+            let result = match self
+                .metered_execute_resilient(state, input.clone(), "file_role_classification")
+                .await
+            {
+                Ok(v) => v,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
-                        raw = %raw,
-                        "File role classification returned unparseable JSON — classified_file_graphs will be empty this run"
+                        attempt,
+                        "File role classification LLM call failed after retries and fallback — classified_file_graphs will be empty this run"
                     );
-                    Vec::new()
+                    break;
                 }
-            }
-            .into_iter()
-            .filter_map(|v| {
-                Some(ClassifiedFileGraph {
-                    file_path: v["file_path"].as_str()?.to_string(),
-                    graph_id: v["graph_id"].as_u64().or_else(|| {
-                        state
-                            .file_graphs
-                            .get(v["file_path"].as_str().unwrap_or(""))
-                            .copied()
-                    })?,
-                    modality: self.detect_file_modality(v["file_path"].as_str().unwrap_or("")),
-                    role: match v["role"].as_str().unwrap_or("raw_data") {
-                        "primary" => FileGraphRole::Primary,
-                        "supplementary" => FileGraphRole::Supplementary,
-                        _ => FileGraphRole::RawData,
-                    },
-                    reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
+            };
+            self.record_thinking(state, "File Role Classification", &result);
+            let raw = result
+                .get("response")
+                .and_then(|r| r.as_str())
+                .unwrap_or("[]");
+            let json_str = Self::extract_json_from_response(raw, '[', ']');
+
+            let parsed: Vec<serde_json::Value> =
+                match serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                    Ok(arr) => arr,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            raw = %raw,
+                            attempt,
+                            "File role classification returned unparseable JSON"
+                        );
+                        Vec::new()
+                    }
+                };
+            let dropped_entries = parsed.len();
+            classifications = parsed
+                .into_iter()
+                .filter_map(|v| {
+                    Some(ClassifiedFileGraph {
+                        file_path: v["file_path"].as_str()?.to_string(),
+                        graph_id: v["graph_id"].as_u64().or_else(|| {
+                            state
+                                .file_graphs
+                                .get(v["file_path"].as_str().unwrap_or(""))
+                                .copied()
+                        })?,
+                        modality: self.detect_file_modality(v["file_path"].as_str().unwrap_or("")),
+                        role: match v["role"].as_str().unwrap_or("raw_data") {
+                            "primary" => FileGraphRole::Primary,
+                            "supplementary" => FileGraphRole::Supplementary,
+                            _ => FileGraphRole::RawData,
+                        },
+                        reasoning: v["reasoning"].as_str().unwrap_or("").to_string(),
+                    })
                 })
-            })
-            .collect();
+                .collect();
+            let dropped_entries = dropped_entries.saturating_sub(classifications.len());
+
+            let classified_paths: std::collections::HashSet<&str> =
+                classifications.iter().map(|c| c.file_path.as_str()).collect();
+            let missing: Vec<&str> = state
+                .file_graphs
+                .keys()
+                .map(|p| p.as_str())
+                .filter(|p| !classified_paths.contains(p))
+                .collect();
+
+            if missing.is_empty() && dropped_entries == 0 {
+                break;
+            }
+            tracing::warn!(
+                attempt,
+                missing_files = ?missing,
+                malformed_entries_dropped = dropped_entries,
+                classified_count = classifications.len(),
+                total_files = state.file_graphs.len(),
+                "File role classification incomplete — model classified fewer files than attached, or dropped malformed entries"
+            );
+            if attempt >= MAX_COMPLETENESS_RETRIES {
+                tracing::warn!(
+                    attempt,
+                    missing_files = ?missing,
+                    "File role classification still incomplete after retries — proceeding with the real, partial result rather than blocking (missing files simply won't have a role classification this run)"
+                );
+                break;
+            }
+        }
 
         state.classified_file_graphs = classifications;
         Ok(())
@@ -499,11 +615,35 @@ impl PromptOrchestrator {
         // not "text", and panicked with "missing field `code`" when it
         // received the generic text-shaped payload every call here used
         // unconditionally (this pipeline had never actually been exercised
-        // before). Only text (100) and code (101) are built right now —
-        // every other modality defaults to "text" as a best guess until it's
-        // built and its real Analyze contract is verified. Unrecognized
-        // extra keys (extract_entities etc., which code's Analyze doesn't
-        // declare) are silently ignored by serde, harmless either way.
+        // before). Real bug found live 2026-09-21: math modality (105, built
+        // since this comment was written) has NO "Analyze" action at all —
+        // its real MathAction enum is ParseExpression/AnalyzeProof/VerifyStep/
+        // etc., a genuinely different action vocabulary, not just a
+        // differently-named content field within the same "Analyze" shape.
+        // Sending it the generic Analyze action failed outright ("unknown
+        // variant `Analyze`"), aborting the whole attached-file flow for any
+        // .tex/.latex/.nb attachment. Math gets its own real branch below
+        // (ParseExpression, the real closest equivalent to "analyze this raw
+        // content"). Only text (100), code (101), and now math (105) are
+        // built right now — every other modality still defaults to the
+        // generic "text"-shaped Analyze as a best guess until it's built and
+        // its real contract is verified (same honest caveat as before,
+        // narrowed to what's actually still true). Unrecognized extra keys
+        // (extract_entities etc., which code's/math's actions don't declare)
+        // are silently ignored by serde, harmless either way.
+        if pipeline_id == 105 {
+            let action = serde_json::json!({
+                "type": "ParseExpression",
+                "expression": text,
+                "format": "LaTeX",
+                "extract_variables": true,
+                "simplify": false
+            });
+            return self
+                .executor
+                .execute(pipeline_id, serde_json::json!({ "action": action }))
+                .await;
+        }
         let content_field = match pipeline_id {
             101 => "code",
             _ => "text",

@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "Taking a lock guard in the same expression that awaits a function which loops until stopped means the guard is held for the life of the task.",
+   "rationale": "Live 2026-09-20: `integrity.write().await.start_monitoring()` held the write guard across the monitoring loop forever; the first other-path `read()` blocked permanently, hanging every container update and, through a downstream fan-out, every pipeline execution behind the executor lock.",
+   "applicability": [
+    "concurrency",
+    "locks",
+    "deadlock",
+    "background_tasks"
+   ]
+  },
+  {
+   "statement": "Prefer interior mutability for long-lived services: a monitor whose state is Arc/RwLock inside only ever needs the outer guard for the duration of a method call, not the duration of its life.",
+   "rationale": "start_monitoring(&self) only needed &self \u2014 the outer write guard was never required at all; a read guard held forever is safe because nothing else writes the outer lock.",
+   "applicability": [
+    "architecture",
+    "concurrency",
+    "api_design"
+   ]
+  },
+  {
+   "statement": "A hang is not load. Suites green while production deadlocks means the test built its own fixture and never exercised the shared lock in loop conditions.",
+   "rationale": "The deadlock shipped with a fully green suite: every test constructed its own monitor and none ran the monitor loop concurrently with a snapshot caller.",
+   "applicability": [
+    "testing",
+    "concurrency",
+    "review"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Spawning a task that runs a service loop.",
+   "description": "Audit every guard acquired in the spawn expression: if the awaited call loops indefinitely, the guard must be unnecessary for the call (interior mutability) or the loop must not hold it.",
+   "when_to_apply": "All tokio::spawn service loops."
+  },
+  {
+   "name": "Diagnosing a system-wide hang with green tests.",
+   "description": "Trace lock acquisition order across the hang path; check specifically for guards whose scope spans an unbounded await.",
+   "when_to_apply": "Incident response."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A method that runs an unbounded loop needs a lock to start.",
+   "action": "Verify the loop only needs &self with interior state locks, and take the weakest guard (read) for the shortest scope the borrow checker allows."
+  }
+ ]
+}

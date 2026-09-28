@@ -92,10 +92,37 @@ function pushActivity(kind, level, source, message) {
 // containers under /SharedContext via the host's /context/mirror.
 // Fire-and-forget — graph state lags local state gracefully when offline.
 function mirrorContext(req) {
+  // ORDERED SHARED CONTEXT (guide §3, Phase 1 — operator-approved,
+  // 2026-09-28): when OZONE_THROUGH_HOST=1, mirrors route through
+  // /mcp/call so Ozone-Studio reviews the event and responds with the
+  // insight envelope (progression / captured / maybe_missed / order).
+  // Any failure (host down, tool unregistered, success:false) falls back
+  // to the direct /context/mirror write — coordination NEVER blocks on
+  // the host being up; ordering is an upgrade, not a dependency.
+  const body = JSON.stringify(req);
+  if (process.env.OZONE_THROUGH_HOST === "1") {
+    fetch(`${OZONE_HOST}/mcp/call`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tool: "context_mirror", agent: req.agent, input: req }),
+    })
+      .then((r) => r.json())
+      .then((out) => {
+        if (!out || out.success === false) throw new Error("mirror tool unavailable");
+      })
+      .catch(() => {
+        fetch(`${OZONE_HOST}/context/mirror`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body,
+        }).catch(() => {});
+      });
+    return;
+  }
   fetch(`${OZONE_HOST}/context/mirror`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
+    body,
   }).catch(() => {});
 }
 
@@ -258,6 +285,18 @@ function fileRelease({ agent, files }) {
     }
   }
   saveState(state);
+  if (released.length > 0) {
+    pushActivity("bridge", "info", agent, `${agent} released ${released.length} file(s)`);
+    // Mirror each release into the coordination graph — without this,
+    // fileClaim's mirrored "claim" events never get a matching "release",
+    // so any UI/reader built on the ZSEI-mirrored graph (not just
+    // .ozone-context/state.json, which this function already updates
+    // correctly above) shows every released file as still permanently
+    // claimed (found live, B11 audit, 2026-09-23).
+    for (const f of released) {
+      mirrorContext({ kind: "release", agent, title: `release: ${f}`, body: "", files: [f], ...eventScope({ scope: "workspace" }) });
+    }
+  }
   return { ok: true, released };
 }
 
@@ -564,7 +603,10 @@ async function handleMessage(msg) {
         });
         return;
       }
-      const out = await callTool(params.name, params.arguments || {});
+      // The schemas mark `agent` required but nothing enforced it, so callers
+      // that omitted it stored claims/notes under agent:undefined (unreleasable,
+      // unattributable). Default to this server's own identity.
+      const out = await callTool(params.name, { agent: AGENT_NAME, ...(params.arguments || {}) });
       reply(id, { content: [{ type: "text", text: JSON.stringify(out, null, 2) }] });
     } catch (e) {
       reply(id, { content: [{ type: "text", text: `error: ${e.message}` }], isError: true });

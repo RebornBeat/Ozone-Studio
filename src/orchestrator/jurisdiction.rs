@@ -277,6 +277,48 @@ impl PromptOrchestrator {
             ..Default::default()
         };
         let confirmation_matches = categorize_jurisdiction_matches(&rules, &haystack, &mut result);
+
+        // STANDING CONTEXT (CONTEXT_REGISTRY S1, TOP_DOWN_REVIEW_GUIDE §3.2):
+        // the project's main AMT outline — what this project IS across
+        // sessions — direct-fetched by known ids (project container →
+        // amt-main child). Scoped judgment: a metering project and a
+        // file-wipe request should read differently. Absent project or AMT
+        // → empty block, judgment falls to the rule + request alone.
+        let mut standing_context = String::new();
+        if let Some(project_id) = state.request.project_id {
+            if let Ok(Some(project)) = self.store.get_container(project_id).await {
+                let child_ids: Vec<u64> = project
+                    .get("global_state").and_then(|g| g.get("child_ids"))
+                    .and_then(|c| serde_json::from_value(c.clone()).ok())
+                    .unwrap_or_default();
+                for child_id in child_ids.iter().take(40) {
+                    if let Ok(Some(child)) = self.store.get_container(*child_id).await {
+                        let kws: Vec<String> = child
+                            .get("local_state").and_then(|l| l.get("context"))
+                            .and_then(|c| c.get("keywords"))
+                            .and_then(|k| serde_json::from_value(k.clone()).ok())
+                            .unwrap_or_default();
+                        if kws.iter().any(|k| k == "amt-main") {
+                            let name = child
+                                .get("local_state").and_then(|l| l.get("metadata"))
+                                .and_then(|m| m.get("name")).and_then(|n| n.as_str())
+                                .unwrap_or("project main analysis");
+                            let topics: Vec<String> = child
+                                .get("local_state").and_then(|l| l.get("context"))
+                                .and_then(|c| c.get("topics"))
+                                .and_then(|t| serde_json::from_value(t.clone()).ok())
+                                .unwrap_or_default();
+                            standing_context = format!(
+                                "PROJECT STANDING CONTEXT (from its main AMT — scope the judgment to this project's actual purpose): {} | topics: {}",
+                                name, topics.join(", ")
+                            );
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
         resolve_confirmation_reviews(
             &self.executor,
             &confirmation_matches,
@@ -284,6 +326,7 @@ impl PromptOrchestrator {
             state.blueprint_id.unwrap_or(0),
             state.request.user_id,
             &mut result,
+            &standing_context,
         )
         .await;
 
@@ -371,16 +414,23 @@ async fn resolve_confirmation_reviews(
     blueprint_id: u64,
     user_id: u64,
     result: &mut JurisdictionGateResult,
+    standing_context: &str,
 ) {
     for rule in confirmation_matches {
+        let standing_block = if standing_context.is_empty() {
+            String::new()
+        } else {
+            format!("\n\n{}\n", standing_context)
+        };
         let input = serde_json::json!({
             "action": "Evaluate",
             "task_id": 0,
             "task_summary": format!(
-                "A user request matched a jurisdiction rule requiring confirmation before proceeding. Matched condition: \"{}\". Legal source: {}. Original request (truncated): {}",
+                "A user request matched a jurisdiction rule requiring confirmation before proceeding. Matched condition: \"{}\". Legal source: {}. Original request (truncated): {}{}",
                 rule.condition,
                 rule.source,
-                &prompt[..prompt.len().min(400)]
+                &prompt[..prompt.len().min(400)],
+                standing_block
             ),
             "blueprint_id": blueprint_id,
             "user_id": user_id,
@@ -565,6 +615,7 @@ mod graph_tests {
                 relation_type: RelationType::RelatedTo,
                 confidence: 0.9,
                 discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
             }],
         );
         eu.global_state.container_id = 101;
@@ -579,6 +630,7 @@ mod graph_tests {
                 relation_type: RelationType::RelatedTo,
                 confidence: 0.9,
                 discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
             }],
         );
         se.global_state.container_id = 102;
@@ -595,6 +647,7 @@ mod graph_tests {
                 relation_type: RelationType::RelatedTo,
                 confidence: 0.9,
                 discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
             }],
         );
         distractor.global_state.container_id = 103;
@@ -818,6 +871,89 @@ mod graph_tests {
         assert_eq!(non_eu_first[0].target_id, 100);
     }
 
+    // ── T-I2 (GRAPH_TEST_PLAN §10): a regulated topic pulls the RIGHT
+    // jurisdiction containers — gate half + traversal half composed. A
+    // prompt mentioning a regulated condition matches the se rule (pure
+    // gate routing), and the se ruleset's container traverses its real
+    // wired edges to the EU + Global baselines (cross-reference material
+    // for the simulation prompt). Blockers T-J2 + task 56 landed, so this
+    // was unblocked as of 2026-09-20. ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn t_i2_regulated_topic_pulls_ruleset_and_traverses_baselines() {
+        // ── GATE half: the topic signal matches the right region's rule ──
+        let se_rules = vec![
+            rule("data retention", RuleAction::Warn, "SE law §nn"),
+            rule("irrelevant condition", RuleAction::Log, "x"),
+        ];
+        let prompt = "please design a service that handles customer data retention for our Swedish users";
+        let mut gate = super::JurisdictionGateResult::default();
+        let confirmations = super::categorize_jurisdiction_matches(&se_rules, prompt, &mut gate);
+        assert!(
+            gate.matched.iter().any(|(r, _)| r.condition == "data retention"),
+            "the regulated topic must pull the se rule"
+        );
+        assert_eq!(gate.warnings.len(), 1, "Warn rule produces a real surfaced warning");
+        assert!(confirmations.is_empty());
+
+        // ── TRAVERSAL half: that ruleset's container cross-references its
+        //    baselines through the real wired edges (T-J2's fixture shape,
+        //    composed with the gate outcome above) ──
+        let config = temp_zsei_config("t_i2");
+        let mut storage = ContainerStorage::new(&config).expect("real temp storage");
+        let engine = TraversalEngine::new(&config).expect("real traversal engine");
+
+        let mut global = fixture_container(7, ContainerType::JurisdictionRuleSet, "global", vec![]);
+        global.global_state.container_id = 100;
+        storage.store(&global).unwrap();
+        let mut eu = fixture_container(
+            7,
+            ContainerType::JurisdictionRuleSet,
+            "eu",
+            vec![Relation {
+                target_id: 100,
+                relation_type: RelationType::RelatedTo,
+                confidence: 0.9,
+                discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
+            }],
+        );
+        eu.global_state.container_id = 101;
+        storage.store(&eu).unwrap();
+        let mut se = fixture_container(
+            7,
+            ContainerType::JurisdictionRuleSet,
+            "se",
+            vec![Relation {
+                target_id: 101,
+                relation_type: RelationType::RelatedTo,
+                confidence: 0.9,
+                discovered_via: DiscoveryMethod::Manual,
+                graph_hops: None,
+            }],
+        );
+        se.global_state.container_id = 102;
+        storage.store(&se).unwrap();
+
+        let request = TraversalRequest {
+            start_container: 102, // the se ruleset the gate matched
+            mode: TraversalMode::Structural,
+            filters: vec![Filter {
+                field: "container_type".to_string(),
+                operator: Operator::Equals,
+                value: crate::types::Value::String("JurisdictionRuleSet".to_string()),
+            }],
+            max_depth: 4,
+            max_results: 50,
+            ..Default::default()
+        };
+        let result = engine.traverse(&storage, request).await.unwrap();
+        assert!(
+            result.containers.contains(&101) && result.containers.contains(&100),
+            "the matched ruleset must traverse to its EU + Global baselines"
+        );
+    }
+
     // ── T-62b: real Warn/RequireConfirmation enforcement (per the user's
     // direct correction — Block was the only action with real teeth; Warn
     // and RequireConfirmation are now wired to real behavior too) ─────────
@@ -909,7 +1045,7 @@ mod graph_tests {
             std::sync::Arc::new(DecisionExecutor { decision: "Decline" });
         let matches = vec![rule("self-harm", RuleAction::RequireConfirmation, "UDHR Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result)
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
             .await;
         assert!(result.blocked, "a genuine Decline must set blocked");
         assert_eq!(result.confirmations.len(), 1);
@@ -923,7 +1059,7 @@ mod graph_tests {
             std::sync::Arc::new(DecisionExecutor { decision: "Proceed" });
         let matches = vec![rule("self-harm", RuleAction::RequireConfirmation, "UDHR Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result)
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
             .await;
         assert!(!result.blocked, "a Proceed decision must not block");
         assert_eq!(result.confirmations[0].1.decision, "Proceed");
@@ -938,7 +1074,7 @@ mod graph_tests {
         let executor: std::sync::Arc<dyn super::PipelineExecutor> = std::sync::Arc::new(FailingExecutor);
         let matches = vec![rule("child", RuleAction::RequireConfirmation, "CRC Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result)
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
             .await;
         assert!(!result.blocked);
         assert_eq!(result.confirmations[0].1.decision, "ReviewFailed");

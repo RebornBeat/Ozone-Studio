@@ -10,6 +10,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     pub source: String,

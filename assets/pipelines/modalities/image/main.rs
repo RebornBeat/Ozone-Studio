@@ -22,6 +22,9 @@ use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ============================================================================
 // PIPELINE METADATA
 // ============================================================================

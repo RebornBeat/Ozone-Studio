@@ -1390,7 +1390,12 @@ impl TaskManager {
         error: Option<String>,
     ) -> OzoneResult<bool> {
         match status {
-            "completed" | "failed" | "queued" | "running" => {}
+            // "paused" + "interrupted" added 2026-09-27 (universal-order
+            // Phase 1b, guide §9): Paused exists in TaskStatus but the
+            // coordination gate rejected it, so "what's live vs paused"
+            // was unstateable. Interrupted is the boot-reconciliation
+            // state — settable here so restoration flows can mark it too.
+            "completed" | "failed" | "queued" | "running" | "paused" | "interrupted" => {}
             other => {
                 return Err(OzoneError::TaskError(format!(
                     "invalid coordination status: {}",

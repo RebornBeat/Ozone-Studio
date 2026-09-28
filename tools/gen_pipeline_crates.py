@@ -39,6 +39,7 @@ DEP_TABLE = {
     "rand": 'rand = "0.8"',
     "blake3": 'blake3 = "1.5"',
     "hex": 'hex = "0.4"',
+    "whisper_rs": 'whisper-rs = "0.13"',
 }
 
 HEADER = (

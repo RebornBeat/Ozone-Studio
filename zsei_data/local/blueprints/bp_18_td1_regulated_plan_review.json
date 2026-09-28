@@ -1,0 +1,113 @@
+{
+ "blueprint_id": 18,
+ "name": "TD-1 Regulated Plan Review",
+ "version": "1.0.0",
+ "description": "Top-down context-assurance test (TOP_DOWN_REVIEW_GUIDE.md §4, TD-1): submit a prompt matching a jurisdiction RequireConfirmation rule end to end, then assert from the real decision-review capture store that the confirmation review's reasoning genuinely cites the blueprint's own step content — proof the review traversed the real plan rather than judging a generic summary string.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "text": 100
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9,
+   39
+  ],
+  "optional_pipelines": [
+   100
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 39,
+   "ethical_check_id": 39,
+   "required": false
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   35,
+   36,
+   43
+  ],
+  "suggested_methodologies": [
+   21
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated"
+  ],
+  "cross_modality_linking": false,
+  "link_to_existing": false
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "submit_regulated_prompt",
+   "description": "Submit a real /orchestrate request whose prompt matches an existing RequireConfirmation rule in assets/jurisdiction/global.json (a real, already-loaded ruleset — no fabricated rule content), through the full 14-stage pipeline.",
+   "pipeline_id": 9,
+   "action": "submit",
+   "outputs": [
+    "task_id",
+    "blueprint_id_generated"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "read_capture_store",
+   "description": "Read {data_dir}/model_calls/decision_review.jsonl and locate the confirmation review line(s) this request produced (by timestamp proximity to step 1).",
+   "pipeline_id": 9,
+   "action": "read_capture",
+   "outputs": [
+    "capture_lines"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "assert_plan_citation",
+   "description": "Assert the review's reasoning_preview references concrete content from the request's own generated blueprint steps (action/description text), not generic boilerplate — the real proof of top-down traversal per the doctrine's core claim.",
+   "pipeline_id": 9,
+   "action": "assert",
+   "outputs": [
+    "assertion_result"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "top-down",
+  "jurisdiction",
+  "confirmation",
+  "capture-store",
+  "context-assurance"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_22",
+  "created_by": "claude-code",
+  "honest_note": "Steps 2/3's 'read_capture'/'assert' actions are descriptive markers at the same abstraction level bp_17's 'audit'/'test'/'verify' already use — they are not (yet) real dispatchable pipeline actions with a mechanical enforcement harness. A small real script/pipeline step that actually parses decision_review.jsonl and checks reasoning content against blueprint step text does not exist yet; this blueprint registers the real, correctly-scoped test plan for when that harness is built, matching this codebase's existing blueprint-as-test-plan convention rather than fabricating an executable assertion that isn't there."
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

@@ -111,6 +111,7 @@ unwrapped, same output shape).
 | `pairwise` | pairwise passes | `default` (window 8, 50 pairs), `wide` (16, 100) | `default` |
 | `convergence` | refinement bounds | `fast` (2 passes), `deep` (5) | `fast` |
 | `search` | store search strategies | `scan` (substring, default), `exact` (whole-term) | `scan` |
+| `relevance` | relationship-path linking | `graph-first` (2-hop walk, floors 1/2, default), `keywords-only` (legacy, no walk, floor 2/2) | `graph-first` |
 
 Selecting is data, not code:
 

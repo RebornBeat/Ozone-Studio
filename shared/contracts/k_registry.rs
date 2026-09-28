@@ -29,6 +29,9 @@ pub enum KAlgorithmKind {
     Extraction,
     /// Model-call strategies (reserved: rendering ladders, prompt shapes).
     ModelCall,
+    /// Relationship-path relevance: how new graphs link into the living
+    /// graph (neighborhood walk depth, per-scope shared-term floors).
+    Relevance,
 }
 
 impl KAlgorithmKind {
@@ -41,6 +44,7 @@ impl KAlgorithmKind {
             KAlgorithmKind::Search => "search",
             KAlgorithmKind::Extraction => "extraction",
             KAlgorithmKind::ModelCall => "model_call",
+            KAlgorithmKind::Relevance => "relevance",
         }
     }
 
@@ -53,6 +57,7 @@ impl KAlgorithmKind {
             "search" => KAlgorithmKind::Search,
             "extraction" => KAlgorithmKind::Extraction,
             "model_call" => KAlgorithmKind::ModelCall,
+            "relevance" => KAlgorithmKind::Relevance,
             _ => return None,
         })
     }

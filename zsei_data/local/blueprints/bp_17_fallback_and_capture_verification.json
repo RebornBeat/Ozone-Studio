@@ -1,0 +1,121 @@
+{
+ "blueprint_id": 17,
+ "name": "Fallback and Capture Verification",
+ "version": "2.0.0",
+ "description": "Verify every LLM call site's fallback coverage and JSON capture: forced-failure walks, extraction rescue, placeholder gates \u2014 the BitNet coherency sweep.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [
+   "code"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9
+  ],
+  "optional_pipelines": [
+   100,
+   101,
+   105
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   19,
+   35,
+   36,
+   43
+  ],
+  "suggested_methodologies": [
+   38
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "audit_call_sites",
+   "description": "Enumerate every LLM call site; assert each walks a fallback chain (or needs none, like deterministic extractors)",
+   "pipeline_id": 9,
+   "action": "audit",
+   "outputs": [
+    "coverage_map"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "force_capture",
+   "description": "Drive pipeline 9 forced to BitNet across each call site's real prompt shape; run the balanced-scan extractor on every response",
+   "pipeline_id": 9,
+   "action": "test",
+   "outputs": [
+    "capture_report"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "gate_verification",
+   "description": "Feed shell/placeholder drafts through the persist gates; verify honest discard with reasons",
+   "pipeline_id": 33,
+   "action": "verify",
+   "outputs": [
+    "gate_report"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "fallback",
+  "bitnet",
+  "verification",
+  "capture",
+  "resilience"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "text",
+  "code"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

@@ -1,0 +1,128 @@
+{
+ "blueprint_id": 13,
+ "name": "Text Document Analysis",
+ "version": "2.0.0",
+ "description": "Analyze a text document: chunk, extract keywords/topics with the fallback walk, build chunk graphs, persist under the project, link to existing.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 100,
+  "required_pipelines": [
+   100,
+   9
+  ],
+  "optional_pipelines": [
+   101
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   19,
+   35
+  ],
+  "suggested_methodologies": [
+   38
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "chunk_and_normalize",
+   "description": "Normalize and chunk the document (no-overlap boundaries)",
+   "pipeline_id": 100,
+   "action": "normalize",
+   "outputs": [
+    "chunks"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "extract_terms",
+   "description": "Extract keywords/topics via pipeline 9 with the OZONE_FALLBACK_CHAIN walk and deterministic frequency tier",
+   "pipeline_id": 9,
+   "action": "extract",
+   "outputs": [
+    "keywords",
+    "topics"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "build_and_persist",
+   "description": "CreateGraph per chunk; persist ModalityGraph containers parented under the project",
+   "pipeline_id": 100,
+   "action": "persist",
+   "outputs": [
+    "graph_ids"
+   ]
+  },
+  {
+   "step_id": 4,
+   "name": "link_and_verify",
+   "description": "link_to_existing wires relationship-neighborhood edges; fresh-process QueryGraph verifies",
+   "pipeline_id": 100,
+   "action": "link",
+   "outputs": [
+    "edges",
+    "retrieval_ok"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "text",
+  "document",
+  "analyze",
+  "extract",
+  "keywords",
+  "chunk"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

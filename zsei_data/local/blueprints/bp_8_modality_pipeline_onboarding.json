@@ -1,0 +1,135 @@
+{
+ "blueprint_id": 8,
+ "name": "Modality Pipeline Onboarding",
+ "version": "2.0.0",
+ "description": "End-to-end onboarding of a new modality pipeline: analyze, graph, persist, link, and verify retrieval \u2014 the exact arc text/code/math followed.",
+ "modality_config": {
+  "primary_modality": "code",
+  "secondary_modalities": [
+   "text"
+  ],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 101,
+  "required_pipelines": [
+   101,
+   9
+  ],
+  "optional_pipelines": [
+   100,
+   105
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   40,
+   19
+  ],
+  "suggested_methodologies": [
+   37,
+   38
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": true,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "implement_pipeline",
+   "description": "Implement the modality pipeline binary with Analyze/CreateGraph/QueryGraph actions and real ZSEI persistence",
+   "pipeline_id": 101,
+   "action": "implement",
+   "outputs": [
+    "pipeline_binary"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "persist_container",
+   "description": "CreateGraph persists a real ModalityGraph container keyed by container id under the project",
+   "pipeline_id": 101,
+   "action": "persist",
+   "outputs": [
+    "container_id",
+    "graph_file"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "link_relationships",
+   "description": "link_to_existing walks the relationship neighborhood (hop-ordered, uncapped) and wires bidirectional SimilarTo edges with provenance",
+   "pipeline_id": 101,
+   "action": "link",
+   "outputs": [
+    "edges_written"
+   ]
+  },
+  {
+   "step_id": 4,
+   "name": "verify_retrieval",
+   "description": "QueryGraph from a fresh process must return the persisted graph non-empty (cross-process proof)",
+   "pipeline_id": 101,
+   "action": "verify",
+   "outputs": [
+    "retrieval_ok"
+   ]
+  }
+ ],
+ "provisional_node_schema": {
+  "id_prefix": "bp8_",
+  "id_field": "step_id"
+ },
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "pipeline",
+  "modality",
+  "onboard",
+  "graph",
+  "persist",
+  "retrieval"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "code",
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

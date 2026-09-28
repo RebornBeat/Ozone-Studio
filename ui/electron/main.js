@@ -812,6 +812,182 @@ ipcMain.handle("zsei:query", async (event, query) => {
 });
 
 // ============================================================================
+// Guarded file content I/O (F0) — real read/write, but ONLY for files that
+// are really registered as a FileReference container via the file_link
+// pipeline. This is deliberately NOT general filesystem access: the renderer
+// can ask to read/write a path, but main.js refuses anything that isn't a
+// real, linked project file, confirmed against the host on every call.
+//
+// Why the check works the way it does: `file_link`'s `link_reference_to_graph`
+// (assets/pipelines/general/file_link/main.rs) stores the container's
+// `local_state.metadata.name` as the literal string `"File: {path}"` (the
+// exact path the user linked, not canonicalized) and tags it with keywords
+// `[basename.toLowerCase(), modality.toLowerCase()]`. There is no dedicated
+// by-path lookup query, so registration is confirmed by searching for the
+// real basename keyword (exact strategy, container_type filter) and then
+// matching the container's `metadata.name` against `"File: " + filePath`
+// verbatim — the same string file_link itself constructed.
+// ============================================================================
+const MAX_FILE_BYTES = 2 * 1024 * 1024; // 2 MB cap, both directions.
+
+function unwrapZseiEnvelope(body) {
+  if (body && typeof body === "object" && "success" in body && "result" in body) {
+    if (body.success === false) {
+      throw new Error(
+        typeof body.error === "string" && body.error
+          ? body.error
+          : "zsei query failed (host returned success:false)",
+      );
+    }
+    return body.result;
+  }
+  return body;
+}
+
+async function zseiQueryHost(query) {
+  const body = await backendRequest("POST", "/zsei/query", {
+    query,
+    session_token: "",
+  });
+  return unwrapZseiEnvelope(body);
+}
+
+/**
+ * Resolve `filePath` to a real, live FileReference container id, or null if
+ * no such registration exists. Best-effort against transient host errors —
+ * any failure to confirm registration is treated as "not registered", never
+ * as "assume it's fine".
+ */
+async function findRegisteredFileContainerId(filePath) {
+  const base = path.basename(filePath).toLowerCase();
+  if (!base) return null;
+
+  let searchResult;
+  try {
+    searchResult = await zseiQueryHost({
+      SearchContainersByKeywords: {
+        keywords: [base],
+        container_type: "FileReference",
+        strategy: "exact",
+      },
+    });
+  } catch (e) {
+    log.warn(`[files] registration search failed for ${filePath}: ${e.message}`);
+    return null;
+  }
+
+  const ids = Array.isArray(searchResult?.Containers) ? searchResult.Containers : [];
+  const expectedName = `File: ${filePath}`;
+
+  for (const id of ids) {
+    let containerResult;
+    try {
+      containerResult = await zseiQueryHost({ GetContainer: { container_id: id } });
+    } catch {
+      continue;
+    }
+    const meta = containerResult?.Container?.local_state?.metadata;
+    if (meta && meta.container_type === "FileReference" && meta.name === expectedName) {
+      return id;
+    }
+  }
+  return null;
+}
+
+function assertRegularFile(stat, filePath) {
+  if (!stat.isFile()) {
+    throw new Error(`Refusing non-regular-file path: ${filePath}`);
+  }
+}
+
+ipcMain.handle("files:read", async (event, filePath) => {
+  requireConnection();
+  if (typeof filePath !== "string" || filePath.length === 0) {
+    throw new Error("files:read requires a non-empty path");
+  }
+
+  const containerId = await findRegisteredFileContainerId(filePath);
+  if (containerId === null) {
+    throw new Error(
+      `Refusing to read an unregistered path (no matching FileReference container): ${filePath}`,
+    );
+  }
+
+  let real;
+  try {
+    real = await fs.promises.realpath(filePath);
+  } catch {
+    throw new Error(`File not found on disk: ${filePath}`);
+  }
+
+  const stat = await fs.promises.stat(real);
+  assertRegularFile(stat, real);
+
+  const readLen = Math.min(stat.size, MAX_FILE_BYTES);
+  const fd = await fs.promises.open(real, "r");
+  try {
+    const buf = Buffer.alloc(readLen);
+    await fd.read(buf, 0, readLen, 0);
+    if (buf.includes(0)) {
+      throw new Error(`Refusing binary content (NUL byte found): ${filePath}`);
+    }
+    return {
+      path: real,
+      content: buf.toString("utf8"),
+      sizeBytes: stat.size,
+      mtimeMs: stat.mtimeMs,
+      truncated: stat.size > MAX_FILE_BYTES,
+    };
+  } finally {
+    await fd.close();
+  }
+});
+
+ipcMain.handle("files:write", async (event, { path: filePath, content, expectedMtimeMs } = {}) => {
+  requireConnection();
+  if (typeof filePath !== "string" || filePath.length === 0) {
+    throw new Error("files:write requires a non-empty path");
+  }
+  if (typeof content !== "string") {
+    throw new Error("files:write requires string content");
+  }
+  const byteLen = Buffer.byteLength(content, "utf8");
+  if (byteLen > MAX_FILE_BYTES) {
+    throw new Error(`Refusing to write ${byteLen} bytes (cap ${MAX_FILE_BYTES}): ${filePath}`);
+  }
+  if (content.includes("\u0000")) {
+    throw new Error(`Refusing to write binary content (NUL character found): ${filePath}`);
+  }
+
+  const containerId = await findRegisteredFileContainerId(filePath);
+  if (containerId === null) {
+    throw new Error(
+      `Refusing to write an unregistered path (no matching FileReference container): ${filePath}`,
+    );
+  }
+
+  let real;
+  try {
+    real = await fs.promises.realpath(filePath);
+  } catch {
+    throw new Error(`File not found on disk: ${filePath}`);
+  }
+
+  const stat = await fs.promises.stat(real);
+  assertRegularFile(stat, real);
+  if (typeof expectedMtimeMs === "number" && Math.abs(stat.mtimeMs - expectedMtimeMs) > 1) {
+    throw new Error(`File changed on disk since it was last read — reload before saving: ${filePath}`);
+  }
+
+  const dir = path.dirname(real);
+  const tmp = path.join(dir, `.${path.basename(real)}.ozone-tmp-${process.pid}-${Date.now()}`);
+  await fs.promises.writeFile(tmp, content, { encoding: "utf8", mode: stat.mode });
+  await fs.promises.rename(tmp, real);
+  const newStat = await fs.promises.stat(real);
+  return { ok: true, mtimeMs: newStat.mtimeMs };
+});
+
+// ============================================================================
 // App Lifecycle
 // ============================================================================
 

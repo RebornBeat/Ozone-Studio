@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "Extract the first balanced, parseable JSON object from an LLM response \u2014 scan every '{' as a candidate start with string-aware brace depth, accept the first candidate that both balances AND parses.",
+   "rationale": "Live-confirmed 2026-09-20: small local models (BitNet i2_s) wrap usable JSON in prompt echo, skip scaffolding, code fences, and hallucinated follow-up instructions; a first-{-to-last-} slice spans all of that noise and fails to parse every single time, burning real retry budget on parseable answers.",
+   "applicability": [
+    "llm_output_parsing",
+    "local_models",
+    "extraction",
+    "reliability"
+   ]
+  },
+  {
+   "statement": "Never treat a parse failure as a model failure without checking what the extractor did with the response \u2014 the model may have answered correctly inside noise.",
+   "rationale": "A strict extractor turns a working-but-noisy model into an apparent failure, and the retry loop then burns attempts (and rate budget) on a problem that lives in the caller, not the model.",
+   "applicability": [
+    "debugging",
+    "retry_logic",
+    "cost_management"
+   ]
+  },
+  {
+   "statement": "Extraction tests must use REAL malformed outputs captured from live logs, not hand-invented tidy cases.",
+   "rationale": "The rescue logic that passes tidy fixtures failed on every real response until the actual BitNet shapes (trailing chatter, `skip:` wrappers, echo+fence+confabulation) became the test corpus.",
+   "applicability": [
+    "testing",
+    "llm_output_parsing",
+    "regression"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Parsing LLM output that should contain a JSON object, especially from small/local models.",
+   "description": "Scan candidate objects left-to-right (string-aware depth tracking); return the first that serde-accepts. Fall back to {} only when no candidate parses.",
+   "when_to_apply": "Every LLM-response parse site."
+  },
+  {
+   "name": "Writing a retry loop around an LLM extraction step.",
+   "description": "Log the RAW response on parse failure (truncated is fine) so a capture bug is distinguishable from a model failure in the very next log read.",
+   "when_to_apply": "Loop and pipeline call sites."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "An LLM response fails to parse as JSON and the raw text contains a balanced object.",
+   "action": "Run a balanced-brace, string-aware extraction (first parseable candidate) before declaring failure or spending a retry."
+  }
+ ]
+}

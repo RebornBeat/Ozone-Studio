@@ -66,7 +66,7 @@ impl TraversalEngine {
         };
         
         let elapsed = start_time.elapsed();
-        let pre_filter_count = containers.len() as u32;
+        let _pre_filter_count = containers.len() as u32;
         
         // Activating the previously-dead keyword_filter/topic_filter fields:
         // after traversal, filter result containers by whether their

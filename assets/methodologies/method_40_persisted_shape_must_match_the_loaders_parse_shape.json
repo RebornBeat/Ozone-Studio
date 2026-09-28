@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "The struct you serialize to disk and the struct you parse from disk are a contract; a mismatch fails SILENTLY as 'not found', never loudly as a type error.",
+   "rationale": "Live 2026-09-20: the code pipeline wrote PersistedCodeGraph (analysis field) while its loader parsed the in-process CodeGraph shape (modality/metadata) \u2014 every parse failed on every persisted graph, surfacing only as empty results.",
+   "applicability": [
+    "persistence",
+    "serde",
+    "storage",
+    "regression"
+   ]
+  },
+  {
+   "statement": "Any field added to persisted JSON must also exist on the typed schema that round-trips it, or serde strips it on the very next write.",
+   "rationale": "graph_hops was written by the pipelines into relationship edges and silently dropped by the host's typed Relation struct on every UpdateContainer \u2014 provenance vanished until Relation gained the field.",
+   "applicability": [
+    "serde",
+    "schema_evolution",
+    "provenance"
+   ]
+  },
+  {
+   "statement": "Write persisted graph content under the same key every reader resolves it by, and prefer writing under BOTH the container's own store path and the container-id-keyed path.",
+   "rationale": "Files keyed only by a process-local timestamp id were invisible to every other process; the container-id key is the cross-process contract.",
+   "applicability": [
+    "storage",
+    "cross_process",
+    "keys"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Adding or renaming a field in any persisted JSON structure.",
+   "description": "Update the typed struct in the same change; grep every constructor; add a round-trip test that writes the real shape and parses it back through the real loader.",
+   "when_to_apply": "All schema evolution."
+  },
+  {
+   "name": "A loader returns 'not found' or empty for data you can see on disk.",
+   "description": "Diff the file's actual JSON keys against the parsing struct's fields before touching anything else \u2014 the mismatch is usually one renamed field.",
+   "when_to_apply": "Debugging."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "Introducing any new persisted field or file.",
+   "action": "The typed schema, the writer, every reader, and a write-then-read round-trip test land in the same commit."
+  }
+ ]
+}

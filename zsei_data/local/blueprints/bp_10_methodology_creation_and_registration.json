@@ -1,0 +1,113 @@
+{
+ "blueprint_id": 10,
+ "name": "Methodology Creation and Registration",
+ "version": "2.0.0",
+ "description": "Draft a methodology with content-depth-gated rules, register it in the index and both stores \u2014 what the meta-loop does, as a deliberate plan.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "code": 101,
+   "text": 100,
+   "math": 105
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9,
+   33
+  ],
+  "optional_pipelines": [],
+  "consciousness_integration": {
+   "decision_gate_id": 40,
+   "ethical_check_id": 41,
+   "required": true
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   36,
+   43
+  ],
+  "suggested_methodologies": [
+   32
+  ],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated",
+   "OnInferRelationships",
+   "OnEdgeCompletion",
+   "OnCrossModalityLink"
+  ],
+  "cross_modality_linking": true,
+  "link_to_existing": true
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "draft_content",
+   "description": "Draft principles + heuristics + decision rules; every rule must be concrete 'if X then do Y' with real text (no placeholders)",
+   "pipeline_id": 9,
+   "action": "draft",
+   "outputs": [
+    "draft_json"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "depth_gate",
+   "description": "Content-depth gate: at least one rule/heuristic with real text; reject ellipsis shells and prompt-example echoes",
+   "pipeline_id": 33,
+   "action": "gate",
+   "outputs": [
+    "valid_draft"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "persist_and_register",
+   "description": "Persist to assets/methodologies + both stores; register in the index (bootstrap default + zsei_data)",
+   "pipeline_id": 33,
+   "action": "register",
+   "outputs": [
+    "methodology_id"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "methodology",
+  "principles",
+  "heuristics",
+  "decision rules",
+  "knowledge"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_20",
+  "created_by": "zcode"
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

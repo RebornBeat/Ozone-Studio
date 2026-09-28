@@ -1,0 +1,51 @@
+{
+ "principles": [
+  {
+   "statement": "When a new graph node joins the living graph, candidate relationships come from the relationship neighborhood \u2014 real edges walked hop by hop \u2014 before keyword seeds.",
+   "rationale": "Live-measured 2026-09-20: over three uncapped runs, ALL qualifying edges originated in the relationship neighborhood (Traverse from the project over parent/child + explicit relations); keyword seeds contributed zero. Graph adjacency is the primary signal; keywords bootstrap the first-ever edge only.",
+   "applicability": [
+    "graph",
+    "linking",
+    "relevance",
+    "living_system"
+   ]
+  },
+  {
+   "statement": "Order candidates by graph proximity (hop distance), then overlap strength \u2014 and never cap: the neighborhood walk's depth is the only bound a relevance decision needs.",
+   "rationale": "Hop-ordered traversal returned 21-23 candidates per run and every one cleared its floor without truncation; caps added earlier were rejected as guesses that hide the workload the metrics exist to measure.",
+   "applicability": [
+    "graph",
+    "relevance",
+    "metrics",
+    "discipline"
+   ]
+  },
+  {
+   "statement": "Record HOW each edge was discovered (discovered_via, hop distance) on the edge itself, and put run metrics on the output \u2014 future tuning must come from data, not folklore.",
+   "rationale": "link_metrics (candidate counts, shared-term distribution, edges written, duration) on every CreateGraph output is what later surfaced the keep-alive 80x win honestly.",
+   "applicability": [
+    "provenance",
+    "metrics",
+    "graph"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Writing any new relationship-discovery path.",
+   "description": "Traverse the relationship neighborhood first (hop-ordered), use keyword search only for graph-distant candidates, set per-scope floors from the relevance policy, and emit full run metrics.",
+   "when_to_apply": "Linking, mirrors, cross-modality joins."
+  },
+  {
+   "name": "A relevance or ranking rule is proposed without a metric.",
+   "description": "Ship the metric with the rule; adjust the rule only when a completed uncapped run's numbers argue for it.",
+   "when_to_apply": "Code review."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A new container joins the graph.",
+   "action": "Walk its scope's relationship neighborhood at the configured depth; qualify candidates by hop-aware floors; write bidirectional edges with discovered_via and graph_hops provenance; emit link_metrics."
+  }
+ ]
+}

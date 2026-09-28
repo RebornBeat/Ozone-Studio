@@ -3,5 +3,6 @@
 //! aggregate module). See docs/CONTRACTS.md.
 
 pub mod k_loops;
+pub mod k_relevance;
 pub mod k_registry;
 pub mod k_validation;

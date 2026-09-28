@@ -1,0 +1,50 @@
+{
+ "principles": [
+  {
+   "statement": "When a loop or fan-out seems slow or large, add real captured metrics (counts, durations, distributions) and wait for completion \u2014 never bound it first and hope.",
+   "rationale": "Live 2026-09-20: a linking fan-out was capped at 8 candidates on a guess; the cap was wrong twice over \u2014 the real cause of the slowness was a deadlock, and after the fix the uncapped path ran 80x faster than the capped guess assumed it needed.",
+   "applicability": [
+    "performance",
+    "metrics",
+    "discipline",
+    "loops"
+   ]
+  },
+  {
+   "statement": "Every optimization claim must carry a before/after pair from the same instrumented surface.",
+   "rationale": "The keep-alive client change was accepted on the strength of 13,106ms -> 199ms on identical work (~80x per edge) \u2014 numbers from link_metrics, not intuition.",
+   "applicability": [
+    "optimization",
+    "metrics",
+    "code_review"
+   ]
+  },
+  {
+   "statement": "Caps hide the disease they were prescribed for: once a limit exists, the symptom stops being observable.",
+   "rationale": "A bounded fan-out cannot tell you its natural size; the uncapped run is the only instrument that measures the real workload.",
+   "applicability": [
+    "observability",
+    "discipline",
+    "loops"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Observing latency or cardinality that looks wrong in any loop, fan-out, or search.",
+   "description": "Instrument first: counts in/out, failures, duration, and the largest observed item. Change nothing until one full real workload completes uncapped.",
+   "when_to_apply": "All tuning decisions."
+  },
+  {
+   "name": "Someone proposes a LIMIT as a fix.",
+   "description": "Require the measured numbers that justify the specific limit value, and a stated plan for removing it once the real cause is fixed.",
+   "when_to_apply": "Code review."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A slow path invites a cap, batch, or early-exit 'while we're here'.",
+   "action": "Refuse until the instrumented numbers exist; then optimize the measured dominant cost (it is usually not the one the slowness suggested)."
+  }
+ ]
+}

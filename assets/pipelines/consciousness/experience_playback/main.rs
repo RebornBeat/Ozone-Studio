@@ -16,6 +16,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::path::Path;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 lazy_static::lazy_static! {
     static ref PLAYBACK_STORE: Mutex<PlaybackStore> = Mutex::new(PlaybackStore::new());
 }

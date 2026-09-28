@@ -1,0 +1,54 @@
+{
+ "principles": [
+  {
+   "statement": "A validity gate that counts array elements accepts shells: one heuristic whose every field is literal '...' passes a length check.",
+   "rationale": "Live-confirmed 2026-09-20: methodology 30420 persisted with a single all-'...' heuristic and was marked as COVERING a real gap, corrupting the gap queue. Length said valid; content said placeholder.",
+   "applicability": [
+    "validation",
+    "gates",
+    "no_fabrication",
+    "llm_output"
+   ]
+  },
+  {
+   "statement": "Small models parrot the prompt's own example values verbatim \u2014 example JSON in a prompt is bait that must be rejected at the persist gate.",
+   "rationale": "BitNet answered a deepening prompt with exactly ['specific detail 1', 'specific detail 2', 'specific detail 3'] \u2014 the example's own placeholders \u2014 and those reached the persist path as real children.",
+   "applicability": [
+    "prompt_engineering",
+    "persistence",
+    "gates"
+   ]
+  },
+  {
+   "statement": "Retired/annotated garbage stays in the store and must be excluded by marker, not deletion \u2014 history is kept, influence is removed.",
+   "rationale": "Shell 30420 was annotated '[placeholder shell \u2014 retired]' rather than deleted (no silent drops) AND the coverage check learned to skip the marker, so the shell can never count as coverage again.",
+   "applicability": [
+    "data_hygiene",
+    "gaps",
+    "deduplication"
+   ]
+  }
+ ],
+ "heuristics": [
+  {
+   "name": "Persisting any model-generated structured content (children, drafts, rules).",
+   "description": "Require at least one entry whose text fields are non-empty, non-ellipsis, and not a verbatim prompt-example echo. Count content, not entries.",
+   "when_to_apply": "Create/append paths fed by LLM output."
+  },
+  {
+   "name": "A stored item is later found to be a placeholder shell.",
+   "description": "Annotate in place with an explicit marker, exclude the marker from ALL matching/coverage logic, and re-open any state that referenced it (with the reason recorded).",
+   "when_to_apply": "Post-hoc data repair."
+  }
+ ],
+ "decision_rules": [
+  {
+   "condition": "A model draft's rules/heuristics fields contain '...', empty strings, or exact prompt-example echoes.",
+   "action": "Discard the draft and keep the gap open \u2014 never persist, never mark covered."
+  },
+  {
+   "condition": "A previously-persisted item is identified as a placeholder shell.",
+   "action": "Annotate it in place, exclude it from every matching path, and honestly re-open whatever state treated it as real."
+  }
+ ]
+}

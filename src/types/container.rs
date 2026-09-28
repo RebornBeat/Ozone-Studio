@@ -250,6 +250,15 @@ pub struct Relation {
     pub relation_type: RelationType,
     pub confidence: f32,
     pub discovered_via: DiscoveryMethod,
+    /// Real relationship-graph proximity provenance — hop distance from the
+    /// anchoring container when this edge was discovered through the
+    /// relationship walk (link_related_containers' Traverse neighborhood).
+    /// None = the edge came from keyword matching alone. (Found live: this
+    /// field was missing from the typed schema and serde silently stripped
+    /// it on every UpdateContainer round-trip — the pipelines wrote it, the
+    /// store dropped it.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_hops: Option<u32>,
 }
 
 /// Relationship types (§6.2)
@@ -286,6 +295,31 @@ pub enum RelationType {
     // External
     DocumentedAt = 50,
     SourcedFrom = 51,
+
+    // AMT cross-generation lineage (mirrors AMTRelationType::Continues into
+    // the generic content-relationship graph, so TraversalEngine — which
+    // only ever reads Context.relationships — can walk fork/main lineage.
+    // Previously this lineage existed ONLY inside the AMT tree's own JSON
+    // blob and was invisible to every graph-traversal/relevance query).
+    /// This container is a fork/continuation of target_id (child -> parent).
+    ForkOf = 60,
+    /// target_id is a fork/continuation of this container (parent -> child,
+    /// the reverse edge — makes lineage reverse-discoverable).
+    ContinuedBy = 61,
+
+    // Governance / compliance. Reserved for a future edge from a content
+    // container directly to the specific jurisdiction rule/scope container
+    // that governs it. NOT YET WIRED to any real construction site as of
+    // 2026-09-22 — verified directly: the jurisdiction RelatedTo sites in
+    // lib.rs/jurisdiction.rs are jurisdiction-scope-to-jurisdiction-scope
+    // structural edges (e.g. a national scope -> its EU/global baseline,
+    // the flat-siblings mechanism), not content->jurisdiction links. Real
+    // content<->jurisdiction mixing today rides the generic keyword-overlap
+    // SimilarTo mechanism (link_related_containers, one copy per modality
+    // pipeline) fed by GAP-C1's enriched scope keywords — a different,
+    // bigger change than adding this variant alone. See
+    // docs/GRAPH_RELATIONSHIP_REGISTRY.md §4/§7 for the full context.
+    JurisdictionScope = 70,
 
     Custom = 65535,
 }

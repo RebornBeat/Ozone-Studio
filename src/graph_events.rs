@@ -319,4 +319,86 @@ mod tests {
         .unwrap_or(false);
         assert!(!saw_second_event, "a pure read must never emit a graph event");
     }
+
+    // T-G4 (GRAPH_TEST_PLAN §6) — the WebSocket wire contract. What a
+    // connected UI/agent receives for a graph event is the frame built by
+    // grpc::graph_event_frame (the exact function the WS handler sends);
+    // this drives a REAL ZSEI write through the hub and pins the frame's
+    // shape field by field. (A full socket-upgrade run needs an AppState
+    // test fixture — noted honestly in GRAPH_TEST_PLAN; the frame bytes,
+    // the hub delivery, and the handler's use of this exact function are
+    // the contract that matters to consumers.)
+    #[tokio::test]
+    async fn t_g4_graph_event_frame_wire_contract() {
+        let zsei = crate::zsei::ZSEI::new(&test_zsei_config("g4")).unwrap();
+        let mut rx = GraphEventHub::global().subscribe();
+
+        let marker = format!("ws:{}", 424_242);
+        let container = tiny_container(vec![marker.clone()]);
+        let new_id = match zsei
+            .query(crate::types::zsei::ZSEIQuery::CreateContainer {
+                parent_id: 0,
+                container,
+            })
+            .await
+            .unwrap()
+        {
+            crate::types::zsei::ZSEIQueryResult::ContainerID(id) => id,
+            other => panic!("expected ContainerID, got {:?}", other),
+        };
+
+        // Real write → real hub delivery → the exact frame the socket gets.
+        // Match on the UNIQUE marker too, not just the id: parallel tests
+        // each run their own ZSEI store with overlapping id ranges, so an
+        // id-only filter can capture another test's event (found in full
+        // suite runs — passed alone, failed under parallel load).
+        let evt = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let e = rx.recv().await.expect("hub closed unexpectedly");
+                if e.container_id == new_id && e.scope_keywords.iter().any(|k| k == &marker) {
+                    return e;
+                }
+            }
+        })
+        .await
+        .expect("a real CreateContainer must deliver an event within 2s");
+
+        let frame = crate::grpc::graph_event_frame(&evt);
+        let parsed: serde_json::Value = serde_json::from_str(&frame).expect("frame is valid JSON");
+        assert_eq!(parsed["action"], "graph_event");
+        assert_eq!(parsed["event"], "created");
+        assert_eq!(parsed["container_id"], new_id);
+        assert_eq!(parsed["parent_id"], 0);
+        assert_eq!(parsed["container_type"], "CoordinationEvent");
+        assert_eq!(parsed["source"], "zsei");
+        assert!(parsed["scope_keywords"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|k| k == &marker));
+        assert!(parsed["timestamp"].as_u64().is_some(), "timestamp present");
+        // Exactly the documented fields — no fabricated extras a client
+        // would have to ignore. (serde_json objects compare as sorted maps,
+        // so sort the actual keys before comparing.)
+        let mut keys: Vec<&str> = parsed
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(|s| s.as_str())
+            .collect();
+        keys.sort_unstable();
+        assert_eq!(
+            keys,
+            vec![
+                "action",
+                "container_id",
+                "container_type",
+                "event",
+                "parent_id",
+                "scope_keywords",
+                "source",
+                "timestamp"
+            ]
+        );
+    }
 }

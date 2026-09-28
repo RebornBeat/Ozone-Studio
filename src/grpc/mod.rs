@@ -591,6 +591,142 @@ async fn list_tasks(
     })
 }
 
+#[derive(Debug, Deserialize)]
+pub struct GlobalOrderQuery {
+    pub workspace_id: Option<u64>,
+    pub project_id: Option<u64>,
+}
+
+/// GET /order/global — the universal native task order (guide §9, Phase
+/// 2b, operator architecture). A DERIVED VIEW, never a copy: joins the
+/// real task store (every task + its real steps) and groups by native
+/// state — live / paused / queued / interrupted / done — ordered oldest
+/// first within each group (sequence = creation order). Blueprint steps
+/// ARE the checklist; this route is "what's live, what's paused, what's
+/// next" across ALL of them at once, scoped filterable by workspace and
+/// project. Ripple-invalidated consumers just re-fetch; nothing here
+/// caches.
+async fn get_global_order(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<GlobalOrderQuery>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+    let all = task_mgr.list_tasks(None, None, 10_000, 0).await;
+
+    fn state_of(status: &str) -> &'static str {
+        match status {
+            "running" => "live",
+            "paused" => "paused",
+            "queued" => "queued",
+            "interrupted" => "interrupted",
+            "completed" | "failed" | "cancelled" => "done",
+            _ => "other",
+        }
+    }
+
+    let mut groups: std::collections::HashMap<&'static str, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
+    let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+
+    for t in all {
+        if let Some(w) = q.workspace_id {
+            if t.workspace_id != Some(w) {
+                continue;
+            }
+        }
+        if let Some(p) = q.project_id {
+            if t.project_id != Some(p) {
+                continue;
+            }
+        }
+        *counts.entry(state_of(&t.status).to_string()).or_insert(0) += 1;
+
+        let inputs = t.inputs.as_ref().cloned().unwrap_or(serde_json::Value::Null);
+        let coord = |key: &str| {
+            inputs.get(key).and_then(|v| v.as_str()).map(String::from)
+        };
+        // Next step = the FIRST step not yet finished, in blueprint order.
+        let next_step = t
+            .steps
+            .iter()
+            .find(|s| s.status != "completed" && s.status != "failed")
+            .map(|s| serde_json::json!({
+                "step_index": s.step_index,
+                "action": s.action,
+                "status": s.status,
+            }));
+        let done_steps = t
+            .steps
+            .iter()
+            .filter(|s| s.status == "completed" || s.status == "failed")
+            .count();
+
+        let entry = serde_json::json!({
+            "task_id": t.task_id,
+            "name": coord("name")
+                .or_else(|| coord("prompt").map(|p| p.chars().take(80).collect::<String>()))
+                .unwrap_or_else(|| format!("Task {}", t.task_id)),
+            "source": coord("source"),
+            "assignee": coord("assignee"),
+            "blueprint_id": t.blueprint_id,
+            "workspace_id": t.workspace_id,
+            "project_id": t.project_id,
+            "status": t.status,
+            "progress": t.progress,
+            "created_at": t.created_at,
+            "steps_total": t.steps.len(),
+            "steps_done": done_steps,
+            "next_step": next_step,
+        });
+
+        groups.entry(state_of(&t.status)).or_default().push(entry);
+    }
+
+    // Oldest-first within every group: creation order IS the sequence.
+    for list in groups.values_mut() {
+        list.sort_by_key(|e| e["created_at"].as_u64().unwrap_or(0));
+    }
+
+    Json(serde_json::json!({
+        "live": groups.get("live").cloned().unwrap_or_default(),
+        "paused": groups.get("paused").cloned().unwrap_or_default(),
+        "queued": groups.get("queued").cloned().unwrap_or_default(),
+        "interrupted": groups.get("interrupted").cloned().unwrap_or_default(),
+        "done": groups.get("done").cloned().unwrap_or_default(),
+        "other": groups.get("other").cloned().unwrap_or_default(),
+        "counts": counts,
+    }))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConsciousnessReviewPassResponse {
+    pub insight_container_ids: Vec<u64>,
+}
+
+/// Manual trigger for the consciousness review pass (TOP_DOWN_REVIEW_
+/// GUIDE.md §8, item 3) — reads the real decision-review capture store +
+/// recent tasks, traverses the graph for context, and persists any
+/// genuine finding as a real container under CONSCIOUSNESS_METACOGNITION_
+/// ROOT_ID. Manually triggered for now (not a background loop) until a
+/// real cadence decision is made; empty `insight_container_ids` is a
+/// correct, honest outcome when nothing genuinely warranted flagging.
+async fn consciousness_review_pass(
+    State(state): State<Arc<AppState>>,
+) -> Json<ConsciousnessReviewPassResponse> {
+    let runtime = state.runtime.read().await;
+    let store: Arc<dyn crate::orchestrator::StoreAccess> =
+        Arc::new(crate::orchestrator::ZseiStoreAdapter {
+            zsei: runtime.zsei.clone(),
+        });
+    let data_dir = runtime.config.general.data_dir.clone();
+    let task_manager = runtime.task_manager.read().await;
+    let created = crate::consciousness::review::run_review_pass(store, &task_manager, &data_dir).await;
+    Json(ConsciousnessReviewPassResponse {
+        insight_container_ids: created,
+    })
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TaskCancelResponse {
     pub success: bool,
@@ -835,6 +971,207 @@ async fn query_zsei(
             error: Some(e.to_string()),
         }),
     }
+}
+
+// ============================================================================
+// CAPTURE STORES — decision-review / zero-shot-call JSONL, read-only
+// (Batch B: B4/B5). Flat append-only files under `{general.data_dir}/
+// model_calls/`, structurally outside the ZSEI container system — no
+// container, no object_store_path, not a ZSEIQuery shape (confirmed,
+// docs/UI_UX_FORK_PLAN.md "Batch B audit results"). Same honesty discipline
+// as the private reader these mirror (`read_capture_store`,
+// src/consciousness/review.rs:74): missing file = no calls captured yet
+// (honest empty, not an error), a malformed line is skipped rather than
+// failing the whole read. File is small/append-only — full-read-then-slice
+// pagination, no seek-based paging needed.
+// ============================================================================
+
+const CAPTURE_DEFAULT_LIMIT: usize = 100;
+const CAPTURE_MAX_LIMIT: usize = 500;
+
+/// Read a JSONL file into `Vec<T>`. Missing file → empty vec (not an
+/// error). Each line parsed independently — a malformed/unparseable line
+/// is skipped, not fatal to the rest of the file.
+fn read_jsonl<T: serde::de::DeserializeOwned>(path: &str) -> Vec<T> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<T>(line).ok())
+        .collect()
+}
+
+/// One row from `{data_dir}/model_calls/decision_review.jsonl`, as
+/// `DecisionReviewExecutor::capture` actually writes it
+/// (src/orchestrator/decision_review.rs:317-345). `raw_response_preview`
+/// is genuinely optional — it postdates older lines written before the
+/// field existed, so it must deserialize as absent, not fail the line.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DecisionReviewRow {
+    pub ts: String,
+    pub model_used: String,
+    pub tokens_used: u64,
+    pub decision: String,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+    pub task_summary_preview: String,
+    pub reasoning_preview: String,
+    #[serde(default)]
+    pub raw_response_preview: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CaptureQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+}
+
+/// GET /capture/decision-reviews — B4.
+async fn get_decision_reviews(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<CaptureQuery>,
+) -> Json<serde_json::Value> {
+    let data_dir = {
+        let runtime = state.runtime.read().await;
+        runtime.config.general.data_dir.clone()
+    };
+    let path = format!("{}/model_calls/decision_review.jsonl", data_dir);
+    let rows: Vec<DecisionReviewRow> = read_jsonl(&path);
+    let total = rows.len();
+    let offset = q.offset.unwrap_or(0);
+    let limit = q.limit.unwrap_or(CAPTURE_DEFAULT_LIMIT).min(CAPTURE_MAX_LIMIT);
+    let page: Vec<&DecisionReviewRow> = rows.iter().skip(offset).take(limit).collect();
+    Json(serde_json::json!({ "rows": page, "total": total, "offset": offset, "limit": limit }))
+}
+
+/// One row from `{data_dir}/model_calls/zero_shot_calls.jsonl`, as
+/// `capture_zero_shot_call` actually writes it (src/orchestrator/mod.rs:
+/// 2592-2638) — 12 fields, all present on every line (re-verified directly
+/// against that function, not assumed).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ZeroShotCallRow {
+    pub ts: String,
+    pub call_site: String,
+    pub model_used: String,
+    pub tokens_used: u64,
+    pub retry_count: u32,
+    pub used_fallback: bool,
+    pub success: bool,
+    pub response_preview: String,
+    #[serde(default)]
+    pub amt_container_id: Option<u64>,
+    #[serde(default)]
+    pub blueprint_id: Option<u64>,
+    #[serde(default)]
+    pub project_id: Option<u64>,
+    pub prompt_preview: String,
+}
+
+/// One row of `pipeline_zero_shot_calls.jsonl` — the modality pipelines'
+/// own capture store (C6-minimal, `assets/pipelines/shared/capture.rs`).
+/// Same append/parse honesty as every capture reader: missing file →
+/// empty vec, malformed line → skipped, absent fields → defaults (older
+/// rows and non-capturing call shapes must not kill the read).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PipelineZeroShotCallRow {
+    pub ts: String,
+    #[serde(default)]
+    pub pipeline: String,
+    pub call_site: String,
+    #[serde(default)]
+    pub model_used: String,
+    #[serde(default)]
+    pub tokens_used: u64,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub response_preview: String,
+    #[serde(default)]
+    pub prompt_preview: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PipelineZeroShotQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub pipeline: Option<String>,
+    pub call_site: Option<String>,
+    pub model_used: Option<String>,
+    /// The invisible-failure view is the primary use: `success=false` rows
+    /// are exactly the extraction failures that used to vanish.
+    pub success: Option<bool>,
+}
+
+/// GET /capture/pipeline-zero-shot-calls — the read side of the pipelines'
+/// capture store (same flat-file situation as B4/B5: NOT a ZSEIQuery
+/// shape). Resolution nuance documented in capture.rs: the file lives
+/// where the PIPELINE resolved its data dir (`OZONE_ZSEI_DATA_DIR` →
+/// `"zsei_data"`); under the normal layout (host cwd = target/release,
+/// `general.data_dir = "zsei_data"`) that is the same directory the
+/// host's other model_calls stores use, so `general.data_dir` resolves it.
+async fn get_pipeline_zero_shot_calls(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<PipelineZeroShotQuery>,
+) -> Json<serde_json::Value> {
+    let data_dir = {
+        let runtime = state.runtime.read().await;
+        runtime.config.general.data_dir.clone()
+    };
+    let path = format!("{}/model_calls/pipeline_zero_shot_calls.jsonl", data_dir);
+    let rows: Vec<PipelineZeroShotCallRow> = read_jsonl(&path);
+    let filtered: Vec<&PipelineZeroShotCallRow> = rows
+        .iter()
+        .filter(|r| q.pipeline.as_deref().map_or(true, |v| r.pipeline == v))
+        .filter(|r| q.call_site.as_deref().map_or(true, |v| r.call_site == v))
+        .filter(|r| q.model_used.as_deref().map_or(true, |v| r.model_used == v))
+        .filter(|r| q.success.map_or(true, |v| r.success == v))
+        .collect();
+    let total = filtered.len();
+    let offset = q.offset.unwrap_or(0);
+    let limit = q.limit.unwrap_or(CAPTURE_DEFAULT_LIMIT).min(CAPTURE_MAX_LIMIT);
+    let page: Vec<&PipelineZeroShotCallRow> =
+        filtered.into_iter().skip(offset).take(limit).collect();
+    Json(serde_json::json!({ "rows": page, "total": total, "offset": offset, "limit": limit }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ZeroShotQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub amt_container_id: Option<u64>,
+    pub blueprint_id: Option<u64>,
+    pub project_id: Option<u64>,
+    pub call_site: Option<String>,
+    pub model_used: Option<String>,
+}
+
+/// GET /capture/zero-shot-calls — B5. Filter predicates apply before
+/// offset/limit slicing (filter first, then paginate the filtered set).
+async fn get_zero_shot_calls(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<ZeroShotQuery>,
+) -> Json<serde_json::Value> {
+    let data_dir = {
+        let runtime = state.runtime.read().await;
+        runtime.config.general.data_dir.clone()
+    };
+    let path = format!("{}/model_calls/zero_shot_calls.jsonl", data_dir);
+    let rows: Vec<ZeroShotCallRow> = read_jsonl(&path);
+    let filtered: Vec<&ZeroShotCallRow> = rows
+        .iter()
+        .filter(|r| q.amt_container_id.map_or(true, |v| r.amt_container_id == Some(v)))
+        .filter(|r| q.blueprint_id.map_or(true, |v| r.blueprint_id == Some(v)))
+        .filter(|r| q.project_id.map_or(true, |v| r.project_id == Some(v)))
+        .filter(|r| q.call_site.as_deref().map_or(true, |v| r.call_site == v))
+        .filter(|r| q.model_used.as_deref().map_or(true, |v| r.model_used == v))
+        .collect();
+    let total = filtered.len();
+    let offset = q.offset.unwrap_or(0);
+    let limit = q.limit.unwrap_or(CAPTURE_DEFAULT_LIMIT).min(CAPTURE_MAX_LIMIT);
+    let page: Vec<&ZeroShotCallRow> = filtered.into_iter().skip(offset).take(limit).collect();
+    Json(serde_json::json!({ "rows": page, "total": total, "offset": offset, "limit": limit }))
 }
 
 async fn get_config(
@@ -1455,6 +1792,23 @@ async fn websocket_handler(
     ws.on_upgrade(|socket| handle_websocket(socket, state))
 }
 
+/// T-G4 wire contract — the EXACT frame a connected WebSocket receives for
+/// a graph event. Extracted from handle_websocket so the UI/agent-facing
+/// shape is pinned by test, not by convention.
+pub(crate) fn graph_event_frame(evt: &crate::graph_events::GraphEvent) -> String {
+    let wire = serde_json::json!({
+        "action": "graph_event",
+        "event": evt.event,
+        "container_id": evt.container_id,
+        "parent_id": evt.parent_id,
+        "container_type": evt.container_type,
+        "source": evt.source,
+        "scope_keywords": evt.scope_keywords,
+        "timestamp": evt.timestamp,
+    });
+    serde_json::to_string(&wire).unwrap_or_default()
+}
+
 async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
     // Start progress broadcast task
     let progress_map = state.executor_progress.clone();
@@ -1471,20 +1825,8 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
             loop {
                 match graph_rx.recv().await {
                     Ok(evt) => {
-                        let wire = serde_json::json!({
-                            "action": "graph_event",
-                            "event": evt.event,
-                            "container_id": evt.container_id,
-                            "parent_id": evt.parent_id,
-                            "container_type": evt.container_type,
-                            "source": evt.source,
-                            "scope_keywords": evt.scope_keywords,
-                            "timestamp": evt.timestamp,
-                        });
-                        if tx.send(serde_json::to_string(&wire).unwrap_or_default())
-                            .await
-                            .is_err()
-                        {
+                        let frame = graph_event_frame(&evt);
+                        if tx.send(frame).await.is_err() {
                             break;
                         }
                     }
@@ -1614,7 +1956,20 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         map
     };
 
-    let mcp_registry = Arc::new(crate::mcp::McpRegistry::new());
+    // PERSISTED MCP TOOL REGISTRY (registry-persistence fix, 2026-09-28):
+    // registrations survive restarts — found live when the 22:41 restart
+    // wiped the 69 bridge/terminal registrations.
+    let mcp_persist_path = {
+        let r = runtime.read().await;
+        format!("{}/mcp_tool_registry.json", r.config.general.data_dir)
+    };
+    let mcp_registry = Arc::new(
+        crate::mcp::McpRegistry::new().with_persistence(mcp_persist_path.clone()),
+    );
+    let restored = mcp_registry.load_persisted().await;
+    if restored > 0 {
+        tracing::info!("MCP tool registry: restored {} persisted tool(s) from {}", restored, mcp_persist_path);
+    }
     let mcp_usage = Arc::new(crate::mcp::UsageLedger::new());
     // Process-global MCP handles — orchestrator stages call
     // crate::mcp::call_global without needing AppState threaded through.
@@ -1673,9 +2028,19 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/pipeline/ui-component", post(get_pipeline_ui_component))
         .route("/task/get", post(get_task))
         .route("/task/list", post(list_tasks))
+        .route("/order/global", get(get_global_order))
+        .route("/consciousness/review_pass", post(consciousness_review_pass))
         .route("/task/cancel", post(cancel_task))
         .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
+        // CAPTURE STORES — decision-review / zero-shot-call JSONL reads,
+        // outside the ZSEI container system (Batch B: B4/B5).
+        .route("/capture/decision-reviews", get(get_decision_reviews))
+        .route("/capture/zero-shot-calls", get(get_zero_shot_calls))
+        .route(
+            "/capture/pipeline-zero-shot-calls",
+            get(get_pipeline_zero_shot_calls),
+        )
         .route("/config/get", post(get_config))
         .route("/config/set", post(set_config))
         .route("/ws", get(websocket_handler))
@@ -1709,6 +2074,10 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/mcp/call", post(mcp_call))
         // CONTEXT MIRROR — coordination events as ZSEI graph containers.
         .route("/context/mirror", post(mirror_context))
+        // COORDINATION — read-only cross-process peek at the Node MCP
+        // server's .ozone-context/state.json (Batch B: B10/B11).
+        .route("/coordination/presence", get(get_coordination_presence))
+        .route("/coordination/claims", get(get_coordination_claims))
         // TASK CREATE — coordination tasks from the shared-context tool;
         // real TaskManager records, listed with every other task.
         .route("/task/create", post(create_coordination_task))
@@ -1834,20 +2203,172 @@ pub struct RemotePipelineListResponse {
 /// A pipeline booting elsewhere announces itself here. Latest registration
 /// for an id wins (reconnect / replacement). Re-registration is the
 /// heartbeat — the dashboard reads `registered_at` as "last seen".
+/// Bridge graph state upsert (guide §4): find-or-create a container under
+/// /External (keyword `bridge:<pipeline_id>` = idempotence key, same
+/// scan-based pattern context_mirror uses for claim dedupe), then rewrite
+/// its state JSON on every heartbeat. The container anchors the bridge in
+/// the graph; the state file is the live connection truth.
+async fn upsert_bridge_container(
+    zsei: &crate::zsei::ZSEI,
+    data_dir: &str,
+    pipeline_id: u64,
+    name: &str,
+    execute_url: &str,
+) -> Result<u64, String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let dedupe_keyword = format!("bridge:{}", pipeline_id);
+
+    // Find-or-create the container under the External root.
+    let existing = {
+        let root = zsei
+            .get_container(crate::types::container::EXTERNAL_ROOT_ID)
+            .await
+            .map_err(|e| e.to_string())?;
+        let mut found = None;
+        if let Some(root) = root {
+            for child_id in &root.global_state.child_ids {
+                if let Ok(Some(child)) = zsei.get_container(*child_id).await {
+                    if child
+                        .local_state
+                        .context
+                        .keywords
+                        .iter()
+                        .any(|k| k == &dedupe_keyword)
+                    {
+                        found = Some(*child_id);
+                        break;
+                    }
+                }
+            }
+        }
+        found
+    };
+
+    let container_id = match existing {
+        Some(id) => id,
+        None => {
+            let container = crate::types::container::Container {
+                global_state: crate::types::container::GlobalState {
+                    container_id: 0, // allocated by CreateContainer
+                    parent_id: crate::types::container::EXTERNAL_ROOT_ID,
+                    child_ids: vec![],
+                    child_count: 0,
+                    version: 1,
+                },
+                local_state: crate::types::container::LocalState {
+                    metadata: crate::types::container::Metadata {
+                        container_type: crate::types::container::ContainerType::Pipeline,
+                        modality: crate::types::container::Modality::Unknown,
+                        created_at: now,
+                        updated_at: now,
+                        provenance: "ozone-bridge".to_string(),
+                        permissions: 0,
+                        owner_id: 0,
+                        name: Some(format!("Bridge: {} ({})", name, pipeline_id)),
+                        materialized_path: Some(format!("/External/Bridges/{}", name)),
+                    },
+                    context: crate::types::container::Context {
+                        categories: vec![],
+                        methodologies: vec![],
+                        keywords: vec![
+                            "bridge".to_string(),
+                            dedupe_keyword.clone(),
+                            name.to_lowercase(),
+                        ],
+                        topics: vec!["bridge".to_string()],
+                        relationships: vec![],
+                        learned_associations: vec![],
+                        embedding: None,
+                    },
+                    storage: crate::types::container::StoragePointers {
+                        db_shard_id: None,
+                        vector_index_ref: None,
+                        object_store_path: Some(format!("bridges/bridge_{}.json", pipeline_id)),
+                        compression_type: crate::types::container::CompressionType::None,
+                    },
+                    hints: crate::types::container::TraversalHints::default(),
+                    integrity: crate::types::container::IntegrityData::default(),
+                    file_context: None,
+                    code_context: None,
+                    text_context: None,
+                    external_ref: None,
+                },
+            };
+            match zsei
+                .query(crate::types::zsei::ZSEIQuery::CreateContainer {
+                    parent_id: crate::types::container::EXTERNAL_ROOT_ID,
+                    container,
+                })
+                .await
+            {
+                Ok(crate::types::zsei::ZSEIQueryResult::ContainerID(id)) => id,
+                Ok(_) => return Err("unexpected CreateContainer result".to_string()),
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    };
+
+    // Live connection state — rewritten on every heartbeat.
+    let dir = std::path::PathBuf::from(data_dir).join("bridges");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let state = serde_json::json!({
+        "pipeline_id": pipeline_id,
+        "name": name,
+        "execute_url": execute_url,
+        "connected": true,
+        "last_heartbeat": now,
+    });
+    std::fs::write(
+        dir.join(format!("bridge_{}.json", pipeline_id)),
+        serde_json::to_string_pretty(&state).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(container_id)
+}
+
 async fn register_remote_pipeline(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RemotePipelineRegisterRequest>,
-) -> Json<RemotePipelineRegisterResponse> {
-    let runtime = state.runtime.read().await;
+) -> Json<RemotePipelineRegisterResponse> {    let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let roles = req
         .roles
         .filter(|r| !r.is_empty())
         .unwrap_or_else(|| vec!["agent".to_string()]);
+    let execute_url = req.execute_url.clone();
     let entry = registry
         .remote_pipelines()
-        .register(req.pipeline_id, req.name, req.execute_url, roles)
+        .register(req.pipeline_id, req.name, execute_url.clone(), roles)
         .await;
+    // BRIDGE GRAPH STATE (guide §4, Phase 2 — operator-approved): bridge-
+    // range registrations (200-299) get a real container under /External
+    // (keyword `bridge:<id>` for idempotent find-or-create) whose state
+    // JSON (execute_url, last heartbeat) is rewritten on EVERY heartbeat.
+    // Bridges are long-lived external participants: their connection state
+    // is graph state, rippled like every other write.
+    if (200..300).contains(&req.pipeline_id) {
+        let zsei = runtime.zsei.read().await;
+        let data_dir = runtime.config.general.data_dir.clone();
+        if let Err(e) = upsert_bridge_container(
+            &zsei,
+            &data_dir,
+            req.pipeline_id,
+            &entry.name,
+            &execute_url,
+        )
+        .await
+        {
+            tracing::warn!(
+                pipeline_id = req.pipeline_id,
+                error = %e,
+                "bridge container upsert failed (registration still valid)"
+            );
+        }
+    }
     // Seed the execution gate (registry.blueprints) so this id can actually
     // be dispatched to: RegistryExecutorAdapter::execute and
     // PipelineRegistry::execute both refuse any pipeline_id absent from that
@@ -2276,7 +2797,7 @@ pub struct McpUsageQuery {
 async fn mcp_call(
     State(state): State<Arc<AppState>>,
     Json(call): Json<crate::mcp::McpCall>,
-) -> Json<crate::mcp::McpResult> {
+) -> Json<serde_json::Value> {
     let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let hub = registry.activity_hub();
@@ -2284,7 +2805,77 @@ async fn mcp_call(
         .mcp
         .invoke(call, &state.mcp_usage, Some(&*hub))
         .await;
-    Json(result)
+
+    // ORDER-LAYER REVIEW (guide §3, Phase 1 — operator-approved): every
+    // tool call gets a state-of-the-world reply assembled from real
+    // stores, not just an ack. Every field is measured or explicitly
+    // absent — the no-fabrication rule, now on the tool surface.
+    let review = {
+        let data_dir = runtime.config.general.data_dir.clone();
+
+        // maybe_missed: aging decision-review failures (S10) + live claims.
+        let dr_path = format!("{}/model_calls/decision_review.jsonl", data_dir);
+        let rows: Vec<serde_json::Value> = read_jsonl(&dr_path);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let aging_reviews = rows
+            .iter()
+            .filter(|r| {
+                r.get("decision").and_then(|d| d.as_str()) == Some("review-failed")
+                    && r.get("ts")
+                        .and_then(|t| t.as_str())
+                        .and_then(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                        .map(|t| now.saturating_sub(t.timestamp() as u64) > 86_400)
+                        .unwrap_or(false)
+            })
+            .count();
+        let oz_state = read_ozone_context_state();
+        let claims = oz_state.claims.len();
+        let _presence = oz_state.sessions.len();
+
+        // order: task queue by native state (same buckets as /order/global).
+        let tasks = runtime
+            .task_manager
+            .read()
+            .await
+            .list_tasks(None, None, 10_000, 0)
+            .await;
+        let count = |want: &[&str]| {
+            tasks.iter().filter(|t| want.contains(&t.status.as_str())).count()
+        };
+        let mut maybe_missed = Vec::new();
+        if aging_reviews > 0 {
+            maybe_missed.push(format!(
+                "{} decision review(s) failed and unresolved for over 24h",
+                aging_reviews
+            ));
+        }
+        serde_json::json!({
+            "captured": [
+                "usage ledger row recorded",
+                "jurisdiction gate applied",
+                "graph ripple emitted for the call",
+            ],
+            "maybe_missed": maybe_missed,
+            "open_claims": claims,
+            "order": {
+                "live": count(&["running"]),
+                "paused": count(&["paused"]),
+                "queued": count(&["queued"]),
+                "interrupted": count(&["interrupted"]),
+            },
+        })
+    };
+
+    Json(serde_json::json!({
+        "success": result.success,
+        "output": result.output,
+        "error": result.error,
+        "usage": result.usage,
+        "review": review,
+    }))
 }
 
 // ============================================================================
@@ -2315,6 +2906,152 @@ async fn mirror_context(
         }
         Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
     }
+}
+
+// ============================================================================
+// COORDINATION — read-only cross-process peek at `.ozone-context/state.json`
+// (Batch B: B10/B11). That file is NOT owned by this process — it's written
+// by the separate long-running Node MCP server (`tools/ozone-shared-context/
+// server.js`) that backs this session's own `mcp__ozone-shared-context__*`
+// tools. These two routes are a read-only view of its state, not a
+// replacement for it (writes still go through that server's own tools).
+// Path resolution mirrors server.js's own exactly (server.js:32): env
+// `OZONE_CONTEXT_DIR` if set, else `<process cwd>/.ozone-context`, then
+// `/state.json`. Missing/malformed file → honest empty result, not an
+// error (the coordination server may not be running yet — a real, valid
+// state, not a fault).
+// ============================================================================
+
+const OZONE_PRESENCE_TTL_MS: u64 = 5 * 60 * 1000; // server.js PRESENCE_TTL_MS
+
+/// Resolution order: `OZONE_CONTEXT_DIR`, then the nearest ancestor of the
+/// host's cwd that actually holds `.ozone-context/state.json`, then
+/// `<cwd>/.ozone-context`. The ancestor walk matters because the host is
+/// launched from `target/release` while server.js runs from the repo root —
+/// resolving against cwd alone made both routes silently return empty.
+fn ozone_context_state_path() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("OZONE_CONTEXT_DIR") {
+        return std::path::PathBuf::from(dir).join("state.json");
+    }
+    let cwd = std::env::current_dir().unwrap_or_default();
+    for ancestor in cwd.ancestors() {
+        let candidate = ancestor.join(".ozone-context").join("state.json");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    cwd.join(".ozone-context").join("state.json")
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OzoneContextSession {
+    #[serde(default)]
+    role: String,
+    #[serde(default)]
+    current_files: Vec<String>,
+    #[serde(default)]
+    task: String,
+    #[serde(default)]
+    last_seen: u64,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OzoneContextClaim {
+    #[serde(default)]
+    agent: String,
+    #[serde(default)]
+    reason: String,
+    #[serde(default)]
+    at: u64,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct OzoneContextState {
+    #[serde(default)]
+    sessions: std::collections::HashMap<String, OzoneContextSession>,
+    #[serde(default)]
+    claims: std::collections::HashMap<String, OzoneContextClaim>,
+}
+
+/// Missing file (coordination server never started/hasn't written yet) or
+/// malformed JSON both yield an honest default (empty sessions/claims),
+/// not an error.
+fn read_ozone_context_state() -> OzoneContextState {
+    match std::fs::read_to_string(ozone_context_state_path()) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
+        Err(_) => OzoneContextState::default(),
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[derive(Debug, Serialize)]
+pub struct PresenceEntry {
+    pub agent: String,
+    pub role: String,
+    pub current_files: Vec<String>,
+    pub task: String,
+    pub last_seen_age_s: u64,
+}
+
+/// GET /coordination/presence — B10. Same shape and 300s live-filter as
+/// server.js's own `presenceList()` (server.js:214-223).
+async fn get_coordination_presence() -> Json<serde_json::Value> {
+    let state = read_ozone_context_state();
+    let now = now_ms();
+    let live: Vec<PresenceEntry> = state
+        .sessions
+        .into_iter()
+        .filter(|(_, s)| now.saturating_sub(s.last_seen) < OZONE_PRESENCE_TTL_MS)
+        .map(|(agent, s)| {
+            let age_ms = now.saturating_sub(s.last_seen);
+            PresenceEntry {
+                agent,
+                role: s.role,
+                current_files: s.current_files,
+                task: s.task,
+                last_seen_age_s: (age_ms + 500) / 1000, // matches server.js's Math.round
+            }
+        })
+        .collect();
+    Json(serde_json::json!({ "live": live, "ttl_seconds": OZONE_PRESENCE_TTL_MS / 1000 }))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClaimEntry {
+    pub file: String,
+    pub agent: String,
+    pub reason: String,
+    pub age_min: u64,
+}
+
+/// GET /coordination/claims — B11. Same shape as server.js's own
+/// `fileClaims()` (server.js:276-283). Reads the real current `claims`
+/// map from state.json directly — always correctly maintained locally by
+/// `file_claim`/`file_release` (the ZSEI-mirror side-channel bug fixed
+/// earlier today was in a separate, unrelated code path).
+async fn get_coordination_claims() -> Json<serde_json::Value> {
+    let state = read_ozone_context_state();
+    let now = now_ms();
+    let claims: Vec<ClaimEntry> = state
+        .claims
+        .into_iter()
+        .map(|(file, c)| {
+            let age_ms = now.saturating_sub(c.at);
+            ClaimEntry {
+                file,
+                agent: c.agent,
+                reason: c.reason,
+                age_min: (age_ms + 30_000) / 60_000, // matches server.js's Math.round
+            }
+        })
+        .collect();
+    Json(serde_json::json!({ "claims": claims }))
 }
 
 // ============================================================================

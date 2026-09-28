@@ -38,18 +38,23 @@ use tokio::sync::RwLock;
 pub struct ZSEI {
     /// Configuration
     config: ZSEIConfig,
-    
+
     /// Container storage (mmap-backed) - wrapped in RwLock for interior mutability
     storage: Arc<RwLock<ContainerStorage>>,
-    
+
     /// In-memory cache for hot containers
     cache: Arc<RwLock<HashMap<ContainerID, Container>>>,
-    
+
     /// Traversal engine
     traversal: TraversalEngine,
-    
+
     /// Query processor
     query_processor: Arc<RwLock<QueryProcessor>>,
+
+    /// Integrity monitor (T-I4 call site) — when wired, every container
+    /// mutation first snapshots the PRE-WRITE content into the monitor's
+    /// blake3-verified rollback layer. None in tests that don't need it.
+    integrity: Option<Arc<tokio::sync::RwLock<crate::integrity::IntegrityMonitor>>>,
 }
 
 impl ZSEI {
@@ -72,7 +77,49 @@ impl ZSEI {
             cache: Arc::new(RwLock::new(HashMap::new())),
             traversal,
             query_processor: Arc::new(RwLock::new(query_processor)),
+            integrity: None,
         })
+    }
+
+    /// Wire the integrity monitor (T-I4) — called once at boot after both
+    /// ZSEI and the monitor exist. Idempotent.
+    pub fn set_integrity(
+        &mut self,
+        integrity: Arc<tokio::sync::RwLock<crate::integrity::IntegrityMonitor>>,
+    ) {
+        self.integrity = Some(integrity);
+    }
+
+    /// Snapshot a container's CURRENT content into the integrity monitor's
+    /// rollback layer before a mutation overwrites it. Best-effort: a failed
+    /// snapshot must never block the update itself.
+    async fn pre_write_snapshot(&self, container_id: ContainerID) {
+        let Some(integrity) = self.integrity.as_ref() else {
+            return;
+        };
+        let old = match self.storage.read().await.load(container_id) {
+            Ok(Some(c)) => c,
+            _ => return,
+        };
+        match serde_json::to_vec(&old) {
+            Ok(bytes) => {
+                if let Err(e) = integrity
+                    .read()
+                    .await
+                    .create_snapshot(container_id, &bytes)
+                    .await
+                {
+                    tracing::warn!(
+                        container_id,
+                        error = %e,
+                        "pre-write integrity snapshot failed (non-fatal)"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(container_id, error = %e, "pre-write snapshot serialize failed (non-fatal)");
+            }
+        }
     }
     
     /// Query ZSEI — THE graph write choke point. Every successful mutation
@@ -82,12 +129,33 @@ impl ZSEI {
     pub async fn query(&self, query: ZSEIQuery) -> OzoneResult<ZSEIQueryResult> {
         // Capture write provenance BEFORE the query consumes its payload.
         let ripple = Self::ripple_info(&query);
+        // T-I4: feed the container about to be mutated into the integrity
+        // monitor's blake3-verified rollback layer, so every update/delete
+        // has a real pre-write snapshot the periodic check can verify.
+        match &query {
+            ZSEIQuery::UpdateContainer { container_id, .. }
+            | ZSEIQuery::DeleteContainer { container_id } => {
+                self.pre_write_snapshot(*container_id).await;
+            }
+            _ => {}
+        }
+        // B18 fix: Delete's real type/keywords must be captured BEFORE the
+        // delete runs — the container won't exist to look up afterward.
+        // ripple_info() can only hand back ContainerType::default()/empty
+        // keywords for Delete (it has no container to read, only an id),
+        // which made every delete ripple invisible to any scope-filtered
+        // (non-global) subscriber in graph_events::visible_to.
+        let pre_delete_real = if let ZSEIQuery::DeleteContainer { container_id } = &query {
+            self.get_container(*container_id).await.ok().flatten()
+        } else {
+            None
+        };
         let result = {
             let mut qp = self.query_processor.write().await;
             let mut storage = self.storage.write().await;
             qp.process(&mut storage, &self.traversal, query).await?
         };
-        if let Some((event, parent_id, container_type, scope_keywords)) = ripple {
+        if let Some((event, parent_id, mut container_type, mut scope_keywords)) = ripple {
             let container_id = match &result {
                 ZSEIQueryResult::ContainerID(id) => Some(*id),
                 _ => None,
@@ -102,6 +170,24 @@ impl ZSEI {
             if parent_id != 0 {
                 self.cache.write().await.remove(&parent_id);
             }
+            // B18 fix: same bug as Delete, but the opposite timing — Update
+            // must be looked up AFTER process() so it reflects the real
+            // post-update state, and it can only be a fresh storage read
+            // (not the pre-write snapshot) because the update already
+            // changed it. The cache invalidation above just ran for this
+            // same id, so this get_container() reads real storage, not a
+            // stale cache entry.
+            if event == "deleted" {
+                if let Some(c) = &pre_delete_real {
+                    container_type = c.local_state.metadata.container_type.display_name().to_string();
+                    scope_keywords = c.local_state.context.keywords.clone();
+                }
+            } else if event == "updated" {
+                if let Ok(Some(c)) = self.get_container(parent_id).await {
+                    container_type = c.local_state.metadata.container_type.display_name().to_string();
+                    scope_keywords = c.local_state.context.keywords.clone();
+                }
+            }
             if let Some(id) = container_id {
                 crate::graph_events::emit(event, id, parent_id, container_type, "zsei", scope_keywords);
             } else if event != "created" {
@@ -115,6 +201,22 @@ impl ZSEI {
 
     /// Extract (event, parent, type, scope_keywords) from a write query —
     /// called pre-execution because CreateContainer moves its container.
+    /// For UpdateContainer/DeleteContainer the type/keywords here are only
+    /// a fallback (used if the real container lookup in query() fails) —
+    /// query() overwrites them with the real container's values, since a
+    /// bare id has no type/keywords to give without reading storage.
+    ///
+    /// LinkFile/LinkURL/LinkPackage's arms below are currently DEAD CODE:
+    /// query.rs's QueryProcessor::process() has no match arm for any of
+    /// the three, so they always fall into its catch-all
+    /// `Err("Unsupported query type")`. query()'s `?` on process() then
+    /// returns before this function's result is ever used for them. Real
+    /// file/url/package linking happens through the separate
+    /// file_link/url_link/package_link pipelines calling
+    /// CreateContainer/UpdateContainer directly, not through these
+    /// ZSEIQuery variants. Left as-is (harmless, unreachable) rather than
+    /// implemented, since making them live is a query.rs design decision
+    /// (what should LinkFile actually do?) outside this fix's scope.
     fn ripple_info(query: &ZSEIQuery) -> Option<(&'static str, u64, String, Vec<String>)> {
         use crate::types::container::ContainerType;
         Some(match query {
@@ -130,6 +232,7 @@ impl ZSEI {
             ZSEIQuery::DeleteContainer { container_id } => (
                 "deleted", *container_id, ContainerType::default().display_name().to_string(), Vec::new(),
             ),
+            // Dead code — see doc comment above.
             ZSEIQuery::LinkFile { project_id, .. } => (
                 "linked", *project_id, "FileRef".to_string(), Vec::new(),
             ),

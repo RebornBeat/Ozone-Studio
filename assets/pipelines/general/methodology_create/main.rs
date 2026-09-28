@@ -5,6 +5,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum MethodologyCreateInput {
@@ -40,8 +43,24 @@ pub enum MethodologyCreateInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrincipleInput { pub name: String, pub description: String, pub priority: u8 }
 
+/// `confidence` is accepted but never consumed (confirmed: no read site
+/// anywhere in this file — the canonical mapping below doesn't carry it
+/// into the persisted Heuristic shape either). Real bug found live
+/// 2026-09-20: a required, unused `f32` field meant a genuine, substantive
+/// meta-loop draft (BitNet, non-placeholder, passed every content gate)
+/// still hard-failed deserialization with "missing field `confidence`"
+/// whenever the model's real JSON omitted it — discarding real work for a
+/// field nothing downstream reads. `#[serde(default)]` on an `Option`
+/// removes the gate without fabricating a confidence value that was never
+/// reported (same honest-absence idiom as `GateResult.confidence`
+/// elsewhere in this codebase).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HeuristicInput { pub condition: String, pub action: String, pub confidence: f32 }
+pub struct HeuristicInput {
+    pub condition: String,
+    pub action: String,
+    #[serde(default)]
+    pub confidence: Option<f32>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecisionRuleInput { pub name: String, pub condition: String, pub outcome: String }

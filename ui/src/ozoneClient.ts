@@ -165,3 +165,50 @@ export function fetchPipelineRegistry(): Promise<{
 }> {
   return postHttp("/pipeline/registry", {});
 }
+
+// ── ZSEI queries (generic graph read surface) ────────────────────────────
+//
+// Bridge-first: window.ozone.zsei.query (preload.js → IPC "zsei:query" →
+// main.js POSTs {query, session_token:""} to /zsei/query). Browser-direct
+// fallback posts the identical body shape straight to the host, matching
+// main.js's own request exactly so both paths hit the same handler the
+// same way.
+//
+// ENVELOPE UNWRAP (fixed 2026-09-27, found live by four independent forks):
+// the host replies to POST /zsei/query with {"success":bool,"result":...,
+// "error":...} — and BOTH the Electron bridge (main.js resolves the parsed
+// body verbatim) and the browser fallback returned that envelope as-is.
+// Every consumer reading `.Container`/`.Containers`/`.Content` at the top
+// level silently saw undefined (empty project pickers, "container not
+// found"). Unwrapped centrally here: throw on success===false, return
+// body.result otherwise. Loaders written defensively (C8/C9/C10 tolerate
+// both shapes) keep working; shallow readers start working.
+
+function unwrapZseiEnvelope<T>(body: unknown): T {
+  if (
+    body !== null &&
+    typeof body === "object" &&
+    "success" in (body as Record<string, unknown>) &&
+    "result" in (body as Record<string, unknown>)
+  ) {
+    const env = body as { success: unknown; result: unknown; error: unknown };
+    if (env.success === false) {
+      throw new Error(
+        typeof env.error === "string" && env.error
+          ? env.error
+          : "zsei query failed (host returned success:false)",
+      );
+    }
+    return env.result as T;
+  }
+  return body as T;
+}
+
+export async function zseiQuery<T = unknown>(query: Record<string, unknown>): Promise<T> {
+  const oz = (window as any).ozone;
+  if (oz?.zsei?.query) {
+    return unwrapZseiEnvelope<T>(await oz.zsei.query(query));
+  }
+  const body = await postHttp<unknown>("/zsei/query", { query, session_token: "" });
+  return unwrapZseiEnvelope<T>(body);
+}

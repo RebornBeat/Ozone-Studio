@@ -1,0 +1,35 @@
+{
+  "principles": [
+    {
+      "statement": "When a prompt asks a model to self-assess whether something is a problem (needs clarification, needs a warning, needs escalation, is ambiguous), an unconditional 'if the field is non-empty, treat it as true' consumer combined with zero calibration guidance in the prompt produces wildly over-eager, inconsistent triggering — the model has no signal for where the real bar is, so it reports something for nearly any input, including completely unambiguous ones.",
+      "rationale": "Confirmed live this session: `stage_4_zero_shot_simulation`'s prompt asked the model to predict 'potential issues or clarifications needed' as a required field with no guidance on the threshold. A completely unambiguous prompt ('Say hello in exactly one short sentence.') triggered needs_clarification=true with 5 questions (tone? recipient? language?) and the whole response failed. A genuinely ambiguous prompt sometimes did NOT trigger it — the behavior was model-luck-dependent (free-tier auto-routing picked a different, differently-calibrated model per call), not a reliable signal of actual ambiguity.",
+      "applicability": ["prompt_engineering", "llm_gates", "self_assessment", "reliability"]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Give the Model Explicit Examples of What Does NOT Count",
+      "description": "When asking a model to flag a problem/exception/ambiguity, explicitly list common cases that should NOT trigger the flag (e.g. tone, audience, language, format, error-handling preferences — things with a reasonable silent default) alongside what SHOULD (blocking ambiguity with no reasonable default). A bar defined only by its positive examples gets over-applied; a bar defined by contrast with explicit non-examples is far more stable across different underlying models.",
+      "when_to_apply": "Writing any prompt that asks a model to self-report an exception condition (needs_clarification, needs_warning, is_risky, requires_review) that a calling system will act on unconditionally.",
+      "examples": [
+        "Rewrote the zero-shot simulation prompt to explicitly require BLOCKING ambiguity only and explicitly listed 5 non-blocking categories the model should silently default on instead — confirmed live across multiple retests (including with different auto-routed models) that needs_clarification stopped being model-luck-dependent."
+      ]
+    },
+    {
+      "name": "A Boolean Gate Built From a Free-Text Field Needs Its Own Threshold Logic",
+      "description": "Don't let 'the model returned SOME text in this field' become the trigger condition for an unconditional block/gate — that conflates 'the model said literally anything' with 'the model identified a real, blocking problem'. If the gate can't be made structurally binary (a real yes/no from the model), at minimum require the model to explicitly justify why the field is populated against the stated bar.",
+      "when_to_apply": "Any code that reads a free-text or optional field from a model response and uses its mere presence (non-empty) as a hard gate/blocker.",
+      "examples": [
+        "`needs_clarification = !parsed_clarifications.is_empty()` was the exact anti-pattern — any non-empty list, however trivial, blocked the whole response with success:false."
+      ]
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "Writing or reviewing a prompt whose output field will be used as an unconditional gate/blocker by the calling code.",
+      "action": "Require the prompt to state an explicit calibration bar with contrasting non-examples, not just a description of what to report — verify with at least one deliberately-unambiguous test case and one deliberately-ambiguous test case that the gate fires only on the latter, across more than one underlying model if the routing is non-deterministic.",
+      "priority": 1,
+      "exceptions": []
+    }
+  ]
+}

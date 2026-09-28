@@ -1,0 +1,111 @@
+{
+ "blueprint_id": 20,
+ "name": "TD-3 Switch Coherence",
+ "version": "1.0.0",
+ "description": "Top-down context-assurance test (TOP_DOWN_REVIEW_GUIDE.md §4, TD-3): run the same real regulated-topic prompt twice — once against the default/primary configured model, once with a model_override forcing the local fallback (BitNet-class) — then compare both real capture-store entries for decision coherence over the identical traversed context. Productizes this session's BitNet coherency-sweep methodology as a standing, registered test rather than a one-off manual sweep.",
+ "modality_config": {
+  "primary_modality": "text",
+  "secondary_modalities": [],
+  "auto_detect": true,
+  "modality_pipeline_mapping": {
+   "text": 100
+  }
+ },
+ "pipeline_config": {
+  "entry_pipeline": 9,
+  "required_pipelines": [
+   9,
+   39
+  ],
+  "optional_pipelines": [
+   100
+  ],
+  "consciousness_integration": {
+   "decision_gate_id": 39,
+   "ethical_check_id": 39,
+   "required": false
+  }
+ },
+ "methodology_config": {
+  "required_methodologies": [
+   35,
+   36,
+   38,
+   43
+  ],
+  "suggested_methodologies": [],
+  "methodology_selection_strategy": "mandatory_plus_context"
+ },
+ "graph_config": {
+  "create_session_graph": true,
+  "persist_graph": true,
+  "provisional_nodes_enabled": false,
+  "zsei_hooks": [
+   "OnGraphCreated"
+  ],
+  "cross_modality_linking": false,
+  "link_to_existing": false
+ },
+ "steps": [
+  {
+   "step_id": 1,
+   "name": "submit_with_primary_model",
+   "description": "Submit a real RequireConfirmation-matching prompt through /orchestrate using the host's default configured model (no override) — establishes the baseline real decision + reasoning.",
+   "pipeline_id": 9,
+   "action": "submit",
+   "outputs": [
+    "task_id_primary"
+   ]
+  },
+  {
+   "step_id": 2,
+   "name": "submit_with_forced_fallback",
+   "description": "Submit the identical prompt again, this time with a model_config override forcing the local BitNet-class fallback model for the review call specifically (mirrors this session's real forced-model BitNet coherency sweep methodology, now scoped to the decision-review call site).",
+   "pipeline_id": 9,
+   "action": "submit",
+   "outputs": [
+    "task_id_fallback"
+   ]
+  },
+  {
+   "step_id": 3,
+   "name": "compare_capture_entries",
+   "description": "Read both real capture-store lines ({data_dir}/model_calls/decision_review.jsonl) and compare decision agreement + whether the fallback model's reasoning still cites the same real traversed context markers as the primary model's — the real, measurable definition of 'switch coherence' this session's doctrine calls for.",
+   "pipeline_id": 9,
+   "action": "assert",
+   "outputs": [
+    "coherence_report"
+   ]
+  }
+ ],
+ "provisional_node_schema": {},
+ "output_format": {
+  "primary": "text",
+  "structured": true
+ },
+ "amt_keywords": [
+  "top-down",
+  "switch-coherence",
+  "bitnet",
+  "fallback",
+  "context-assurance"
+ ],
+ "fallback_behavior": {
+  "on_graph_failure": "create_isolated",
+  "on_conflict": "prompt_resolution",
+  "on_generation_failure": "retry_with_fallback_model",
+  "on_write_failure": "preserve_in_memory"
+ },
+ "metadata": {
+  "source": "session_2026_09_22",
+  "created_by": "claude-code",
+  "honest_note": "Same honest scoping as bp_18/bp_19 — a real, correctly-targeted test plan; the mechanical comparison harness (parsing both capture lines and scoring agreement) is not yet built."
+ },
+ "input_types": [
+  "text"
+ ],
+ "output_types": [
+  "text",
+  "graph"
+ ]
+}

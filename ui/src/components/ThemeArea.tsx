@@ -22,6 +22,28 @@ import {
   CORE_TAB_DEFINITIONS,
   clearModuleCache,
 } from "../pipeline-ui";
+import { onNavigate, NavTarget } from "../navigation";
+import UnifiedSearch from "../views/search/UnifiedSearch";
+
+/** J2: which real tab a cross-view NavTarget lands on. `graph-node` and
+ * `container` both resolve inside the Graph View tab itself (GraphView.tsx
+ * consumes the same target via `takePendingNavigation` to pick the project
+ * and node) — this only owns the actual tab switch, not the in-tab detail. */
+function tabForNavTarget(target: NavTarget): string | null {
+  switch (target.kind) {
+    case "tab":
+      return target.tabId;
+    case "graph-node":
+    case "container":
+      return "graph-view";
+    case "task":
+      return "tasks";
+    case "code-file":
+      return "files-viewer";
+    default:
+      return null;
+  }
+}
 
 interface ThemeAreaProps {
   theme: string;
@@ -317,6 +339,22 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
     );
   }, [activeTasks]);
 
+  // ── Cross-view navigation (J2) ─────────────────────────────────────────────
+  // The only piece missing before this batch: `navigateTo()` calls from every
+  // "jump to X" fork (F3/F4/G1/G2/G5/E3/D5/etc.) had no listener actually
+  // switching tabs. `task` targets also set the real store field
+  // TaskDetailPanel already reads (`lastTaskId`) so the right task loads.
+
+  useEffect(() => {
+    return onNavigate((target) => {
+      const tabId = tabForNavTarget(target);
+      if (tabId) handleTabChange(tabId);
+      if (target.kind === "task") {
+        useOzoneStore.getState().setLastTaskId(target.taskId);
+      }
+    });
+  }, [handleTabChange]);
+
   // ── Global API for backend/pipeline hooks ─────────────────────────────────
 
   useEffect(() => {
@@ -389,6 +427,12 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
           onDismissAll={dismissAllNotifications}
           onTabFocus={handleTabChange}
         />
+      </div>
+
+      {/* J3: unified search, same floating-toolbar convention as the
+          notification center above — collapses to just an input when idle. */}
+      <div className="theme-search-anchor" style={{ position: "fixed", top: 10, right: 56, zIndex: 40 }}>
+        <UnifiedSearch />
       </div>
 
       <HomeDashboard

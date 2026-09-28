@@ -21,6 +21,9 @@
 use serde::{Deserialize, Serialize};
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ========== Input Types ==========
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,6 +63,18 @@ pub enum ContextAggInput {
         workspace_id: Option<u64>,
         #[serde(default)]
         include_coordination: bool,
+        /// This request's own attached-file graph_ids (orchestrator's
+        /// state.file_graphs), already exactly known — no discovery
+        /// needed. Confirmed live this session that this step's context
+        /// previously only ever found related content via keyword-search
+        /// rediscovery (search_containers_by_keywords → traverse_from_seeds
+        /// below), which is probabilistic even when the exact container is
+        /// already in hand. Merged directly into the resolved container
+        /// set AND used as extra traversal seeds, so a step reliably sees
+        /// its own request's attachments and whatever they're really
+        /// related to, not just whatever keyword search happens to surface.
+        #[serde(default)]
+        known_seed_ids: Vec<u64>,
     },
     /// Section S — reconstruct provided texts at a token limit, honoring
     /// sentence boundaries (greedy packing, ~4 chars/token). Session chunk
@@ -661,6 +676,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             include_consciousness,
             workspace_id,
             include_coordination,
+            known_seed_ids,
         } => {
             // Container context (store side) — real keyword search now:
             // search for matching ids, then resolve each to full content.
@@ -688,7 +704,17 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     keyword_list.push(w);
                 }
             }
-            let seed_ids = search_containers_by_keywords(&keyword_list, None).await;
+            let mut seed_ids = search_containers_by_keywords(&keyword_list, None).await;
+            // This request's own known attachment graph_ids — exact, not
+            // discovered — added directly to the seed set alongside the
+            // keyword-search results, so traversal below also walks
+            // outward from them regardless of whether keyword search
+            // happened to surface them too.
+            for id in &known_seed_ids {
+                if !seed_ids.contains(id) {
+                    seed_ids.push(*id);
+                }
+            }
             // Real graph traversal (task 56) — walks real Relation edges
             // from the flat keyword-search seeds, so genuinely related
             // content (e.g. a related function/file linked via a real
@@ -704,6 +730,17 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             for id in traversed_ids {
                 if !ids.contains(&id) {
                     ids.push(id);
+                }
+            }
+            // known_seed_ids are exactly-known real containers from this
+            // request's own attachments — include them in the final
+            // resolved set directly, not just as traversal starting
+            // points, so they're guaranteed present even if traversal's
+            // own caps (MAX_TRAVERSAL_SEEDS, depth/result limits) would
+            // otherwise have dropped one.
+            for id in &known_seed_ids {
+                if !ids.contains(id) {
+                    ids.push(*id);
                 }
             }
             let containers = resolve_containers(&ids).await;

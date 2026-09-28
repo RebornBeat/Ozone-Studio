@@ -10,6 +10,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // Direct blueprint storage - mirrors ZSEI container structure
 lazy_static::lazy_static! {
     static ref BLUEPRINT_STORE: Mutex<BlueprintStore> = Mutex::new(BlueprintStore::new());

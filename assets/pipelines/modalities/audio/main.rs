@@ -22,6 +22,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::env;
 
+#[path = "../../shared/ozone_serve.rs"]
+mod ozone_serve;
+
 // ============================================================================
 // PIPELINE METADATA
 // ============================================================================
