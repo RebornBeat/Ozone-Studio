@@ -414,6 +414,14 @@ async function ensureSessionToken() {
   return cachedSessionToken;
 }
 
+// Real orchestration can walk a multi-model fallback chain (BitNet included,
+// measured ~1.5 tok/s load-dominated) across a multi-stage pipeline — 10s
+// was nowhere near enough and turned genuine in-progress work into a false
+// "Error: timeout" in the chat UI. Slow, known-long-running routes get a
+// generous budget; everything else keeps the original fast timeout.
+const SLOW_ENDPOINT_TIMEOUT_MS = 300000; // 5 min
+const SLOW_ENDPOINTS = ["/orchestrate", "/task/step/rerun", "/consciousness/review_pass"];
+
 async function backendRequest(method, path, body = null) {
   if (body && typeof body === "object" && "session_token" in body) {
     body.session_token = await ensureSessionToken();
@@ -421,11 +429,13 @@ async function backendRequest(method, path, body = null) {
   return rawRequest(method, path, body);
 }
 
-function rawRequest(method, path, body = null) {
+function rawRequest(method, path, body = null, timeoutMs) {
   const start = Date.now();
   log.info(
     `[HTTP] ${method} ${path} body=${JSON.stringify(body).slice(0, 200)}...`,
   );
+  const effectiveTimeout =
+    timeoutMs ?? (SLOW_ENDPOINTS.some((p) => path.startsWith(p)) ? SLOW_ENDPOINT_TIMEOUT_MS : 10000);
 
   return new Promise((resolve, reject) => {
     const options = {
@@ -434,7 +444,7 @@ function rawRequest(method, path, body = null) {
       path: path,
       method: method,
       headers: { "Content-Type": "application/json" },
-      timeout: 10000,
+      timeout: effectiveTimeout,
     };
 
     const req = http.request(options, (res) => {

@@ -129,6 +129,16 @@ impl ZSEI {
     pub async fn query(&self, query: ZSEIQuery) -> OzoneResult<ZSEIQueryResult> {
         // Capture write provenance BEFORE the query consumes its payload.
         let ripple = Self::ripple_info(&query);
+        // UPDATE-ID FIX prerequisite: update/delete results don't carry a
+        // ContainerID, so the emit below fell back to id 0 and downstream
+        // subscribers fetched the WRONG payload (found live 2026-10-02:
+        // actors logged container_id=0 → matched=false forever). The query
+        // knows its target — grab it before `query` is consumed.
+        let query_target_id = match &query {
+            ZSEIQuery::UpdateContainer { container_id, .. } => Some(*container_id),
+            ZSEIQuery::DeleteContainer { container_id } => Some(*container_id),
+            _ => None,
+        };
         // T-I4: feed the container about to be mutated into the integrity
         // monitor's blake3-verified rollback layer, so every update/delete
         // has a real pre-write snapshot the periodic check can verify.
@@ -188,6 +198,9 @@ impl ZSEI {
                     scope_keywords = c.local_state.context.keywords.clone();
                 }
             }
+            // UPDATE-ID FIX: recover the target when the result is silent
+            // (see the query_target_id capture above for the full story).
+            let container_id = container_id.or(query_target_id);
             if let Some(id) = container_id {
                 crate::graph_events::emit(event, id, parent_id, container_type, "zsei", scope_keywords);
             } else if event != "created" {

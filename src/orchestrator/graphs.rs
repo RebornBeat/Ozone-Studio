@@ -78,8 +78,10 @@ impl PromptOrchestrator {
     ) -> Result<(), String> {
         // PASS 1: Structural creation
         let verified = state.root_modality_list.verified_modalities.clone();
+        tracing::info!(stage = "4b", "[4b.0] create_initial_modality_graphs enter: {} verified modalities: {:?}", verified.len(), verified.iter().map(|v| (v.modality.clone(), v.pipeline_id)).collect::<Vec<_>>());
 
         for vm in &verified {
+            tracing::info!(stage = "4b", "[4b.1] modality '{}' (pipeline {}): building graph input", vm.modality, vm.pipeline_id);
             let modality = vm.modality.clone();
             let pipeline_id = vm.pipeline_id;
             let project_id = state.request.project_id.unwrap_or(0);
@@ -125,11 +127,12 @@ impl PromptOrchestrator {
                         "simplify": false
                     }
                 });
-                let parse_out = self
-                    .executor
-                    .execute(pipeline_id, parse_action)
-                    .await
-                    .unwrap_or_default();
+                let parse_out = {
+                    tracing::info!(stage = "4b", "[4b.math] ParseExpression execute start");
+                    let r = self.executor.execute(pipeline_id, parse_action).await;
+                    tracing::info!(stage = "4b", "[4b.math] ParseExpression execute done");
+                    r.unwrap_or_default()
+                };
                 let parse_result = parse_out.get("result").cloned();
                 let confidence = parse_result
                     .as_ref()
@@ -165,11 +168,12 @@ impl PromptOrchestrator {
                     }
                 });
 
-                let analysis = self
-                    .executor
-                    .execute(pipeline_id, analyze_input)
-                    .await
-                    .unwrap_or_default();
+                tracing::info!(stage = "4b", "[4b.2] modality Analyze execute start (pipeline {})", pipeline_id);
+                let analysis = {
+                    let r = self.executor.execute(pipeline_id, analyze_input).await;
+                    tracing::info!(stage = "4b", "[4b.2] modality Analyze execute done");
+                    r.unwrap_or_default()
+                };
 
                 serde_json::json!({
                     "action": {
@@ -185,7 +189,14 @@ impl PromptOrchestrator {
                 .executor
                 .execute(pipeline_id, graph_input)
                 .await
-                .unwrap_or_default();
+                .map(|r| {
+                    tracing::info!(stage = "4b", "[4b.3] CreateGraph execute done (pipeline {})", pipeline_id);
+                    r
+                })
+                .unwrap_or_else(|e| {
+                    tracing::info!(stage = "4b", "[4b.3] CreateGraph execute ERRORED (pipeline {}): {}", pipeline_id, e);
+                    Default::default()
+                });
 
             // Same top-level-vs-nested graph_id split as mod.rs's STEP 0 fix:
             // math's CreateGraph result nests graph_id under "result"
@@ -218,6 +229,7 @@ impl PromptOrchestrator {
             );
         }
 
+        tracing::info!(stage = "4b", "[4b.4] PASS 1 complete — entering PASS 2 semantic enrichment");
         // PASS 2: Semantic enrichment (text-first)
         if let Some(&text_graph_id) = state.modality_graphs.get("text") {
             let text_pipeline_id = self.modality_name_to_pipeline_id("text");
@@ -256,6 +268,7 @@ impl PromptOrchestrator {
             }
         }
 
+        tracing::info!(stage = "4b", "[4b.5] PASS 2 complete — entering PASS 3 cross-modal references");
         // PASS 3: Cross-modal references
         self.build_cross_modal_references_until_stable(state)
             .await?;
@@ -272,6 +285,7 @@ impl PromptOrchestrator {
             let _ = self.executor.execute(5, register_input).await;
         }
 
+        tracing::info!(stage = "4b", "[4b.6] create_initial_modality_graphs complete");
         Ok(())
     }
 

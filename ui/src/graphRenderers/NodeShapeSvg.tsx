@@ -41,7 +41,7 @@ export const NodeShapeSvg: React.FC<{ visual: NodeVisual; selected: boolean; hov
     <>
       {shape}
       {visual.glyph && (
-        <text textAnchor="middle" dominantBaseline="central" fontSize={Math.max(8, r)} fill="#0a0f1a" style={{ pointerEvents: "none", fontWeight: 700 }}>
+        <text textAnchor="middle" dominantBaseline="central" fontSize={Math.max(8, r)} fill="var(--color-bg)" style={{ pointerEvents: "none", fontWeight: 700 }}>
           {visual.glyph}
         </text>
       )}

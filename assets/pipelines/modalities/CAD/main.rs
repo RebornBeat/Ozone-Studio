@@ -1171,6 +1171,84 @@ fn map_cad_edge_str(s: &str) -> CADEdgeType {
 // GRAPH CREATION
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// POST /zsei/query helper — same contract the other modality pipelines use
+/// (chemistry/dna/eeg): envelope `{query, session_token}`, success-gated,
+/// returns the inner `result`.
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project), then write the full node/edge payload to
+/// `{OZONE_ZSEI_DATA_DIR}/graphs/cad_{container_id}.json` and point the
+/// container's storage at it — the exact chemistry/dna/eeg revival pattern.
+async fn persist_cad_graph(graph: &mut CADGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("cad".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("CAD graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "cad-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["cad"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/cad_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/cad_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, project_id: u64) -> CADModalityOutput {
     let graph_id = executor.generate_id();
     let now = executor.now_iso8601();
@@ -1489,9 +1567,15 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
         let gid = node_id;
         nodes.push(CADGraphNode {
             node_id: gid, node_type: CADNodeType::GDTFrameNode,
+            // Never-compiled bug (E0277, found 2026-09-29): a Vec<&String>
+            // has no Display impl. join(", ") gives a real readable
+            // "datums=A, B" content string instead of leaking Rust's
+            // debug-format brackets/quotes into a field other code treats
+            // as human-readable text (matching every other modality's
+            // node `content` convention).
             content: format!("GDT {:?}: ±{:.4}mm datums={} MMC={:?}",
                 gdt.characteristic, gdt.tolerance_value_mm,
-                gdt.datum_references.iter().map(|d| &d.datum_label).collect::<Vec<_>>(),
+                gdt.datum_references.iter().map(|d| d.datum_label.as_str()).collect::<Vec<_>>().join(", "),
                 matches!(gdt.material_condition, MaterialCondition::MMC)),
             nominal_value: Some(gdt.tolerance_value_mm),
             materialized_path: Some(format!("/Modalities/ParametricCAD/Project_{}/Graph_{}/GDT/{}", project_id, graph_id, gdt.frame_id)),
@@ -1579,9 +1663,14 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
     let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
     for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
 
-    let final_graph = CADGraph { graph_id, project_id, source_description: format!("{} {}", analysis.source_format, analysis.source_path.unwrap_or_default()), nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
+    let mut final_graph = CADGraph { graph_id, project_id, source_description: format!("{} {}", analysis.source_format, analysis.source_path.unwrap_or_default()), nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
     let _ = executor.save_graph(&final_graph);
-    CADModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    // Real ZSEI persistence — loud if it fails (no fabricated success: the
+    // graph still returns, but the persist error surfaces in stderr).
+    if let Err(e) = persist_cad_graph(&mut final_graph).await {
+        eprintln!("cad persist: graph built but ZSEI persistence failed: {e}");
+    }
+    CADModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1592,7 +1681,14 @@ pub async fn execute(input: CADModalityAction) -> Result<CADModalityOutput, Stri
     let executor = PipelineExecutor::new();
 
     match input {
-        CADModalityAction::AnalyzeFile { data, extract_features, extract_assembly, extract_tolerances } |
+        // Never-compiled bug (E0408, found 2026-09-29): AnalyzeFile's three
+        // extract_* booleans were bound here but never actually read
+        // anywhere in this arm's body — it only ever uses `data`, exactly
+        // like the other three variants. Dropped the unused bindings
+        // rather than inventing new behavior for flags nothing downstream
+        // consumes; a real implementation that honors them is separate,
+        // larger work (this is a compile-blocker fix, not a capability one).
+        CADModalityAction::AnalyzeFile { data, .. } |
         CADModalityAction::AnalyzePart { data, .. } |
         CADModalityAction::AnalyzeAssembly { data, .. } |
         CADModalityAction::AnalyzeDrawing { data, .. } => {

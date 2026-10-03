@@ -16,6 +16,9 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOzoneStore } from '../services/store';
 import { AgentActivityIndicator } from '../views/coordination/AgentActivity';
 import ChatNotificationStream from '../views/coordination/ChatNotifications';
+import OrchestrationStatusPanel from './OrchestrationStatusPanel';
+import DiscoveryEffects from './DiscoveryEffects';
+import McpActivityIndicator from './McpActivityIndicator';
 
 interface MetaPortionProps {
   width: number;
@@ -1198,42 +1201,15 @@ export function MetaPortion({ width }: MetaPortionProps) {
 
       {/* Prompt Input - Always visible; voice lives HERE, in the chat */}
       <div className="meta-prompt">
-        {isRunning && (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 8,
-              fontSize: 11.5,
-              color: '#8b98ab',
-              padding: '2px 4px 6px',
-            }}
-          >
-            <span
-              style={{
-                width: 6,
-                height: 6,
-                borderRadius: '50%',
-                background: '#6ec3ff',
-                animation: 'pulse 1.2s ease-in-out infinite',
-                flex: 'none',
-              }}
-            />
-            {currentStepInfo ? (
-              <span>
-                Step {currentStepInfo.completed + 1} of {currentStepInfo.total}
-                {currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''}
-              </span>
-            ) : (
-              <span>
-                {elapsedSeconds < 15
-                  ? 'Starting…'
-                  : `Working… (${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, '0')})`}
-                {elapsedSeconds >= 60 && ' — building the plan, this can take several minutes'}
-              </span>
-            )}
-          </div>
-        )}
+        {/* Real, live stage-by-stage status — replaces the old single-line
+            "Working… (elapsed)" indicator, which is why elapsedSeconds/
+            currentStepInfo (still fed by the existing task-polling fallback
+            below) are no longer rendered directly here; OrchestrationStatusPanel
+            covers that ground with the real orchestration_stage/pipeline_progress
+            WS frames instead. */}
+        <OrchestrationStatusPanel isRunning={isRunning} />
+        <DiscoveryEffects isRunning={isRunning} />
+        <McpActivityIndicator isRunning={isRunning} />
         <form onSubmit={handleSubmit}>
           <div className={`prompt-input-wrapper ${voiceActive ? 'listening' : ''}`}>
             {voiceActive && (
@@ -1279,7 +1255,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                   background: '#0b1120',
                   border: '1px solid #223046',
                   borderRadius: 8,
-                  color: '#8b98ab',
+                  color: 'var(--color-text-muted)',
                   fontSize: 11,
                   padding: '4px 6px',
                   maxWidth: 130,

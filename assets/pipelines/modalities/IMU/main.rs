@@ -322,7 +322,7 @@ impl Quaternion {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IMUCalibration {
     pub accel_bias: [f32; 3],           // m/s²
     pub gyro_bias: [f32; 3],            // rad/s
@@ -1602,7 +1602,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
         edges.push(IMUGraphEdge { edge_id, from_node: root_id, to_node: vnid, edge_type: IMUEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         // Correlate vibration with step events
-        for (_, &ev_nid) in event_node_ids.iter().filter(|(eid, _)| analysis.imu_events.iter().any(|e| e.event_id == *eid && matches!(e.event_type, EventType::Step))) {
+        for &(_, ev_nid) in event_node_ids.iter().filter(|(eid, _)| analysis.imu_events.iter().any(|e| e.event_id == *eid && matches!(e.event_type, EventType::Step))) {
             edges.push(IMUGraphEdge { edge_id, from_node: vnid, to_node: ev_nid, edge_type: IMUEdgeType::CorrelatesWithStep, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
@@ -1617,7 +1617,6 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
             node_id: janid, node_type: IMUNodeType::JointAngleNode,
             content: format!("JointAngle [{}|{:?}]: mean={:.1}° ROM={:.1}° peak_vel={:.1}°/s",
                 ja.joint_id, ja.joint_type, ja.mean_angle_deg, ja.range_of_motion_deg, ja.peak_angular_velocity_deg_per_sec),
-            angle_
             angle_deg: Some(ja.mean_angle_deg),
             body_segment: Some(ja.joint_id.clone()),
             materialized_path: Some(format!("/Modalities/IMU/Project_{}/Graph_{}/Joint/{}", project_id, graph_id, ja.estimate_id)),
@@ -1711,7 +1710,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
     let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
     for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
 
-    let final_graph = IMUGraph {
+    let mut final_graph = IMUGraph {
         graph_id, project_id, source_description: analysis.source_description,
         nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
@@ -1719,7 +1718,85 @@ async fn create_graph(executor: &PipelineExecutor, analysis: IMUAnalysisResult, 
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
     };
     let _ = executor.save_graph(&final_graph);
-    IMUModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    if let Err(e) = persist_imu_graph(&mut final_graph).await {
+        eprintln!("imu persist: graph built but ZSEI persistence failed: {e}");
+    }
+    IMUModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+}
+
+/// POST /zsei/query helper — same contract the other modality pipelines use:
+/// envelope `{query, session_token}`, success-gated, returns the inner `result`.
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project) + node/edge payload file — the proven revival pattern.
+async fn persist_imu_graph(graph: &mut IMUGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("imu".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("IMU graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "imu-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["imu"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/imu_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/imu_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

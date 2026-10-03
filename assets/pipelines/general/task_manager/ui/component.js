@@ -52,8 +52,14 @@ module.exports = {
 
       const loadTasks = async () => {
         try {
+          // executePipeline resolves the raw /pipeline/execute envelope
+          // ({success, output, error}), not the pipeline's own output
+          // fields directly — real data is under result.output.* (same
+          // bug class found + fixed in workspace_tab/component.js this
+          // session: result.tasks was always undefined here, so the
+          // Tasks tab always rendered empty regardless of real task data).
           const result = await executePipeline(5, { action: "List" });
-          setTasks(result?.tasks || []);
+          setTasks(result?.output?.tasks || []);
           setLoading(false);
           setError(null);
         } catch (e) {
@@ -69,7 +75,7 @@ module.exports = {
             action: "GetDetails",
             task_id: taskId,
           });
-          setTaskDetails(result);
+          setTaskDetails(result?.output ?? null);
         } catch (e) {
           console.error("Failed to load task details:", e);
         }
@@ -86,7 +92,7 @@ module.exports = {
             action: "GetTaskGraphs",
             task_id: task.task_id || task.id,
           });
-          const hasGraphs = (graphResult?.graphs?.length || 0) > 0;
+          const hasGraphs = (graphResult?.output?.graphs?.length || 0) > 0;
 
           if (hasGraphs && !contextViewerInjected) {
             if (window.__ozoneThemeArea?.injectTab) {

@@ -115,7 +115,11 @@ impl PromptOrchestrator {
     /// configured region plus Global scope. Returns an empty Vec (not an
     /// error) when nothing has been loaded — that is the expected, honest
     /// starting state for every instance until a human loads real content.
-    async fn load_jurisdiction_rules(&self, instance_region: Option<&str>) -> Vec<JurisdictionRule> {
+    /// `pub(crate)` (was private) so the real MCP-call jurisdiction gate in
+    /// grpc/mod.rs's `mcp_call` can load the same real rules through a real
+    /// `PromptOrchestrator` instance instead of a second, drifting copy of
+    /// this loading logic.
+    pub(crate) async fn load_jurisdiction_rules(&self, instance_region: Option<&str>) -> Vec<JurisdictionRule> {
         use crate::types::zsei::{Filter, Operator, TraversalMode, TraversalRequest, TraversalResult};
 
         let mut scopes_to_try: Vec<String> = vec!["global".to_string()];
@@ -364,6 +368,81 @@ impl PromptOrchestrator {
 
         Ok(())
     }
+
+    /// STAGE 8b — the FULL jurisdiction run (operator, 2026-10-01: "jurisdiction
+    /// at start is just like a soft run; full run is with the simulation as
+    /// well ... it really should then be alongside the consciousness gate").
+    /// Stage 0 judges the RAW PROMPT only — it cannot see what the plan
+    /// became. This gate judges the RESOLVED PLAN: every blueprint step
+    /// description and sub-step, the simulation's own summary, plus the
+    /// original prompt, matched against the same rule set AFTER the
+    /// simulation and alongside the consciousness gate, BEFORE any step
+    /// executes. A Block match here hard-stops the orchestration the same
+    /// way Stage 0's does.
+    pub(crate) async fn stage_jurisdiction_full_gate(&self, state: &mut OrchestrationState) -> Result<(), String> {
+        let region = if self.jurisdiction_config.enabled {
+            self.jurisdiction_config.instance_region.as_deref()
+        } else {
+            None
+        };
+        let rules = self.load_jurisdiction_rules(region).await;
+
+        // The resolved plan: what will actually execute.
+        let mut plan = String::new();
+        for step in &state.blueprint_steps {
+            plan.push_str(&step.description);
+            plan.push('\n');
+            for sub in &step.sub_steps {
+                plan.push_str(&sub.action);
+                plan.push('\n');
+            }
+        }
+        if let Some(sim) = &state.simulation_result {
+            // SimulationOutcome's text fields are the real judgment content.
+            plan.push_str(&format!("feasibility={} ", sim.overall_feasibility));
+            for p in &sim.step_predictions {
+                plan.push_str(&format!("{:?} ", p));
+            }
+        }
+        plan.push_str(&state.request.prompt);
+        let haystack = plan.to_lowercase();
+
+        let mut result = JurisdictionGateResult {
+            rules_loaded: rules.len(),
+            ..Default::default()
+        };
+        categorize_jurisdiction_matches(&rules, &haystack, &mut result);
+
+        let blocked = result.blocked;
+        // Merge into the carried gate result so the response's
+        // jurisdiction_gate view reflects BOTH runs (intake + full).
+        if let Some(intake) = &mut state.jurisdiction_gate_result {
+            intake.matched.extend(result.matched.clone());
+            intake.warnings.extend(result.warnings.clone());
+            intake.blocked = intake.blocked || blocked;
+        }
+        let _ = result;
+
+        self.record_stage(
+            state,
+            8,
+            "Jurisdiction Full Gate",
+            true,
+            &format!(
+                "resolved-plan re-check: rules_loaded={}, blocked={}",
+                self.load_jurisdiction_rules(region).await.len(),
+                blocked
+            ),
+        );
+
+        if blocked {
+            return Err(
+                "Request blocked by the FULL jurisdiction gate (resolved plan matched a Block-action rule post-simulation)".to_string(),
+            );
+        }
+
+        Ok(())
+    }
 }
 
 /// Pure categorization: for each rule that matches `haystack`, route it by
@@ -375,7 +454,7 @@ impl PromptOrchestrator {
 /// deliberately does NOT do — kept pure and synchronous so the routing
 /// logic itself is directly unit-testable without mocking a store/executor
 /// (see T-62b below).
-fn categorize_jurisdiction_matches(
+pub(crate) fn categorize_jurisdiction_matches(
     rules: &[JurisdictionRule],
     haystack: &str,
     result: &mut JurisdictionGateResult,
@@ -407,7 +486,7 @@ fn categorize_jurisdiction_matches(
 /// per request). Takes only what it needs (executor + matches + a few
 /// scalars), not the full OrchestrationState/store, specifically so this is
 /// unit-testable without mocking the whole rule-loading chain (see T-62b).
-async fn resolve_confirmation_reviews(
+pub(crate) async fn resolve_confirmation_reviews(
     executor: &Arc<dyn PipelineExecutor>,
     confirmation_matches: &[JurisdictionRule],
     prompt: &str,

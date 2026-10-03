@@ -5,6 +5,7 @@ export const MODALITY_COLOR: Record<Modality, string> = {
   code: "#5fb3ff",
   math: "#ffb95f",
   text: "#8fe38f",
+  image: "#e585d8",
 };
 
 /** Generic fallback — exactly what C1's shell drew before any renderer existed. */

@@ -458,6 +458,21 @@ async fn execute_pipeline(
         }
     }
 
+    // CONSCIOUSNESS GATE (operator security directive): consciousness-category
+    // pipelines are internal meta — never callable through the external
+    // /pipeline/execute contract, whatever the session's role.
+    if crate::pipeline::registry::category_of(req.pipeline_id) == Some("consciousness") {
+        return Json(PipelineResponse {
+            success: false,
+            task_id: Some(0),
+            output: None,
+            error: Some(format!(
+                "pipeline {} is consciousness-category: internal meta, not callable via external contracts",
+                req.pipeline_id
+            )),
+        });
+    }
+
     let input: crate::types::pipeline::PipelineInput = match serde_json::from_value(req.input) {
         Ok(i) => i,
         Err(e) => {
@@ -595,6 +610,73 @@ async fn list_tasks(
 pub struct GlobalOrderQuery {
     pub workspace_id: Option<u64>,
     pub project_id: Option<u64>,
+    /// Universal Order Stage 2 (guide §2): kind filter ("todo", "meeting",
+    /// ...) and time view ("overdue" | "today" | "week" | "upcoming" |
+    /// "someday"). Time buckets are COMPUTED from due_at at read — never
+    /// stored (guide §2 rules).
+    pub kind: Option<String>,
+    pub due: Option<String>,
+}
+
+/// GET /assistant/feed — the Personal Assistant's derived feed
+/// (docs/PERSONAL_ASSISTANT_GUIDE.md §4.2). The FREE half of the
+/// assistant: findings are COMPUTED at read by the SAME
+/// `consciousness::assistant::compute_findings` the check-up loop uses —
+/// one canonical implementation, no second store, no LLM cost on this
+/// route. Scope: "global" (default) | "ws:<id>" | "proj:<id>" (the same
+/// scope-keyword convention emit_task_ripple produces).
+#[derive(Debug, Deserialize)]
+pub struct AssistantFeedQuery {
+    pub scope: Option<String>,
+}
+
+async fn get_assistant_feed(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<AssistantFeedQuery>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let task_mgr = runtime.task_manager.read().await;
+    let all = task_mgr.list_tasks(None, None, 10_000, 0).await;
+    drop(task_mgr);
+    drop(runtime);
+
+    // Scope keyword parse — mirror emit_task_ripple's "ws:"/"proj:" forms.
+    let mut ws_filter: Option<u64> = None;
+    let mut proj_filter: Option<u64> = None;
+    let scope_label = q.scope.clone().unwrap_or_else(|| "global".to_string());
+    if let Some(w) = scope_label.strip_prefix("ws:") {
+        ws_filter = w.parse::<u64>().ok();
+    } else if let Some(p) = scope_label.strip_prefix("proj:") {
+        proj_filter = p.parse::<u64>().ok();
+    }
+
+    let filtered: Vec<crate::task::TaskData> = all
+        .into_iter()
+        .filter(|t| ws_filter.map_or(true, |w| t.workspace_id == Some(w)))
+        .filter(|t| proj_filter.map_or(true, |p| t.project_id == Some(p)))
+        .collect();
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let findings = crate::consciousness::assistant::compute_findings(&filtered, now);
+
+    let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    let entries: Vec<serde_json::Value> = findings
+        .iter()
+        .map(|f| {
+            *counts.entry(f.class.to_string()).or_insert(0) += 1;
+            f.to_json()
+        })
+        .collect();
+
+    Json(serde_json::json!({
+        "scope": scope_label,
+        "generated_at": now,
+        "counts": counts,
+        "findings": entries,
+    }))
 }
 
 /// GET /order/global — the universal native task order (guide §9, Phase
@@ -629,6 +711,20 @@ async fn get_global_order(
         std::collections::HashMap::new();
     let mut counts: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
 
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let day = 86_400u64;
+    let due_bucket = |due: Option<u64>| -> &'static str {
+        match due {
+            Some(d) if d < now.saturating_sub(day) => "overdue",
+            Some(d) if d <= now + day => "today",
+            Some(d) if d <= now + 7 * day => "week",
+            _ => "upcoming",
+        }
+    };
+
     for t in all {
         if let Some(w) = q.workspace_id {
             if t.workspace_id != Some(w) {
@@ -640,6 +736,40 @@ async fn get_global_order(
                 continue;
             }
         }
+        // Stage 2 filters: kind + computed due bucket
+        let kind = t
+            .inputs
+            .as_ref()
+            .and_then(|i| i.get("kind"))
+            .and_then(|k| k.as_str())
+            .unwrap_or("todo")
+            .to_string();
+        if let Some(want) = &q.kind {
+            if &kind != want {
+                continue;
+            }
+        }
+        let due_at = t.due_at;
+        if let Some(due) = q.due.as_deref() {
+            let bucket = match due_at {
+                Some(d) => {
+                    if d < now.saturating_sub(day) {
+                        "overdue"
+                    } else if d <= now + day {
+                        "today"
+                    } else if d <= now + 7 * day {
+                        "week"
+                    } else {
+                        "upcoming"
+                    }
+                }
+                None => "someday",
+            };
+            if bucket != due {
+                continue;
+            }
+        }
+        let _ = due_bucket;
         *counts.entry(state_of(&t.status).to_string()).or_insert(0) += 1;
 
         let inputs = t.inputs.as_ref().cloned().unwrap_or(serde_json::Value::Null);
@@ -669,6 +799,11 @@ async fn get_global_order(
                 .unwrap_or_else(|| format!("Task {}", t.task_id)),
             "source": coord("source"),
             "assignee": coord("assignee"),
+            "kind": coord("kind").unwrap_or_else(|| "todo".to_string()),
+            "due_at": t.due_at,
+            "remind_at": t.remind_at,
+            "meeting_url": coord("meeting_url"),
+            "note_body": coord("note"),
             "blueprint_id": t.blueprint_id,
             "workspace_id": t.workspace_id,
             "project_id": t.project_id,
@@ -1111,6 +1246,58 @@ pub struct PipelineZeroShotQuery {
 /// `"zsei_data"`); under the normal layout (host cwd = target/release,
 /// `general.data_dir = "zsei_data"`) that is the same directory the
 /// host's other model_calls stores use, so `general.data_dir` resolves it.
+#[derive(Debug, Deserialize)]
+pub struct ToolCallsQuery {
+    pub offset: Option<usize>,
+    pub limit: Option<usize>,
+    pub tool: Option<String>,
+    pub agent: Option<String>,
+}
+
+/// GET /capture/tool-calls — S13 read route (2026-09-29): the /mcp/call
+/// capture store (tool_calls.jsonl). One truthful row per tool call —
+/// tool/agent/success/error/input_preview/identity_validated/transport.
+/// Same append/parse honesty as every capture reader: missing file ->
+/// empty vec, malformed line -> skipped.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolCallRow {
+    pub ts: String,
+    pub tool: String,
+    pub agent: String,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub input_preview: String,
+    #[serde(default)]
+    pub identity_validated: bool,
+    #[serde(default)]
+    pub transport: String,
+}
+
+async fn get_tool_calls(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<ToolCallsQuery>,
+) -> Json<serde_json::Value> {
+    let data_dir = {
+        let runtime = state.runtime.read().await;
+        runtime.config.general.data_dir.clone()
+    };
+    let path = format!("{}/model_calls/tool_calls.jsonl", data_dir);
+    let rows: Vec<ToolCallRow> = read_jsonl(&path);
+    let filtered: Vec<&ToolCallRow> = rows
+        .iter()
+        .filter(|r| q.tool.as_deref().map_or(true, |v| r.tool == v))
+        .filter(|r| q.agent.as_deref().map_or(true, |v| r.agent == v))
+        .collect();
+    let total = filtered.len();
+    let offset = q.offset.unwrap_or(0);
+    let limit = q.limit.unwrap_or(CAPTURE_DEFAULT_LIMIT).min(CAPTURE_MAX_LIMIT);
+    let page: Vec<&ToolCallRow> = filtered.into_iter().skip(offset).take(limit).collect();
+    Json(serde_json::json!({ "rows": page, "total": total, "offset": offset, "limit": limit }))
+}
+
 async fn get_pipeline_zero_shot_calls(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(q): axum::extract::Query<PipelineZeroShotQuery>,
@@ -1499,23 +1686,60 @@ async fn set_config(
         }
     }
 
+    // Real sections touched — derived directly from the request's own
+    // top-level keys, never guessed at which fields within them actually
+    // changed value (that level of detail isn't worth the complexity for
+    // an audit-trail ripple; "these sections were part of this config-set
+    // call" is the honest claim this can make).
+    let sections_touched: Vec<String> = req
+        .updates
+        .as_object()
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
+
     // Save config to file
-    match toml::to_string_pretty(&runtime.config) {
+    let result = match toml::to_string_pretty(&runtime.config) {
         Ok(config_str) => match std::fs::write(&config_path, &config_str) {
-            Ok(_) => Json(ConfigSetResponse {
+            Ok(_) => ConfigSetResponse {
                 success: true,
                 error: None,
-            }),
-            Err(e) => Json(ConfigSetResponse {
+            },
+            Err(e) => ConfigSetResponse {
                 success: false,
                 error: Some(format!("Failed to write config: {}", e)),
-            }),
+            },
         },
-        Err(e) => Json(ConfigSetResponse {
+        Err(e) => ConfigSetResponse {
             success: false,
             error: Some(format!("Failed to serialize config: {}", e)),
-        }),
+        },
+    };
+
+    // Real ripple for real config changes — this was a genuine gap (R5):
+    // every settings change (model switch, consciousness toggle, network
+    // config) left zero trace in the graph. Only fires on an actual
+    // successful save, and only claims what's real: which top-level
+    // sections were touched, never fabricated per-field diffs. Same
+    // reused mirror() mechanism as the mcp_call tool_call ripple —
+    // genuinely goes through ZSEI::query's CreateContainer choke point.
+    if result.success && !sections_touched.is_empty() {
+        let data_dir = runtime.config.general.data_dir.clone();
+        let zsei = runtime.zsei.read().await;
+        let req_mirror = crate::context_mirror::MirrorRequest {
+            kind: "config_change".to_string(),
+            agent: "host-config".to_string(),
+            title: format!("Config updated: {}", sections_touched.join(", ")),
+            body: String::new(),
+            files: Vec::new(),
+            detail: Some(serde_json::json!({ "sections": sections_touched })),
+            scope: Some("global".to_string()),
+            workspace_id: None,
+            project_id: None,
+        };
+        let _ = crate::context_mirror::mirror(&zsei, &data_dir, &req_mirror).await;
     }
+
+    Json(result)
 }
 
 // ============================================================================
@@ -1527,6 +1751,38 @@ async fn orchestrate(
     Json(req): Json<OrchestrateRequest>,
 ) -> Json<OrchestrateResponse> {
     let start = std::time::Instant::now();
+
+    // SESSION VALIDATION (CC's long-standing finding, closed 2026-09-29):
+    // /orchestrate never read session_token — every caller was implicitly
+    // trusted. Now: a PROVIDED token is validated against the real
+    // AuthSystem; an INVALID token is rejected outright. A MISSING token
+    // remains allowed under the documented localhost-only trust boundary
+    // (the Electron UI does not yet attach sessions to /orchestrate —
+    // wiring that is the remaining half, tracked in CHECKLIST).
+    if let Some(token) = &req.session_token {
+        if !token.trim().is_empty() {
+            let auth_guard = state.runtime.read().await;
+            let auth = auth_guard.auth.read().await;
+            let token_bytes = hex::decode(token).unwrap_or_default();
+            if auth.validate_session(&token_bytes).await.is_err() {
+                return Json(OrchestrateResponse {
+                    success: false,
+                    response: None,
+                    task_id: None,
+                    blueprint_id: None,
+                    stages_completed: vec![],
+                    needs_clarification: false,
+                    clarification_points: vec![],
+                    error: Some("Invalid session token".into()),
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                    model_used: None,
+                    total_tokens_used: None,
+                    amt_summary: None,
+                    thinking_log: vec![],
+                });
+            }
+        }
+    }
 
     // Build the pipeline input that the orchestrator understands
     let mut data = std::collections::HashMap::new();
@@ -1843,6 +2099,50 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
         });
     }
 
+    // ORCHESTRATION STAGE RIPPLE — the same wire, a sibling hub. Every real
+    // stage of an in-flight /orchestrate call (all 15, including the ones
+    // with no subprocess pipeline for `pipeline_progress` to track: Build
+    // AMT, Blueprint Assignment, Zero-Shot Simulation) reaches connected UIs
+    // live instead of only after the whole blocking call returns.
+    {
+        let tx = tx.clone();
+        let mut orch_rx = crate::orchestration_events::OrchestrationEventHub::global().subscribe();
+        tokio::spawn(async move {
+            loop {
+                match orch_rx.recv().await {
+                    Ok(evt) => {
+                        let wire = serde_json::json!({
+                            "action": "orchestration_stage",
+                            "user_id": evt.user_id,
+                            "device_id": evt.device_id,
+                            "stage": evt.stage,
+                            "stage_name": evt.stage_name,
+                            "success": evt.success,
+                            "summary": evt.summary,
+                            "duration_ms": evt.duration_ms,
+                            "timestamp": evt.timestamp,
+                        });
+                        if tx
+                            .send(serde_json::to_string(&wire).unwrap_or_default())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        let _ = tx
+                            .send(format!(
+                                "{{\"action\":\"orchestration_stage\",\"lagged\":{n}}}"
+                            ))
+                            .await;
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     tokio::spawn(async move {
         let mut last_snapshot: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -2019,7 +2319,10 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = Router::new()
+    // 20MB body limit (raised 2026-09-29 from axum's 2MB default): image
+    // ingests and YOLO detection payloads are multi-MB base64 — the visual
+    // MCP accepts 20MB, the call surface must match.
+    let app = Router::new().layer(axum::extract::DefaultBodyLimit::max(20 * 1024 * 1024))
         .route("/health", get(health))
         .route("/auth/challenge", post(request_challenge))
         .route("/auth/authenticate", post(authenticate))
@@ -2029,6 +2332,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/get", post(get_task))
         .route("/task/list", post(list_tasks))
         .route("/order/global", get(get_global_order))
+        .route("/assistant/feed", get(get_assistant_feed))
         .route("/consciousness/review_pass", post(consciousness_review_pass))
         .route("/task/cancel", post(cancel_task))
         .route("/task/step/rerun", post(rerun_step))
@@ -2041,6 +2345,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
             "/capture/pipeline-zero-shot-calls",
             get(get_pipeline_zero_shot_calls),
         )
+        .route("/capture/tool-calls", get(get_tool_calls))
         .route("/config/get", post(get_config))
         .route("/config/set", post(set_config))
         .route("/ws", get(websocket_handler))
@@ -2801,10 +3106,182 @@ async fn mcp_call(
     let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let hub = registry.activity_hub();
+    let call_tool = call.tool.clone();
+    let call_agent = call.agent.clone();
+    // CALLER IDENTITY (2026-09-29): validate the session token when
+    // provided — the agent name becomes a REAL authenticated identity, and
+    // per-role authorization (terminal allowlists, tool gating) keys on it.
+    // Absent token = documented localhost posture, identity_validated:false.
+    let identity_validated = if let Some(tok) = &call.session_token {
+        if !tok.trim().is_empty() {
+            let auth_guard = state.runtime.read().await;
+            let auth = auth_guard.auth.read().await;
+            let token_bytes = hex::decode(tok).unwrap_or_default();
+            auth.validate_session(&token_bytes).await.is_ok()
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    let call_input_preview = serde_json::to_string(&call.input)
+        .map(|s| s.chars().take(300).collect::<String>())
+        .unwrap_or_default();
+    let call_input = call.input.clone();
+
+    // REAL jurisdiction gate for MCP calls — same rules, same matching
+    // logic, same RequireConfirmation model review the /orchestrate flow
+    // uses (src/orchestrator/jurisdiction.rs), not a fabricated claim and
+    // not a second drifting copy of the logic. Built from a real, cheap
+    // PromptOrchestrator instance (the same adapters AppRuntime::orchestrate
+    // constructs, src/lib.rs) so load_jurisdiction_rules/categorize_
+    // jurisdiction_matches/resolve_confirmation_reviews are the identical
+    // real functions, not reimplemented here. Runs BEFORE invoke() — a Block
+    // match refuses the tool call outright, mirroring Stage 0's own
+    // block-before-processing behavior.
+    let jurisdiction_result: crate::orchestrator::jurisdiction::JurisdictionGateResult = {
+        let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+            registry: runtime.pipeline_registry.clone(),
+        });
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::decision_review::DecisionReviewExecutor {
+                inner: base_executor_adapter,
+                available_models: runtime.config.models.available_models.clone(),
+                fallback_order: runtime.config.models.fallback.order.clone(),
+                fallback_free_only: runtime.config.models.fallback.free_only,
+                data_dir: runtime.config.general.data_dir.clone(),
+            });
+        let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
+            zsei: runtime.zsei.clone(),
+        });
+        let orchestrator = crate::orchestrator::PromptOrchestrator::new(
+            executor_adapter.clone(),
+            zsei_adapter,
+            runtime.task_manager.clone(),
+            Arc::new(tokio::sync::RwLock::new(None)),
+            runtime.config.models.context_length as u32,
+            runtime.config.jurisdiction.clone(),
+            runtime.config.general.data_dir.clone(),
+        );
+
+        let region = if runtime.config.jurisdiction.enabled {
+            runtime.config.jurisdiction.instance_region.clone()
+        } else {
+            None
+        };
+        let rules = orchestrator.load_jurisdiction_rules(region.as_deref()).await;
+
+        // Real haystack: the tool name, agent, and real call input — the
+        // same "match real request content against real rule conditions"
+        // contract Stage 0 uses on the chat prompt, applied here to what an
+        // MCP call actually carries.
+        let haystack = format!(
+            "{} {} {}",
+            call_tool,
+            call_agent,
+            serde_json::to_string(&call_input).unwrap_or_default()
+        )
+        .to_lowercase();
+
+        let mut jr = crate::orchestrator::jurisdiction::JurisdictionGateResult {
+            rules_loaded: rules.len(),
+            ..Default::default()
+        };
+        let confirmation_matches =
+            crate::orchestrator::jurisdiction::categorize_jurisdiction_matches(&rules, &haystack, &mut jr);
+        if !confirmation_matches.is_empty() {
+            crate::orchestrator::jurisdiction::resolve_confirmation_reviews(
+                &executor_adapter,
+                &confirmation_matches,
+                &haystack,
+                0,
+                0,
+                &mut jr,
+                "MCP tool call — no project standing context (not a chat request)",
+            )
+            .await;
+        }
+        jr
+    };
+
+    if jurisdiction_result.blocked {
+        let reason = jurisdiction_result
+            .confirmations
+            .iter()
+            .find(|(_, r)| r.decision == "Decline")
+            .map(|(rule, r)| format!("confirmation review declined for \"{}\": {}", rule.condition, r.reasoning))
+            .unwrap_or_else(|| "a Block-action jurisdiction rule matched".to_string());
+        return Json(serde_json::json!({
+            "success": false,
+            "output": null,
+            "error": format!("MCP call blocked by jurisdiction gate: {}", reason),
+            "usage": null,
+            "jurisdiction_gate": jurisdiction_result,
+        }));
+    }
+
     let result = state
         .mcp
         .invoke(call, &state.mcp_usage, Some(&*hub))
         .await;
+
+    // Real graph ripple for the call — this used to be a bare claim in the
+    // "captured" list below with no emission anywhere behind it (found live,
+    // 2026-09-28: grepped invoke() end to end, confirmed no ripple ever
+    // fired). Mirrors the same way notes/decisions/handoffs/claims already
+    // do (context_mirror::mirror → a real CoordinationEvent container →
+    // ZSEI::query's CreateContainer choke point → graph_events::emit fires
+    // for real) — so this is also now a real, queryable, I1-feed-visible
+    // event, not just an honest-but-empty admission.
+    let ripple_emitted = {
+        let data_dir = runtime.config.general.data_dir.clone();
+        let zsei = runtime.zsei.read().await;
+        let req = crate::context_mirror::MirrorRequest {
+            kind: "tool_call".to_string(),
+            agent: call_agent.clone(),
+            title: format!("MCP tool call: {}", call_tool),
+            body: String::new(),
+            files: Vec::new(),
+            detail: Some(serde_json::json!({
+                "tool": call_tool,
+                "success": result.success,
+                "error": result.error,
+            })),
+            scope: Some("global".to_string()),
+            workspace_id: None,
+            project_id: None,
+        };
+        crate::context_mirror::mirror(&zsei, &data_dir, &req).await.is_ok()
+    };
+
+    // S13 TOOL-CALL CAPTURE (capture unification, 2026-09-28 — operator
+    // directive: tool calls are captured alongside pipeline calls, same
+    // discipline, same store family): every /mcp/call appends one truthful
+    // row — what was called, by whom, the outcome, the input preview.
+    // Tool calls had a ledger row (counts) and a graph mirror (event) but
+    // no per-call capture store; this closes that asymmetry so "show me
+    // every tool call" is one jsonl, same as S10/S11/S12.
+    {
+        let data_dir = runtime.config.general.data_dir.clone();
+        let dir = std::path::PathBuf::from(&data_dir).join("model_calls");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("tool_calls.jsonl");
+        let ts = chrono::Utc::now().to_rfc3339();
+        let row = serde_json::json!({
+            "ts": ts,
+            "tool": call_tool,
+            "agent": call_agent.clone(),
+            "success": result.success,
+            "error": result.error.clone().unwrap_or_default(),
+            "input_preview": call_input_preview,
+            "identity_validated": identity_validated,
+            "transport": "mcp/call",
+        });
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(f, "{}", row);
+        }
+    }
 
     // ORDER-LAYER REVIEW (guide §3, Phase 1 — operator-approved): every
     // tool call gets a state-of-the-world reply assembled from real
@@ -2852,14 +3329,30 @@ async fn mcp_call(
                 aging_reviews
             ));
         }
+        // "jurisdiction gate applied" was a bare claim with nothing behind
+        // it — grepped src/mcp.rs and this handler end to end, confirmed
+        // zero jurisdiction-related code touched an MCP call. Real as of
+        // 2026-09-28: a genuine JurisdictionGateResult is computed above,
+        // through the identical real rule-loading/matching/confirmation-
+        // review path Stage 0 of /orchestrate uses — so this claim is only
+        // made when rules were genuinely loaded and evaluated (rules_loaded
+        // is always a real, even-if-zero count; the claim itself only
+        // appears once real evaluation happened, which it always does
+        // above before this point is reached).
+        let mut captured = vec![
+            "usage ledger row recorded".to_string(),
+            "jurisdiction gate applied".to_string(),
+        ];
+        // Real, not assumed: only claim the ripple when mirror() really
+        // returned Ok (a real container id) above.
+        if ripple_emitted {
+            captured.push("graph ripple emitted for the call".to_string());
+        }
         serde_json::json!({
-            "captured": [
-                "usage ledger row recorded",
-                "jurisdiction gate applied",
-                "graph ripple emitted for the call",
-            ],
+            "captured": captured,
             "maybe_missed": maybe_missed,
             "open_claims": claims,
+            "identity_validated": identity_validated,
             "order": {
                 "live": count(&["running"]),
                 "paused": count(&["paused"]),
@@ -2875,6 +3368,7 @@ async fn mcp_call(
         "error": result.error,
         "usage": result.usage,
         "review": review,
+        "jurisdiction_gate": jurisdiction_result,
     }))
 }
 
@@ -3061,7 +3555,8 @@ async fn get_coordination_claims() -> Json<serde_json::Value> {
 
 #[derive(Debug, Deserialize)]
 pub struct CoordinationTaskRequest {
-    /// What the assigned agent should do.
+    /// What the assigned agent should do — or, for a personal Universal
+    /// Order item (Stage 4 quick-capture: no assignee), the item's name.
     pub prompt: String,
     /// Which agent this is routed to ("zcode", "claude-code", …).
     #[serde(default)]
@@ -3072,6 +3567,28 @@ pub struct CoordinationTaskRequest {
     #[serde(default)]
     pub priority: Option<String>,
     pub session_token: String,
+    // Universal Order Stage-1 fields (docs/UNIVERSAL_ORDER_GUIDE.md §2) —
+    // additive, all optional. Widens this endpoint from agent-coordination-
+    // only to also serve the quick-capture UI's personal todo/note/meeting
+    // items, reusing the same enqueue_task→inputs path Stage 1 already
+    // reads these keys from (src/task/mod.rs:982-985) rather than adding a
+    // parallel creation path.
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub due_at: Option<u64>,
+    #[serde(default)]
+    pub remind_at: Option<u64>,
+    #[serde(default)]
+    pub recurrence: Option<String>,
+    #[serde(default)]
+    pub meeting_url: Option<String>,
+    #[serde(default)]
+    pub note_body: Option<String>,
+    #[serde(default)]
+    pub workspace_id: Option<u64>,
+    #[serde(default)]
+    pub project_id: Option<u64>,
 }
 
 async fn create_coordination_task(
@@ -3093,6 +3610,24 @@ async fn create_coordination_task(
     if let Some(a) = &req.assignee {
         inputs.insert("assignee".to_string(), serde_json::json!(a));
     }
+    if let Some(k) = &req.kind {
+        inputs.insert("kind".to_string(), serde_json::json!(k));
+    }
+    if let Some(d) = req.due_at {
+        inputs.insert("due_at".to_string(), serde_json::json!(d));
+    }
+    if let Some(r) = req.remind_at {
+        inputs.insert("remind_at".to_string(), serde_json::json!(r));
+    }
+    if let Some(r) = &req.recurrence {
+        inputs.insert("recurrence".to_string(), serde_json::json!(r));
+    }
+    if let Some(m) = &req.meeting_url {
+        inputs.insert("meeting_url".to_string(), serde_json::json!(m));
+    }
+    if let Some(n) = &req.note_body {
+        inputs.insert("note_body".to_string(), serde_json::json!(n));
+    }
 
     let enqueue_result = {
         let runtime = state.runtime.write().await;
@@ -3103,8 +3638,8 @@ async fn create_coordination_task(
                 inputs,
                 0, // system user
                 0, // system device
-                None,
-                None,
+                req.workspace_id,
+                req.project_id,
                 priority,
             )
             .await

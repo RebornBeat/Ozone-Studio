@@ -212,3 +212,102 @@ export async function zseiQuery<T = unknown>(query: Record<string, unknown>): Pr
   const body = await postHttp<unknown>("/zsei/query", { query, session_token: "" });
   return unwrapZseiEnvelope<T>(body);
 }
+
+// ── Universal Order (docs/UNIVERSAL_ORDER_GUIDE.md) ───────────────────────
+
+export type OrderItemKind =
+  | "todo" | "meeting" | "followup" | "note" | "code" | "milestone" | "external";
+export type OrderState = "live" | "paused" | "queued" | "interrupted" | "done" | "other";
+
+export interface OrderItem {
+  task_id: number;
+  name: string;
+  status: string;
+  kind: OrderItemKind;
+  due_at: number | null;
+  remind_at: number | null;
+  meeting_url: string | null;
+  note_body: string | null;
+  progress: number;
+  steps_done: number;
+  steps_total: number;
+  assignee: string | null;
+  source: string | null;
+  workspace_id: number | null;
+  project_id: number | null;
+  created_at: number;
+}
+
+export type GlobalOrder = Record<OrderState, OrderItem[]> & {
+  counts: Record<string, number>;
+};
+
+export function fetchGlobalOrder(params?: {
+  workspaceId?: number;
+  projectId?: number;
+}): Promise<GlobalOrder> {
+  const q = new URLSearchParams();
+  if (params?.workspaceId != null) q.set("workspace_id", String(params.workspaceId));
+  if (params?.projectId != null) q.set("project_id", String(params.projectId));
+  const qs = q.toString();
+  return bridgeOrHttp("globalOrder", `/order/global${qs ? `?${qs}` : ""}`);
+}
+
+/** Universal Order Stage 4 quick-capture — creates a personal item (no
+ * assignee) through the same real /task/create path agent-coordination
+ * tasks use (CoordinationTaskRequest widened additively for this). */
+export function createOrderItem(item: {
+  name: string;
+  kind?: OrderItemKind;
+  dueAt?: number;
+  remindAt?: number;
+  noteBody?: string;
+  meetingUrl?: string;
+  workspaceId?: number;
+  projectId?: number;
+}): Promise<{ success: boolean; task_id?: number; error?: string }> {
+  return postHttp("/task/create", {
+    prompt: item.name,
+    session_token: "",
+    created_by: "ui",
+    kind: item.kind,
+    due_at: item.dueAt,
+    remind_at: item.remindAt,
+    note_body: item.noteBody,
+    meeting_url: item.meetingUrl,
+    workspace_id: item.workspaceId,
+    project_id: item.projectId,
+  });
+}
+
+// ── Personal Assistant feed (docs/PERSONAL_ASSISTANT_GUIDE.md §4.2) ────────
+
+export interface AssistantFinding {
+  /** overdue | due-soon | meeting-soon | check-up-due | stalled |
+   * paused-too-long | slippage-cascade */
+  class: string;
+  /** 3 = act now, 2 = today, 1 = worth knowing. */
+  severity: 1 | 2 | 3;
+  title: string;
+  detail: string;
+  task_id: number;
+  project_id: number | null;
+  workspace_id: number | null;
+  due_at: number | null;
+}
+
+export interface AssistantFeed {
+  scope: string;
+  generated_at: number;
+  counts: Record<string, number>;
+  findings: AssistantFinding[];
+}
+
+/** Derived read — findings are computed from the task order at request time
+ * by the same free local filter the consciousness check-up loop uses (one
+ * canonical implementation server-side). No store, no LLM cost on this
+ * route. Scope: "global" (default) | "ws:<id>" | "proj:<id>". */
+export function fetchAssistantFeed(scope?: string): Promise<AssistantFeed> {
+  const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
+  return bridgeOrHttp("assistantFeed", `/assistant/feed${qs}`);
+}

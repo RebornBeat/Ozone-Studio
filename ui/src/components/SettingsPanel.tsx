@@ -420,7 +420,7 @@ export const SettingsPanel: React.FC = () => {
               )}
 
               {models.model_type === "zcode" && (
-                <p style={{ color: "#8b98ab", fontSize: 12.5, margin: 0 }}>
+                <p style={{ color: "var(--color-text-muted)", fontSize: 12.5, margin: 0 }}>
                   Model calls dispatch to the ZCode connector registered on
                   this host (roles: agent + model).
                 </p>
@@ -500,7 +500,7 @@ export const SettingsPanel: React.FC = () => {
                   </tbody>
                 </table>
               )}
-              <p style={{ color: "#8b98ab", fontSize: 12, marginTop: 10 }}>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, marginTop: 10 }}>
                 Add/remove models here lands with per-request model routing —
                 each entry will carry its own connection details.
               </p>
@@ -614,7 +614,7 @@ export const SettingsPanel: React.FC = () => {
                 />
                 <span>Consciousness system enabled</span>
               </label>
-              <p style={{ color: "#8b98ab", fontSize: 12.5, margin: "8px 0 4px" }}>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12.5, margin: "8px 0 4px" }}>
                 Sub-systems (only meaningful while enabled above):
               </p>
               {(
@@ -664,7 +664,7 @@ export const SettingsPanel: React.FC = () => {
           <div className="ocards">
             <div className="ocard">
               <h4>🌐 Network</h4>
-              <p style={{ color: "#8b98ab", fontSize: 12, margin: "0 0 10px" }}>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "0 0 10px" }}>
                 Changes here require a restart to take effect.
               </p>
               <label className="otoggle">
@@ -747,7 +747,7 @@ export const SettingsPanel: React.FC = () => {
           <div className="ocards">
             <div className="ocard">
               <h4>🧮 K-Algorithm presets</h4>
-              <p style={{ color: "#8b98ab", fontSize: 12, margin: "0 0 12px" }}>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "0 0 12px" }}>
                 Applies live — no restart needed, the orchestrator picks it up
                 on its next AMT pass. Only convergence and pairwise are shown:
                 the other algorithm families (validation, ordered-loop, search)
@@ -800,7 +800,7 @@ export const SettingsPanel: React.FC = () => {
           <div className="ocards">
             <div className="ocard">
               <h4>⚙️ System info (read-only)</h4>
-              <p style={{ color: "#8b98ab", fontSize: 12, margin: "0 0 10px" }}>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "0 0 10px" }}>
                 These only take effect at process start — edit config.toml
                 directly and restart if you need to change them.
               </p>

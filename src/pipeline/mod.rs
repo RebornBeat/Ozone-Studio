@@ -240,12 +240,21 @@ impl PipelineRegistry {
         input: PipelineInput,
         task_id: Option<TaskID>, //
     ) -> OzoneResult<PipelineOutput> {
-        let blueprints = self.blueprints.read().await;
-        let blueprint = blueprints
-            .get(&pipeline_id)
-            .ok_or_else(|| OzoneError::NotFound(format!("Pipeline {} not found", pipeline_id)))?;
+        // LOCK-SCOPE FIX (same class as the adapter fix, one level down):
+        // the read guard used to be held across the ENTIRE pipeline
+        // execution — a queued writer (pipeline self-registration) then
+        // starved every read forever (all workers futex-parked, walks
+        // frozen at Stage 4b). Clone the blueprint, drop the guard,
+        // execute lock-free.
+        let blueprint = {
+            let blueprints = self.blueprints.read().await;
+            blueprints
+                .get(&pipeline_id)
+                .ok_or_else(|| OzoneError::NotFound(format!("Pipeline {} not found", pipeline_id)))?
+                .clone()
+        };
 
-        self.executor.execute(blueprint, input, task_id).await
+        self.executor.execute(&blueprint, input, task_id).await
     }
 
     /// Registration table for self-connecting pipelines (delegate).

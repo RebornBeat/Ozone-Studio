@@ -27,13 +27,48 @@
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 
 const PORT = Number(process.env.OZONE_TERMINAL_PORT ?? 3215);
+// PER-ROLE ALLOWLISTS (operator directive 2026-09-28: agents have roles —
+// coordinators are a higher trust tier than everyone else, not identical):
+// OZONE_TERMINAL_ROLES is JSON { "<agent>": ["cmd", ...], "*": [...] }.
+// Resolution: exact agent match first, then "*" (the everyone-else tier,
+// most restrictive), then legacy OZONE_TERMINAL_ALLOW (global), then LOCKED.
+// The role comes from the call's own agent field — the same identity the
+// host meters and gates on, so role trust and usage accountability share
+// one identity.
+const ROLES = (() => {
+  const fromFile = process.env.OZONE_TERMINAL_ROLES_FILE;
+  if (fromFile) {
+    try { return JSON.parse(fs.readFileSync(fromFile, "utf8")); }
+    catch (e) { console.error("[terminal-mcp] roles file unreadable:", e.message); }
+  }
+  try {
+    const inline = JSON.parse(process.env.OZONE_TERMINAL_ROLES ?? "{}");
+    if (Object.keys(inline).length > 0) return inline;
+  } catch { /* fall through to the default file below */ }
+  // Real launch-configuration trap, found live 2026-09-29: roles.json sits
+  // right next to this file but was silently ignored (every agent LOCKED)
+  // unless OZONE_TERMINAL_ROLES_FILE was explicitly set. Default to it when
+  // present — still LOCKED if it's missing or invalid, per this MCP's own
+  // "unconfigured = LOCKED" doctrine, just no longer locked when a real,
+  // valid roles file is sitting right there unused.
+  const defaultPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "roles.json");
+  try { return JSON.parse(fs.readFileSync(defaultPath, "utf8")); }
+  catch { return {}; }
+})();
 const ALLOW = (process.env.OZONE_TERMINAL_ALLOW ?? "")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
+function allowlistFor(agent) {
+  if (agent && Array.isArray(ROLES[agent])) return ROLES[agent];
+  if (Array.isArray(ROLES["*"])) return ROLES["*"];
+  return ALLOW; // legacy global fallback; empty = locked
+}
 // Optional shared secret: when set, /call requires header
 // `x-ozone-terminal-token: <OZONE_TERMINAL_TOKEN>` — defense against
 // another LOCAL process calling :3215 directly to bypass Ozone's
@@ -44,13 +79,14 @@ const PLATFORM = `${process.platform}/${process.arch}`; // e.g. linux/x64
 const FORBIDDEN = /[;|&`$><]/;
 const startedAt = Date.now();
 
-function exec_allowed(command) {
-  if (!ALLOW.length) return { ok: false, reason: "no allowlist configured (OZONE_TERMINAL_ALLOW unset) — terminal_exec is locked" };
+function exec_allowed(command, agent) {
+  const allow = allowlistFor(agent);
+  if (!allow.length) return { ok: false, reason: `no allowlist for agent '${agent ?? "?"}' — terminal_exec is locked for this role` };
   if (!command || typeof command !== "string") return { ok: false, reason: "missing command" };
   if (FORBIDDEN.test(command)) return { ok: false, reason: "shell operators (; | & ` $ < >) are rejected — one command per call" };
   const first = command.trim().split(/\s+/)[0];
-  if (!ALLOW.some((a) => first === a || first.startsWith(a))) {
-    return { ok: false, reason: `command '${first}' is not in the allowlist (${ALLOW.join(", ")})` };
+  if (!allow.some((a) => first === a || first.startsWith(a))) {
+    return { ok: false, reason: `command '${first}' is not in the allowlist for role of '${agent}' (${allow.join(", ")})` };
   }
   return { ok: true };
 }
@@ -112,8 +148,9 @@ const server = createServer((req, res) => {
   req.on("end", async () => {
     let tool = "";
     let input = {};
+    let body = {};
     try {
-      const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+      body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
       tool = String(body?.tool ?? "");
       input = body?.input ?? {};
     } catch {
@@ -126,8 +163,9 @@ const server = createServer((req, res) => {
         output: {
           tool: "terminal-mcp",
           platform: PLATFORM,
-          allowlist: ALLOW,
-          locked: ALLOW.length === 0,
+          allowlist_legacy_global: ALLOW,
+          roles_configured: Object.keys(ROLES),
+          locked: ALLOW.length === 0 && Object.keys(ROLES).length === 0,
           token_required: Boolean(TOKEN_SECRET),
           uptime_secs: Math.round((Date.now() - startedAt) / 1000),
         },
@@ -138,7 +176,7 @@ const server = createServer((req, res) => {
       reply(res, 200, { success: false, error: `unknown terminal tool '${tool}' (terminal_exec | terminal_status)` });
       return;
     }
-    const gate = exec_allowed(String(input.command ?? ""));
+    const gate = exec_allowed(String(input.command ?? ""), String(body?.agent ?? ""));
     if (!gate.ok) {
       reply(res, 200, { success: false, error: gate.reason });
       return;

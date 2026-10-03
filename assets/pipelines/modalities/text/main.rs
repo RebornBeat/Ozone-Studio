@@ -1965,6 +1965,16 @@ pub enum TextEdgeType {
     TemporalPrecedes,
     TemporalFollows,
     CausedBy,
+    /// The reverse of CausedBy (source causes target), not previously a
+    /// distinct variant — the cross-sentence relationship prompt
+    /// (~line 5816) genuinely offers the model "Causes" as its own option,
+    /// but `resolve_text_edge_type` used to collapse both "causes" and
+    /// "causedby" onto the single CausedBy variant, discarding which
+    /// direction the model actually meant (found 2026-09-29, previously
+    /// flagged as a real, unfixed bug — G6). CausedBy's own two prompts
+    /// (per-sentence grammar + the legacy per-chunk extractor) only ever
+    /// offer "CausedBy" and are unaffected by this split.
+    Causes,
     Enables,
     Prevents,
     PartOf,
@@ -7240,7 +7250,8 @@ RESPOND ONLY WITH JSON."#,
             "implies" => Some(TextEdgeType::Implies),
             "temporalprecedes" => Some(TextEdgeType::TemporalPrecedes),
             "temporalfollows" => Some(TextEdgeType::TemporalFollows),
-            "causedby" | "causes" => Some(TextEdgeType::CausedBy),
+            "causedby" => Some(TextEdgeType::CausedBy),
+            "causes" => Some(TextEdgeType::Causes),
             "enables" => Some(TextEdgeType::Enables),
             "prevents" => Some(TextEdgeType::Prevents),
             "partof" => Some(TextEdgeType::PartOf),

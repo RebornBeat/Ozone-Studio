@@ -29,9 +29,17 @@ pub enum KAlgorithmKind {
     Extraction,
     /// Model-call strategies (reserved: rendering ladders, prompt shapes).
     ModelCall,
+    /// Model-call watchdogs: per-call timeout policies — a hung call must
+    /// fail LOUDLY after the policy's budget, never freeze its caller
+    /// (doctrine #35's other half: no invisible work either).
+    Watchdog,
     /// Relationship-path relevance: how new graphs link into the living
     /// graph (neighborhood walk depth, per-scope shared-term floors).
     Relevance,
+    /// Candidate selection shapes: how a ranked subset is chosen from a
+    /// larger candidate set (pairwise-ranked batching vs per-candidate
+    /// passes) — e.g. methodology selection for AMT branch discovery.
+    Selection,
 }
 
 impl KAlgorithmKind {
@@ -44,7 +52,9 @@ impl KAlgorithmKind {
             KAlgorithmKind::Search => "search",
             KAlgorithmKind::Extraction => "extraction",
             KAlgorithmKind::ModelCall => "model_call",
+            KAlgorithmKind::Watchdog => "watchdog",
             KAlgorithmKind::Relevance => "relevance",
+            KAlgorithmKind::Selection => "selection",
         }
     }
 
@@ -57,7 +67,9 @@ impl KAlgorithmKind {
             "search" => KAlgorithmKind::Search,
             "extraction" => KAlgorithmKind::Extraction,
             "model_call" => KAlgorithmKind::ModelCall,
+            "watchdog" => KAlgorithmKind::Watchdog,
             "relevance" => KAlgorithmKind::Relevance,
+            "selection" => KAlgorithmKind::Selection,
             _ => return None,
         })
     }
@@ -71,6 +83,26 @@ impl KAlgorithmKind {
 ///
 /// std-only by design: pipelines embed it via `#[path]` like every shared
 /// contract.
+/// How a candidate set is processed (operator, 2026-10-02: "why cap to 8?
+/// we really shouldn't — batch the methodologies, they're small, multiple
+/// fit in a call ... ensure search is optimized to run through it ALL").
+/// EVERY candidate participates: relevance-ranked for order, then chunked
+/// into batches of `batch_size`, one pass per batch — full coverage, a
+/// fraction of the calls. `batch_size: 1` = the preserved per-candidate
+/// legacy shape.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SelectionPolicy {
+    pub batch_size: usize,
+}
+
+/// Per-model-call watchdog budget. `u64::MAX` disables (never recommended —
+/// a hung call then freezes its caller forever; found live in the Stage-4b
+/// AMT branch-discovery hang, 2026-10-01).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WatchdogPolicy {
+    pub per_call_timeout_secs: u64,
+}
+
 #[derive(Debug, Clone)]
 pub struct NamedPresets<T: Clone> {
     kind: KAlgorithmKind,
@@ -161,6 +193,8 @@ mod tests {
             KAlgorithmKind::Search,
             KAlgorithmKind::Extraction,
             KAlgorithmKind::ModelCall,
+            KAlgorithmKind::Watchdog,
+            KAlgorithmKind::Selection,
         ] {
             assert_eq!(KAlgorithmKind::parse(kind.as_str()), Some(kind));
         }

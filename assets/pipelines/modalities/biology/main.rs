@@ -1340,6 +1340,81 @@ fn map_bio_edge_str(s: &str) -> BiologyEdgeType {
 // GRAPH CREATION
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// POST /zsei/query helper — same contract the other modality pipelines use:
+/// envelope `{query, session_token}`, success-gated, returns the inner `result`.
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project) + node/edge payload file — the proven revival pattern.
+async fn persist_biology_graph(graph: &mut BiologyGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("biology".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("Biology graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "biology-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["biology"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/biology_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/biology_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResult, project_id: u64) -> BiologyModalityOutput {
     let graph_id = executor.generate_id();
     let now = executor.now_iso8601();
@@ -1760,7 +1835,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
             materialized_path: Some(format!("/Modalities/Biology/Project_{}/Graph_{}/Regulation/{}", project_id, graph_id, reg.edge_id)),
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["regulation".into(), reg.regulator.to_lowercase(), reg.target.to_lowercase()],
-            hotness_score: 0.6 + (reg.effect_size.abs() / 5.0).clamp(0.0, 0.3),
+            hotness_score: 0.6 + (reg.effect_size.abs() / 5.0).clamp(0.0, 0.3) as f32,
             ..Default::default()
         });
         edges.push(BiologyGraphEdge { edge_id, from_node: root_id, to_node: rnid, edge_type: BiologyEdgeType::Contains, weight: 0.7, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1823,9 +1898,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
     // Remove cross-modal self-loops — keep as metadata markers only
     edges.retain(|e| e.from_node != e.to_node || matches!(e.edge_type, BiologyEdgeType::GenomicSequenceIn | BiologyEdgeType::StructureIn112 | BiologyEdgeType::ChemistryOf | BiologyEdgeType::MetabolicHeatIn | BiologyEdgeType::AcousticSignatureIn | BiologyEdgeType::VegetationSignalIn | BiologyEdgeType::GeospatialLocation));
 
-    let final_graph = BiologyGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
+    let mut final_graph = BiologyGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
     let _ = executor.save_graph(&final_graph);
-    BiologyModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    if let Err(e) = persist_biology_graph(&mut final_graph).await {
+        eprintln!("biology persist: graph built but ZSEI persistence failed: {e}");
+    }
+    BiologyModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

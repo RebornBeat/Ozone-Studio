@@ -87,7 +87,7 @@ const KIND_COLOR: Record<ActivityKind, string> = {
   handoff: "#5fb3ff",
   finding: "#ffb95f",
   claim: "#8fe38f",
-  release: "#8b98ab",
+  release: "var(--color-text-muted)",
   other: "#6b7a90",
 };
 
@@ -140,8 +140,8 @@ export const ForkDispatchPanel: React.FC<{ projectId: number | null }> = () => {
       <div
         style={{
           fontSize: 11.5,
-          color: "#8b98ab",
-          border: "1px solid #1e2836",
+          color: "var(--color-text-muted)",
+          border: "1px solid var(--color-border-faint)",
           borderRadius: 6,
           padding: "6px 8px",
           marginBottom: 10,
@@ -160,9 +160,9 @@ export const ForkDispatchPanel: React.FC<{ projectId: number | null }> = () => {
             key={k}
             onClick={() => setKindFilter(k)}
             style={{
-              background: kindFilter === k ? "#1e2836" : "transparent",
-              color: kindFilter === k ? "#dfe7f2" : "#8b98ab",
-              border: "1px solid #1e2836",
+              background: kindFilter === k ? "var(--color-border-faint)" : "transparent",
+              color: kindFilter === k ? "var(--color-text)" : "var(--color-text-muted)",
+              border: "1px solid var(--color-border-faint)",
               borderRadius: 6,
               padding: "3px 9px",
               fontSize: 11.5,
@@ -175,9 +175,9 @@ export const ForkDispatchPanel: React.FC<{ projectId: number | null }> = () => {
       </div>
 
       {error && <div style={{ color: "#ff8a8a", fontSize: 12.5 }}>Error: {error}</div>}
-      {!error && items === null && <div style={{ color: "#8b98ab", fontSize: 12.5 }}>Loading…</div>}
+      {!error && items === null && <div style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>Loading…</div>}
       {!error && items !== null && filtered.length === 0 && (
-        <div style={{ color: "#8b98ab", fontSize: 12.5 }}>No matching coordination activity in the most recent window.</div>
+        <div style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>No matching coordination activity in the most recent window.</div>
       )}
       {filtered.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -185,23 +185,23 @@ export const ForkDispatchPanel: React.FC<{ projectId: number | null }> = () => {
             <div
               key={it.containerId}
               style={{
-                border: "1px solid #1e2836",
+                border: "1px solid var(--color-border-faint)",
                 borderLeft: `3px solid ${KIND_COLOR[it.kind]}`,
                 borderRadius: 6,
                 padding: "6px 10px",
                 fontSize: 12,
-                color: "#c7d0dc",
+                color: "var(--color-text-secondary)",
               }}
             >
               <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
                 {it.forkId && (
                   <span style={{ color: KIND_COLOR[it.kind], fontWeight: 700, fontSize: 11 }}>{it.forkId}</span>
                 )}
-                <span style={{ color: "#8b98ab", fontSize: 10.5, textTransform: "uppercase" }}>{it.kind}</span>
-                <span style={{ color: "#8b98ab", fontSize: 10.5 }}>{it.agent}</span>
+                <span style={{ color: "var(--color-text-muted)", fontSize: 10.5, textTransform: "uppercase" }}>{it.kind}</span>
+                <span style={{ color: "var(--color-text-muted)", fontSize: 10.5 }}>{it.agent}</span>
               </div>
               <div style={{ marginTop: 2, whiteSpace: "pre-wrap" }}>{it.title}</div>
-              {it.file && <div style={{ marginTop: 2, color: "#8b98ab", fontSize: 11 }}>{it.file}</div>}
+              {it.file && <div style={{ marginTop: 2, color: "var(--color-text-muted)", fontSize: 11 }}>{it.file}</div>}
             </div>
           ))}
         </div>

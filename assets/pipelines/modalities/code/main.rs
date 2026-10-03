@@ -880,6 +880,23 @@ pub struct CodeAnalysisResult {
     pub comments: Vec<Comment>,
     pub function_calls: Vec<FunctionCall>,
     pub complexity_metrics: ComplexityMetrics,
+    /// CALL GRAPH ORDERING (2026-09-29): detected entry points (main-like
+    /// names first, then zero-in-degree functions), and the entry-point-
+    /// rooted call sequence — the order of events/calls for this file.
+    #[serde(default)]
+    pub entry_points: Vec<String>,
+    #[serde(default)]
+    pub call_sequence: Vec<CallSequenceEntry>,
+}
+
+/// One step of the entry-point-rooted call sequence.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CallSequenceEntry {
+    pub order: u32,
+    pub function: String,
+    pub called_from: Option<String>,
+    pub depth: u32,
+    pub line: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -894,6 +911,15 @@ pub struct FunctionDef {
     pub doc_comment: Option<String>,
     pub calls: Vec<String>,
     pub complexity: usize,
+    /// CALL-GRAPH ORDERING (2026-09-29): position in the entry-point-rooted
+    /// call sequence (0 = first called from an entry point). None = not
+    /// reached from any entry point (unreachable/utility-only).
+    #[serde(default)]
+    pub call_order: Option<u32>,
+    /// True when this function is a detected entry point (main-like name,
+    /// or zero in-degree within the file's resolved call graph).
+    #[serde(default)]
+    pub is_entry_point: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1490,7 +1516,13 @@ impl CodeModalityPipeline {
         };
         
         let complexity_metrics = self.compute_complexity(code, &functions);
-        
+
+        // CALL GRAPH ORDERING (2026-09-29): entry-point-rooted sequence —
+        // the order of events/calls for this file. Deterministic (common
+        // practice per Soot/RTA literature: entry points seed the walk).
+        let (entry_points, call_sequence, functions) =
+            compute_call_ordering(&functions, &function_calls);
+
         let analysis = CodeAnalysisResult {
             language,
             file_path,
@@ -1504,6 +1536,8 @@ impl CodeModalityPipeline {
             comments,
             function_calls,
             complexity_metrics,
+            entry_points,
+            call_sequence,
         };
         
         CodeModalityOutput {
@@ -1631,6 +1665,8 @@ impl CodeModalityPipeline {
                         doc_comment: None,
                         calls: Vec::new(),
                         complexity: 1,
+                        call_order: None,
+                        is_entry_point: false,
                     });
                 }
             }
@@ -2660,6 +2696,15 @@ fn build_graph_nodes_edges(
                 props.insert("is_async".to_string(), serde_json::json!(func.is_async));
                 props.insert("is_public".to_string(), serde_json::json!(func.is_public));
                 props.insert("complexity".to_string(), serde_json::json!(func.complexity));
+                // CALL-GRAPH ORDERING (2026-09-29): entry-point flag + call
+                // sequence position ride as node attributes — UI/order
+                // consumers sort and filter on these without schema changes.
+                if let Some(order) = func.call_order {
+                    props.insert("call_order".to_string(), serde_json::json!(order));
+                }
+                if func.is_entry_point {
+                    props.insert("is_entry_point".to_string(), serde_json::json!(true));
+                }
                 props
             },
         });
@@ -2975,4 +3020,103 @@ mod tests {
         std::env::remove_var("OZONE_ZSEI_DATA_DIR");
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+
+/// CALL GRAPH ORDERING (2026-09-29) — deterministic, per static-analysis
+/// common practice (Soot/RTA: entry points seed the reachable set; the
+/// graph is exactly what's reachable). Entry-point heuristics, in order:
+/// 1. main-like names (main, __main__, index, app, run, start, on_*,
+///    *_handler, test_*)
+/// 2. zero-in-degree functions (never called by any defined function in
+///    this file — the file's external API surface)
+/// Order = BFS from entry points following resolved calls, first-appearance
+/// (line) order breaking ties. Functions unreachable from any entry point
+/// keep call_order: None (utility-only or dead).
+fn compute_call_ordering(
+    functions: &[FunctionDef],
+    calls: &[FunctionCall],
+) -> (Vec<String>, Vec<CallSequenceEntry>, Vec<FunctionDef>) {
+    let names: Vec<String> = functions.iter().map(|f| f.name.clone()).collect();
+    let name_set: std::collections::HashSet<&String> = names.iter().collect();
+
+    // in-degree: how many times each defined function is called by other
+    // defined functions
+    let mut in_degree: std::collections::HashMap<String, u32> = Default::default();
+    for c in calls {
+        if name_set.contains(&c.callee) && c.caller != c.callee {
+            *in_degree.entry(c.callee.clone()).or_insert(0) += 1;
+        }
+    }
+
+    // Entry-point heuristics
+    let main_like = ["main", "__main__", "index", "app", "run", "start"];
+    let mut entry_points: Vec<String> = functions
+        .iter()
+        .filter(|f| {
+            let lower = f.name.to_lowercase();
+            main_like.iter().any(|m| lower == *m)
+                || lower.starts_with("on_")
+                || lower.ends_with("_handler")
+                || lower.starts_with("test_")
+        })
+        .map(|f| f.name.clone())
+        .collect();
+    for f in functions {
+        if in_degree.get(&f.name).copied().unwrap_or(0) == 0
+            && !entry_points.contains(&f.name)
+        {
+            entry_points.push(f.name.clone());
+        }
+    }
+
+    // caller → callees adjacency (resolved, same-file)
+    let mut adj: std::collections::HashMap<String, Vec<&FunctionCall>> = Default::default();
+    for c in calls {
+        if name_set.contains(&c.callee) {
+            adj.entry(c.caller.clone()).or_default().push(c);
+        }
+    }
+
+    // BFS from entry points in declaration order; sequence = visit order
+    let mut sequence: Vec<CallSequenceEntry> = Vec::new();
+    let mut order: u32 = 0;
+    let mut visited: std::collections::HashSet<String> = Default::default();
+    let mut queue: std::collections::VecDeque<(String, Option<String>, u32)> = entry_points
+        .iter()
+        .map(|ep| (ep.clone(), None, 0u32))
+        .collect();
+    while let Some((fname, from, depth)) = queue.pop_front() {
+        if !visited.insert(fname.clone()) {
+            continue;
+        }
+        if let Some(f) = functions.iter().find(|f| f.name == fname) {
+            sequence.push(CallSequenceEntry {
+                order,
+                function: fname.clone(),
+                called_from: from,
+                depth,
+                line: f.start_line,
+            });
+            order += 1;
+            let mut next: Vec<&FunctionCall> =
+                adj.get(&fname).map(|v| v.as_slice()).unwrap_or(&[]).to_vec();
+            next.sort_by_key(|c| c.line);
+            for c in next {
+                queue.push_back((c.callee.clone(), Some(fname.clone()), depth + 1));
+            }
+        }
+    }
+
+    // Annotate functions
+    let entry_set: std::collections::HashSet<&String> = entry_points.iter().collect();
+    let order_by_name: std::collections::HashMap<&String, u32> =
+        sequence.iter().map(|s| (&s.function, s.order)).collect();
+    let mut funcs = functions.to_vec();
+    for f in funcs.iter_mut() {
+        f.is_entry_point = entry_set.contains(&f.name);
+        f.call_order = order_by_name.get(&f.name).copied();
+    }
+
+    (entry_points, sequence, funcs)
 }

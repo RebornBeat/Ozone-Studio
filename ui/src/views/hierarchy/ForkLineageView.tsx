@@ -27,11 +27,11 @@ export interface ForkLineageViewProps {
 }
 
 const C = {
-  text: "#dfe7f2",
-  body: "#c7d0dc",
-  muted: "#8b98ab",
-  border: "#1e2836",
-  panel: "#0a0f1a",
+  text: "var(--color-text)",
+  body: "var(--color-text-secondary)",
+  muted: "var(--color-text-muted)",
+  border: "var(--color-border-faint)",
+  panel: "var(--color-bg)",
   edge: "#4fbf8f",
   keyword: "#e8c14f",
   bad: "#ff8a8a",

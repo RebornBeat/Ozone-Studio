@@ -98,7 +98,7 @@ function nodeVisual(node: GraphViewNode): NodeVisual {
     shape: "triangle",
     radius: glyph ? 11 : 8,
     fill: GOVERNANCE_COLOR,
-    stroke: "#0a0f1a",
+    stroke: "var(--color-bg)",
     strokeWidth: 1,
     glyph,
     // A region key with two containers is real but ambiguous — mark it, don't merge it.

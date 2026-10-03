@@ -36,6 +36,61 @@ fn wake() -> &'static tokio::sync::Notify {
     AMT_WAKE.get_or_init(tokio::sync::Notify::new)
 }
 
+/// Wake the AMT re-expansion loop immediately — the same signal
+/// `spawn_graph_ripple_sync` below uses, exported so the ripple-actor
+/// dispatch loop (`actors.rs`, docs/ACTING_LOOP_GUIDE.md §3) can wake it
+/// too after appending a finding-based candidate, without duplicating the
+/// wake mechanism.
+pub fn notify_wake() {
+    wake().notify_one();
+}
+
+/// Extract a `proj:<id>` scope keyword, if present. Shared by the
+/// project-scoped graph-ripple sync below and the ripple-actor dispatch
+/// loop (`actors.rs`) — both need the same real scoping convention
+/// `context_mirror::mirror`/`task::emit_task_ripple` already produce.
+pub fn extract_proj_id(scope_keywords: &[String]) -> Option<u64> {
+    scope_keywords
+        .iter()
+        .find_map(|k| k.strip_prefix("proj:").and_then(|v| v.parse::<u64>().ok()))
+}
+
+/// Resolve the AMT container anchored under `anchor` (a project or
+/// equivalent container) — the first Derived/AMT-typed child. Shared by
+/// `process_graph_event` below and the ripple-actor dispatch loop's
+/// project-scoped findings (`actors.rs`). Errors if `anchor` itself
+/// doesn't resolve (matches `process_graph_event`'s original behavior);
+/// `Ok(None)` means the anchor is real but has no AMT child yet.
+pub async fn resolve_anchor_amt(store: &dyn StoreAccess, anchor: u64) -> Result<Option<u64>, String> {
+    let anchor_json = store
+        .get_container(anchor)
+        .await?
+        .ok_or_else(|| format!("anchor container {} not found", anchor))?;
+    let child_ids: Vec<u64> = anchor_json
+        .get("global_state")
+        .and_then(|g| g.get("child_ids"))
+        .and_then(|c| c.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_u64()).collect())
+        .unwrap_or_default();
+    for child in child_ids {
+        if let Some(c) = store.get_container(child).await? {
+            let ctype = c
+                .get("local_state")
+                .and_then(|l| l.get("metadata"))
+                .and_then(|m| m.get("container_type"))
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .to_string();
+            // AMT containers persist as "Derived"-typed children of the
+            // anchor (see persist_amt_container's JSON contract).
+            if ctype == "Derived" || ctype.contains("AMT") {
+                return Ok(Some(child));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Subscribe the AMT re-expansion pipeline to the living-graph ripple
 /// (src/graph_events.rs): graph writes scoped to a project (proj:<id>) or
 /// touching files (file:<path>) convert into re-expansion candidates for
@@ -72,10 +127,7 @@ pub async fn process_graph_event(
     if evt.event == "deleted" {
         return Ok(None); // deletions don't deepen branches
     }
-    let proj_id = evt
-        .scope_keywords
-        .iter()
-        .find_map(|k| k.strip_prefix("proj:").and_then(|v| v.parse::<u64>().ok()));
+    let proj_id = extract_proj_id(&evt.scope_keywords);
     let touches_file = evt.scope_keywords.iter().any(|k| k.starts_with("file:"));
     if proj_id.is_none() && !touches_file {
         return Ok(None); // global-only coordination chatter doesn't drive AMTs
@@ -84,36 +136,7 @@ pub async fn process_graph_event(
     // Resolve the project's AMT container: the event's parent (or project)
     // container's children, first AMT-typed child wins.
     let anchor = proj_id.unwrap_or(evt.parent_id);
-    let project_json = store
-        .get_container(anchor)
-        .await?
-        .ok_or_else(|| format!("project container {} not found", anchor))?;
-    let child_ids: Vec<u64> = project_json
-        .get("global_state")
-        .and_then(|g| g.get("child_ids"))
-        .and_then(|c| c.as_array())
-        .map(|a| a.iter().filter_map(|v| v.as_u64()).collect())
-        .unwrap_or_default();
-
-    let mut amt_child: Option<u64> = None;
-    for child in child_ids {
-        if let Some(c) = store.get_container(child).await? {
-            let ctype = c
-                .get("local_state")
-                .and_then(|l| l.get("metadata"))
-                .and_then(|m| m.get("container_type"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            // AMT containers persist as "Derived"-typed children of the
-            // project (see persist_amt_container's JSON contract).
-            if ctype == "Derived" || ctype.contains("AMT") {
-                amt_child = Some(child);
-                break;
-            }
-        }
-    }
-    let Some(amt_id) = amt_child else {
+    let Some(amt_id) = resolve_anchor_amt(store, anchor).await? else {
         return Ok(None); // project has no AMT yet — nothing to re-expand
     };
 
@@ -232,14 +255,17 @@ async fn review_amt_candidates_once(
             .and_then(|r| r.as_str())
             .unwrap_or("UnknownNode")
             .to_string();
+        // Real field name is "source" (amt_candidates::append_at's actual
+        // JSON shape) — "detail" was never a real field here, so this
+        // always fell back to the generic text below. Found live
+        // 2026-09-30 while verifying the ripple-actor findings (actors.rs)
+        // actually show up anywhere real.
+        let candidate_detail = candidate.get("source").and_then(|d| d.as_str());
         let task_prompt = format!(
             "AMT re-expansion [{}] container {} — {}",
             route_label,
             container_id,
-            candidate
-                .get("detail")
-                .and_then(|d| d.as_str())
-                .unwrap_or("deepen unverified branch")
+            candidate_detail.unwrap_or("deepen unverified branch")
         );
         let mut inputs = std::collections::HashMap::new();
         inputs.insert("prompt".to_string(), serde_json::json!(task_prompt));
@@ -266,6 +292,7 @@ async fn review_amt_candidates_once(
             attempts_before,
             available_models,
             meta_fallback,
+            candidate_detail,
         )
         .await
         {
@@ -368,6 +395,18 @@ async fn try_reexpand_one(
     attempts_before: u64,
     available_models: &[AvailableModel],
     meta_fallback: &ModelFallbackConfig,
+    // The recorded candidate's own real detail text (amt_candidates'
+    // "source" field) — e.g. a ripple actor's real finding
+    // (docs/ACTING_LOOP_GUIDE.md §3, actors.rs), a graph-ripple reason, or
+    // None for candidates that never carried one (UnverifiedNode/ThinTree
+    // from amt.rs's own build-time recorder). Without this, WHAT specific
+    // event queued the candidate was fully discarded before reaching the
+    // model — every candidate deepened the same generic first-unverified-
+    // node content regardless of why it was queued. Found live 2026-09-30:
+    // a real SecurityFinding candidate deepened generic "event correlation
+    // engine" content with no trace the deepening was ever prompted by a
+    // real firewall_status failure.
+    trigger_detail: Option<&str>,
 ) -> Result<bool, String> {
     let Some(container) = store.get_container(container_id).await? else {
         tracing::warn!(container_id, "AMT expansion: container missing (deleted since recording)");
@@ -489,11 +528,21 @@ async fn try_reexpand_one(
             container_topics.join(", ")
         )
     };
+    // What specifically triggered THIS re-expansion pass (a ripple actor's
+    // real finding, a graph-ripple reason, …) — see try_reexpand_one's own
+    // doc comment on trigger_detail for why this matters.
+    let trigger_block = match trigger_detail {
+        Some(t) if !t.trim().is_empty() => format!(
+            "\nWHAT TRIGGERED THIS RE-EXPANSION (prioritize a detail that directly addresses this, if one fits this branch):\n{}\n",
+            t
+        ),
+        _ => String::new(),
+    };
     let prompt = format!(
         r#"You are deepening one specific branch of an existing analysis tree.
 
 OVERALL REQUEST: {}
-{}BRANCH TO DEEPEN (currently has no concrete supporting detail): {}{}{}
+{}{}BRANCH TO DEEPEN (currently has no concrete supporting detail): {}{}{}
 
 Provide 1-3 concrete, specific details, requirements, or sub-points that would genuinely
 strengthen this branch — not a restatement of the branch itself, not generic filler.
@@ -504,7 +553,7 @@ Return ONLY valid JSON:
     "details": ["specific detail 1", "specific detail 2"]
 }}
 If nothing substantive can be added, return: {{"details": []}}"#,
-        root_content, signals_block, target_content, guidance_block, related_block
+        root_content, signals_block, trigger_block, target_content, guidance_block, related_block
     );
 
     let mut input = serde_json::json!({
@@ -550,7 +599,9 @@ If nothing substantive can be added, return: {{"details": []}}"#,
         }
     }
 
-    let result = executor.execute(PROMPT_PIPELINE_ID, input).await?;
+    let result = executor.execute(PROMPT_PIPELINE_ID, input).await;
+    crate::orchestrator::PromptOrchestrator::capture_loop_model_call("amt_reexpansion", &prompt, &result);
+    let result = result?;
     let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
     if response.trim().is_empty() {
         return Err("prompt pipeline returned an empty response".to_string());
@@ -1151,7 +1202,7 @@ Instruction with added constraints: IPv4 and IPv6..."#);
         };
 
         for attempts_before in 0..4u64 {
-            try_reexpand_one(&executor, &store, 600, attempts_before, &models, &fallback)
+            try_reexpand_one(&executor, &store, 600, attempts_before, &models, &fallback, None)
                 .await
                 .unwrap();
         }
@@ -1304,7 +1355,7 @@ Instruction with added constraints: IPv4 and IPv6..."#);
 
         let models: Vec<AvailableModel> = vec![];
         let fallback = ModelFallbackConfig::default();
-        try_reexpand_one(&executor, &store, 500, 0, &models, &fallback).await.unwrap();
+        try_reexpand_one(&executor, &store, 500, 0, &models, &fallback, None).await.unwrap();
 
         let prompt = captured.lock().unwrap().clone().expect("executor should have been called with a prompt");
         assert!(
@@ -1315,6 +1366,58 @@ Instruction with added constraints: IPv4 and IPv6..."#);
         assert!(
             prompt.contains("a related, already-verified branch about data retention"),
             "related-branch content missing from prompt:\n{}",
+            prompt
+        );
+    }
+
+    // ACTING LOOP (docs/ACTING_LOOP_GUIDE.md §3): a candidate's own real
+    // trigger detail (a ripple actor's finding, amt_candidates' "source"
+    // field) must actually reach the deepening prompt — found live
+    // 2026-09-30 that it previously never did (try_reexpand_one had no
+    // parameter for it at all), so a real SecurityFinding candidate
+    // deepened generic content with zero trace of what triggered it.
+    #[tokio::test]
+    async fn reexpansion_prompt_includes_the_candidates_own_trigger_detail() {
+        let store: Arc<dyn StoreAccess> = Arc::new(MockStore::with_project_amt(7, 700));
+        let (executor_impl, captured) = MockExecutor::success_capturing(r#"{"details": []}"#);
+        let executor: Arc<dyn PipelineExecutor> = Arc::new(executor_impl);
+        let models: Vec<AvailableModel> = vec![];
+        let fallback = ModelFallbackConfig::default();
+
+        try_reexpand_one(
+            &executor,
+            &store,
+            700,
+            0,
+            &models,
+            &fallback,
+            Some("security-mcp tool 'firewall_status' reported failure"),
+        )
+        .await
+        .unwrap();
+
+        let prompt = captured.lock().unwrap().clone().expect("executor should have been called");
+        assert!(
+            prompt.contains("security-mcp tool 'firewall_status' reported failure"),
+            "the candidate's own real trigger detail must reach the deepening prompt:\n{}",
+            prompt
+        );
+    }
+
+    #[tokio::test]
+    async fn reexpansion_prompt_omits_trigger_block_when_none() {
+        let store: Arc<dyn StoreAccess> = Arc::new(MockStore::with_project_amt(7, 701));
+        let (executor_impl, captured) = MockExecutor::success_capturing(r#"{"details": []}"#);
+        let executor: Arc<dyn PipelineExecutor> = Arc::new(executor_impl);
+        let models: Vec<AvailableModel> = vec![];
+        let fallback = ModelFallbackConfig::default();
+
+        try_reexpand_one(&executor, &store, 701, 0, &models, &fallback, None).await.unwrap();
+
+        let prompt = captured.lock().unwrap().clone().expect("executor should have been called");
+        assert!(
+            !prompt.contains("WHAT TRIGGERED THIS RE-EXPANSION"),
+            "no trigger-detail block should appear when none was given:\n{}",
             prompt
         );
     }

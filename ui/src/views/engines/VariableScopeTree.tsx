@@ -68,7 +68,7 @@ function assumptionCount(nodes: GraphViewNode[]): number {
 }
 
 const SectionNote: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <div style={{ fontSize: 12, color: "#8b98ab", lineHeight: 1.5, marginBottom: 12 }}>{children}</div>
+  <div style={{ fontSize: 12, color: "var(--color-text-muted)", lineHeight: 1.5, marginBottom: 12 }}>{children}</div>
 );
 
 export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ projectId }) => {
@@ -80,16 +80,16 @@ export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ proj
   }, [projectId]);
 
   if (projectId === null) {
-    return <div style={{ padding: 16, color: "#8b98ab", fontSize: 12.5 }}>Select a project to see its variable scope tree.</div>;
+    return <div style={{ padding: 16, color: "var(--color-text-muted)", fontSize: 12.5 }}>Select a project to see its variable scope tree.</div>;
   }
   if (status.kind === "loading") {
-    return <div style={{ padding: 16, color: "#8b98ab", fontSize: 12.5 }}>Loading math graph…</div>;
+    return <div style={{ padding: 16, color: "var(--color-text-muted)", fontSize: 12.5 }}>Loading math graph…</div>;
   }
   if (status.kind === "error") {
     return <div style={{ padding: 16, color: "#ff8a8a", fontSize: 12.5 }}>Error: {status.message}</div>;
   }
   if (status.kind === "empty") {
-    return <div style={{ padding: 16, color: "#8b98ab", fontSize: 12.5 }}>No math graph exists for this project yet.</div>;
+    return <div style={{ padding: 16, color: "var(--color-text-muted)", fontSize: 12.5 }}>No math graph exists for this project yet.</div>;
   }
 
   const { nodes, edges } = status.data;
@@ -97,8 +97,8 @@ export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ proj
   const assumptions = assumptionCount(nodes);
 
   return (
-    <div style={{ padding: 4, fontSize: 12.5, color: "#c7d0dc" }}>
-      <div style={{ fontWeight: 700, color: "#dfe7f2", marginBottom: 6 }}>Variable scope tree</div>
+    <div style={{ padding: 4, fontSize: 12.5, color: "var(--color-text-secondary)" }}>
+      <div style={{ fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>Variable scope tree</div>
       <SectionNote>
         Scope shown here is the real <code>Defines</code> edge from a <code>ProofStep</code> to the{" "}
         <code>Variable</code> it introduces — the only construction-verified link between a variable and where it
@@ -107,12 +107,12 @@ export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ proj
       </SectionNote>
 
       {groups.length === 0 && (
-        <div style={{ color: "#8b98ab", fontStyle: "italic" }}>No real Variable nodes exist in this project's math graph yet.</div>
+        <div style={{ color: "var(--color-text-muted)", fontStyle: "italic" }}>No real Variable nodes exist in this project's math graph yet.</div>
       )}
 
       {groups.map((g, i) => (
-        <div key={g.definer?.id ?? `unlinked-${i}`} style={{ marginBottom: 10, borderLeft: "2px solid #1e2836", paddingLeft: 10 }}>
-          <div style={{ color: g.definer ? "#dfe7f2" : "#ff8a8a", fontWeight: 600, marginBottom: 3 }}>
+        <div key={g.definer?.id ?? `unlinked-${i}`} style={{ marginBottom: 10, borderLeft: "2px solid var(--color-border-faint)", paddingLeft: 10 }}>
+          <div style={{ color: g.definer ? "var(--color-text)" : "#ff8a8a", fontWeight: 600, marginBottom: 3 }}>
             {g.definer
               ? `Step ${typeof g.definer.raw.step_number === "number" ? g.definer.raw.step_number : "?"} — ${g.definer.label}`
               : "No defining step found"}
@@ -120,14 +120,14 @@ export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ proj
           {g.variables.map((v) => (
             <div key={v.id} style={{ display: "flex", gap: 8, marginBottom: 2 }}>
               <span style={{ color: "#ffd699", fontFamily: "monospace" }}>{v.label}</span>
-              {v.contentPreview && <span style={{ color: "#8b98ab" }}>{v.contentPreview}</span>}
+              {v.contentPreview && <span style={{ color: "var(--color-text-muted)" }}>{v.contentPreview}</span>}
             </div>
           ))}
         </div>
       ))}
 
-      <div style={{ marginTop: 16, paddingTop: 10, borderTop: "1px solid #1e2836" }}>
-        <div style={{ fontWeight: 700, color: "#dfe7f2", marginBottom: 4 }}>Assumptions</div>
+      <div style={{ marginTop: 16, paddingTop: 10, borderTop: "1px solid var(--color-border-faint)" }}>
+        <div style={{ fontWeight: 700, color: "var(--color-text)", marginBottom: 4 }}>Assumptions</div>
         {assumptions > 0 ? (
           <div>{assumptions} real assumption node(s) in this project.</div>
         ) : (
@@ -139,8 +139,8 @@ export const VariableScopeTree: React.FC<{ projectId: number | null }> = ({ proj
         )}
       </div>
 
-      <div style={{ marginTop: 16, paddingTop: 10, borderTop: "1px solid #1e2836" }}>
-        <div style={{ fontWeight: 700, color: "#dfe7f2", marginBottom: 4 }}>Axioms, theorems, definitions, constants, scopes</div>
+      <div style={{ marginTop: 16, paddingTop: 10, borderTop: "1px solid var(--color-border-faint)" }}>
+        <div style={{ fontWeight: 700, color: "var(--color-text)", marginBottom: 4 }}>Axioms, theorems, definitions, constants, scopes</div>
         <SectionNote>
           Not shown: {UNCONSTRUCTED_TYPES.join(", ")} are declared node types in the math pipeline's schema, but
           nothing in the backend ever constructs one — there is no code path that produces this data today. This

@@ -138,10 +138,10 @@ function formatTime(unixSeconds: number): string {
   return new Date(unixSeconds * 1000).toLocaleString();
 }
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 const C_GOOD = "#8fe38f";
 
@@ -182,7 +182,7 @@ export const ConsciousnessReview: React.FC<ConsciousnessReviewProps> = () => {
         onClick={trigger}
         disabled={running}
         style={{
-          background: running ? "#1e2836" : "#25314a",
+          background: running ? "var(--color-border-faint)" : "#25314a",
           color: C_TEXT,
           border: `1px solid ${C_BORDER}`,
           borderRadius: 6,

@@ -262,7 +262,9 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
             }
         }
 
-        let result = match executor.execute(PROMPT_PIPELINE_ID, draft_input).await {
+        let draft_result = executor.execute(PROMPT_PIPELINE_ID, draft_input).await;
+        crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_draft", &draft_prompt, &draft_result);
+        let result = match draft_result {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(error = %e, ?keywords, "Methodology meta-loop: draft LLM call failed, will retry next cycle");

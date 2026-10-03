@@ -939,7 +939,10 @@ pub async fn execute(input: Value) -> Result<Value, String> {
             project_id,
             graph_name,
         } => {
-            let graph = create_graph(analysis, project_id, graph_name).await?;
+            let mut graph = create_graph(analysis, project_id, graph_name).await?;
+            if let Err(e) = persist_eeg_graph(&mut graph).await {
+                eprintln!("eeg CreateGraph: ZSEI persistence failed: {e}");
+            }
             ("CreateGraph", EEGResult::Graph(graph))
         }
 
@@ -1178,19 +1181,22 @@ async fn extract_bands(
         bands.to_vec()
     };
 
-    let band_powers: Vec<BandPower> = bands_to_use
-        .iter()
-        .flat_map(|band| {
-            vec!["Fp1", "Fp2", "Cz"].iter().map(move |ch| BandPower {
+    // Plain loops (pre-existing fix): iterator adapters borrowed locals and
+    // never compiled — same never-compiled class as the other pre-revival
+    // errors in this batch.
+    let mut band_powers: Vec<BandPower> = Vec::new();
+    for band in &bands_to_use {
+        for ch in ["Fp1", "Fp2", "Cz"] {
+            band_powers.push(BandPower {
                 band: band.clone(),
                 channel: ch.to_string(),
                 absolute_power: 15.0 + rand_float() * 20.0,
                 relative_power: 20.0 + rand_float() * 10.0,
                 psd: None,
                 time_window: None,
-            })
-        })
-        .collect();
+            });
+        }
+    }
 
     Ok(BandExtractionResult {
         recording_id: format!("rec_{}", generate_graph_id()),
@@ -1381,6 +1387,77 @@ async fn compute_erp(
     })
 }
 
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+async fn persist_eeg_graph(graph: &mut EEGGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .filter_map(|n| n.label.to_lowercase().split_whitespace().next().map(String::from))
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("eeg".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!(
+        "EEG graph ({} nodes, {} edges)",
+        graph.nodes.len(), graph.edges.len()
+    );
+    let now = chrono::Utc::now().timestamp() as u64;
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "eeg-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["eeg"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/eeg_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/eeg_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 async fn create_graph(
     analysis: EEGAnalysisResult,
     project_id: u64,
@@ -1536,6 +1613,8 @@ async fn create_graph(
         }
     }
 
+    let nodes_len = nodes.len();
+    let edge_count = edges.len();
     Ok(EEGGraph {
         graph_id,
         name: graph_name.unwrap_or_else(|| format!("EEG Graph {}", graph_id)),
@@ -1552,8 +1631,8 @@ async fn create_graph(
         nodes,
         edges,
         metadata: GraphMetadata {
-            node_count: nodes.len(),
-            edge_count: edges.len(),
+            node_count: nodes_len,
+            edge_count: edge_count,
             event_count: analysis.events.len(),
             channel_count: analysis.channels.len(),
             duration_seconds: analysis.duration_seconds,
@@ -1601,7 +1680,7 @@ async fn query_graph(graph_id: u64, query: EEGQuery) -> Result<QueryResult, Stri
     let limit = query.limit.unwrap_or(100);
     let min_confidence = query.min_confidence.unwrap_or(0.0);
 
-    let (nodes, edges) = match query.query_type {
+    let (nodes, edges) = match query.query_type.clone() {
         EEGQueryType::GetNodesByType { node_type } => {
             let matching_nodes: Vec<_> = graph
                 .nodes
@@ -1722,16 +1801,21 @@ fn generate_graph_id() -> u64 {
 #[tokio::main]
 async fn main() {
     let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        eprintln!("Usage: {} <json_input>", args.get(0).unwrap_or(&"eeg_analysis".to_string()));
-        eprintln!("Pipeline: {} v{}", PIPELINE_NAME, PIPELINE_VERSION);
+    let mut input_json = String::new();
+    let mut ai = 1usize;
+    while ai < args.len() {
+        if args[ai] == "--input" && ai + 1 < args.len() { input_json = args[ai + 1].clone(); ai += 2; } else { ai += 1; }
+    }
+    if input_json.is_empty() {
+        use std::io::Read;
+        let _ = std::io::stdin().read_to_string(&mut input_json);
+    }
+    if input_json.trim().is_empty() {
+        eprintln!("Usage: eeg --input '<json>' (or JSON on stdin)");
         std::process::exit(1);
     }
-
-    let input_str = &args[1];
-    let input: Value = match serde_json::from_str(input_str) {
-        Ok(v) => v,
+    let input: Value = match serde_json::from_str::<Value>(&input_json) {
+        Ok(v) => match v.get("data") { Some(d) => d.clone(), None => v },
         Err(e) => {
             eprintln!("Failed to parse input JSON: {}", e);
             std::process::exit(1);

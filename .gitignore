@@ -16,3 +16,50 @@ assets/pipelines/**/target/
 
 # --- local config (holds persisted API keys as of Phase 3) ---
 /config.toml
+# pipeline-local configs can also hold keys/secrets — none are tracked today
+**/config.toml
+
+# --- Python virtualenvs (multi-GB wheels: torch/cuda/triton). NEVER commit.
+# tools/visual-mcp/.venv was accidentally tracked and IS in history — the
+# real cause of git compressing multi-GB objects on push; untrack with
+# `git rm -r --cached` (see push-recovery steps in the session log).
+**/.venv/
+.venv/
+
+# --- JS dependencies (node_modules) across all tool servers + mobile ---
+node_modules/
+
+# --- MCP tool datasets (real data stays local, source is what's committed) ---
+tools/cerebrix-mcp/data/
+tools/connectome-mcp/data/
+
+# --- Expo / React Native build + local state ---
+tools/ozone-mobile/.expo/
+tools/ozone-mobile/android/build/
+tools/ozone-mobile/ios/build/
+
+# --- Python bytecode caches ---
+__pycache__/
+*.pyc
+
+# --- Host runtime store at repo root (the canonical store is
+# target/release/zsei_data, already covered by /target/). The root ./zsei_data
+# was only ever runtime state; 768 of its files are in history — stop tracking
+# NEW changes going forward.
+/zsei_data/
+
+# --- transient editor junk ---
+*.swp
+.DS_Store
+
+
+# --- Runtime data (2026-10-03 push-recovery): the store and pipeline-local
+# state are LIVE data, never source. zsei_data/global.mmap alone is 16MB and
+# churns every boot.
+zsei_data/
+assets/pipelines/**/zsei_data/
+data/
+.ozone-context/
+*.pt
+*.log
+.gitignore.bak

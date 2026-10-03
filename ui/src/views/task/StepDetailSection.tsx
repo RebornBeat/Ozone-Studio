@@ -72,8 +72,8 @@ function fmtDuration(start?: number | null, end?: number | null): string | null 
 
 const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
   <div style={{ display: "flex", gap: 6, fontSize: 11.5, marginBottom: 2 }}>
-    <span style={{ color: "#8b98ab", flexShrink: 0 }}>{label}:</span>
-    <span style={{ color: "#c7d0dc", overflowWrap: "anywhere" }}>{children}</span>
+    <span style={{ color: "var(--color-text-muted)", flexShrink: 0 }}>{label}:</span>
+    <span style={{ color: "var(--color-text-secondary)", overflowWrap: "anywhere" }}>{children}</span>
   </div>
 );
 
@@ -119,7 +119,7 @@ export const StepDetailSection: React.FC<{ task: TaskShape }> = ({ task }) => {
         Step detail
       </div>
       {(task.blueprint_name || task.description || task.assignee || task.created_by) && (
-        <div style={{ fontSize: 11.5, color: "#8b98ab", marginBottom: 10, lineHeight: 1.6 }}>
+        <div style={{ fontSize: 11.5, color: "var(--color-text-muted)", marginBottom: 10, lineHeight: 1.6 }}>
           {task.blueprint_name && <Row label="Blueprint">{task.blueprint_name}{task.blueprint_id != null ? ` (#${task.blueprint_id})` : ""}</Row>}
           {task.assignee && <Row label="Assignee">{task.assignee}</Row>}
           {task.created_by && <Row label="Created by">{task.created_by}</Row>}
@@ -175,19 +175,19 @@ export const StepDetailSection: React.FC<{ task: TaskShape }> = ({ task }) => {
                         marginTop: 8,
                         whiteSpace: "pre-wrap",
                         fontSize: 11.5,
-                        color: "#c7d0dc",
+                        color: "var(--color-text-secondary)",
                         maxHeight: 260,
                         overflowY: "auto",
-                        border: "1px solid #1e2836",
+                        border: "1px solid var(--color-border-faint)",
                         borderRadius: 6,
                         padding: "6px 8px",
-                        background: "#0a0f1a",
+                        background: "var(--color-bg)",
                       }}
                     >
                       {s.output_summary}
                     </div>
                   ) : (
-                    <div style={{ marginTop: 6, fontSize: 11, color: "#8b98ab", fontStyle: "italic" }}>
+                    <div style={{ marginTop: 6, fontSize: 11, color: "var(--color-text-muted)", fontStyle: "italic" }}>
                       No output recorded for this step.
                     </div>
                   )}

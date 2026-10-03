@@ -184,6 +184,7 @@ pub enum MaterialDataSource {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ThreeDAnalysisResult {
     pub analysis_id: u64,
     pub source_format: String,
@@ -275,6 +276,7 @@ pub struct ThreeDAnalysisResult {
 // ── SCENE / COLLECTION / OBJECT ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct SceneInfo {
     pub scene_id: u64, pub name: String,
     pub collection_ids: Vec<u64>,
@@ -292,6 +294,7 @@ pub struct CollectionInfo {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct ObjectInfo {
     pub object_id: u64, pub name: String,
     pub object_type: ObjectType,
@@ -1094,7 +1097,7 @@ pub enum ViewportMode { Solid, Wireframe, Material, Rendered, Graph, Spatial }
 // GRAPH NODE TYPES
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub enum ThreeDNodeType {
     #[default] Scene, Collection, Object, Mesh, Vertex, Edge, Face, Loop,
     Curve, Spline, Surface, Metaball, Volume, GreasePencilLayer,
@@ -1210,7 +1213,7 @@ pub enum ThreeDEdgeType {
     MaterialFrom126,         // hyperspectral (126) material identification
 
     // ── UNIVERSAL SEMANTIC ──
-    Performs, Affects, Implies, Contradicts, Elaborates, Summarizes, Supports,
+    Performs, Affects, Implies, Contradicts, Elaborates, Summarizes,
     TemporalPrecedes, TemporalFollows, CausedBy, Enables, Prevents,
     PartOf, FunctionalRole, InstanceOf,
     DerivedFrom, VersionOf, RefinesTo, ForkedFrom,
@@ -1311,6 +1314,67 @@ impl PipelineExecutor {
             zsei_path: env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".into()),
             prompt_pipeline_path: env::var("OZONE_PROMPT_PIPELINE").unwrap_or_else(|_| "./pipeline_9".into()),
         }
+    }
+
+
+    /// ZSEI CONTAINER PERSISTENCE (revival, 2026-09-28 — the image/text/math
+    /// pattern): the 3D graph becomes a real ModalityGraph container under
+    /// the project, content at graphs/3d_graph_<id>.json (B0 path
+    /// convention). The internal nanoid file store stays for
+    /// load_graph/save_graph round-trips; the container is the graph-facing
+    /// truth.
+    async fn persist_zsei(&self, g: &ThreeDGraph, project_id: u64) -> Result<u64, String> {
+        let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+        let keywords: Vec<String> = {
+            let mut k: Vec<String> = g.nodes.iter()
+                .filter(|n| n.node_type == ThreeDNodeType::Object)
+                .filter_map(|n| n.keywords.first().cloned())
+                .collect();
+            k.sort(); k.dedup();
+            if k.is_empty() { k.push("3d".into()); }
+            k.truncate(12);
+            k
+        };
+        let obj_count = g.nodes.iter().filter(|n| n.node_type == ThreeDNodeType::Object).count();
+        let container = serde_json::json!({
+            "global_state": {"container_id": 0, "parent_id": project_id, "child_ids": [], "child_count": 0, "version": 1},
+            "local_state": {
+                "metadata": {
+                    "container_type": "ModalityGraph", "modality": "Unknown",
+                    "created_at": 0, "updated_at": 0,
+                    "provenance": "3d-pipeline", "permissions": 0, "owner_id": 0,
+                    "name": format!("3D graph ({} nodes, {} objects, {} edges)", g.nodes.len(), obj_count, g.edges.len()),
+                    "materialized_path": null
+                },
+                "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                    "topics": ["3d"], "relationships": [], "learned_associations": [], "embedding": null},
+                "storage": {"db_shard_id": null, "vector_index_ref": null,
+                    "object_store_path": format!("graphs/3d_graph_{}.json", g.graph_id),
+                    "compression_type": "None"},
+                "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+                "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+                "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+            }
+        });
+        let client = reqwest::Client::new();
+        let resp = client.post(format!("{host}/zsei/query"))
+            .json(&serde_json::json!({"query": {"CreateContainer": {"parent_id": project_id, "container": container}}, "session_token": ""}))
+            .timeout(std::time::Duration::from_secs(30))
+            .send().await.map_err(|e| e.to_string())?;
+        let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        if !v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            return Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei create failed").to_string());
+        }
+        let cid = v.pointer("/result/ContainerID").and_then(|c| c.as_u64()).ok_or("no ContainerID")?;
+        // Content at the B0-convention path (relative joins the host's data dir)
+        let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".into());
+        let abs = std::path::Path::new(&dir).join(format!("graphs/3d_graph_{}.json", g.graph_id));
+        if let Some(p) = abs.parent() { let _ = std::fs::create_dir_all(p); }
+        std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+            "graph_id": g.graph_id, "zsei_container_id": cid, "project_id": project_id,
+            "nodes": g.nodes, "edges": g.edges, "root_node_id": g.root_node_id,
+        })).map_err(|e| e.to_string())?).map_err(|e| format!("content write failed: {e}"))?;
+        Ok(cid)
     }
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
@@ -2012,6 +2076,9 @@ async fn create_graph(
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
     };
     let _ = executor.save_graph(&final_graph);
+    if let Err(e) = executor.persist_zsei(&final_graph, project_id).await {
+        eprintln!("3D CreateGraph: ZSEI container persistence failed: {e}");
+    }
     ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
 }
 

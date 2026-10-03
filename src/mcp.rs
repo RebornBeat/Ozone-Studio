@@ -83,6 +83,38 @@ pub fn install_global(registry: Arc<McpRegistry>, usage: Arc<UsageLedger>) {
     let _ = GLOBAL_MCP.set((registry, usage));
 }
 
+/// Compact capability summary for prompt embedding (§11.2): one line per
+/// registered tool — name (version): first capability. Empty string when
+/// nothing is registered. Read-only; never blocks registration.
+pub async fn global_registry_summary() -> Option<String> {
+    let (registry, _usage) = GLOBAL_MCP.get()?;
+    let tools = registry.list().await;
+    if tools.is_empty() {
+        return None;
+    }
+    let lines: Vec<String> = tools
+        .iter()
+        .map(|t| {
+            let cap = t.capabilities.first().cloned().unwrap_or_default();
+            format!("- {} ({}): {}", t.name, t.server_version.clone().unwrap_or_default(), cap)
+        })
+        .collect();
+    Some(lines.join("\n"))
+}
+
+/// Structured registry snapshot for in-process aggregation (Stage 3 tools/
+/// MCP gathering — operator: "gather mcps and tools where pipeline gathering
+/// is as well"). None when the global handles aren't installed.
+pub async fn registry_entries() -> Option<Vec<McpTool>> {
+    let (registry, _usage) = GLOBAL_MCP.get()?;
+    let tools = registry.list().await;
+    if tools.is_empty() {
+        None
+    } else {
+        Some(tools)
+    }
+}
+
 /// Issue the standardized abstract call through the process-global handles.
 /// Same metering, gating, and rippling as the HTTP path.
 pub async fn call_global(call: McpCall) -> McpResult {
@@ -315,6 +347,14 @@ pub struct McpCall {
     /// Optional per-call context (task_id, workspace_id, trace id…).
     #[serde(default)]
     pub context: Option<serde_json::Value>,
+    /// CALLER IDENTITY (2026-09-29): an Ed25519 session token from
+    /// /auth/authenticate. When present and VALID, the call's identity is
+    /// authenticated — the agent name is then backed by a real session, and
+    /// per-role authorization (terminal allowlists, tool gating) can key on
+    /// the validated identity. When absent, the call runs under the
+    /// documented localhost posture with `identity_validated: false`.
+    #[serde(default)]
+    pub session_token: Option<String>,
 }
 
 /// The normalized result of one McpCall — success, payload, and the real
@@ -541,6 +581,7 @@ mod tests {
         let result = registry
             .invoke(
                 McpCall {
+                    session_token: None,
                     tool: "shared-context".into(),
                     agent: "zcode".into(),
                     input: serde_json::json!({"action": "context_summary"}),
@@ -562,7 +603,7 @@ mod tests {
         let usage = UsageLedger::with_limit(0);
         let result = registry
             .invoke(
-                McpCall { tool: "nope".into(), agent: "zcode".into(), input: serde_json::json!({}), context: None },
+                McpCall { tool: "nope".into(), agent: "zcode".into(), input: serde_json::json!({}), context: None, session_token: None },
                 &usage,
                 None,
             )
@@ -610,6 +651,7 @@ mod global_tests {
             agent: "test-agent".into(),
             input: serde_json::json!({}),
             context: None,
+            session_token: None,
         })
         .await;
 

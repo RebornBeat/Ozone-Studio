@@ -108,7 +108,7 @@ export const ChatNotificationStream: React.FC = () => {
           at: Date.now(),
           // Inferred, not a real "release" event the backend emits — say so.
           text: `${c.agent ?? "unknown agent"} released ${short(file)} (inferred: claim no longer listed)`,
-          color: "#8b98ab",
+          color: "var(--color-text-muted)",
           glyph: "🔓",
         });
       }
@@ -194,13 +194,13 @@ export const ChatNotificationStream: React.FC = () => {
       style={{
         marginTop: 8,
         paddingTop: 8,
-        borderTop: "1px solid #1e2836",
+        borderTop: "1px solid var(--color-border-faint)",
         fontSize: 11.5,
-        color: "#8b98ab",
+        color: "var(--color-text-muted)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: collapsed ? 0 : 4 }}>
-        <span style={{ fontWeight: 700, color: "#dfe7f2" }}>Coordination activity</span>
+        <span style={{ fontWeight: 700, color: "var(--color-text)" }}>Coordination activity</span>
         <span style={{ opacity: 0.7 }}>
           (real file claims + capture-store rows, polled live — no fork-dispatch status available yet)
         </span>

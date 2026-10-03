@@ -125,7 +125,7 @@ export const PairingPanel: React.FC = () => {
             )}
           </div>
           <div>
-            <div style={{ color: "#8b98ab", fontSize: 13, marginBottom: 6 }}>
+            <div style={{ color: "var(--color-text-muted)", fontSize: 13, marginBottom: 6 }}>
               Scan with your phone, then approve on it.
             </div>
             <div
@@ -147,7 +147,7 @@ export const PairingPanel: React.FC = () => {
             </div>
             {/* Camera can't scan? Open the link on the phone directly. */}
             <div style={{ fontSize: 12 }}>
-              <span style={{ color: "#8b98ab" }}>No camera? Open on your phone: </span>
+              <span style={{ color: "var(--color-text-muted)" }}>No camera? Open on your phone: </span>
               <a
                 href={approveUrl}
                 target="_blank"

@@ -73,18 +73,18 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
   const thinking: RealThinkingEntry[] = task?.thinking_log ?? [];
 
   if (steps.length === 0) {
-    return <div style={{ fontSize: 12, color: "#8b98ab" }}>No steps recorded yet.</div>;
+    return <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>No steps recorded yet.</div>;
   }
 
   return (
-    <div style={{ fontSize: 12.5, color: "#c7d0dc" }}>
-      <div style={{ fontWeight: 700, color: "#dfe7f2", marginBottom: 6 }}>
+    <div style={{ fontSize: 12.5, color: "var(--color-text-secondary)" }}>
+      <div style={{ fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>
         Pipeline execution list ({steps.length} step{steps.length === 1 ? "" : "s"})
       </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
           <thead>
-            <tr style={{ color: "#8b98ab", textAlign: "left" }}>
+            <tr style={{ color: "var(--color-text-muted)", textAlign: "left" }}>
               <th style={{ padding: "3px 8px" }}>#</th>
               <th style={{ padding: "3px 8px" }}>Pipeline</th>
               <th style={{ padding: "3px 8px" }}>Status</th>
@@ -96,7 +96,7 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
           </thead>
           <tbody>
             {steps.map((s) => (
-              <tr key={s.step_index} style={{ borderTop: "1px solid #1e2836" }}>
+              <tr key={s.step_index} style={{ borderTop: "1px solid var(--color-border-faint)" }}>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.step_index}</td>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.pipeline_id}</td>
                 <td style={{ padding: "3px 8px" }}>{normalizeStatus(s.status) || "—"}</td>
@@ -105,7 +105,7 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>
                   {formatDuration(s.started_at, s.completed_at)}
                 </td>
-                <td style={{ padding: "3px 8px", color: "#8b98ab" }}>
+                <td style={{ padding: "3px 8px", color: "var(--color-text-muted)" }}>
                   {s.current_stage ?? (s.stages_completed?.length ? "done" : "—")}
                 </td>
               </tr>
@@ -116,15 +116,15 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
 
       {thinking.length > 0 && (
         <div style={{ marginTop: 10 }}>
-          <div style={{ color: "#8b98ab", fontSize: 11 }}>
+          <div style={{ color: "var(--color-text-muted)", fontSize: 11 }}>
             {thinking.length} raw model call{thinking.length === 1 ? "" : "s"} recorded for this task's thinking
             cycle — no real field ties any of them to a specific step above, so they're listed separately rather
             than guessed into a row:
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 4 }}>
             {thinking.map((t, i) => (
-              <div key={i} style={{ fontSize: 11, color: "#c7d0dc" }}>
-                <span style={{ color: "#8b98ab" }}>{t.stage}</span> — {t.model_used ?? "unknown model"}
+              <div key={i} style={{ fontSize: 11, color: "var(--color-text-secondary)" }}>
+                <span style={{ color: "var(--color-text-muted)" }}>{t.stage}</span> — {t.model_used ?? "unknown model"}
                 {t.tokens_used != null ? `, ${t.tokens_used} tok` : ""}
                 {t.eval_tokens_per_sec != null ? `, ${t.eval_tokens_per_sec.toFixed(1)} tok/s (BitNet)` : ""}
               </div>

@@ -480,6 +480,18 @@ async function taskCreate({ title, description, assignee, priority }) {
   const out = await res.json();
   if (out.success) {
     pushActivity("job", "info", AGENT_NAME, `routed task ${out.task_id} → ${assignee || "any agent"}: ${title}`);
+    // Real gap closed (R5): taskCreate previously only called pushActivity
+    // — the live coordination graph never saw a task get routed. Same
+    // mirrorContext call fileClaim/fileRelease/noteAdd already use.
+    mirrorContext({
+      kind: "task_create",
+      agent: AGENT_NAME,
+      title: `task routed: ${title}`,
+      body: description || "",
+      files: [],
+      detail: { task_id: out.task_id, assignee: assignee || null, priority: priority || null },
+      ...eventScope({ scope: "workspace" }),
+    });
   }
   return out;
 }

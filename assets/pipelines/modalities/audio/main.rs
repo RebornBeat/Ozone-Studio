@@ -212,7 +212,8 @@ pub enum AnalysisDepth {
     Comprehensive,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[serde(default)]
 pub struct AudioAnalysisResult {
     /// Total duration in seconds
     pub duration_seconds: f32,
@@ -918,7 +919,10 @@ pub async fn execute(input: Value) -> Result<Value, String> {
             project_id,
             graph_name,
         } => {
-            let graph = create_graph(analysis, project_id, graph_name).await?;
+            let mut graph = create_graph(analysis, project_id, graph_name).await?;
+            if let Err(e) = persist_audio_graph(&mut graph).await {
+                eprintln!("audio CreateGraph: ZSEI persistence failed: {e}");
+            }
             ("CreateGraph", AudioResult::Graph(graph))
         }
 
@@ -1383,6 +1387,81 @@ async fn analyze_music(
     })
 }
 
+// ============================================================================
+// ZSEI OVER HTTP + PERSISTENCE (the text/code/math/image revival pattern)
+// ============================================================================
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+async fn persist_audio_graph(graph: &mut AudioGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .filter_map(|n| n.label.to_lowercase().split_whitespace().next().map(String::from))
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("audio".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!(
+        "Audio graph ({} nodes, {} edges)",
+        graph.nodes.len(), graph.edges.len()
+    );
+    let now = chrono::Utc::now().timestamp() as u64;
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "audio-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["audio"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/audio_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/audio_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 async fn create_graph(
     analysis: AudioAnalysisResult,
     project_id: u64,
@@ -1600,6 +1679,7 @@ async fn create_graph(
         }
     }
 
+    let edge_count = edges.len();
     Ok(AudioGraph {
         graph_id,
         name: graph_name.unwrap_or_else(|| format!("Audio Graph {}", graph_id)),
@@ -1617,7 +1697,7 @@ async fn create_graph(
         edges,
         metadata: GraphMetadata {
             node_count: node_id_counter as usize - 1,
-            edge_count: edges.len(),
+            edge_count: edge_count,
             has_transcription: analysis.transcription.is_some(),
             has_diarization: !analysis.speakers.is_empty(),
             has_music_analysis: analysis.music_analysis.is_some(),
@@ -1671,7 +1751,7 @@ async fn query_graph(graph_id: u64, query: AudioQuery) -> Result<QueryResult, St
     let min_confidence = query.min_confidence.unwrap_or(0.0);
     let limit = query.limit.unwrap_or(100);
 
-    let (nodes, edges) = match query.query_type {
+    let (nodes, edges) = match query.query_type.clone() {
         AudioQueryType::FindSpeaker { speaker_id } => {
             let matching_nodes: Vec<_> = graph
                 .nodes
@@ -1889,18 +1969,22 @@ fn generate_graph_id() -> u64 {
 async fn main() {
     let args: Vec<String> = env::args().collect();
 
-    if args.len() < 2 {
-        eprintln!(
-            "Usage: {} <json_input>",
-            args.get(0).unwrap_or(&"audio_analysis".to_string())
-        );
-        eprintln!("Pipeline: {} v{}", PIPELINE_NAME, PIPELINE_VERSION);
+    let args: Vec<String> = env::args().collect();
+    let mut input_json = String::new();
+    let mut ai = 1usize;
+    while ai < args.len() {
+        if args[ai] == "--input" && ai + 1 < args.len() { input_json = args[ai + 1].clone(); ai += 2; } else { ai += 1; }
+    }
+    if input_json.is_empty() {
+        use std::io::Read;
+        let _ = std::io::stdin().read_to_string(&mut input_json);
+    }
+    if input_json.trim().is_empty() {
+        eprintln!("Usage: audio --input '<json>' (or JSON on stdin)");
         std::process::exit(1);
     }
-
-    let input_str = &args[1];
-    let input: Value = match serde_json::from_str(input_str) {
-        Ok(v) => v,
+    let input: Value = match serde_json::from_str::<Value>(&input_json) {
+        Ok(v) => match v.get("data") { Some(d) => d.clone(), None => v },
         Err(e) => {
             eprintln!("Failed to parse input JSON: {}", e);
             std::process::exit(1);

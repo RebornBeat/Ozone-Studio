@@ -35,11 +35,11 @@ import type { ContainerRelation, Modality, RawGraphEdge, RawGraphNode } from "..
 
 export type FabricViewProps = { projectId: number | null };
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
-const C_PANEL = "#0a0f1a";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
+const C_PANEL = "var(--color-bg)";
 const C_WARN = "#e8c14f";
 
 const MODALITIES: Modality[] = ["code", "math", "text"];
@@ -210,6 +210,7 @@ const CENTERS: Record<Modality, { x: number; y: number }> = {
   code: { x: 130, y: 110 },
   math: { x: 510, y: 110 },
   text: { x: 320, y: 290 },
+  image: { x: 320, y: 60 },
 };
 const MIN_R = 20;
 const MAX_R = 74;

@@ -570,7 +570,17 @@ pub struct ConsciousnessConfig {
     pub show_emotional_state: bool,
     pub show_decision_reasoning: bool,
     pub i_loop_interval_ms: u64,
+    /// Personal-assistant check-up pass interval (docs/PERSONAL_ASSISTANT_GUIDE.md
+    /// §4) — clamped to a real 1800s budget-safety floor by the loop itself,
+    /// exactly like i_loop_interval_ms. serde-defaulted: existing config.toml
+    /// files parse unchanged.
+    #[serde(default = "default_assistant_interval_ms")]
+    pub assistant_interval_ms: u64,
     pub playback_enabled: bool,
+}
+
+fn default_assistant_interval_ms() -> u64 {
+    60000
 }
 
 impl Default for ConsciousnessConfig {
@@ -586,6 +596,7 @@ impl Default for ConsciousnessConfig {
             show_emotional_state: true,
             show_decision_reasoning: true,
             i_loop_interval_ms: 60000, // 1 minute
+            assistant_interval_ms: 60000, // 1 minute — clamped to 1800s by the loop
             playback_enabled: true,
         }
     }

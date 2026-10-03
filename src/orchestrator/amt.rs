@@ -945,155 +945,26 @@ Return ONLY valid JSON with a single one-word answer:
                 .iter()
                 .map(|ic| ic.intent.clone())
                 .collect();
-            let method_ids = state.methodologies.clone();
-            for &method_id in &method_ids {
-                if let Ok(Some(method_container)) = self.store.get_container(method_id).await {
-                    let method_name = method_container
-                        .get("local_state")
-                        .and_then(|ls| ls.get("metadata"))
-                        .and_then(|m| m.get("name"))
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("Unknown methodology")
-                        .to_string();
-                    let method_description = method_container
-                        .get("local_state")
-                        .and_then(|ls| ls.get("context"))
-                        .and_then(|ctx| ctx.get("keywords"))
-                        .map(|kw| kw.to_string())
-                        .unwrap_or_default();
-
-                    let known_branches_json: Vec<serde_json::Value> = state
-                        .branch_captures
-                        .iter()
-                        .map(|bc| serde_json::json!({"branch": bc.branch, "intent": bc.parent_intent}))
-                        .collect();
-
-                    let branch_prompt = format!(
-                        r#"You are applying the methodology "{}" to a set of user intents.
-Methodology context: {}
-
-USER INTENTS:
-{}
-
-{methodology_summaries_block}
-
-ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
-{}
-
-JURISDICTION CONTEXT: {jurisdiction_ctx}
-{standing_ctx}
-{file_relationships}
-
-Based on this methodology, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
-Only suggest branches NOT already in the known list.
-
-Return ONLY valid JSON:
-{{
-    "branches": [
-        {{
-            "branch": "specific branch description",
-            "parent_intent": "the intent this branch belongs to",
-            "rationale": "why this methodology requires this branch"
-        }}
-    ]
-}}
-If no new branches apply, return: {{"branches": []}}"#,
-                        method_name,
-                        &method_description[..method_description.len().min(300)],
-                        intents_summary.join("\n"),
-                        serde_json::to_string(&known_branches_json).unwrap_or_default(),
-                        methodology_summaries_block = methodology_summaries_block,
-                    );
-
-                    let branch_input = serde_json::json!({
-                        "prompt": branch_prompt,
-                        "max_tokens": 600,
-                        "temperature": 0.3,
-                        "system_context": "Suggest branches per methodology. Return only valid JSON. No explanation."
-                    });
-
-                    if let Ok(result) = self.metered_execute_resilient(state, branch_input, "amt_branch_graph_native").await {
-                        self.record_thinking(state, "Build AMT — branch discovery", &result);
-                        let response =
-                            result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
-                        let json_str = Self::extract_json_from_response(response, '{', '}');
-                        let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
-                            .unwrap_or_else(|_| serde_json::json!({"branches": []}));
-
-                        if let Some(branches) = parsed.get("branches").and_then(|b| b.as_array()) {
-                            for branch_val in branches {
-                                let branch_str = branch_val
-                                    .get("branch")
-                                    .and_then(|b| b.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let parent_intent = branch_val
-                                    .get("parent_intent")
-                                    .and_then(|p| p.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                if branch_str.is_empty() {
-                                    continue;
-                                }
-
-                                let resolved_parent = state
-                                    .intent_captures
-                                    .iter()
-                                    .find(|ic| {
-                                        ic.intent.to_lowercase()
-                                            .contains(&parent_intent.to_lowercase())
-                                            || parent_intent
-                                                .to_lowercase()
-                                                .contains(&ic.intent.to_lowercase())
-                                    })
-                                    .map(|ic| ic.intent.clone())
-                                    .unwrap_or_else(|| {
-                                        state
-                                            .intent_captures
-                                            .first()
-                                            .map(|ic| ic.intent.clone())
-                                            .unwrap_or_default()
-                                    });
-
-                                let already_exists = state.branch_captures.iter().any(|bc| {
-                                    bc.parent_intent == resolved_parent
-                                        && (bc
-                                            .branch
-                                            .to_lowercase()
-                                            .contains(&branch_str.to_lowercase())
-                                            || branch_str
-                                                .to_lowercase()
-                                                .contains(&bc.branch.to_lowercase()))
-                                });
-
-                                if !already_exists {
-                                    let branch_id = node_id_counter;
-                                    node_id_counter += 1;
-                                    state.branch_captures.push(BranchCapture {
-                                        branch: branch_str,
-                                        parent_intent: resolved_parent,
-                                        source_methodology_ids: vec![method_id],
-                                        source_chunk_indices: vec![],
-                                        source_sentences: vec![],
-                                        node_id: branch_id,
-                                    });
-                                } else if let Some(existing) = state
-                                    .branch_captures
-                                    .iter_mut()
-                                    .find(|bc| {
-                                        bc.parent_intent == resolved_parent
-                                            && bc.branch.to_lowercase().contains(&branch_str.to_lowercase())
-                                    })
-                                {
-                                    if !existing.source_methodology_ids.contains(&method_id) {
-                                        existing.source_methodology_ids.push(method_id);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            // K `selection` policy (`batched-all` default, operator:
+            // "why cap to 8? we shouldn't — batch them, they're small,
+            // multiple fit in a call ... run through it ALL"). EVERY
+            // methodology participates: relevance-ranked for order, chunked
+            // into batches of policy.batch_size, one branch-discovery pass
+            // per batch — full coverage at a fraction of the calls.
+            // METHODOLOGY BRANCH DISCOVERY — batch (coverage) + parallel
+            // 1×1 lanes (depth); capture applies serially afterwards.
+            self.methodology_branch_discovery_parallel(
+                state,
+                &intents_summary,
+                &jurisdiction_ctx,
+                &standing_ctx,
+                &file_relationships,
+                &methodology_summaries_block,
+                "amt_branch_graph_native",
+                "Build AMT — branch discovery",
+                &mut node_id_counter,
+            )
+            .await;
 
             // E.2: cross-reference methodologies per intent layer — loads
             // existing domain methodologies or synthesizes missing ones.
@@ -1420,175 +1291,27 @@ If no new branches apply, return: {{"branches": []}}"#,
 
             // --- PHASE 1B: Branch discovery via methodologies ---
             // Snapshot (metered_execute needs &mut state inside the loop).
-            let method_ids_snapshot = state.methodologies.clone();
-            for &method_id in &method_ids_snapshot {
-                if let Ok(Some(method_container)) = self.store.get_container(method_id).await {
-                    // Extract methodology content
-                    let method_name = method_container
-                        .get("local_state")
-                        .and_then(|ls| ls.get("metadata"))
-                        .and_then(|m| m.get("name"))
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("Unknown methodology")
-                        .to_string();
-                    let method_description = method_container
-                        .get("local_state")
-                        .and_then(|ls| ls.get("context"))
-                        .and_then(|ctx| ctx.get("keywords"))
-                        .map(|kw| kw.to_string())
-                        .unwrap_or_default();
+            // METHODOLOGY BRANCH DISCOVERY (phase 1B) — same batch + parallel
+            // lanes; capture applies serially.
+            let intents_summary: Vec<String> = state
+                .intent_captures
+                .iter()
+                .map(|ic| ic.intent.clone())
+                .collect();
+            self.methodology_branch_discovery_parallel(
+                state,
+                &intents_summary,
+                &jurisdiction_ctx,
+                &standing_ctx,
+                &file_relationships,
+                &methodology_summaries_block,
+                "amt_branch_generation",
+                "Build AMT — branch refinement",
+                &mut node_id_counter,
+            )
+            .await;
+;
 
-                    let intents_summary: Vec<String> = state
-                        .intent_captures
-                        .iter()
-                        .map(|ic| ic.intent.clone())
-                        .collect();
-
-                    // Already known branches for dedup
-                    let known_branches_json: Vec<serde_json::Value> = state.branch_captures
-                        .iter()
-                        .map(|bc| serde_json::json!({"branch": bc.branch, "intent": bc.parent_intent}))
-                        .collect();
-
-                    let branch_prompt = format!(
-                        r#"You are applying the methodology "{}" to a set of user intents.
-        Methodology context: {}
-
-        USER INTENTS:
-        {}
-
-        ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
-        {}
-
-        JURISDICTION CONTEXT: {jurisdiction_ctx}
-{standing_ctx}
-        {file_relationships}
-
-        Based on this methodology, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
-        Only suggest branches NOT already in the known list.
-
-        Return ONLY valid JSON:
-        {{
-            "branches": [
-                {{
-                    "branch": "specific branch description",
-                    "parent_intent": "the intent this branch belongs to",
-                    "rationale": "why this methodology requires this branch"
-                }}
-            ]
-        }}
-        If no new branches apply, return: {{"branches": []}}"#,
-                        method_name,
-                        &method_description[..method_description.len().min(300)],
-                        intents_summary.join("\n"),
-                        serde_json::to_string(&known_branches_json).unwrap_or_default()
-                    );
-
-                    let branch_input = serde_json::json!({
-                        "prompt": branch_prompt,
-                        "max_tokens": 600,
-                        "temperature": 0.3,
-                        "system_context": "Suggest branches per methodology. Return only valid JSON. No explanation."
-                    });
-
-                    if let Ok(result) = self.metered_execute_resilient(state, branch_input, "amt_branch_generation").await {
-                        self.record_thinking(state, "Build AMT — branch refinement", &result);
-                        let response = result
-                            .get("response")
-                            .and_then(|r| r.as_str())
-                            .unwrap_or("{}");
-                        let json_str = Self::extract_json_from_response(response, '{', '}');
-                        let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
-                            .unwrap_or_else(|_| serde_json::json!({"branches": []}));
-
-                        if let Some(branches) = parsed.get("branches").and_then(|b| b.as_array()) {
-                            for branch_val in branches {
-                                let branch_str = branch_val
-                                    .get("branch")
-                                    .and_then(|b| b.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let parent_intent = branch_val
-                                    .get("parent_intent")
-                                    .and_then(|p| p.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-
-                                if branch_str.is_empty() {
-                                    continue;
-                                }
-
-                                // Find actual parent intent (fuzzy match)
-                                let resolved_parent = state
-                                    .intent_captures
-                                    .iter()
-                                    .find(|ic| {
-                                        ic.intent
-                                            .to_lowercase()
-                                            .contains(&parent_intent.to_lowercase())
-                                            || parent_intent
-                                                .to_lowercase()
-                                                .contains(&ic.intent.to_lowercase())
-                                    })
-                                    .map(|ic| ic.intent.clone())
-                                    .unwrap_or_else(|| {
-                                        state
-                                            .intent_captures
-                                            .first()
-                                            .map(|ic| ic.intent.clone())
-                                            .unwrap_or_default()
-                                    });
-
-                                let already_exists = state.branch_captures.iter().any(|bc| {
-                                    bc.parent_intent == resolved_parent
-                                        && (bc
-                                            .branch
-                                            .to_lowercase()
-                                            .contains(&branch_str.to_lowercase())
-                                            || branch_str
-                                                .to_lowercase()
-                                                .contains(&bc.branch.to_lowercase()))
-                                });
-
-                                // No per-intent count limit, by explicit
-                                // direction — the real control is
-                                // find_methodologies_by_keywords' relevance
-                                // bar (zsei/query.rs): a project genuinely
-                                // touching many real concerns should get
-                                // exactly as many real branches as it needs,
-                                // not an arbitrary ceiling.
-                                if !already_exists {
-                                    state.branch_captures.push(BranchCapture {
-                                        branch: branch_str,
-                                        parent_intent: resolved_parent,
-                                        source_methodology_ids: vec![method_id],
-                                        source_chunk_indices: vec![],
-                                        source_sentences: vec![],
-                                        node_id: node_id_counter,
-                                    });
-                                    node_id_counter += 1;
-                                    new_insights_this_pass = true;
-                                } else if already_exists {
-                                    // Aggregate: add methodology as additional source
-                                    if let Some(existing) =
-                                        state.branch_captures.iter_mut().find(|bc| {
-                                            bc.parent_intent == resolved_parent
-                                                && bc
-                                                    .branch
-                                                    .to_lowercase()
-                                                    .contains(&branch_str.to_lowercase())
-                                        })
-                                    {
-                                        if !existing.source_methodology_ids.contains(&method_id) {
-                                            existing.source_methodology_ids.push(method_id);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
 
             // --- PHASE 2: Detail discovery over chunks ---
             // Snapshot (metered_execute needs &mut state inside the loop).
@@ -2402,11 +2125,337 @@ If no new branches apply, return: {{"branches": []}}"#,
         }
     }
 
+    /// K `selection` family consumer (pairwise-ranked default): rank
+    /// methodologies by GRAPH-FIRST relevance to THIS request — shared-term
+    /// count between each methodology's real content (name + description +
+    /// keywords) and the request's keywords/topics + captured intents —
+    /// descending. The selection policy's `max_selected` then bounds how
+    /// many earn branch-discovery passes (NOT a blind cap: the ranking is
+    /// the algorithm; the bound is the policy, switchable at runtime via
+    /// `per-methodology` = usize::MAX for the legacy all-candidates shape).
+    pub(crate) async fn rank_methodologies(
+        &self,
+        state: &OrchestrationState,
+        ids: &[u64],
+        max_selected: usize,
+    ) -> Vec<u64> {
+        let mut request_terms: Vec<String> = state
+            .keywords
+            .iter()
+            .chain(state.topics.iter())
+            .filter(|k| k.len() > 2)
+            .cloned()
+            .collect();
+        for ic in &state.intent_captures {
+            for term in ic.intent.split_whitespace() {
+                if term.len() > 3 {
+                    request_terms.push(term.to_lowercase());
+                }
+            }
+        }
+        let mut scored: Vec<(usize, u64)> = Vec::new();
+        for &id in ids {
+            let Ok(Some(container)) = self.store.get_container(id).await else {
+                continue;
+            };
+            let ls = &container["local_state"];
+            let text = format!(
+                "{} {} {}",
+                ls["metadata"]["name"].as_str().unwrap_or(""),
+                serde_json::to_string(&ls["context"]).unwrap_or_default(),
+                serde_json::to_string(&container["code_context"]).unwrap_or_default(),
+            )
+            .to_lowercase();
+            let score = request_terms.iter().filter(|t| text.contains(t.as_str())).count();
+            scored.push((score, id));
+        }
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+        let all = scored.into_iter().map(|(_, id)| id).collect::<Vec<u64>>();
+        if max_selected == usize::MAX {
+            all
+        } else {
+            all.into_iter().take(max_selected).collect()
+        }
+    }
+
+    /// METHODOLOGY BRANCH DISCOVERY — hierarchical ordering (operator,
+    /// 2026-10-02): batch for COVERAGE (every methodology participates),
+    /// then PARALLEL 1×1 lanes for depth — each batch is its own joint,
+    /// independently optimizable/researchable. Lanes run CONCURRENTLY
+    /// (JoinSet; wall time = one lane), each bounded by the adapter
+    /// watchdog; capture applies SERIALLY afterwards (state mutation is
+    /// never concurrent). Attribution: each branch names its methodology;
+    /// unresolved names attribute to the whole lane (batch ids).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn methodology_branch_discovery_parallel(
+        &self,
+        state: &mut OrchestrationState,
+        intents_summary: &[String],
+        jurisdiction_ctx: &str,
+        standing_ctx: &str,
+        file_relationships: &str,
+        methodology_summaries_block: &str,
+        call_site: &'static str,
+        record_label: &'static str,
+        node_id_counter: &mut u64,
+    ) -> bool {
+        let policy = crate::k_registry::KAlgorithms::global().current_selection_policy();
+        let ranked = self
+            .rank_methodologies(state, &state.methodologies, usize::MAX)
+            .await;
+        let mut members: Vec<(u64, String, String)> = Vec::new();
+        for &id in &ranked {
+            if let Ok(Some(c)) = self.store.get_container(id).await {
+                let name = c["local_state"]["metadata"]["name"]
+                    .as_str()
+                    .unwrap_or("Unknown methodology")
+                    .to_string();
+                let desc = serde_json::to_string(&c["local_state"]["context"]["keywords"])
+                    .unwrap_or_default();
+                members.push((id, name, desc));
+            }
+        }
+        if members.is_empty() {
+            return false;
+        }
+        // CONTEXT-AWARE BATCHING (operator: the methodologies/batches ARE
+        // context — apply the same chunk-size math text chunking uses).
+        // Members are packed by APPROX TOKENS (chars/4) against a lane
+        // context budget; `batch_size` stays the member-count ceiling.
+        // No coverage loss: every member lands in exactly one batch.
+        let approx_tokens = |s: &str| s.len() / 4 + 1;
+        let lane_budget_tokens = 20_000usize; // 32k-context free models: content + scaffold + output fit comfortably
+        let member_cap = policy.batch_size.max(1);
+        let mut batches: Vec<Vec<(u64, String, String)>> = Vec::new();
+        let mut cur: Vec<(u64, String, String)> = Vec::new();
+        let mut cur_tokens = 0usize;
+        for m in members {
+            let t = approx_tokens(&m.1) + approx_tokens(&m.2);
+            if !cur.is_empty() && (cur_tokens + t > lane_budget_tokens || cur.len() >= member_cap) {
+                batches.push(std::mem::take(&mut cur));
+                cur_tokens = 0;
+            }
+            cur_tokens += t;
+            cur.push(m);
+        }
+        if !cur.is_empty() {
+            batches.push(cur);
+        }
+
+        // ── Lane composition (serial, needs &state for known-branches) ──
+        let known_branches_json: Vec<serde_json::Value> = {
+            // BUDGET GUARD: the known-list grows with every capture — feed
+            // the NEWEST half when it would dominate the lane's context.
+            let all: Vec<serde_json::Value> = state
+                .branch_captures
+                .iter()
+                .map(|bc| serde_json::json!({"branch": bc.branch, "intent": bc.parent_intent}))
+                .collect();
+            let serialized = serde_json::to_string(&all).unwrap_or_default();
+            if serialized.len() > 24_000 {
+                all[all.len() / 2..].to_vec()
+            } else {
+                all
+            }
+        };
+        let known_json = serde_json::to_string(&known_branches_json).unwrap_or_default();
+        let methodology_summaries_block = {
+            let block = methodology_summaries_block.to_string();
+            if block.len() > 8_000 {
+                let cut = block.len() - 8_000;
+                match block[cut..].find("\n") {
+                    Some(p) => format!("[earlier summaries trimmed for context budget] {}", &block[cut + p + 1..]),
+                    None => block[cut..].to_string(),
+                }
+            } else {
+                block
+            }
+        };
+        let mut lanes: Vec<(Vec<u64>, String, serde_json::Value, Vec<(u64, String, String)>)> = Vec::new();
+        for batch in &batches {
+            if batch.is_empty() {
+                continue;
+            }
+            let batch_listing = batch
+                .iter()
+                .map(|(id, name, desc)| {
+                    format!("- {} (container {}): {}", name, id, &desc[..desc.len().min(200)])
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let branch_prompt = format!(
+                r#"You are applying the following methodologies to a set of user intents.
+
+METHODOLOGIES (apply ALL of them; attribute each suggested branch to the methodology that requires it via "methodology"):
+{batch_listing}
+
+USER INTENTS:
+{}
+
+{methodology_summaries_block}
+
+ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
+{known_json}
+
+JURISDICTION CONTEXT: {jurisdiction_ctx}
+{standing_ctx}
+{file_relationships}
+
+Based on these methodologies, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
+Only suggest branches NOT already in the known list.
+
+Return ONLY valid JSON:
+{{
+    "branches": [
+        {{
+            "branch": "specific branch description",
+            "parent_intent": "the intent this branch belongs to",
+            "methodology": "the EXACT methodology name (from METHODOLOGIES) requiring this branch",
+            "rationale": "why this methodology requires this branch"
+        }}
+    ]
+}}
+If no new branches apply, return: {{"branches": []}}"#,
+                intents_summary.join("\n"),
+                methodology_summaries_block = methodology_summaries_block,
+            );
+            let input = serde_json::json!({
+                "prompt": branch_prompt,
+                "max_tokens": 900,
+                "temperature": 0.3,
+                "system_context": "Suggest branches per methodology batch. Return only valid JSON. No explanation."
+            });
+            let ids: Vec<u64> = batch.iter().map(|(id, _, _)| *id).collect();
+            lanes.push((ids, branch_prompt, input, batch.clone()));
+        }
+        if lanes.is_empty() {
+            return false;
+        }
+
+        // ── PARALLEL LANES (coverage + depth; wall time = one lane) ──
+        let mut set = tokio::task::JoinSet::new();
+        for (_, _, input, _) in &lanes {
+            let executor = self.executor.clone();
+            let input = input.clone();
+            set.spawn(async move { executor.execute(9, input).await });
+        }
+        let mut results: Vec<Result<serde_json::Value, String>> = Vec::new();
+        while let Some(res) = set.join_next().await {
+            match res {
+                Ok(r) => results.push(r),
+                Err(e) => results.push(Err(format!("lane join error: {e}"))),
+            }
+        }
+
+        // ── SERIAL application (state mutation never concurrent) ──
+        let mut captured_any = false;
+        for ((ids, prompt, _, batch_members), result) in lanes.iter().zip(results.into_iter()) {
+            match &result {
+                Ok(v) if v.get("response").and_then(|r| r.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false) => {
+                    let tokens = v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0);
+                    state.tokens_used_so_far += tokens as u32;
+                    self.record_thinking(state, record_label, v);
+                }
+                other => {
+                    let detail = match other {
+                        Err(e) => format!("watchdog/chain failure: {e}"),
+                        Ok(_) => "empty response".to_string(),
+                    };
+                    tracing::warn!(call_site, detail, "AMT branch-discovery lane failed loudly");
+                    crate::orchestrator::PromptOrchestrator::capture_loop_model_call(call_site, prompt, &result);
+                    continue;
+                }
+            }
+            crate::orchestrator::PromptOrchestrator::capture_loop_model_call(call_site, prompt, &result);
+            let Ok(result) = result else { continue; };
+            let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+            let json_str = Self::extract_json_from_response(response, '{', '}');
+            let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
+                .unwrap_or_else(|_| serde_json::json!({"branches": []}));
+            if let Some(branches) = parsed.get("branches").and_then(|b| b.as_array()) {
+                for branch_val in branches {
+                    let branch_str = branch_val
+                        .get("branch")
+                        .and_then(|b| b.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let parent_intent = branch_val
+                        .get("parent_intent")
+                        .and_then(|p| p.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if branch_str.is_empty() {
+                        continue;
+                    }
+                    let resolved_parent = state
+                        .intent_captures
+                        .iter()
+                        .find(|ic| {
+                            ic.intent.to_lowercase().contains(&parent_intent.to_lowercase())
+                                || parent_intent.to_lowercase().contains(&ic.intent.to_lowercase())
+                        })
+                        .map(|ic| ic.intent.clone())
+                        .unwrap_or_else(|| {
+                            state
+                                .intent_captures
+                                .first()
+                                .map(|ic| ic.intent.clone())
+                                .unwrap_or_default()
+                        });
+                    let attributed: Vec<u64> = branch_val
+                        .get("methodology")
+                        .and_then(|m| m.as_str())
+                        .and_then(|mname| {
+                            batch_members.iter().find(|(_, n, _)| {
+                                mname.to_lowercase().contains(&n.to_lowercase())
+                                    || n.to_lowercase().contains(&mname.to_lowercase())
+                            })
+                        })
+                        .map(|(id, _, _)| vec![*id])
+                        .unwrap_or_else(|| ids.clone());
+                    let already_exists = state.branch_captures.iter().any(|bc| {
+                        bc.parent_intent == resolved_parent
+                            && (bc.branch.to_lowercase().contains(&branch_str.to_lowercase())
+                                || branch_str.to_lowercase().contains(&bc.branch.to_lowercase()))
+                    });
+                    if !already_exists {
+                        let branch_id = *node_id_counter;
+                        *node_id_counter += 1;
+                        state.branch_captures.push(BranchCapture {
+                            branch: branch_str,
+                            parent_intent: resolved_parent,
+                            source_methodology_ids: attributed,
+                            source_chunk_indices: vec![],
+                            source_sentences: vec![],
+                            node_id: branch_id,
+                        });
+                        captured_any = true;
+                    } else if let Some(existing) = state
+                        .branch_captures
+                        .iter_mut()
+                        .find(|bc| {
+                            bc.parent_intent == resolved_parent
+                                && bc.branch.to_lowercase().contains(&branch_str.to_lowercase())
+                        })
+                    {
+                        for aid in &attributed {
+                            if !existing.source_methodology_ids.contains(aid) {
+                                existing.source_methodology_ids.push(*aid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        captured_any
+    }
+
     async fn enrich_with_zsei_knowledge(
         &self,
         state: &mut OrchestrationState,
         layer_input: &LayerInput,
     ) -> LayerKnowledge {
+        tracing::info!(stage = "5", "[5.enrich] start");
         let mut knowledge = LayerKnowledge::default();
 
         let search_keywords: Vec<String> = layer_input.keywords.iter()
@@ -2525,6 +2574,7 @@ If no new branches apply, return: {{"branches": []}}"#,
             }
         }
 
+        tracing::info!(stage = "5", "[5.enrich] done");
         knowledge
     }
 
@@ -2680,6 +2730,7 @@ If no new branches apply, return: {{"branches": []}}"#,
         state: &mut OrchestrationState,
         layer: u32,
     ) -> Vec<MethodologyFinding> {
+        tracing::info!(stage = "5", "[5.xref] start");
         let mut findings = Vec::new();
 
         // Collect branches that belong to this AMT layer depth
@@ -2823,6 +2874,7 @@ If no new branches apply, return: {{"branches": []}}"#,
             }
         }
 
+        tracing::info!(stage = "5", "[5.xref] done");
         findings
     }
 }
@@ -3028,6 +3080,8 @@ mod tests {
             step_outputs: HashMap::new(),
             gate_result: None,
             voice_identity: None,
+            capability_summary: None,
+            applicable_tools: Vec::new(),
             available_pipelines: Vec::new(),
         }
     }

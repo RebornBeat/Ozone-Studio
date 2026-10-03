@@ -101,7 +101,7 @@ module.exports = {
                 project_id: projectId,
                 token_budget: 50000,
               });
-              aggregatedContext = contextResult?.context?.context_text || "";
+              aggregatedContext = contextResult?.output?.context?.context_text || "";
             } catch (err) {
               console.warn("Failed to aggregate context:", err);
             }
@@ -112,13 +112,13 @@ module.exports = {
               aggregated_context: aggregatedContext,
             });
 
-            if (promptResult?.response) {
+            if (promptResult?.output?.response) {
               setMessages((prev) => [
                 ...prev,
                 {
                   id: Date.now(),
                   role: "assistant",
-                  content: promptResult.response,
+                  content: promptResult.output.response,
                   timestamp: Date.now(),
                 },
               ]);
@@ -285,13 +285,19 @@ module.exports = {
         setLoading(true);
         setError(null);
         try {
+          // executePipeline resolves the raw /pipeline/execute envelope
+          // ({success, output, error}), not the pipeline's own output
+          // fields directly — real data lives under result.output.* Fixed
+          // 2026-09-29: this file previously read result.workspaces (always
+          // undefined), so the tab rendered empty regardless of real state.
           const result = await executePipeline(6, { action: "ListWorkspaces" });
-          setWorkspaces(result?.workspaces || []);
+          const output = result?.output || {};
+          setWorkspaces(output.workspaces || []);
 
           // Restore selection from shared state
           const state = getSharedState();
           if (state.selectedWorkspaceId) {
-            const ws = result?.workspaces?.find(
+            const ws = output.workspaces?.find(
               (w) =>
                 w.id === state.selectedWorkspaceId ||
                 w.workspace_id === state.selectedWorkspaceId,
@@ -315,7 +321,7 @@ module.exports = {
             action: "ListProjects",
             workspace_id: workspaceId,
           });
-          setProjects(result?.projects || []);
+          setProjects(result?.output?.projects || []);
         } catch (e) {
           console.error("Failed to load projects:", e);
           setError(e.message || "Failed to load projects");
@@ -328,7 +334,7 @@ module.exports = {
             action: "GetProjectFiles",
             project_id: projectId,
           });
-          setFiles(result?.files || []);
+          setFiles(result?.output?.files || []);
         } catch (e) {
           console.warn("Failed to load project files:", e);
         }
@@ -418,8 +424,8 @@ module.exports = {
             analyze: true,
           });
 
-          if (result?.file_ref?.modality) {
-            const modality = result.file_ref.modality.toLowerCase();
+          if (result?.output?.file_ref?.modality) {
+            const modality = result.output.file_ref.modality.toLowerCase();
             if (window.__ozoneThemeArea?.addNotification) {
               window.__ozoneThemeArea.addNotification(
                 `File detected as: ${modality} — will be processed by the ${modality} pipeline`,

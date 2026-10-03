@@ -94,24 +94,31 @@ impl PromptOrchestrator {
             self.record_stage(state, 8, "Consciousness Gate", true, "Skipped (disabled)");
         }
 
-        // STAGES 9-11: Context Aggregation + Task Creation + Execution
-        tracing::info!(stage = 9, "Stages 9-11 (Context Aggregation + Task Creation + Step Execution) starting");
+        // STAGE 8b: Jurisdiction FULL Gate (operator, 2026-10-01: Stage 0 is
+        // the soft run — it can only judge the raw prompt; the FULL run
+        // judges the RESOLVED PLAN and belongs alongside the consciousness
+        // gate, post-simulation, pre-execution).
+        tracing::info!(stage = 8, "Stage 8b (Jurisdiction Full Gate) starting");
+        self.stage_jurisdiction_full_gate(state).await?;
+
+        // STAGES 9-10: Task Creation + Step Execution
+        tracing::info!(stage = 9, "Stages 9-10 (Task Creation + Step Execution) starting");
         self.stage_6_to_8_execute_steps(state).await?;
 
-        // STAGE 12: Result Collection
-        tracing::info!(stage = 12, "Stage 12 (Result Collection) starting");
+        // STAGE 11: Result Collection
+        tracing::info!(stage = 11, "Stage 11 (Result Collection) starting");
         self.stage_9_result_collection(state).await?;
 
-        // STAGE 13: Post-execution Consciousness
+        // STAGE 12: Post-execution Consciousness
         if state.request.consciousness_enabled {
-            tracing::info!(stage = 13, "Stage 13 (Post-execution Consciousness) starting");
+            tracing::info!(stage = 12, "Stage 12 (Post-execution Consciousness) starting");
             self.stage_10_post_execution(state).await?;
         } else {
-            self.record_stage(state, 13, "Post-execution", true, "Skipped (disabled)");
+            self.record_stage(state, 12, "Post-execution", true, "Skipped (disabled)");
         }
 
-        // STAGE 14: Response Delivery
-        tracing::info!(stage = 14, "Stage 14 (Response Delivery) starting");
+        // STAGE 13: Response Delivery
+        tracing::info!(stage = 13, "Stage 13 (Response Delivery) starting");
         self.stage_11_response_delivery(state).await?;
 
         tracing::info!("Orchestration complete: all 14 stages finished");
@@ -132,6 +139,17 @@ impl PromptOrchestrator {
     /// out to a shared function so all three stages see identical real
     /// data, including the two fields the original inline version omitted
     /// (`warnings`, `confirmations`).
+    /// REGISTERED CAPABILITIES summary (§11.2): compact one-line-per-tool
+    /// registry text for prompt embedding. Reads the summary built at the
+    /// orchestrate seam (state.capability_summary); honest "(none
+    /// registered)" when absent — never a fabricated list.
+    pub(crate) fn capability_summary_text(state: &OrchestrationState) -> String {
+        state
+            .capability_summary
+            .clone()
+            .unwrap_or_else(|| "(no tools/MCPs registered)".to_string())
+    }
+
     pub(crate) fn jurisdiction_summary(state: &OrchestrationState) -> String {
         match &state.jurisdiction_gate_result {
             Some(g) => {
@@ -382,7 +400,7 @@ impl PromptOrchestrator {
                         if n > 0 {
                             self.record_stage_timed(
                                 state,
-                                3,
+                                6,
                                 "Blueprint Steps Loaded",
                                 true,
                                 &format!("{} step(s) from blueprint {}", n, bp_id),
@@ -394,7 +412,7 @@ impl PromptOrchestrator {
 
                 self.record_stage_timed(
                     state,
-                    3,
+                    6,
                     "Blueprint Assignment",
                     true,
                     &format!(
@@ -469,6 +487,9 @@ impl PromptOrchestrator {
         let branch_count = amt.children.len();
         let jurisdiction_ctx = Self::jurisdiction_summary(state);
         let file_relationships = self.file_relationship_summary(state).await;
+        // REGISTERED CAPABILITIES (§11.2): compact registry summary so the
+        // blueprint can route steps to tools/MCPs when the goal matches.
+        let capabilities = Self::capability_summary_text(state);
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
 
@@ -476,6 +497,11 @@ AMT ROOT: {}
 BRANCHES ({branch_count} total — this AMT root represents {branch_count} distinct
 intent(s)/branch(es); the request asked for all of them, not just the first):
 {}
+
+REGISTERED CAPABILITIES (registered tools/MCPs — a step MAY route to one of
+these by capability name when the step's goal matches; route to pipeline 9
+otherwise):
+{capabilities}
 
 AVAILABLE PIPELINES:
 {}
@@ -719,6 +745,20 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // generic pipeline-9 payload, so it's excluded from this coercion
         // rather than forced to 9.
         for step in &mut state.blueprint_steps {
+            // CONSCIOUSNESS GATE (operator security directive: consciousness
+            // is internal meta — not callable from orchestration contracts).
+            // A blueprint naming a consciousness-category pipeline is a
+            // contract violation: strip it to the generic executor loudly
+            // rather than honoring it (the coercion below would silently
+            // run pipeline 9 instead — that hides the attempt).
+            if crate::pipeline::registry::category_of(step.pipeline_id) == Some("consciousness") {
+                tracing::warn!(
+                    step = step.step_index,
+                    pipeline_id = step.pipeline_id,
+                    "SECURITY: blueprint step named a consciousness-category pipeline —                      internal meta is not callable from orchestration; coercing to generic"
+                );
+                step.pipeline_id = 9;
+            }
             if step.pipeline_id != 9 && step.pipeline_id != 56 {
                 tracing::warn!(
                     "Blueprint step {} named pipeline_id {} — the generic step-execution \
@@ -911,7 +951,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
 
         self.record_stage_timed(
             state,
-            3,
+            6,
             "Blueprint Assignment",
             true,
             &format!(
@@ -936,7 +976,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
             None => {
                 self.record_stage_timed(
                     state,
-                    4,
+                    7,
                     "Zero-Shot Simulation",
                     true,
                     "Skipped (no AMT)",
@@ -1073,6 +1113,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
             }
         };
 
+        let capabilities = Self::capability_summary_text(state);
         let simulate_prompt = format!(
             r#"Simulate executing this plan and predict outcomes.
 
@@ -1096,6 +1137,14 @@ FULL AMT STRUCTURE (all levels):
 
 BLUEPRINT STEPS (pipeline IDs show which capability each step routes to):
 {}
+
+REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call — flag any step
+whose goal matches a registered capability instead of a pipeline):
+{capabilities}
+
+REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call — flag any step
+whose goal matches a registered capability instead of a pipeline):
+{capabilities}
 
 For each step, predict:
 1. What information will be needed
@@ -1306,7 +1355,7 @@ Return JSON:
 
         self.record_stage_timed(
             state,
-            4,
+            7,
             "Zero-Shot Simulation",
             true,
             &format!(
@@ -1456,7 +1505,7 @@ Return JSON:
             .unwrap_or_default();
         self.record_stage_timed(
             state,
-            5,
+            8,
             "Consciousness Gate",
             true,
             &format!("Decision: {}{} [gate-reported]", decision, confidence_txt),
@@ -1516,14 +1565,14 @@ Return JSON:
 
             }
             Err(e) => {
-                self.record_stage(state, 7, "Task Creation", false, &format!("Failed: {}", e));
+                self.record_stage(state, 9, "Task Creation", false, &format!("Failed: {}", e));
                 return Err(e.to_string());
             }
         }
 
         self.record_stage(
             state,
-            7,
+            9,
             "Task Creation",
             state.task_id.is_some(),
             &format!("Task: {:?}", state.task_id),
@@ -1703,7 +1752,7 @@ Return JSON:
 
         self.record_stage_timed(
             state,
-            8,
+            10,
             "Step Execution",
             state.final_response.is_some(),
             &format!(
@@ -2395,7 +2444,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
 
         self.record_stage_timed(
             state,
-            9,
+            11,
             "Result Collection",
             true,
             &format!("Collected {} step results", state.step_results.len()),
@@ -2411,7 +2460,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         if !state.request.consciousness_enabled {
             self.record_stage_timed(
                 state,
-                10,
+                12,
                 "Post-execution",
                 true,
                 "Consciousness disabled - skipped",
@@ -2469,7 +2518,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
 
         self.record_stage_timed(
             state,
-            10,
+            12,
             "Post-execution Consciousness",
             true,
             "Experience stored, relationship updated, emotions processed",

@@ -15,6 +15,7 @@ import { InjectedTab } from './themes/home_dashboard/HomeDashboard';
 import SettingsPanel from './components/SettingsPanel';
 import PipelinesPanel from './components/PipelinesPanel';
 import MonitoringPanel from './components/MonitoringPanel';
+import OrderPanel from './components/OrderPanel';
 import ToolsPanel from './components/ToolsPanel';
 import PairingPanel from './components/PairingPanel';
 import GraphView from './components/GraphView';
@@ -213,28 +214,34 @@ export function clearModuleCache(pipelineId?: number): void {
 
 export const CORE_TAB_DEFINITIONS = [
   { id: 'workspace', pipelineId: 6,    label: 'Workspace', icon: '📁', order: 0 },
-  { id: 'tasks',     pipelineId: 5,    label: 'Tasks',     icon: '📋', order: 1 },
-  { id: 'library',   pipelineId: 7,    label: 'Library',   icon: '📚', order: 2 },
-  { id: 'settings',  pipelineId: 8,    label: 'Settings',  icon: '⚙️', order: 3 },
+  // Universal Order (docs/UNIVERSAL_ORDER_GUIDE.md) — "new chats start
+  // inside this order" (§4): placed second, right after Workspace, ahead
+  // of Tasks/Library/Settings. Synthetic id, same convention as Monitor/
+  // Tools/Devices below (host-side UI surface, not a dynamically-loaded
+  // pipeline UI).
+  { id: 'order',     pipelineId: 1011, label: 'Order',     icon: '🗓️', order: 1 },
+  { id: 'tasks',     pipelineId: 5,    label: 'Tasks',     icon: '📋', order: 2 },
+  { id: 'library',   pipelineId: 7,    label: 'Library',   icon: '📚', order: 3 },
+  { id: 'settings',  pipelineId: 8,    label: 'Settings',  icon: '⚙️', order: 4 },
   // Promoted out of the old bottom-drawer toggle mechanism — these are
   // host-side UI surfaces, not dynamically-loaded pipeline UIs, so they get
   // synthetic ids in the custom range (index.json's own next_custom_id
   // starts at 1000) rather than colliding with a real pipeline id.
-  { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 4 },
-  { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 5 },
-  { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 6 },
+  { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 5 },
+  { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 6 },
+  { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 7 },
   // Context Viewer: Graph View (Batch C, fork C1) — real per-project
   // modality-graph node/edge rendering. Same synthetic-id convention as
   // monitor/tools/devices above (host-side UI surface, not a pipeline).
-  { id: 'graph-view', pipelineId: 1003, label: 'Graph View', icon: '🕸️', order: 7 },
+  { id: 'graph-view', pipelineId: 1003, label: 'Graph View', icon: '🕸️', order: 8 },
   // Context Viewer family + capture/files/engines/coordination surfaces (UI/UX fork plan Batches D-J).
-  { id: 'fabric-view',    pipelineId: 1004, label: 'Fabric',       icon: '🧭', order: 8 },
-  { id: 'hierarchy-view', pipelineId: 1005, label: 'Hierarchy',    icon: '🌳', order: 9 },
-  { id: 'capture-viewer', pipelineId: 1006, label: 'Raw Thoughts', icon: '🧠', order: 10 },
-  { id: 'files-viewer',   pipelineId: 1007, label: 'Files',        icon: '📂', order: 11 },
-  { id: 'engines',        pipelineId: 1008, label: 'Engines',      icon: '🧩', order: 12 },
-  { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 13 },
-  { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 14 },
+  { id: 'fabric-view',    pipelineId: 1004, label: 'Fabric',       icon: '🧭', order: 9 },
+  { id: 'hierarchy-view', pipelineId: 1005, label: 'Hierarchy',    icon: '🌳', order: 10 },
+  { id: 'capture-viewer', pipelineId: 1006, label: 'Raw Thoughts', icon: '🧠', order: 11 },
+  { id: 'files-viewer',   pipelineId: 1007, label: 'Files',        icon: '📂', order: 12 },
+  { id: 'engines',        pipelineId: 1008, label: 'Engines',      icon: '🧩', order: 13 },
+  { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 14 },
+  { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 15 },
 ] as const;
 
 export function getPipelineIcon(pipelineId: number): string {
@@ -264,6 +271,7 @@ export function createCoreTabs(): InjectedTab[] {
   // Settings and Library host OUR config/registry surfaces directly —
   // single source for each, no duplicate panels or stale component.js.
   const nativeTabComponents: Record<string, React.ComponentType<any>> = {
+    order: OrderPanel,
     settings: SettingsPanel,
     library: PipelinesPanel,
     monitor: MonitoringPanel,

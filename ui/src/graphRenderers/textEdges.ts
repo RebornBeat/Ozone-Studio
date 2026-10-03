@@ -10,12 +10,16 @@
 //     Sentence->Sentence cross-sentence (6733). Type = an LLM-produced string
 //     passed through `resolve_text_edge_type` (unrecognised => skipped, never
 //     defaulted). Only built when the caller supplies grammar `chunks`. The
-//     prompts (main.rs 3744 / 5537) offer exactly the 20 types below; the
-//     cross-sentence prompt (5800) offers a subset of them.
+//     per-sentence/legacy prompts (main.rs ~3744 / ~5537) offer 20 types
+//     including CausedBy; the cross-sentence prompt (~5816) offers a
+//     different, smaller list that includes "Causes" as its own option —
+//     until 2026-09-29 that was silently collapsed onto CausedBy by
+//     `resolve_text_edge_type` (a real direction-loss bug, previously
+//     flagged, now fixed: they're distinct TextEdgeType variants).
 //   * SimilarTo — coreference star, anchor sentence -> each other mention (6785).
-// So REAL = Contains + those 20. No such grammar edge is persisted on disk yet
-// (data-dependent on the extractor's output), but any that appears was built by
-// an intended construction site.
+// So REAL = Contains + those 21 (20 + the now-distinct Causes). No such
+// grammar edge is persisted on disk yet (data-dependent on the extractor's
+// output), but any that appears was built by an intended construction site.
 //
 // Everything else declared in `TextEdgeType` (ContainedBy, Follows, Precedes,
 // References, the Cross-Modality group, RelatesTo, RefinesTo, ForkedFrom,
@@ -50,6 +54,7 @@ const REAL_VISUAL = new Map<string, EdgeVisual>([
   ["Affects", CAUSAL],
   ["Implies", CAUSAL],
   ["CausedBy", CAUSAL],
+  ["Causes", CAUSAL],
   ["Enables", CAUSAL],
   ["Prevents", CAUSAL],
 

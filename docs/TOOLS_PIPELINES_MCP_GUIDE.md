@@ -606,3 +606,23 @@ types.
 every register/unregister to `{data_dir}/mcp_tool_registry.json` and
 restores at boot (boot log line when >0 restored). Closes the gap found
 live when the 22:41 restart wiped the 69 registrations.
+
+### 11.6 Detection models as parallel graph-expanding tools (operator vision, 2026-09-28)
+
+Detection models — YOLO et al. — are not a monolithic analyzer bolted onto
+the image modality. Each model is a **registered, expandable tool latent to
+image modality (102)**: when it runs, its detections extend the native
+modality graph — objects become nodes, spatial/affordance relations become
+F.3-typed edges — through the standard graph choke point. N detection
+models run **in parallel**, all expanding the SAME graph natively.
+
+Design (queued): image 102 gains a **detection-model registry** (model
+file + class list + input size + optional weights per entry, registered by
+kind+name per the CONTRACTS doctrine). Analyze fans out to every enabled
+model in parallel; detections merge — same shapes as the
+edge-identification family's parallel per-model fan-out. Tool surface:
+each model (or model-class) is itself callable as a tool
+(`yolo_detect_v8`, `yolo_detect_pose`, ...) through /mcp/call — metered,
+gated, rippled — or runs latent inside Analyze. Image identification on
+this graph is then composable: add a model = add a registry entry + a
+graph-expansion behavior, zero host changes.

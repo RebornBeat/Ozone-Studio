@@ -40,10 +40,10 @@ export type TextEntityBrowserProps = { projectId: number | null };
 type Kind = "Entity" | "Topic" | "Keyword";
 const KINDS: Kind[] = ["Entity", "Topic", "Keyword"];
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 
 function numProp(node: GraphViewNode, key: string): number | undefined {
   const v = (node.raw.properties ?? {})[key];
@@ -191,7 +191,7 @@ export const TextEntityBrowser: React.FC<TextEntityBrowserProps> = ({ projectId 
               key={k}
               onClick={() => setActiveKind(k)}
               style={{
-                background: activeKind === k ? "#1e2836" : "transparent",
+                background: activeKind === k ? "var(--color-border-faint)" : "transparent",
                 color: activeKind === k ? C_TEXT : C_MUTED,
                 border: `1px solid ${C_BORDER}`,
                 borderRadius: 6,

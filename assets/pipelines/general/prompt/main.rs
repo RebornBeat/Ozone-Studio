@@ -288,7 +288,14 @@ async fn call_anthropic_api(
     model: &str,
     input: &PromptInput,
 ) -> Result<PromptOutput, String> {
-    let client = reqwest::Client::new();
+    // reqwest's default client has NO request timeout — a stalled
+    // connection (dead peer, silent rate-limit, network black-hole) hung
+    // this call forever with nothing surfacing to the caller. 120s is
+    // generous for real generation latency while still bounding it.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     
     // Build messages
     let mut messages = vec![];
@@ -410,7 +417,11 @@ async fn call_openai_api(
     model: &str,
     input: &PromptInput,
 ) -> Result<PromptOutput, String> {
-    let client = reqwest::Client::new();
+    // See call_anthropic_api's comment — same missing-timeout bug, same fix.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     
     let mut messages = vec![];
     
@@ -791,7 +802,81 @@ fn parse_bitnet_metrics(stderr: &str) -> Option<BitnetTokenMetrics> {
 /// Runs the llama.cpp-fork CLI (BitNet i2_s kernels) and derives token
 /// usage from the CLI's own tokenizer perf report on stderr — real counts,
 /// cross-checked against the reported total where present.
+/// KEEP-WARM BITNET via llama-server (throughput lever #2, guide §10 —
+/// the per-call `llama-cli` spawn pays ~25-40s model load EVERY call;
+/// measured: 64.1s cold → 38.0s page-cache warm → target: sub-2s warm
+/// server completions). When OZONE_LLAMA_SERVER_URL is set AND the server
+/// health-checks OK, generation goes over HTTP to the persistent server
+/// (OpenAI-compatible /v1/chat/completions) instead of spawning a fresh
+/// CLI. Falls through to the spawn path on any server problem — the
+/// warm server is an optimization, never a dependency. Launch story
+/// (operator/harness): llama-server -m <model> -c 8192 --host 127.0.0.1
+/// --port 8081 — the same BitNet i2_s model file the CLI path uses.
+async fn execute_bitnet_server(
+    input: PromptInput,
+    config: &ModelConfig,
+    server_url: &str,
+) -> Option<Result<PromptOutput, String>> {
+    let health = reqwest::Client::new()
+        .get(format!("{server_url}/health"))
+        .timeout(std::time::Duration::from_secs(2))
+        .send()
+        .await;
+    if health.as_ref().map(|r| !r.status().is_success()).unwrap_or(true) {
+        return None; // server not up — caller falls back to the spawn path
+    }
+
+    let effective_ctx = config.context_length.min(8192);
+    let max_tokens = input
+        .max_tokens
+        .unwrap_or(512)
+        .min((effective_ctx / 2) as u32)
+        .to_string();
+    let temp = input.temperature.unwrap_or(0.7).to_string();
+    let prompt = build_prompt(&input);
+
+    let body = serde_json::json!({
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens.parse::<u64>().unwrap_or(512),
+        "temperature": input.temperature.unwrap_or(0.7),
+    });
+    let resp = reqwest::Client::new()
+        .post(format!("{server_url}/v1/chat/completions"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(300))
+        .send()
+        .await
+        .ok()?;
+    let v: serde_json::Value = resp.json().await.ok()?;
+    let content = v["choices"][0]["message"]["content"].as_str()?.to_string();
+    let tokens_used = v["usage"]["completion_tokens"].as_u64().map(|t| t as u32);
+    let prompt_tokens = v["usage"]["prompt_tokens"].as_u64().map(|t| t as u32);
+
+    Some(Ok(PromptOutput {
+        response: content,
+        model_used: format!("bitnet-server:{}", config.local_model_path.as_deref().unwrap_or("bitnet")),
+        tokens_used,
+        finish_reason: v["choices"][0]["finish_reason"].as_str().map(String::from),
+        prompt_tokens,
+        context_truncated: None,
+        eval_tokens_per_sec: None,
+        prompt_eval_tokens_per_sec: None,
+        load_time_ms: Some(0.0), // warm server: zero load
+        total_time_ms: None,
+    }))
+}
+
 async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<PromptOutput, String> {
+    // KEEP-WARM path (guide §10 lever #2): warm llama-server first, spawn
+    // fallback second. Measured motivation: cold spawn = 25-40s load every
+    // call; a persistent server makes short completions ~10-30x faster.
+    if let Some(url) = std::env::var("OZONE_LLAMA_SERVER_URL").ok().filter(|s| !s.is_empty()) {
+        if let Some(result) = execute_bitnet_server(input.clone(), config, &url).await {
+            return result;
+        }
+        eprintln!("BitNet keep-warm server unavailable at {url} — falling back to CLI spawn");
+    }
+
     let model_path = config.local_model_path.as_ref()
         .ok_or("Local model path not configured for BitNet")?;
 

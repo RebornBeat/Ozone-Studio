@@ -63,6 +63,18 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
+/// Real bug found live, 2026-10-02/03, while stress-testing the Acting
+/// Loop: `now_secs()` is second-resolution, so the fallback file_key
+/// below collided under concurrent same-agent-same-kind mirror() calls
+/// (confirmed empirically: 12 real concurrent tool_call events from one
+/// agent produced only 6 distinct content-pointer files — exactly a 2x
+/// collision rate — each `std::fs::write` silently overwriting the
+/// previous call's real detail with its own, so a container's own
+/// `object_store_path` could resolve to a DIFFERENT event's content by
+/// the time an actor read it back). A process-wide monotonic counter
+/// guarantees uniqueness regardless of timing, at zero real cost.
+static MIRROR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn slug(s: &str, max: usize) -> String {
     let clean: String = s
         .chars()
@@ -168,7 +180,10 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
         .map_err(|e| format!("failed to create shared_context dir: {}", e))?;
     let file_key = match &dedupe_keyword {
         Some(k) => slug(k.trim_start_matches("claim:"), 80),
-        None => format!("{}-{}-{}", req.kind, req.agent, now),
+        None => {
+            let seq = MIRROR_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            format!("{}-{}-{}-{}", req.kind, req.agent, now, seq)
+        }
     };
     let rel_path = format!("shared_context/{}.json", file_key);
     std::fs::write(
@@ -542,5 +557,73 @@ mod tests {
             .child_ids
             .len();
         assert_eq!(after, before + 1, "the new note must be a real child of the SharedContext root");
+    }
+
+    // Real bug found live, 2026-10-02/03, while stress-testing the Acting
+    // Loop (actors.rs) under concurrent mixed-tool MCP-call load: several
+    // real concurrent mirror() calls from the SAME agent, SAME kind,
+    // within the same wall-clock second collided on the fallback
+    // file_key (then just `"{kind}-{agent}-{now_secs}"`), so later writes
+    // silently overwrote earlier ones' real content — a container's own
+    // `object_store_path` could resolve to a DIFFERENT call's data by the
+    // time anything read it back. Confirmed empirically on the live host:
+    // 12 real concurrent events produced only 6 distinct files. This test
+    // reproduces that exact shape locally and proves each concurrent
+    // call now gets its own real, uncorrupted content file.
+    #[tokio::test]
+    async fn concurrent_same_agent_same_kind_mirrors_never_collide() {
+        let (zsei, data_dir, dir) = test_zsei().await;
+        let zsei = std::sync::Arc::new(zsei);
+
+        let mut handles = Vec::new();
+        for i in 0..20u32 {
+            let zsei = zsei.clone();
+            let data_dir = data_dir.clone();
+            handles.push(tokio::spawn(async move {
+                mirror(
+                    &zsei,
+                    &data_dir,
+                    &MirrorRequest {
+                        kind: "tool_call".into(),
+                        agent: "concurrency-test".into(),
+                        title: format!("call {}", i),
+                        body: String::new(),
+                        files: vec![],
+                        detail: Some(serde_json::json!({ "tool": "x", "success": i % 2 == 0, "i": i })),
+                        scope: Some("global".into()),
+                        workspace_id: None,
+                        project_id: None,
+                    },
+                )
+                .await
+                .unwrap()
+            }));
+        }
+        let mut ids = Vec::new();
+        for h in handles {
+            ids.push(h.await.unwrap());
+        }
+        assert_eq!(ids.len(), 20, "all 20 real concurrent mirrors must succeed");
+
+        // The real, load-bearing assertion: each container's own real
+        // content-pointer file must contain THAT call's own real detail
+        // (its own "i"), never a different concurrent call's overwritten
+        // content.
+        let mut seen_is = std::collections::HashSet::new();
+        for (idx, id) in ids.iter().enumerate() {
+            let c = zsei.get_container(*id).await.unwrap().unwrap();
+            let rel_path = c.local_state.storage.object_store_path.clone().expect("real content pointer");
+            let full_path = std::path::PathBuf::from(&dir).join(&rel_path);
+            let raw = std::fs::read_to_string(&full_path)
+                .unwrap_or_else(|e| panic!("content file for call {} missing: {}", idx, e));
+            let body: serde_json::Value = serde_json::from_str(&raw).unwrap();
+            let real_i = body["detail"]["i"].as_u64().expect("real i field") as usize;
+            assert!(
+                seen_is.insert(real_i),
+                "call {} read back i={}, but that i was already claimed by another call — content collision reproduced",
+                idx, real_i
+            );
+        }
+        assert_eq!(seen_is.len(), 20, "all 20 calls must read back their OWN distinct real content");
     }
 }

@@ -436,7 +436,7 @@ Return ONLY the rendered text. No explanation. No markdown."#
 
         self.record_stage_timed(
             state,
-            11,
+            13,
             "Response Delivery",
             state.final_response.is_some(),
             &format!(

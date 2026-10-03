@@ -430,8 +430,13 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
       </div>
 
       {/* J3: unified search, same floating-toolbar convention as the
-          notification center above — collapses to just an input when idle. */}
-      <div className="theme-search-anchor" style={{ position: "fixed", top: 10, right: 56, zIndex: 40 }}>
+          notification center above — collapses to just an input when idle.
+          `absolute` (not `fixed`) relative to .theme-area, matching
+          .theme-notification-anchor exactly: .theme-area already sits below
+          the 48px header bar, so `fixed`+viewport-relative `top` landed this
+          inside the header band and overlapped the feature badges
+          (Consciousness/P2P/ConnectedAgents) — found live, 2026-09-29. */}
+      <div className="theme-search-anchor" style={{ position: "absolute", top: 0, right: 56, zIndex: 40 }}>
         <UnifiedSearch />
       </div>
 

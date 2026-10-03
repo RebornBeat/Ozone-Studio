@@ -33,6 +33,12 @@
     --color-error: #f87171;
     --color-border: #374151;
     --color-border-subtle: #1f2937;
+    /* Added 2026-09-29: Batches C-J's real, widely-used border shade
+       (58 occurrences across 51 files, hardcoded as a raw literal in every
+       one) had no matching token — added as its own tone rather than
+       forced onto --color-border/--color-border-subtle's different real
+       values. See docs/guides/ui-ux-retrospective.md for the full finding. */
+    --color-border-faint: #1e2836;
 
     /* AGI/Consciousness accent colors */
     --color-consciousness: #a855f7;
@@ -1017,6 +1023,8 @@ body {
 
 .tab-icon {
     font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
 }
 
 .tab-badge {
@@ -2462,6 +2470,8 @@ body {
 
 .tab-icon {
     font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
 }
 
 .tab-badge {

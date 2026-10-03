@@ -40,10 +40,10 @@ import { zseiQuery } from "../../ozoneClient";
 import { useSelectedFile } from "../../fileSelection";
 import { readFileContent, FileContentUnavailable, type FileContentResult } from "../../data/fileContent";
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 const C_ERR = "#ff8a8a";
 
@@ -202,7 +202,7 @@ const FileContentBlock: React.FC<{ path: string }> = ({ path }) => {
           ...wrap,
           maxHeight: 320,
           overflow: "auto",
-          background: "#0a0f1a",
+          background: "var(--color-bg)",
           border: `1px solid ${C_BORDER}`,
           borderRadius: 6,
           padding: "8px 10px",

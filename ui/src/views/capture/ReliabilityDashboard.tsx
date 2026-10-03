@@ -143,10 +143,10 @@ async function fetchAll(): Promise<{ rows: ZeroShotCallRow[]; capped: boolean }>
 
 // ── Presentation ──────────────────────────────────────────────────────────
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 const C_OK = "#8fe38f";
 const C_RETRY = "#ffb95f";

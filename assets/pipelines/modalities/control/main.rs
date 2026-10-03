@@ -689,14 +689,23 @@ pub struct IdentifiedModel {
 // SIMULATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SimulationInput {
-    #[default] Step { amplitude: f64, step_time_sec: f64 },
+    Step { amplitude: f64, step_time_sec: f64 },
     Ramp { slope: f64 },
     Sinusoidal { amplitude: f64, frequency_hz: f64 },
     ImpulseAt { time_sec: f64, amplitude: f64 },
     Arbitrary { time: Vec<f64>, values: Vec<f64> },
     White_Noise { variance: f64, seed: u64 },
+}
+
+// Manual Default: #[derive(Default)] can't mark a data-carrying variant
+// (#[default] is unit-only), but the containing request struct needs one —
+// a unit 1.0-amplitude step at t=0 is the canonical control-theory input.
+impl Default for SimulationInput {
+    fn default() -> Self {
+        Self::Step { amplitude: 1.0, step_time_sec: 0.0 }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1832,8 +1841,7 @@ async fn create_graph(
         let frid = node_id;
         nodes.push(ControlGraphNode {
             node_id: frid, node_type: ControlNodeType::FrequencyResponseNode,
-            content: format!("FreqResp [{:?}]: bw={:?}rad
-                content: format!("FreqResp [{:?}]: bw={:?}rad/s resonant_peak={:?}dB points={}",
+            content: format!("FreqResp [{:?}]: bw={:?}rad/s resonant_peak={:?}dB points={}",
                 fr.response_type,
                 fr.bandwidth_3db_rad_s.map(|v| format!("{:.3}", v)),
                 fr.resonant_peak_db.map(|v| format!("{:.2}", v)),
@@ -2022,7 +2030,7 @@ async fn create_graph(
         )
     );
 
-    let final_graph = ControlGraph {
+    let mut final_graph = ControlGraph {
         graph_id, project_id, source_description: analysis.source_description,
         nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
@@ -2030,7 +2038,85 @@ async fn create_graph(
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
     };
     let _ = executor.save_graph(&final_graph);
-    ControlModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    if let Err(e) = persist_control_graph(&mut final_graph).await {
+        eprintln!("control persist: graph built but ZSEI persistence failed: {e}");
+    }
+    ControlModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+}
+
+/// POST /zsei/query helper — same contract the other modality pipelines use:
+/// envelope `{query, session_token}`, success-gated, returns the inner `result`.
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project) + node/edge payload file — the proven revival pattern.
+async fn persist_control_graph(graph: &mut ControlGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("control".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("Control graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "control-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["control"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/control_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/control_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -460,7 +460,7 @@ pub struct PropagationModelResult {
 pub enum PropagationModel {
     #[default] FreeSpace,
     COST231_Hata, Okumura_Hata, ITU_R_P528, ITU_R_P1546, Longley_Rice,
-    Two_Ray, Winner_II, 3GPP_UMa, 3GPP_UMi, Indoor_COST231,
+    Two_Ray, Winner_II, _3GPP_UMa, _3GPP_UMi, Indoor_COST231,
     Terrain_Following, Custom(String),
 }
 
@@ -568,8 +568,6 @@ pub struct SpectrumCapture {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SignalDetectorType { EnergyDetector, CyclostationaryDetector, MatchedFilter, CAFACorrelation, WaveformML }
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum DoAMethod { MUSIC, ESPRIT, Bartlett, Capon, MVDR, DBT, MaximumLikelihood }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GRAPH NODE TYPES
@@ -992,6 +990,81 @@ fn map_em_edge_str(s: &str) -> EMEdgeType {
 // GRAPH CREATION
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// POST /zsei/query helper — same contract the other modality pipelines use:
+/// envelope `{query, session_token}`, success-gated, returns the inner `result`.
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project) + node/edge payload file — the proven revival pattern.
+async fn persist_em_graph(graph: &mut EMGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("electromagnetic".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("EM graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "electromagnetic-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["electromagnetic"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/electromagnetic_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/electromagnetic_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, project_id: u64) -> EMModalityOutput {
     let graph_id = executor.generate_id();
     let now = executor.now_iso8601();
@@ -1077,8 +1150,8 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         edge_id += 1;
 
         // Signal occupies band
-        for (band_id, &band_nid) in &band_node_ids {
-            let band = analysis.frequency_occupancy.iter().find(|b| b.band_id == *band_id);
+        for &(band_id, band_nid) in &band_node_ids {
+            let band = analysis.frequency_occupancy.iter().find(|b| b.band_id == band_id);
             if let Some(b) = band {
                 if sig.center_freq_hz >= b.start_freq_hz && sig.center_freq_hz <= b.end_freq_hz {
                     edges.push(EMGraphEdge { edge_id, from_node: sid, to_node: band_nid, edge_type: EMEdgeType::OccupiesBand, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
@@ -1088,7 +1161,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         }
 
         // Signal detected in snapshot
-        for (_, &snap_nid) in snap_node_ids.iter().take(3) {
+        for &(_, snap_nid) in snap_node_ids.iter().take(3) {
             edges.push(EMGraphEdge { edge_id, from_node: sid, to_node: snap_nid, edge_type: EMEdgeType::DetectedIn, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
@@ -1117,7 +1190,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
 
         // Emitter → signals (TransmitsTo via signal)
         for &sig_id in &em.signal_ids {
-            if let Some((_, &sig_nid)) = signal_node_ids.iter().find(|(id, _)| *id == sig_id) {
+            if let Some(&(_, sig_nid)) = signal_node_ids.iter().find(|(id, _)| *id == sig_id) {
                 edges.push(EMGraphEdge { edge_id, from_node: eid, to_node: sig_nid, edge_type: EMEdgeType::TransmitsTo, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
@@ -1151,7 +1224,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         edge_id += 1;
 
         if let Some(tx_id) = path.transmitter_id {
-            if let Some((_, &emitter_nid)) = emitter_node_ids.iter().find(|(id, _)| *id == tx_id) {
+            if let Some(&(_, emitter_nid)) = emitter_node_ids.iter().find(|(id, _)| *id == tx_id) {
                 edges.push(EMGraphEdge { edge_id, from_node: emitter_nid, to_node: pid, edge_type: EMEdgeType::PropagatesThrough, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
@@ -1194,13 +1267,13 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         edge_id += 1;
 
         // Victim signal
-        if let Some((_, &victim_nid)) = signal_node_ids.iter().find(|(id, _)| *id == ev.victim_signal_id) {
+        if let Some(&(_, victim_nid)) = signal_node_ids.iter().find(|(id, _)| *id == ev.victim_signal_id) {
             edges.push(EMGraphEdge { edge_id, from_node: eid, to_node: victim_nid, edge_type: EMEdgeType::VictimOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         // Interferer signal
         if let Some(interferer_id) = ev.interferer_signal_id {
-            if let Some((_, &interferer_nid)) = signal_node_ids.iter().find(|(id, _)| *id == interferer_id) {
+            if let Some(&(_, interferer_nid)) = signal_node_ids.iter().find(|(id, _)| *id == interferer_id) {
                 edges.push(EMGraphEdge { edge_id, from_node: interferer_nid, to_node: eid, edge_type: EMEdgeType::InterfererOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
@@ -1220,7 +1293,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["doa".into(), "direction-of-arrival".into()], hotness_score: 0.65, ..Default::default()
         });
-        if let Some((_, &sig_nid)) = signal_node_ids.iter().find(|(id, _)| *id == doa.signal_id) {
+        if let Some(&(_, sig_nid)) = signal_node_ids.iter().find(|(id, _)| *id == doa.signal_id) {
             edges.push(EMGraphEdge { edge_id, from_node: did, to_node: sig_nid, edge_type: EMEdgeType::DoAPointsTo, weight: 0.9, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
@@ -1242,7 +1315,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         });
         // Coverage → emitter
         if let Some(tx_id) = cov.transmitter_id {
-            if let Some((_, &em_nid)) = emitter_node_ids.iter().find(|(id, _)| *id == tx_id) {
+            if let Some(&(_, em_nid)) = emitter_node_ids.iter().find(|(id, _)| *id == tx_id) {
                 edges.push(EMGraphEdge { edge_id, from_node: cid, to_node: em_nid, edge_type: EMEdgeType::CoverageOf, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
@@ -1273,9 +1346,12 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
     let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
     for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
 
-    let final_graph = EMGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
+    let mut final_graph = EMGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
     let _ = executor.save_graph(&final_graph);
-    EMModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    if let Err(e) = persist_em_graph(&mut final_graph).await {
+        eprintln!("electromagnetic persist: graph built but ZSEI persistence failed: {e}");
+    }
+    EMModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

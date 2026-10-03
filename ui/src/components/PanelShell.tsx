@@ -27,15 +27,19 @@ export const PanelShell: React.FC<{ title: string; subtitle?: string; showProjec
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginBottom: 10 }}>
         {showProjectPicker && <ProjectPicker />}
         {tabs.length > 1 && (
-          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          <div role="tablist" aria-label={`${title} sections`} style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
             {tabs.map((t) => (
               <button
                 key={t.id}
+                id={`panelshell-tab-${t.id}`}
+                role="tab"
+                aria-selected={t.id === current?.id}
+                aria-controls={`panelshell-panel-${t.id}`}
                 onClick={() => setActive(t.id)}
                 style={{
-                  background: t.id === current?.id ? "#1e2836" : "transparent",
-                  color: t.id === current?.id ? "#dfe7f2" : "#8b98ab",
-                  border: "1px solid #1e2836",
+                  background: t.id === current?.id ? "var(--color-border-faint)" : "transparent",
+                  color: t.id === current?.id ? "var(--color-text)" : "var(--color-text-muted)",
+                  border: "1px solid var(--color-border-faint)",
                   borderRadius: 6,
                   padding: "3px 10px",
                   fontSize: 12,
@@ -48,7 +52,13 @@ export const PanelShell: React.FC<{ title: string; subtitle?: string; showProjec
           </div>
         )}
       </div>
-      <div className="opanel-scroll" style={{ minHeight: 0 }}>
+      <div
+        className="opanel-scroll"
+        style={{ minHeight: 0 }}
+        role="tabpanel"
+        id={current ? `panelshell-panel-${current.id}` : undefined}
+        aria-labelledby={current ? `panelshell-tab-${current.id}` : undefined}
+      >
         {current?.render(projectId)}
       </div>
     </div>

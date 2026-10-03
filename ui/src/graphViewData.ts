@@ -68,6 +68,7 @@ function modalityFromObjectStorePath(path: string | null | undefined): Modality 
   if (path.startsWith("graphs/code_")) return "code";
   if (path.startsWith("graphs/math_")) return "math";
   if (path.startsWith("graphs/text_")) return "text";
+  if (path.startsWith("graphs/image_")) return "image";
   return null;
 }
 

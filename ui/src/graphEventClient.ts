@@ -51,6 +51,91 @@ export interface GraphEventFrame {
 
 export type GraphEventListener = (frame: GraphEventFrame) => void;
 
+// ── pipeline_progress (src/pipeline/executor.rs PipelineProgress, pushed by
+// handle_websocket's 500ms poll loop in src/grpc/mod.rs) — every real
+// subprocess pipeline invocation (TextAnalysisPipeline, WorkspaceTab, the
+// prompt pipeline, ...). progress_percent is genuinely only ever 0 (Running)
+// or 100 (Completed/Failed/Cancelled) — there is no real mid-execution
+// granularity, never render it as a smoothly-animating bar implying one. ──
+
+export type PipelineProgressStatus = "Queued" | "Running" | "Completed" | "Failed" | "Cancelled";
+
+export interface PipelineProgressFrame {
+  action: "pipeline_progress";
+  execution_id: string;
+  pipeline_id: number;
+  pipeline_name: string;
+  status: PipelineProgressStatus;
+  progress_percent: number;
+  task_id: number | null;
+  step_index: number | null;
+  tokens_used: number | null;
+}
+
+export type PipelineProgressListener = (frame: PipelineProgressFrame) => void;
+
+function isPipelineProgressFrame(value: unknown): value is PipelineProgressFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.action === "pipeline_progress" &&
+    typeof v.execution_id === "string" &&
+    typeof v.pipeline_id === "number" &&
+    typeof v.pipeline_name === "string" &&
+    typeof v.status === "string" &&
+    typeof v.progress_percent === "number"
+  );
+}
+
+// ── orchestration_stage (src/orchestration_events.rs, emitted from the real
+// record_stage/record_stage_timed choke point every stage already passes
+// through) — the ONLY live signal for stages with no subprocess pipeline to
+// track via pipeline_progress (Build AMT, Blueprint Assignment, Zero-Shot
+// Simulation, ...). Scoped by (user_id, device_id) — the requester's own
+// identity, already known client-side since it's who sent the /orchestrate
+// call; filter to your own ids, there is no per-request id today (single-
+// conversation-at-a-time UI, see the module doc comment on the Rust side). ──
+
+export interface OrchestrationStageFrame {
+  action: "orchestration_stage";
+  user_id: number;
+  device_id: number;
+  stage: number;
+  stage_name: string;
+  success: boolean;
+  /** Real dynamic text already produced by the stage — never fabricated. */
+  summary: string;
+  duration_ms: number;
+  timestamp: number;
+}
+
+export type OrchestrationStageListener = (frame: OrchestrationStageFrame) => void;
+
+function isOrchestrationStageFrame(value: unknown): value is OrchestrationStageFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.action === "orchestration_stage" &&
+    typeof v.user_id === "number" &&
+    typeof v.device_id === "number" &&
+    typeof v.stage === "number" &&
+    typeof v.stage_name === "string" &&
+    typeof v.success === "boolean" &&
+    typeof v.summary === "string"
+  );
+}
+
+/** Any other real `action` this socket may legitimately carry — recognized
+ * by shape but not (yet) surfaced through a typed subscription. Distinct
+ * from a genuinely malformed/unparseable frame. */
+function hasKnownAction(value: unknown): value is { action: string } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as Record<string, unknown>).action === "string"
+  );
+}
+
 /** Real connection state — "open" is only ever reported once the socket's
  * readyState is actually WebSocket.OPEN, never fabricated ahead of it. */
 export type GraphSocketState = "connecting" | "open" | "closed" | "error";
@@ -124,6 +209,8 @@ export class GraphEventClient {
   private readonly url: string;
   private socket: WebSocket | null = null;
   private readonly eventListeners = new Set<EventSubscription>();
+  private readonly pipelineProgressListeners = new Set<PipelineProgressListener>();
+  private readonly orchestrationStageListeners = new Set<OrchestrationStageListener>();
   private readonly statusListeners = new Set<GraphSocketStatusListener>();
   private status: GraphSocketStatus = {
     state: "closed",
@@ -184,6 +271,29 @@ export class GraphEventClient {
     this.eventListeners.add(sub);
     return () => {
       this.eventListeners.delete(sub);
+    };
+  }
+
+  /** Subscribe to real pipeline_progress frames (every subprocess pipeline
+   * invocation) — unfiltered; there are usually few enough concurrent
+   * executions that a consumer filtering by pipeline_name/execution_id
+   * itself is simpler than adding another server-side scope convention. */
+  onPipelineProgress(listener: PipelineProgressListener): () => void {
+    this.pipelineProgressListeners.add(listener);
+    return () => {
+      this.pipelineProgressListeners.delete(listener);
+    };
+  }
+
+  /** Subscribe to real orchestration_stage frames. Filter to your own
+   * request by comparing frame.user_id/device_id to the ids you sent on
+   * /orchestrate — this client does not filter for you (unlike onEvent's
+   * scope keywords, ids are call-site data, not something this client
+   * otherwise tracks). */
+  onOrchestrationStage(listener: OrchestrationStageListener): () => void {
+    this.orchestrationStageListeners.add(listener);
+    return () => {
+      this.orchestrationStageListeners.delete(listener);
     };
   }
 
@@ -264,21 +374,36 @@ export class GraphEventClient {
       });
       return;
     }
-    if (!isGraphEventFrame(parsed)) {
-      this.setStatus({
-        ...this.status,
-        state: "error",
-        lastError: `unrecognized frame shape: ${data.slice(0, 200)}`,
-      });
+    if (isGraphEventFrame(parsed)) {
+      // eslint-disable-next-line no-console
+      console.debug("[graphEventClient] graph_event received", parsed);
+      for (const { fn, scope } of this.eventListeners) {
+        if (scope === null || graphEventVisibleTo(parsed, scope)) {
+          fn(parsed);
+        }
+      }
       return;
     }
-    // eslint-disable-next-line no-console
-    console.debug("[graphEventClient] graph_event received", parsed);
-    for (const { fn, scope } of this.eventListeners) {
-      if (scope === null || graphEventVisibleTo(parsed, scope)) {
-        fn(parsed);
-      }
+    if (isPipelineProgressFrame(parsed)) {
+      for (const fn of this.pipelineProgressListeners) fn(parsed);
+      return;
     }
+    if (isOrchestrationStageFrame(parsed)) {
+      for (const fn of this.orchestrationStageListeners) fn(parsed);
+      return;
+    }
+    if (hasKnownAction(parsed)) {
+      // A real frame this socket legitimately carries (e.g. "pong",
+      // "subscribed", "cancel_requested" — server-side ack replies, see
+      // handle_ws_message in src/grpc/mod.rs) that just has no typed
+      // subscription here yet. Not a malformed-frame error.
+      return;
+    }
+    this.setStatus({
+      ...this.status,
+      state: "error",
+      lastError: `unrecognized frame shape: ${data.slice(0, 200)}`,
+    });
   }
 
   private scheduleReconnect(): void {

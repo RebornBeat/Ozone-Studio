@@ -402,3 +402,10 @@ pub fn validate_blueprint(blueprint: &PipelineBlueprint) -> OzoneResult<Vec<Stri
 
     Ok(warnings)
 }
+
+/// Category lookup for contract gating — consciousness-category pipelines
+/// are INTERNAL META (operator directive, 2026-10-01): never callable from
+/// orchestrate/blueprint steps or the external /pipeline/execute contract.
+pub fn category_of(id: PipelineID) -> Option<&'static str> {
+    PIPELINE_INFO.get(&id).map(|p| p.category)
+}

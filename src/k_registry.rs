@@ -23,7 +23,7 @@ use crate::shared_contracts::k_loops::{
     ConvergencePolicy, Ordered1x1Policy, PairwisePolicy,
 };
 use crate::shared_contracts::k_relevance::RelevancePolicy;
-use crate::shared_contracts::k_registry::{KAlgorithmKind, NamedPresets};
+use crate::shared_contracts::k_registry::{KAlgorithmKind, NamedPresets, SelectionPolicy, WatchdogPolicy};
 use crate::shared_contracts::k_validation::ValidationPolicy;
 use crate::zsei::search::SearchRegistry;
 
@@ -53,6 +53,11 @@ pub struct KAlgorithms {
     /// `relevance` presets: how new graphs link into the living graph
     /// (neighborhood walk depth + per-scope shared-term floors).
     pub relevance: RwLock<NamedPresets<RelevancePolicy>>,
+    /// `selection` presets: how methodologies are ranked + processed for
+    /// AMT branch discovery (pairwise-ranked batching vs per-candidate).
+    pub selection: RwLock<NamedPresets<SelectionPolicy>>,
+    /// `watchdog` presets: per-model-call timeout budgets.
+    pub watchdog: RwLock<NamedPresets<WatchdogPolicy>>,
 }
 
 impl KAlgorithms {
@@ -91,6 +96,28 @@ impl KAlgorithms {
         );
         relevance.register("keywords-only", RelevancePolicy::keywords_only());
 
+        let mut selection = NamedPresets::new(
+            KAlgorithmKind::Selection,
+            "batched-all",
+            SelectionPolicy { batch_size: 8 },
+        );
+        selection.register(
+            "batched-wide",
+            SelectionPolicy { batch_size: 16 },
+        );
+        selection.register(
+            "per-methodology",
+            SelectionPolicy { batch_size: 1 },
+        );
+
+        let mut watchdog = NamedPresets::new(
+            KAlgorithmKind::Watchdog,
+            "model-300",
+            WatchdogPolicy { per_call_timeout_secs: 300 },
+        );
+        watchdog.register("model-120", WatchdogPolicy { per_call_timeout_secs: 120 });
+        watchdog.register("off", WatchdogPolicy { per_call_timeout_secs: u64::MAX });
+
         Self {
             validation: RwLock::new(validation),
             ordered_loop: RwLock::new(ordered_loop),
@@ -98,6 +125,8 @@ impl KAlgorithms {
             convergence: RwLock::new(convergence),
             search: Arc::new(SearchRegistry::new()),
             relevance: RwLock::new(relevance),
+            selection: RwLock::new(selection),
+            watchdog: RwLock::new(watchdog),
         }
     }
 
@@ -134,6 +163,22 @@ impl KAlgorithms {
     /// `name` isn't a registered preset.
     pub fn set_pairwise_preset(&self, name: &str) -> bool {
         self.pairwise.write().map(|mut p| p.set_default(name)).unwrap_or(false)
+    }
+
+    /// The live default selection policy (methodology branch discovery).
+    pub fn current_selection_policy(&self) -> SelectionPolicy {
+        self.selection
+            .read()
+            .map(|p| *p.default_preset())
+            .unwrap_or(SelectionPolicy { batch_size: 8 })
+    }
+
+    /// The live default watchdog budget (secs; u64::MAX = off).
+    pub fn current_watchdog_secs(&self) -> u64 {
+        self.watchdog
+            .read()
+            .map(|p| p.default_preset().per_call_timeout_secs)
+            .unwrap_or(300)
     }
 
     /// Current default preset names, for `/config/get` and Settings —
@@ -194,6 +239,12 @@ mod tests {
         assert_eq!(ordered_loop.default_preset().exhaustion_strikes, 2);
         assert_eq!(pairwise.get(Some("wide")).map(|p| p.forward_window), Some(16));
         assert_eq!(convergence.get(Some("deep")).map(|p| p.max_passes), Some(5));
+        let selection = k.selection.read().unwrap();
+        assert_eq!(selection.default_preset().batch_size, 8);
+        assert_eq!(selection.get(Some("per-methodology")).map(|p| p.batch_size), Some(1));
+        let watchdog = k.watchdog.read().unwrap();
+        assert_eq!(watchdog.default_preset().per_call_timeout_secs, 300);
+        assert_eq!(watchdog.get(Some("off")).map(|p| p.per_call_timeout_secs), Some(u64::MAX));
     }
 
     #[test]

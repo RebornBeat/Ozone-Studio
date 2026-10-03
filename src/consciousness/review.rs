@@ -120,6 +120,67 @@ fn read_zero_shot_capture_store(data_dir: &str) -> Vec<RawThoughtRow> {
         .collect()
 }
 
+/// One row from `{data_dir}/model_calls/pipeline_zero_shot_calls.jsonl`
+/// (S12) — field names match the real writer (mirrored by the S12 read
+/// route's `PipelineZeroShotCallRow` in src/grpc/mod.rs). First reader
+/// beyond the HTTP route: pipeline zero-shot failures reach review now.
+#[derive(Debug, serde::Deserialize)]
+struct PipelineZeroShotRow {
+    ts: String,
+    #[serde(default)]
+    pipeline: String,
+    #[serde(default)]
+    call_site: String,
+    #[serde(default)]
+    success: bool,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Read the real S12 capture store — same discipline as the S10/S11 readers.
+fn read_pipeline_zero_shot_capture_store(data_dir: &str) -> Vec<PipelineZeroShotRow> {
+    let path = format!("{}/model_calls/pipeline_zero_shot_calls.jsonl", data_dir);
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<PipelineZeroShotRow>(line).ok())
+        .collect()
+}
+
+/// One row from `{data_dir}/model_calls/tool_calls.jsonl` (S13) — the
+/// capture quartet's tool-call store every gated /mcp/call writes
+/// (mirrors the S13 read route's `ToolCallRow` in src/grpc/mod.rs).
+/// CC's flagged gap ("no MCP tool's results reach consciousness review")
+/// closes here: a security-mcp or terminal refusal is now speakable.
+#[derive(Debug, serde::Deserialize)]
+struct ToolCallRow {
+    ts: String,
+    #[serde(default)]
+    tool: String,
+    #[serde(default)]
+    agent: String,
+    #[serde(default)]
+    success: bool,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+/// Read the real S13 capture store — same discipline as the S10/S11/S12 readers.
+fn read_tool_calls_capture_store(data_dir: &str) -> Vec<ToolCallRow> {
+    let path = format!("{}/model_calls/tool_calls.jsonl", data_dir);
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    content
+        .lines()
+        .filter_map(|line| serde_json::from_str::<ToolCallRow>(line).ok())
+        .collect()
+}
+
 /// Item 3 — the review pass itself. Real inputs (capture store + recent
 /// tasks), real traversal when a task names a project, real citations.
 /// Returns the container ids actually created (empty = nothing genuinely
@@ -256,10 +317,124 @@ pub async fn run_review_pass(
         }
     }
 
+    // --- Finding class 4 (S12): modality pipelines whose zero-shot calls
+    // are failing repeatedly ---
+    // Real, self-contained signal: group S12 rows by pipeline name; a
+    // pipeline with enough recent calls to be a sample where MOST failed
+    // is a genuine "this pipeline's model path is broken" finding — the
+    // same honest shape as class 3, one layer down (pipelines, not AMT
+    // branches). Timestamps parse through the same helper class 1 uses.
+    let s12_rows = read_pipeline_zero_shot_capture_store(data_dir);
+    // RECENT-WINDOW FIX (found live 2026-10-01): these classes counted the
+    // whole file — a tool FIXED days ago kept being flagged forever off its
+    // historical failures (yolo_graph's old color_space drift fired a full
+    // day after the fix proved green). Window both S12/S13 to the last 24h
+    // via the same ts parser class 1 uses; unparseable ts is dropped (the
+    // capture writers always emit RFC3339, so this loses nothing real).
+    const RECENT_WINDOW_SECS: u64 = 86_400;
+    let s12_rows: Vec<PipelineZeroShotRow> = s12_rows
+        .into_iter()
+        .filter(|r| {
+            parse_capture_ts(&r.ts)
+                .and_then(|t| now.duration_since(t).ok())
+                .map(|age| age.as_secs() <= RECENT_WINDOW_SECS)
+                .unwrap_or(false)
+        })
+        .collect();
+    let mut by_pipeline: std::collections::HashMap<&str, Vec<&PipelineZeroShotRow>> =
+        std::collections::HashMap::new();
+    for r in &s12_rows {
+        by_pipeline.entry(r.pipeline.as_str()).or_default().push(r);
+    }
+    let mut failing_pipelines: Vec<String> = Vec::new();
+    for (pipeline, rows) in &by_pipeline {
+        if rows.len() < MIN_SAMPLE_FOR_FALLBACK_FINDING {
+            continue;
+        }
+        let failed = rows.iter().filter(|r| !r.success).count();
+        if failed * 2 >= rows.len() {
+            failing_pipelines.push(format!(
+                "{}: {}/{} zero-shot calls failed (recent)",
+                pipeline, failed, rows.len()
+            ));
+        }
+    }
+    if !failing_pipelines.is_empty() {
+        let content = format!(
+            "Modality pipeline(s) with majority-failing zero-shot calls — the model path, not the input, is the likely fault. Detail:\n- {}",
+            failing_pipelines.join("\n- ")
+        );
+        if let Some(id) = persist_insight(&store, "failing-pipeline-zero-shots", &content, &failing_pipelines).await {
+            created.push(id);
+        }
+    }
+
+    // --- Finding class 5 (S13): gated tool calls failing in clusters ---
+    // The capture quartet's last unread store. A tool with enough recent
+    // calls where most FAILED (refusals, unreachable endpoints, auth
+    // rejections) is exactly what the consciousness should say to the
+    // operator — a security-mcp refusal cluster or a dead bridge is a
+    // system-state fact, not noise. Same minimum-sample discipline.
+    let s13_rows = read_tool_calls_capture_store(data_dir);
+    // Same 24h recency window as class 4 — see that comment for why.
+    let s13_rows: Vec<ToolCallRow> = s13_rows
+        .into_iter()
+        .filter(|r| {
+            parse_capture_ts(&r.ts)
+                .and_then(|t| now.duration_since(t).ok())
+                .map(|age| age.as_secs() <= RECENT_WINDOW_SECS)
+                .unwrap_or(false)
+        })
+        .collect();
+    let mut by_tool: std::collections::HashMap<&str, Vec<&ToolCallRow>> =
+        std::collections::HashMap::new();
+    for r in &s13_rows {
+        by_tool.entry(r.tool.as_str()).or_default().push(r);
+    }
+    let mut failing_tools: Vec<String> = Vec::new();
+    for (tool, rows) in &by_tool {
+        if rows.len() < MIN_SAMPLE_FOR_FALLBACK_FINDING {
+            continue;
+        }
+        let failed = rows.iter().filter(|r| !r.success).count();
+        if failed * 2 >= rows.len() {
+            // Cite the newest real error verbatim — no paraphrase.
+            let last_error = rows
+                .iter()
+                .rev()
+                .filter(|r| !r.success)
+                .find_map(|r| r.error.as_deref())
+                .unwrap_or("(no error text captured)")
+                .chars()
+                .take(120)
+                .collect::<String>();
+            failing_tools.push(format!(
+                "{}: {}/{} calls failed — newest error: \"{}\"",
+                tool,
+                failed,
+                rows.len(),
+                last_error
+            ));
+        }
+    }
+    if !failing_tools.is_empty() {
+        let content = format!(
+            "Tool(s) with majority-failing gated calls — check the servers/roles behind these before trusting their outputs. Detail:\n- {}",
+            failing_tools.join("\n- ")
+        );
+        if let Some(id) = persist_insight(&store, "failing-tool-calls", &content, &failing_tools).await {
+            created.push(id);
+        }
+    }
+
     created
 }
 
-async fn persist_insight(
+/// Persist one insight container under the consciousness metacognition
+/// root — the shared output path for BOTH the review pass and the
+/// assistant's check-up pass (one canonical insight shape: content via
+/// object_store_path, reachable through GetContainerContent).
+pub(crate) async fn persist_insight(
     store: &Arc<dyn StoreAccess>,
     kind: &str,
     content: &str,

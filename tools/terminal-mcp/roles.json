@@ -1,0 +1,6 @@
+{
+  "_doctrine": "Per-role allowlists (operator directive 2026-09-28): coordinators are a higher trust tier. Exact agent match, then '*', then legacy global env, then locked.",
+  "zcode": ["git", "cargo", "ls", "node", "npm", "pip", "pip3", "python3", "grep", "find", "ss", "systemctl", "blender"],
+  "claude-code": ["git", "cargo", "ls", "node", "npm", "pip", "python3", "grep", "blender"],
+  "*": ["ls"]
+}

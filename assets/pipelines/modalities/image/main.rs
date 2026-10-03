@@ -957,6 +957,129 @@ pub struct RegionResult {
     pub height: u32,
 }
 
+
+// ============================================================================
+// ZSEI OVER HTTP (the text/code/math pattern — real graph persistence)
+// ============================================================================
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({"query": query, "session_token": ""});
+    let resp = client
+        .post(format!("{host}/zsei/query"))
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|e| format!("ZSEI unreachable: {e}"))?;
+    let v: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+    if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+        Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+    } else {
+        Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+    }
+}
+
+/// PERSIST the image graph as a real ZSEI container (the math/text revival
+/// pattern, 2026-09-28): ContainerType ModalityGraph, parent = the project,
+/// real keywords derived from graph node labels, content behind
+/// object_store_path (graphs/image_<id>.json). The container's assigned id
+/// BECOMES the graph_id — the same convention that made text/code/math
+/// graphs retrievable.
+async fn persist_image_graph(graph: &mut ImageGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph
+            .nodes
+            .iter()
+            .filter(|n| n.node_type == ImageNodeType::Object)
+            .map(|n| n.label.to_lowercase())
+            .collect();
+        k.sort();
+        k.dedup();
+        if k.is_empty() {
+            k.push("image".to_string());
+        }
+        k.truncate(12);
+        k
+    };
+    let name = format!(
+        "{} image graph ({} nodes, {} edges)",
+        graph.modality,
+        graph.nodes.len(),
+        graph.edges.len()
+    );
+    let now = chrono::Utc::now().timestamp() as u64;
+    let container = serde_json::json!({
+        "global_state": {
+            "container_id": 0, "parent_id": graph.project_id, "child_ids": [],
+            "child_count": 0, "version": 1
+        },
+        "local_state": {
+            "metadata": {
+                "container_type": "ModalityGraph", "modality": "Image",
+                "created_at": now, "updated_at": now,
+                "provenance": "image-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name,
+                "materialized_path": None::<String>
+            },
+            "context": {
+                "categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["image"], "relationships": [],
+                "learned_associations": [], "embedding": null
+            },
+            "storage": {
+                "db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": format!("graphs/image_placeholder.json"),
+                "compression_type": "None"
+            },
+            "hints": {
+                "access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0,
+                "centroid": null, "ml_prediction_weight": 0.0
+            },
+            "integrity": {
+                "content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0], "semantic_fingerprint": [],
+                "last_verified": 0, "integrity_score": 1.0, "version_history": []
+            },
+            "file_context": null, "code_context": null, "text_context": null,
+            "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    }))
+    .await?;
+    let new_id = result
+        .get("ContainerID")
+        .and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    // Content file at the REAL id, pointer updated to match.
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/image_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(
+        &abs,
+        serde_json::to_string_pretty(&serde_json::json!({
+            "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges,
+            "source": graph.source, "metadata": graph.metadata,
+        }))
+        .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null,
+            "object_store_path": rel, "compression_type": "None"
+        }, "metadata": null, "context": null, "hints": null } }
+    }))
+    .await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
 // ============================================================================
 // EXECUTION
 // ============================================================================
@@ -995,7 +1118,14 @@ pub async fn execute(input: Value) -> Result<Value, String> {
             project_id,
             graph_name,
         } => {
-            let graph = create_graph(analysis, project_id, graph_name).await?;
+            let mut graph = create_graph(analysis, project_id, graph_name).await?;
+            // Persist as a real ZSEI container (idempotency: failures are
+            // loud — the graph still returns in the response, but the error
+            // rides with it; silent in-memory-only graphs were the exact
+            // pre-revival failure mode).
+            if let Err(e) = persist_image_graph(&mut graph).await {
+                eprintln!("image CreateGraph: ZSEI persistence failed: {e}");
+            }
             ("CreateGraph", ImageResult::Graph(graph))
         }
 
@@ -1518,6 +1648,7 @@ async fn create_graph(
         }
     }
 
+    let edge_count = edges.len();
     Ok(ImageGraph {
         graph_id,
         name: graph_name.unwrap_or_else(|| format!("Image Graph {}", graph_id)),
@@ -1535,7 +1666,7 @@ async fn create_graph(
         edges,
         metadata: GraphMetadata {
             node_count: node_id_counter as usize - 1,
-            edge_count: edges.len(),
+            edge_count: edge_count,
             analysis_depth: AnalysisDepth::Standard,
             semantic_enriched: false,
             cross_modal_links: 0,
@@ -1592,7 +1723,7 @@ async fn query_graph(graph_id: u64, query: ImageQuery) -> Result<QueryResult, St
     let min_confidence = query.min_confidence.unwrap_or(0.0);
     let limit = query.limit.unwrap_or(100);
 
-    let (nodes, edges) = match query.query_type {
+    let (nodes, edges) = match query.query_type.clone() {
         ImageQueryType::FindObjects { labels } => {
             let matching_nodes: Vec<_> = graph
                 .nodes
@@ -1825,24 +1956,37 @@ fn generate_graph_id() -> u64 {
 
 #[tokio::main]
 async fn main() {
+    // Standard host contract (the math-revival pattern): --input <json> or
+    // stdin, full {"data": {...}, "context": {...}} envelope — unwrap
+    // `data` when present, else the whole payload.
+    let mut input_str = String::new();
     let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        eprintln!(
-            "Usage: {} <json_input>",
-            args.get(0).unwrap_or(&"image_analysis".to_string())
-        );
-        eprintln!("Pipeline: {} v{}", PIPELINE_NAME, PIPELINE_VERSION);
+    let mut i = 1;
+    while i < args.len() {
+        if args[i] == "--input" && i + 1 < args.len() {
+            input_str = args[i + 1].clone();
+            i += 1;
+        }
+        i += 1;
+    }
+    if input_str.is_empty() {
+        use std::io::Read;
+        let _ = std::io::stdin().read_to_string(&mut input_str);
+    }
+    if input_str.trim().is_empty() {
+        eprintln!("Usage: {} --input '<json>' (or JSON on stdin)", args.get(0).unwrap_or(&"image".to_string()));
         std::process::exit(1);
     }
-
-    let input_str = &args[1];
-    let input: Value = match serde_json::from_str(input_str) {
+    let raw: Value = match serde_json::from_str(&input_str) {
         Ok(v) => v,
         Err(e) => {
             eprintln!("Failed to parse input JSON: {}", e);
             std::process::exit(1);
         }
+    };
+    let input: Value = match raw.get("data") {
+        Some(d) => d.clone(),
+        None => raw,
     };
 
     match execute(input).await {

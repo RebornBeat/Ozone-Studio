@@ -48,11 +48,11 @@ import { FileContentUnavailable, readFileContent, writeFileContent } from "../..
 export type FileEditorProps = { projectId: number | null };
 
 const C = {
-  text: "#dfe7f2",
-  body: "#c7d0dc",
-  muted: "#8b98ab",
-  border: "#1e2836",
-  panel: "#0a0f1a",
+  text: "var(--color-text)",
+  body: "var(--color-text-secondary)",
+  muted: "var(--color-text-muted)",
+  border: "var(--color-border-faint)",
+  panel: "var(--color-bg)",
   warn: "#e8c14f",
   err: "#ff8a8a",
   ok: "#8fe38f",

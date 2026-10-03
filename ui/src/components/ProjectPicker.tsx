@@ -23,14 +23,14 @@ export const ProjectPicker: React.FC = () => {
   }, []);
 
   if (error) return <span style={{ color: "#ff8a8a", fontSize: 12.5 }}>Error loading projects: {error}</span>;
-  if (options.length === 0) return <span style={{ color: "#8b98ab", fontSize: 12.5 }}>No workspaces/projects found yet.</span>;
+  if (options.length === 0) return <span style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>No workspaces/projects found yet.</span>;
   return (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center", fontSize: 12.5 }}>
-      <label style={{ color: "#8b98ab" }}>Project:</label>
+      <label style={{ color: "var(--color-text-muted)" }}>Project:</label>
       <select
         value={selected ?? undefined}
         onChange={(e) => setSelected(Number(e.target.value))}
-        style={{ background: "#101724", color: "#dfe7f2", border: "1px solid #1e2836", borderRadius: 6, padding: "4px 8px" }}
+        style={{ background: "#101724", color: "var(--color-text)", border: "1px solid var(--color-border-faint)", borderRadius: 6, padding: "4px 8px" }}
       >
         {options.map((p) => (
           <option key={p.id} value={p.id}>

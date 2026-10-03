@@ -46,7 +46,7 @@
  * failure (provider "Insufficient credits" errors for S11; review-failed for S10).
  */
 import React from "react";
-import type { DecisionReviewRow, ZeroShotCallRow } from "../../data/captureData";
+import type { DecisionReviewRow, ToolCallRow, ZeroShotCallRow } from "../../data/captureData";
 
 export type CaptureSeverity = "success" | "fallback" | "failure" | "review-pending" | "unclassified";
 export interface CaptureStatus {
@@ -64,7 +64,7 @@ export const SEVERITY_STYLE: Record<CaptureSeverity, { color: string; glyph: str
   fallback: { color: "#e8c14f", glyph: "⇄", word: "Fallback/retry" },
   success: { color: "#8fe38f", glyph: "✓", word: "Success" },
   "review-pending": { color: "#8fa8d8", glyph: "⏸", word: "Review pending" },
-  unclassified: { color: "#8b98ab", glyph: "?", word: "Unclassified" },
+  unclassified: { color: "var(--color-text-muted)", glyph: "?", word: "Unclassified" },
 };
 
 /** Sort key: most attention-worthy first (failure, review-pending, fallback, unclassified, success). */
@@ -424,4 +424,26 @@ export function classifyDecisionReview(row: DecisionReviewRow): CaptureStatus {
         reasons: [`Unrecognized decision value “${row.decision}” — not one of proceed / decline / review_pending / chunk-no-judgment / review-failed.`],
       };
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// S13 — tool call rows
+// ─────────────────────────────────────────────────────────────────────────
+
+export function classifyToolCall(row: ToolCallRow): CaptureStatus {
+  if (typeof row.success !== "boolean") {
+    return { severity: "unclassified", label: "unclassified", reasons: ["Row has no boolean `success` field."] };
+  }
+  const reasons: string[] = [];
+  if (!row.identity_validated) {
+    reasons.push("Caller identity was not validated for this call (no session_token provided, or none was checked).");
+  }
+  if (!row.success) {
+    const err = (row.error ?? "").trim();
+    reasons.push(err ? `Recorded error: "${clip(err, 200)}".` : "Failed with no error text recorded.");
+    reasons.push(...evidenceReasons(err));
+    return { severity: "failure", label: `${row.tool} failed`, reasons };
+  }
+  reasons.push(row.identity_validated ? "Caller identity validated against AuthSystem." : "Succeeded, but caller identity was not validated.");
+  return { severity: row.identity_validated ? "success" : "fallback", label: `${row.tool} ok`, reasons };
 }

@@ -42,10 +42,10 @@ interface TaskStepRaw {
   version_notes?: StepVersionNoteRaw[];
 }
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 
 function formatTimestamp(ts: number | undefined): string {
   if (typeof ts !== "number" || !Number.isFinite(ts)) return "unknown time";

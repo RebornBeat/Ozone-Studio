@@ -58,6 +58,7 @@ pub mod context_mirror;
 /// GRAPH EVENT ripple — the living-graph nervous system: every graph write
 /// publishes a scoped event; websockets, monitor, and hooks subscribe.
 pub mod graph_events;
+pub mod orchestration_events;
 
 /// QR DEVICE pairing — the phone as authenticator, multi-device onboarding.
 pub mod pairing;
@@ -66,6 +67,10 @@ pub mod pairing;
 /// system signals only — timezone via tzdata's own zone.tab, locale via
 /// POSIX naming — never a fabricated lookup or network geolocation call).
 pub mod hardware_region;
+
+/// FILE BEACON — real file-change → live-graph ripple for registered
+/// FileReference containers. See docs/guides/file-beacon-design.md.
+pub mod file_beacon;
 
 
 // Re-exports
@@ -1047,12 +1052,68 @@ impl OzoneRuntime {
             // wake the loop above instantly — the AMT stays context-aligned
             // with the living graph instead of waiting for the interval.
             crate::orchestrator::amt_loop::spawn_graph_ripple_sync(
-                store_adapter,
+                store_adapter.clone(),
                 format!(
                     "{}/amt_reexpansion_candidates.json",
                     std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string())
                 ),
             );
+
+            // RIPPLE ACTORS (docs/ACTING_LOOP_GUIDE.md §6 step 4): the real
+            // "what acts on a security finding / a coordination note / a
+            // failed task" answer — subscribes the SAME GraphEventHub the
+            // graph-ripple sync above does, and a real match wakes the
+            // SAME amt_loop consumption (unchanged, still the only real
+            // cost center). Same store_adapter/task_manager clones, same
+            // boot-spawn convention as everything else in this block.
+            crate::orchestrator::actors::spawn_ripple_actor_dispatch(
+                store_adapter.clone(),
+                runtime.read().await.task_manager.clone(),
+                std::sync::Arc::new(crate::orchestrator::actors::ActorRegistry::new()),
+            );
+
+            // I-LOOP (docs/ACTING_LOOP_GUIDE.md §5/§6 step 6): the real
+            // self-reflection cycle — registered as metadata since early
+            // in this project (pipeline_id 44) but never implemented until
+            // now. Long, budget-safe interval (clamped floor, see
+            // i_loop.rs's own doc comment for why the documented 60s
+            // default is never honored literally).
+            tokio::spawn(crate::orchestrator::i_loop::run_i_loop(
+                executor_adapter.clone(),
+                store_adapter.clone(),
+                runtime.read().await.config.consciousness.enabled,
+                runtime.read().await.config.consciousness.i_loop_interval_ms,
+                // available_models/meta_fallback were moved (not cloned)
+                // into the amt_loop spawn above — re-derive fresh copies
+                // from config rather than reusing those now-moved bindings.
+                runtime.read().await.config.models.available_models.clone(),
+                runtime.read().await.config.models.meta_fallback.clone(),
+            ));
+
+            // PERSONAL ASSISTANT (docs/PERSONAL_ASSISTANT_GUIDE.md §4):
+            // the consciousness's operator-facing voice — watches the
+            // ORDER (overdue/stalled/paused/meetings/cascades) with a
+            // FREE local filter, ONE batched pipeline-9 digest only when
+            // something fires. Same consciousness.enabled gate as the
+            // I-Loop (there are not two self-awareness toggles), same
+            // 1800s budget-safety floor, woken instantly by real task
+            // ripples via emit_task_ripple → notify_wake. The derived
+            // /assistant/feed route works regardless of this gate.
+            tokio::spawn(crate::consciousness::assistant::run_assistant_loop(
+                executor_adapter.clone(),
+                store_adapter.clone(),
+                runtime.read().await.task_manager.clone(),
+                runtime.read().await.config.consciousness.enabled,
+                runtime.read().await.config.consciousness.assistant_interval_ms,
+                runtime.read().await.config.models.available_models.clone(),
+                runtime.read().await.config.models.meta_fallback.clone(),
+            ));
+
+            // FILE BEACON (docs/guides/file-beacon-design.md): real
+            // external file-change -> live-graph ripple for registered
+            // FileReference containers. Same store_adapter, same
+            // boot-spawn convention as the two loops above.
+            crate::file_beacon::spawn(store_adapter);
         }
 
         // Start gRPC server

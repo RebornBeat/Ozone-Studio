@@ -11,6 +11,7 @@
 import React, { useEffect, useState } from "react";
 import { useOzoneStore } from "../services/store";
 import TaskInsightSections from "../views/task/TaskInsightSections";
+import { getGraphEventClient, GraphEventFrame } from "../graphEventClient";
 
 interface TaskStep {
   step_index: number;
@@ -113,9 +114,26 @@ export const TaskDetailPanel: React.FC = () => {
       }
     };
     poll();
+    // Real push, not just poll: src/task/mod.rs's emit_task_ripple fires a
+    // graph_event (container_type:"Task", container_id:<this task's real
+    // id>) on creation/completion/failure/every status transition — landed
+    // 2026-09-29, previously wire-compatible but unconsumed by any UI
+    // listener. Refetch immediately on a matching frame so a status change
+    // (e.g. running -> completed) shows up in well under a second instead
+    // of waiting out the poll interval. The poll stays as a resilient
+    // backstop (a dropped/reconnecting socket must never leave this
+    // permanently stale) — this is additive, not a replacement.
+    const client = getGraphEventClient();
+    client.connect();
+    const offRipple = client.onEvent((frame: GraphEventFrame) => {
+      if (frame.container_type === "Task" && frame.container_id === activeTaskId) {
+        poll();
+      }
+    });
     const interval = setInterval(poll, 2000);
     return () => {
       cancelled = true;
+      offRipple();
       clearInterval(interval);
     };
   }, [activeTaskId]);

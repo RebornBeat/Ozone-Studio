@@ -84,7 +84,7 @@ export const AgentActivityIndicator: React.FC = () => {
         marginLeft: 10,
         padding: "2px 8px",
         borderRadius: 999,
-        border: "1px solid #1e2836",
+        border: "1px solid var(--color-border-faint)",
         background: "rgba(143,227,143,0.08)",
       }}
     >
@@ -94,10 +94,10 @@ export const AgentActivityIndicator: React.FC = () => {
   );
 };
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 
 /** Full Coordination-tab view: live agents + active claims. `projectId` isn't

@@ -47,11 +47,19 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
         pipeline_id: u64,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let registry = self.registry.read().await;
+        // LOCK-SCOPE FIX (found live 2026-10-02 via 6-thread all-futex dump):
+        // this fn used to hold `self.registry.read()` across the ENTIRE
+        // pipeline execution. A queued writer (a boot-time self-registration)
+        // then blocked every subsequent read forever — all tokio workers
+        // parked on futexes, walks frozen at Stage 4b with nothing in the
+        // log. Clone the Arc, drop the guard, let registry.execute() take
+        // its own internal lock for the brief blueprint lookup it needs.
+        let registry = self.registry.clone();
         // Blueprint must exist before execution (registry owns the map).
-        if registry.get_blueprint(pipeline_id).await.is_none() {
+        if registry.read().await.get_blueprint(pipeline_id).await.is_none() {
             return Err(format!("Pipeline {} not found", pipeline_id));
         }
+        drop(registry);
 
         // "_execution_context", if present, carries the caller's real
         // ExecutionContext (user/device/workspace/project ids) — e.g. a step
@@ -84,10 +92,44 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
 
         let pipeline_input = PipelineInput { data, context };
 
-        let output = registry
-            .execute(pipeline_id, pipeline_input, None)
+        // WATCHDOG (K `watchdog` family, `model-300` default): bound EVERY
+        // pipeline invocation at the adapter — the one seam every caller
+        // shares. Found live: a Stage-4b pipeline invocation hung 15-21+
+        // minutes in-process (no subprocess alive, no timeout anywhere),
+        // freezing whole orchestration walks. A hung call now fails LOUDLY
+        // after its budget (doctrine #35: no invisible work either).
+        let watchdog_secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let output = if watchdog_secs == u64::MAX {
+            self.registry
+                .read()
+                .await
+                .execute(pipeline_id, pipeline_input, None)
+                .await
+                .map_err(|e| e.to_string())?
+        } else {
+            let exec_fut = async {
+                let registry = self.registry.read().await;
+                registry.execute(pipeline_id, pipeline_input, None).await
+            };
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(watchdog_secs),
+                exec_fut,
+            )
             .await
-            .map_err(|e| e.to_string())?;
+            {
+                Ok(r) => r.map_err(|e| e.to_string())?,
+                Err(_) => {
+                    tracing::error!(
+                        pipeline_id,
+                        secs = watchdog_secs,
+                        "WATCHDOG: pipeline invocation exceeded its budget — failing loudly                          (hung call abandoned; note the underlying subprocess, if any, may outlive                          this future and need reaping)"
+                    );
+                    return Err(format!(
+                        "watchdog timeout after {watchdog_secs}s — pipeline {pipeline_id} invocation hung"
+                    ));
+                }
+            }
+        };
 
         // PipelineOutput wraps the pipeline's own result fields under `data`
         // (alongside execution_id/task_id/success/error, which belong to the

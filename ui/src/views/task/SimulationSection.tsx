@@ -34,15 +34,15 @@ export interface SimulationSectionProps {
 
 export const SimulationSection: React.FC<SimulationSectionProps> = () => (
   <div>
-    <div style={{ fontSize: 12.5, fontWeight: 700, color: "#dfe7f2", marginBottom: 6 }}>
+    <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--color-text)", marginBottom: 6 }}>
       Simulation prediction (stage 4)
     </div>
     <div
       style={{
         fontSize: 12,
-        color: "#8b98ab",
+        color: "var(--color-text-muted)",
         lineHeight: 1.6,
-        border: "1px solid #1e2836",
+        border: "1px solid var(--color-border-faint)",
         borderRadius: 8,
         padding: "10px 12px",
       }}

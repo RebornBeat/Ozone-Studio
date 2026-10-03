@@ -43,6 +43,8 @@ mod stages;
 mod graphs;
 pub mod meta_loop;
 pub mod amt_loop;
+pub mod actors;
+pub mod i_loop;
 
 /// AMT expansion candidates — unified store (routes, append, review).
 pub mod amt_candidates;
@@ -1110,6 +1112,18 @@ pub(crate) struct OrchestrationState {
 
     // PHASE 1: FILE GRAPHS (produced before modality graphs, before classification)
     pub file_graphs: HashMap<String, u64>, // file_path → graph_id
+
+    /// REGISTERED CAPABILITY SUMMARY (§11.2, operator-corrected wiring:
+    /// blueprints identify tool/MCP needs — the orchestration surfaces the
+    /// capability registry so they CAN). Built once at the orchestrate seam
+    /// from the MCP registry; None = registry empty/unavailable. Compact
+    /// one-line-per-tool format for prompt embedding.
+    pub capability_summary: Option<String>,
+    /// Stage-3 tools/MCP aggregation (operator directive: gather tools and
+    /// MCPs WHERE pipeline gathering is) — applicable entries selected
+    /// against the request's keywords/topics, general-availability floor
+    /// when nothing matches. [{"name","capabilities","endpoint","matched"}]
+    pub applicable_tools: Vec<serde_json::Value>,
     /// Real file content (read from disk in prompt_normalization's attached-
     /// file step), keyed by the same file_path as file_graphs. Confirmed
     /// live this was the actual gap behind attached files being "seen"
@@ -1573,6 +1587,18 @@ impl PromptOrchestrator {
         let _ = self.load_pipeline_index().await;
         let available_pipelines = self.get_available_pipelines().await;
 
+        // CAPABILITY REGISTRY SUMMARY (§11.2 — operator-corrected wiring:
+        // blueprints identify tool/MCP needs, so the orchestration surfaces
+        // the capability registry to stages 3/4). Built once here from the
+        // process-global MCP registry; compact one-line-per-tool. None when
+        // the registry is empty/uninstalled — never a fabricated list.
+        let capability_summary: Option<String> = {
+            match crate::mcp::global_registry_summary().await {
+                Some(s) if !s.is_empty() => Some(s),
+                _ => None,
+            }
+        };
+
         let mut state = OrchestrationState {
             request: request.clone(),
             start_time: std::time::Instant::now(),
@@ -1626,6 +1652,8 @@ impl PromptOrchestrator {
             gate_result: None,
             voice_identity: None,
             available_pipelines,
+            capability_summary: None,
+            applicable_tools: Vec::new(),
         };
 
         // ── Voice input (Whisper, headless path) ──
@@ -2094,6 +2122,71 @@ impl PromptOrchestrator {
 
         state.methodologies = methodology_ids;
 
+        // METHODOLOGY FLOOR (operator, 2026-10-01: "methodologies created
+        // should never be 0 ... methodologies and amt define steps" — an
+        // empty gather means blueprints would be defined from nothing).
+        // Detection is by METHODOLOGY ROOT children (methodology_create
+        // parents them under container 2), NOT keyword search — found live:
+        // the keyword index does not surface freshly created methodologies,
+        // so a search-based floor re-created a duplicate every run.
+        if state.methodologies.is_empty() {
+            if let Ok(Some(root)) = self.store.get_container(2).await {
+                if let Some(children) = root
+                    .get("global_state")
+                    .and_then(|g| g.get("child_ids"))
+                    .and_then(|c| serde_json::from_value::<Vec<u64>>(c.clone()).ok())
+                {
+                    state.methodologies = children;
+                }
+            }
+        }
+        if state.methodologies.is_empty() {
+            // RUNTIME CREATION POINT (operator, 2026-10-01: methodologies have
+            // TWO creation points — the meta loop reviews past work and
+            // creates; the ORCHESTRATOR creates during runtime, capturing all
+            // as it happens. "It should never be zero."). The seed content is
+            // the orchestrator's own REAL stage flow — verifiable steps this
+            // very run executes, nothing invented.
+            tracing::warn!("Stage 3: methodology store empty — creating the base orchestration methodology at runtime (creation point 2 of 2)");
+            let create_input = serde_json::json!({
+                "action": "Create",
+                "name": "Base Orchestration Methodology",
+                "description": "The orchestrator's own stage flow, captured at runtime the first time a request found the methodology store empty. Steps are the real pipeline stages every request passes through.",
+                "category_id": 0,
+                "principles": [
+                    {"name": "Gate first", "description": "Gate every request through the jurisdiction layer before any processing (Stage 0).", "priority": 1},
+                    {"name": "Structure precedes analysis", "description": "Normalize and chunk input before any graph work (Stage 2).", "priority": 2},
+                    {"name": "Nothing from nothing", "description": "Gather methodologies, pipelines, and applicable tools/MCPs together (Stage 3); create what is missing at runtime.", "priority": 3},
+                    {"name": "AMT before blueprint", "description": "Establish the AMT before blueprinting (Stage 4) — intents and branches precede steps.", "priority": 4},
+                    {"name": "Steps from material", "description": "Blueprint steps come from methodologies + AMT, never from thin air.", "priority": 5},
+                    {"name": "Simulation owns calls", "description": "Simulation takes AMT + methodologies into account; pipeline/MCP/tool calls belong to simulation, not the AMT itself.", "priority": 6},
+                ],
+                "heuristics": [
+                    {"condition": "a gather stage returns zero for methodologies, pipelines, or tools", "action": "create the missing entry at runtime rather than proceeding empty", "confidence": 0.9},
+                    {"condition": "a model call fails", "action": "walk the fallback chain before degrading; degradation is loud, never fabricated-Ok", "confidence": 0.95},
+                    {"condition": "a model call completes", "action": "capture it (capture quartet) — no invisible work", "confidence": 1.0},
+                ],
+                "decision_rules": [
+                    {"name": "empty methodology store", "condition": "methodology store empty at Stage 3", "outcome": "create this base methodology and gather it into the current run"},
+                    {"name": "consciousness in contract", "condition": "a consciousness-category pipeline is named by an external contract", "outcome": "refuse — consciousness is internal meta, never callable from orchestration"},
+                ],
+                "keywords": ["orchestration", "methodology", "base", "stage-flow"],
+                "topics": state.topics.clone(),
+            });
+            match self.executor.execute(12, create_input).await {
+                Ok(r) => {
+                    let new_id = r.get("methodology_id").and_then(|m| m.as_u64());
+                    tracing::info!(methodology_id = ?new_id, "Stage 3: base methodology created at runtime");
+                    if let Some(id) = new_id {
+                        state.methodologies.push(id);
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Stage 3: runtime methodology creation failed — blueprint proceeds AMT+registry-only (loud, not silent)");
+                }
+            }
+        }
+
         // Get categories from methodologies and cross-reference
         let mut methodology_categories: HashSet<u64> = HashSet::new();
 
@@ -2195,6 +2288,57 @@ impl PromptOrchestrator {
         // with its classified count) and the AMT is Stage 5 (build_amt,
         // which logs Intents/Branches/Details/Cross-refs/Passes/Validated).
         // This stage owns ONLY the methodology set + categories.
+        // TOOLS/MCP AGGREGATION (operator: "gather mcps and tools where
+        // pipeline gathering is as well") — the same stage that gathers
+        // methodologies + pipelines selects the applicable capability
+        // entries for this request. Keyword/topic match first; when nothing
+        // matches, a capped general-availability floor so the blueprint
+        // still knows the fleet exists (labeled matched=false — honest).
+        state.applicable_tools = {
+            let kws: Vec<String> = state
+                .keywords
+                .iter()
+                .chain(state.topics.iter())
+                .map(|k| k.to_lowercase())
+                .collect();
+            let entries = crate::mcp::registry_entries().await.unwrap_or_default();
+            let mut applicable: Vec<serde_json::Value> = Vec::new();
+            for t in &entries {
+                let hay = format!("{} {}", t.name, t.capabilities.join(" ")).to_lowercase();
+                // CONSCIOUSNESS GUARDRAIL (operator: consciousness is not to
+                // be aggregated) — internal-meta entries never enter the
+                // orchestration-facing capability set.
+                if hay.contains("consciousness") {
+                    continue;
+                }
+                if kws.iter().any(|k| !k.is_empty() && hay.contains(k)) {
+                    applicable.push(serde_json::json!({
+                        "name": t.name,
+                        "capabilities": t.capabilities,
+                        "endpoint": t.endpoint,
+                        "matched": true,
+                    }));
+                }
+            }
+            let matched_count = applicable.len();
+            if applicable.is_empty() {
+                for t in entries.iter().take(8) {
+                    applicable.push(serde_json::json!({
+                        "name": t.name,
+                        "capabilities": t.capabilities,
+                        "endpoint": t.endpoint,
+                        "matched": false,
+                    }));
+                }
+            }
+            tracing::info!(
+                matched = matched_count,
+                total = entries.len(),
+                carried = applicable.len(),
+                "Stage 3: tools/MCP aggregation complete"
+            );
+            applicable
+        };
         self.record_stage_timed(
             state,
             3,
@@ -2230,7 +2374,29 @@ impl PromptOrchestrator {
         pipeline_id: u64,
         input: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
-        let result = self.executor.execute(pipeline_id, input).await?;
+        let secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let result = if secs == u64::MAX {
+            self.executor.execute(pipeline_id, input).await?
+        } else {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(secs),
+                self.executor.execute(pipeline_id, input),
+            )
+            .await
+            {
+                Ok(r) => r?,
+                Err(_) => {
+                    tracing::error!(
+                        pipeline_id,
+                        secs,
+                        "WATCHDOG: pipeline call exceeded its budget — failing loudly"
+                    );
+                    return Err(format!(
+                        "watchdog timeout after {secs}s — pipeline {pipeline_id} call hung"
+                    ));
+                }
+            }
+        };
         if let Some(tokens) = result.get("tokens_used").and_then(|t| t.as_u64()) {
             state.tokens_used_so_far += tokens as u32;
         }
@@ -2542,7 +2708,41 @@ impl PromptOrchestrator {
     /// OpenRouter retry rates per call site — is measured, not guessed).
     /// This is the ONE chokepoint ~19 of ~20 real call sites already share,
     /// so capture lands here once instead of at every site individually.
+    /// WATCHDOG WRAPPER (K `watchdog` family, `model-300` default): a hung
+    /// model call must fail LOUDLY after its budget, never freeze its caller.
+    /// Found live: the Stage-4b AMT hang sat inside this call path for 15-21+
+    /// minutes with no subprocess and no timeout.
     async fn metered_execute_resilient(
+        &self,
+        state: &mut OrchestrationState,
+        input: serde_json::Value,
+        call_site: &str,
+    ) -> Result<serde_json::Value, String> {
+        let secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        if secs == u64::MAX {
+            return self.metered_execute_resilient_inner(state, input, call_site).await;
+        }
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(secs),
+            self.metered_execute_resilient_inner(state, input, call_site),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(_) => {
+                tracing::error!(
+                    call_site,
+                    secs,
+                    "WATCHDOG: model call exceeded its budget — failing loudly (a hung call must never freeze its caller)"
+                );
+                Err(format!(
+                    "watchdog timeout after {secs}s — model call hung (call_site: {call_site})"
+                ))
+            }
+        }
+    }
+
+    async fn metered_execute_resilient_inner(
         &self,
         state: &mut OrchestrationState,
         mut input: serde_json::Value,
@@ -2649,6 +2849,77 @@ impl PromptOrchestrator {
             "blueprint_id": state.blueprint_id,
             "project_id": state.request.project_id,
             "prompt_preview": cut(&state.request.prompt, 200),
+        });
+        let _ = writeln!(f, "{}", record);
+    }
+
+    /// Resolve the meta-work model by the CONFIGURED FALLBACK ORDER
+    /// (config [models.meta_fallback].order — openrouter/free → auto →
+    /// bitnet), not by "first free" — found live: `find(is_free)` picked
+    /// BitNet (slowest, weakest) for every loop call while fast, far
+    /// higher-quality free OpenRouter models sat unused. Quality AND
+    /// speed: chain order IS the quality/speed order; BitNet stays the
+    /// offline backstop. Falls back to first-free when the order list is
+    /// empty/unknown.
+    pub(crate) fn resolve_meta_model<'a>(
+        available: &'a [crate::config::AvailableModel],
+        meta_fallback: &crate::config::ModelFallbackConfig,
+    ) -> Option<&'a crate::config::AvailableModel> {
+        for ident in &meta_fallback.order {
+            if let Some(m) = available.iter().find(|m| &m.identifier == ident) {
+                if !meta_fallback.free_only || m.is_free {
+                    return Some(m);
+                }
+            }
+        }
+        available.iter().find(|m| m.is_free)
+    }
+
+    /// Capture one BACKGROUND-LOOP model call into the same S11 store
+    /// (`zero_shot_calls.jsonl`) — the free-function sibling of
+    /// `capture_zero_shot_call` above, for callers with no
+    /// `OrchestrationState` (i_loop / assistant / meta_loop / amt_loop,
+    /// all detached background work). Doctrine #35 (no invisible
+    /// failures): before this existed, every loop's pipeline-9 call was
+    /// invisible to the capture quartet — serving model, tokens, and
+    /// failures left no trace. Best-effort, same posture as the
+    /// reference: a logging failure never fails the real call.
+    pub fn capture_loop_model_call(
+        call_site: &str,
+        prompt: &str,
+        result: &Result<serde_json::Value, String>,
+    ) {
+        use std::io::Write;
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let dir = format!("{data_dir}/model_calls");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = format!("{dir}/zero_shot_calls.jsonl");
+        let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+            return;
+        };
+        let cut = |s: &str, n: usize| s.chars().take(n).collect::<String>();
+        let (success, model_used, tokens_used, response_preview) = match result {
+            Ok(v) => (
+                v.get("response").and_then(|r| r.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false),
+                v.get("model_used").and_then(|m| m.as_str()).unwrap_or("").to_string(),
+                v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0),
+                v.get("response").and_then(|r| r.as_str()).map(|s| cut(s, 500)).unwrap_or_default(),
+            ),
+            Err(e) => (false, String::new(), 0, cut(e, 300)),
+        };
+        let record = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "call_site": call_site,
+            "model_used": model_used,
+            "tokens_used": tokens_used,
+            "retry_count": 0,
+            "used_fallback": false,
+            "success": success,
+            "response_preview": response_preview,
+            "amt_container_id": null,
+            "blueprint_id": null,
+            "project_id": null,
+            "prompt_preview": cut(prompt, 200),
         });
         let _ = writeln!(f, "{}", record);
     }
@@ -3000,6 +3271,7 @@ impl PromptOrchestrator {
     /// the numeric StageResult.stage (several thinking-log entries can share
     /// one numbered stage, e.g. multiple AMT passes within Stage 5).
     fn record_thinking(&self, state: &mut OrchestrationState, stage: &str, output: &serde_json::Value) {
+        tracing::info!(stage = %stage, "[5.think] record_thinking start");
         // Previously skipped recording entirely when the extracted text was
         // empty — confirmed live: a real "Zero-Shot Simulation" call that
         // consumed real, metered tokens (accounted for in
@@ -3132,6 +3404,15 @@ impl PromptOrchestrator {
             name,
             summary
         );
+        crate::orchestration_events::emit(
+            state.request.user_id,
+            state.request.device_id,
+            stage,
+            name,
+            success,
+            summary,
+            0,
+        );
         state.stages.push(StageResult {
             stage,
             name: name.to_string(),
@@ -3160,6 +3441,15 @@ impl PromptOrchestrator {
             name,
             duration_ms,
             summary
+        );
+        crate::orchestration_events::emit(
+            state.request.user_id,
+            state.request.device_id,
+            stage,
+            name,
+            success,
+            summary,
+            duration_ms,
         );
         state.stages.push(StageResult {
             stage,
@@ -3591,4 +3881,5 @@ mod tests {
             "one top-level array with inner objects is 1 candidate"
         );
     }
+
 }

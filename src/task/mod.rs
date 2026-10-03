@@ -455,6 +455,42 @@ impl Default for TaskPriority {
     }
 }
 
+/// TASK-LIFECYCLE RIPPLE (R5 top gap, fixed 2026-09-28 — operator
+/// architecture: the universal task order is ALIVE, so task state changes
+/// move the live graph like every other write). Zero graph coverage
+/// existed before: create/complete/fail/pause were invisible to ws
+/// subscribers, the monitor feed, and AMT ripple-sync. Scopes follow the
+/// one vocabulary: ws:<id> / proj:<id>, global fallback.
+fn emit_task_ripple(
+    event: &'static str,
+    task_id: TaskID,
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+) {
+    let mut scope = Vec::new();
+    if let Some(w) = workspace_id {
+        scope.push(format!("ws:{}", w));
+    }
+    if let Some(p) = project_id {
+        scope.push(format!("proj:{}", p));
+    }
+    if scope.is_empty() {
+        scope.push("scope:global".to_string());
+    }
+    crate::graph_events::emit(
+        event,
+        task_id,
+        workspace_id.unwrap_or(0),
+        "Task".to_string(),
+        "task-system",
+        scope,
+    );
+    // Personal assistant wake (docs/PERSONAL_ASSISTANT_GUIDE.md §4): a real
+    // task lifecycle event is exactly what its check-up pass exists for —
+    // wake it instantly, interval is the fallback (amt_loop's convention).
+    crate::consciousness::assistant::notify_wake();
+}
+
 /// Extended task data with full details
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TaskData {
@@ -484,6 +520,40 @@ pub struct TaskData {
     /// after orchestration completes, same convention as thinking_log.
     #[serde(default)]
     pub amt_summary: Option<serde_json::Value>,
+    // ── UNIVERSAL ORDER Stage 1 (docs/UNIVERSAL_ORDER_GUIDE.md §2) ──
+    // Additive item-model fields: everything-is-one (todos, meetings,
+    // follow-ups, notes, code work, external syncs) in the same order.
+    // All serde-defaulted — zero migration, every existing record loads.
+    /// What kind of order-item this is: todo | meeting | followup | note |
+    /// code | milestone | external. Default "todo".
+    #[serde(default)]
+    pub kind: String,
+    /// The WHEN axis — unix secs. Drives computed time buckets (overdue /
+    /// today / week / upcoming) at read time; never a stored bucket.
+    #[serde(default)]
+    pub due_at: Option<u64>,
+    /// Follow-up nudge time (unix secs).
+    #[serde(default)]
+    pub remind_at: Option<u64>,
+    /// Recurrence rule for repeating items ("daily"/"weekly"/... simple
+    /// vocabulary; expansion to concrete due_at is derived at read).
+    #[serde(default)]
+    pub recurrence: Option<String>,
+    /// Meeting join link (zoom/meet/jitsi) for meeting-kind items.
+    #[serde(default)]
+    pub meeting_url: Option<String>,
+    /// External provenance when synced from a connector (google-calendar,
+    /// zoom, …): {provider, external_id, last_synced}. Idempotent sync
+    /// keys on external_id; the order never stores foreign schemas.
+    #[serde(default)]
+    pub external_ref: Option<serde_json::Value>,
+    /// Sub-items on any task: [{text, done}].
+    #[serde(default)]
+    pub checklist: Vec<serde_json::Value>,
+    /// Note body for kind "note" — captured thoughts; promote by adding
+    /// due_at / converting to todo.
+    #[serde(default)]
+    pub note_body: Option<String>,
 }
 
 /// Task step data
@@ -585,6 +655,25 @@ pub(crate) struct StoredTask {
     /// existed.
     #[serde(default)]
     amt_summary: Option<serde_json::Value>,
+    // ── UNIVERSAL ORDER Stage 1 (docs/UNIVERSAL_ORDER_GUIDE.md §2) ──
+    // Additive, all defaulted: tasks created before these existed load
+    // with the documented defaults (kind "todo", no time, no externals).
+    #[serde(default)]
+    kind: String,
+    #[serde(default)]
+    due_at: Option<u64>,
+    #[serde(default)]
+    remind_at: Option<u64>,
+    #[serde(default)]
+    recurrence: Option<String>,
+    #[serde(default)]
+    meeting_url: Option<String>,
+    #[serde(default)]
+    external_ref: Option<serde_json::Value>,
+    #[serde(default)]
+    checklist: Vec<serde_json::Value>,
+    #[serde(default)]
+    note_body: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -887,6 +976,29 @@ impl TaskManager {
             gate_result,
             thinking_log: Vec::new(),
             amt_summary: None,
+            // UNIVERSAL ORDER Stage 1: kind may arrive via inputs (a
+            // /task/create caller sets inputs.kind); everything else defaults.
+            kind: inputs
+                .get("kind")
+                .and_then(|k| k.as_str())
+                .unwrap_or("todo")
+                .to_string(),
+            due_at: inputs.get("due_at").and_then(|d| d.as_u64()),
+            remind_at: inputs.get("remind_at").and_then(|d| d.as_u64()),
+            recurrence: inputs
+                .get("recurrence")
+                .and_then(|r| r.as_str())
+                .map(String::from),
+            meeting_url: inputs
+                .get("meeting_url")
+                .and_then(|m| m.as_str())
+                .map(String::from),
+            external_ref: inputs.get("external_ref").cloned(),
+            checklist: Vec::new(),
+            note_body: inputs
+                .get("note")
+                .and_then(|n| n.as_str())
+                .map(String::from),
         };
 
         // Store task
@@ -930,7 +1042,9 @@ impl TaskManager {
 
         tracing::info!("Enqueued task {} with priority {:?}", task_id, priority);
 
-        Ok(task_id)
+                // TASK-LIFECYCLE RIPPLE (R5): creation moves the live graph.
+        emit_task_ripple("created", task_id, workspace_id, project_id);
+Ok(task_id)
     }
 
     /// Start the queue processor
@@ -1092,6 +1206,11 @@ impl TaskManager {
         {
             let mut running = self.running.write().await;
             running.retain(|&id| id != task_id);
+        }
+
+        // TASK-LIFECYCLE RIPPLE (R5): failure moves the live graph.
+        if let Some(t) = self.tasks.read().await.get(&task_id) {
+            emit_task_ripple("updated", task_id, t.workspace_id, t.project_id);
         }
 
         // Add log
@@ -1435,7 +1554,12 @@ impl TaskManager {
         if ok {
             let _ = self.save_to_disk().await;
         }
-        Ok(ok)
+                if ok {
+            if let Some(t) = self.tasks.read().await.get(task_id) {
+                emit_task_ripple("updated", *task_id, t.workspace_id, t.project_id);
+            }
+        }
+Ok(ok)
     }
 
     /// Persist the real AMT structure onto a task record — same
@@ -1959,6 +2083,14 @@ impl TaskManager {
             gate_result: stored.gate_result.clone(),
             thinking_log: stored.thinking_log.clone(),
             amt_summary: stored.amt_summary.clone(),
+            kind: stored.kind.clone(),
+            due_at: stored.due_at,
+            remind_at: stored.remind_at,
+            recurrence: stored.recurrence.clone(),
+            meeting_url: stored.meeting_url.clone(),
+            external_ref: stored.external_ref.clone(),
+            checklist: stored.checklist.clone(),
+            note_body: stored.note_body.clone(),
         }
     }
 }

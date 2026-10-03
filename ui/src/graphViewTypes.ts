@@ -31,7 +31,7 @@
  * docs/GRAPH_RELATIONSHIP_REGISTRY.md) — never fabricated, never guessed.
  */
 
-export type Modality = "code" | "math" | "text";
+export type Modality = "code" | "math" | "text" | "image";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Raw modality graph JSON — exactly as persisted at object_store_path.
@@ -64,6 +64,11 @@ export interface RawGraphNode {
   keywords?: string[];
   provisional?: boolean;
   hotness_score?: number;
+  /** Image nodes only (`ImageGraphNode`, assets/pipelines/modalities/image/
+   * main.rs) — real on every constructed node type (Image/Object/Region/
+   * Text/Face), absent only on Color nodes. `rotation` is real but this UI
+   * doesn't use it (no rotated-box rendering yet). */
+  bounding_box?: { x: number; y: number; width: number; height: number; rotation: number };
   // Real schemas carry more modality-specific fields than are enumerated
   // here (see the source structs cited above) — this is deliberately not
   // exhaustive; renderers should read `properties` for anything not

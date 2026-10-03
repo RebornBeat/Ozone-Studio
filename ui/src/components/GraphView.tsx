@@ -3,14 +3,16 @@
  *
  * Generic across modalities: fetches real ModalityGraph data (B1) for a
  * chosen project via `loadGraphData` (graphViewData.ts) and draws it with
- * zoom/pan/select/hover. Node/edge VISUAL rendering here is deliberately
- * generic placeholder shapes (plain circles/lines) — real per-modality
- * visual encoding is C2-C7's job, built against the `GraphViewNode`/
- * `GraphViewEdge` contract in graphViewTypes.ts. No graph-layout library is
- * in this project's dependencies (checked ui/package.json) — node
- * positions below are a synthetic circular layout for display purposes
- * only, not a claim about any real backend geometry; the node/edge DATA
- * itself is 100% real, fetched live, never fabricated.
+ * zoom/pan/select/hover. Node/edge VISUAL rendering dispatches through
+ * `nodeVisual`/`edgeVisual` (graphRenderers/index.ts) to the real
+ * per-modality renderers (code/math/text/image — C2-C7 plus the later image
+ * addition), each keyed off construction-verified node/edge type registries
+ * per modality; a not-real/schema-only type is drawn dashed/dimmed, never
+ * hidden or styled as if confirmed. No graph-layout library is in this
+ * project's dependencies (checked ui/package.json) — node positions below
+ * are a synthetic circular layout for display purposes only, not a claim
+ * about any real backend geometry; the node/edge DATA itself is 100% real,
+ * fetched live, never fabricated.
  *
  * No project-selection state exists anywhere else in this app (checked
  * services/store.ts) — this panel includes its own minimal real workspace
@@ -25,7 +27,7 @@ import { edgeVisual, nodeVisual } from "../graphRenderers";
 import { GRAPH_OVERLAYS } from "../graphRenderers/overlays";
 import { NodeShapeSvg } from "../graphRenderers/NodeShapeSvg";
 import NodeDetailPanel from "./NodeDetailPanel";
-import EdgeLegendFilters from "./EdgeLegendFilters";
+import EdgeLegendFilters, { edgeTypeKey, modalityOfEdge } from "./EdgeLegendFilters";
 import EdgeProvenance from "./EdgeProvenance";
 import { onNavigate, takePendingNavigation } from "../navigation";
 
@@ -86,6 +88,41 @@ async function loadProjectOptions(): Promise<ProjectOption[]> {
 interface LayoutNode extends GraphViewNode {
   x: number;
   y: number;
+}
+
+const ARROW_DIRECTIONS: Record<string, readonly [number, number]> = {
+  ArrowUp: [0, -1],
+  ArrowDown: [0, 1],
+  ArrowLeft: [-1, 0],
+  ArrowRight: [1, 0],
+};
+
+/** Nearest node strictly in the given direction from `from`, scored by real
+ * distance plus a lateral-deviation penalty (favors nodes roughly "in line"
+ * with the pure axis over ones merely on the correct side). Null when
+ * nothing lies in that direction. */
+function nearestNodeInDirection(
+  from: LayoutNode,
+  dir: readonly [number, number],
+  candidates: LayoutNode[],
+): LayoutNode | null {
+  let best: LayoutNode | null = null;
+  let bestScore = Infinity;
+  for (const c of candidates) {
+    if (c.id === from.id) continue;
+    const dx = c.x - from.x;
+    const dy = c.y - from.y;
+    const dot = dx * dir[0] + dy * dir[1];
+    if (dot <= 0) continue;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const lateral = Math.abs(dx * dir[1] - dy * dir[0]);
+    const score = dist + lateral * 1.5;
+    if (score < bestScore) {
+      bestScore = score;
+      best = c;
+    }
+  }
+  return best;
 }
 
 function layoutNodes(nodes: GraphViewNode[]): LayoutNode[] {
@@ -281,10 +318,43 @@ export const GraphView: React.FC = () => {
   }, [layoutedNodes]);
   const allEdges: GraphViewEdge[] = mergedEdges;
   const edges = useMemo(
-    () => allEdges.filter((e) => !hiddenEdgeClasses.has(e.edgeClass) && !hiddenEdgeTypes.has(e.edgeType)),
+    () =>
+      allEdges.filter(
+        (e) => !hiddenEdgeClasses.has(e.edgeClass) && !hiddenEdgeTypes.has(edgeTypeKey(modalityOfEdge(e), e.edgeType)),
+      ),
     [allEdges, hiddenEdgeClasses, hiddenEdgeTypes],
   );
   const selectedNode = selectedNodeId ? nodeById.get(selectedNodeId) ?? null : null;
+
+  // Keyboard node navigation — roving-focus pattern (listbox-style): the
+  // canvas itself is the one tab stop; arrow keys move a lightweight
+  // "current" indicator (reuses hoveredNodeId, the same visual the mouse
+  // already drives), Enter/Space promotes it to selectedNodeId (opens the
+  // detail panel), Escape clears both. Direction search scores candidates
+  // by distance plus lateral deviation from the pure axis, so a node
+  // roughly "in line" wins over one merely on the correct side.
+  const handleCanvasKeyDown = (e: React.KeyboardEvent<SVGSVGElement>) => {
+    if (layoutedNodes.length === 0) return;
+    const dir = ARROW_DIRECTIONS[e.key];
+    if (dir) {
+      e.preventDefault();
+      const current =
+        (hoveredNodeId && nodeById.get(hoveredNodeId)) || (selectedNodeId && nodeById.get(selectedNodeId)) || null;
+      const next = current ? nearestNodeInDirection(current, dir, layoutedNodes) : layoutedNodes[0];
+      if (next) setHoveredNodeId(next.id);
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const target = hoveredNodeId ?? selectedNodeId;
+      if (target) setSelectedNodeId((s) => (s === target ? null : target));
+      return;
+    }
+    if (e.key === "Escape") {
+      setHoveredNodeId(null);
+      setSelectedNodeId(null);
+    }
+  };
   const provenanceEdge =
     (hoveredEdgeId ? allEdges.find((e) => e.id === hoveredEdgeId) : undefined) ??
     (selectedEdgeId ? allEdges.find((e) => e.id === selectedEdgeId) : undefined) ??
@@ -320,18 +390,18 @@ export const GraphView: React.FC = () => {
       </p>
 
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-        <label style={{ fontSize: 12.5, color: "#8b98ab" }}>Project:</label>
+        <label style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>Project:</label>
         {projectsError && (
           <span style={{ color: "#ff8a8a", fontSize: 12.5 }}>Error loading projects: {projectsError}</span>
         )}
         {!projectsError && projects.length === 0 && (
-          <span style={{ color: "#8b98ab", fontSize: 12.5 }}>No workspaces/projects found yet.</span>
+          <span style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>No workspaces/projects found yet.</span>
         )}
         {projects.length > 0 && (
           <select
             value={selectedProjectId ?? undefined}
             onChange={(e) => setSelectedProjectId(Number(e.target.value))}
-            style={{ background: "#101724", color: "#dfe7f2", border: "1px solid #1e2836", borderRadius: 6, padding: "4px 8px" }}
+            style={{ background: "#101724", color: "var(--color-text)", border: "1px solid var(--color-border-faint)", borderRadius: 6, padding: "4px 8px" }}
           >
             {projects.map((p) => (
               <option key={p.id} value={p.id}>
@@ -343,32 +413,32 @@ export const GraphView: React.FC = () => {
       </div>
 
       <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginBottom: 12, fontSize: 12 }}>
-        <span style={{ color: "#8b98ab" }}>Overlays:</span>
+        <span style={{ color: "var(--color-text-muted)" }}>Overlays:</span>
         {GRAPH_OVERLAYS.map((o) => {
           const r = overlayResults[o.id];
           const on = enabledOverlays.has(o.id);
           return (
-            <label key={o.id} title={o.description} style={{ display: "flex", alignItems: "center", gap: 5, color: on ? "#dfe7f2" : "#8b98ab", cursor: "pointer" }}>
+            <label key={o.id} title={o.description} style={{ display: "flex", alignItems: "center", gap: 5, color: on ? "var(--color-text)" : "var(--color-text-muted)", cursor: "pointer" }}>
               <input type="checkbox" checked={on} style={{ margin: 0 }} onChange={() => toggleInSet<string>(setEnabledOverlays, o.id)} />
               {o.label}
-              {on && r?.status === "loading" && <span style={{ color: "#8b98ab" }}>loading…</span>}
+              {on && r?.status === "loading" && <span style={{ color: "var(--color-text-muted)" }}>loading…</span>}
               {on && r?.status === "error" && <span style={{ color: "#ff8a8a" }} title={r.message}>error</span>}
-              {on && r?.status === "ready" && <span style={{ color: "#8b98ab" }}>{r.edges.length} edges</span>}
+              {on && r?.status === "ready" && <span style={{ color: "var(--color-text-muted)" }}>{r.edges.length} edges</span>}
             </label>
           );
         })}
       </div>
 
       <div className="opanel-scroll" style={{ display: "flex", gap: 12, minHeight: 0 }}>
-        <div style={{ flex: 1, position: "relative", border: "1px solid #1e2836", borderRadius: 10, overflow: "hidden", background: "#0a0f1a" }}>
+        <div style={{ flex: 1, position: "relative", border: "1px solid var(--color-border-faint)", borderRadius: 10, overflow: "hidden", background: "var(--color-bg)" }}>
           {status.kind === "loading" && (
-            <div style={{ padding: 24, color: "#8b98ab" }}>Loading graph…</div>
+            <div style={{ padding: 24, color: "var(--color-text-muted)" }}>Loading graph…</div>
           )}
           {status.kind === "error" && (
             <div style={{ padding: 24, color: "#ff8a8a" }}>Error: {status.message}</div>
           )}
           {status.kind === "empty" && (
-            <div style={{ padding: 24, color: "#8b98ab" }}>
+            <div style={{ padding: 24, color: "var(--color-text-muted)" }}>
               No modality graphs exist for this project yet — nothing fabricated to show in their place.
             </div>
           )}
@@ -381,6 +451,12 @@ export const GraphView: React.FC = () => {
               onMouseMove={onBackgroundMouseMove}
               onMouseUp={endDrag}
               onMouseLeave={endDrag}
+              onKeyDown={handleCanvasKeyDown}
+              tabIndex={0}
+              role="application"
+              aria-label={`Graph canvas, ${layoutedNodes.length} nodes. Arrow keys to move between nodes, Enter to open the selected node's detail, Escape to clear selection.${
+                hoveredNodeId ? ` Current: ${nodeById.get(hoveredNodeId)?.label ?? hoveredNodeId}.` : ""
+              }`}
               style={{ cursor: dragState.current ? "grabbing" : "grab" }}
             >
               <defs>
@@ -437,11 +513,21 @@ export const GraphView: React.FC = () => {
                       onClick={() => setSelectedNodeId(node.id === selectedNodeId ? null : node.id)}
                       onMouseEnter={() => setHoveredNodeId(node.id)}
                       onMouseLeave={() => setHoveredNodeId((h) => (h === node.id ? null : h))}
+                      role="button"
+                      aria-label={`${node.nodeType} node: ${node.label}${isSelected ? " (selected)" : ""}`}
                       style={{ cursor: "pointer" }}
                     >
+                      {/* Keyboard-focus ring, distinct from mouse hover — the
+                          roving indicator handleCanvasKeyDown drives via
+                          hoveredNodeId, made visually distinguishable so a
+                          keyboard user can tell "current" from "moused
+                          over" even though they share the same state. */}
+                      {isHovered && (
+                        <circle r={12} fill="none" stroke="var(--color-accent)" strokeWidth={1.5} strokeDasharray="3 2" />
+                      )}
                       <NodeShapeSvg visual={nodeVisual(node)} selected={isSelected} hovered={isHovered} />
                       {(isHovered || isSelected) && (
-                        <text x={12} y={4} fontSize={11} fill="#dfe7f2">
+                        <text x={12} y={4} fontSize={11} fill="var(--color-text)">
                           {node.label}
                         </text>
                       )}
@@ -453,7 +539,7 @@ export const GraphView: React.FC = () => {
           )}
         </div>
 
-        <div style={{ width: 260, border: "1px solid #1e2836", borderRadius: 10, padding: 12, overflowY: "auto" }}>
+        <div style={{ width: 260, border: "1px solid var(--color-border-faint)", borderRadius: 10, padding: 12, overflowY: "auto" }}>
           <NodeDetailPanel
             node={selectedNode}
             containerRelations={status.kind === "ready" ? status.data.containerRelations : {}}
@@ -467,7 +553,7 @@ export const GraphView: React.FC = () => {
             onToggleType={(t) => toggleInSet(setHiddenEdgeTypes, t)}
           />
           {status.kind === "ready" && (
-            <div style={{ marginTop: 16, fontSize: 11, color: "#8b98ab" }}>
+            <div style={{ marginTop: 16, fontSize: 11, color: "var(--color-text-muted)" }}>
               {status.data.nodes.length} nodes · {status.data.edges.length} edges · sources:{" "}
               {status.data.sourceContainers.join(", ") || "none"}
             </div>

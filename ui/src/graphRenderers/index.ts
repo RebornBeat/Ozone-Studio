@@ -18,17 +18,21 @@ import { mathNodeRenderer } from "./mathNodes";
 import { mathEdgeRenderer } from "./mathEdges";
 import { textNodeRenderer } from "./textNodes";
 import { textEdgeRenderer } from "./textEdges";
+import { imageNodeRenderer } from "./imageNodes";
+import { imageEdgeRenderer } from "./imageEdges";
 import { overlayForEdge, overlayForNode } from "./overlays";
 
 const NODE_RENDERERS: Record<Modality, ModalityNodeRenderer> = {
   code: codeNodeRenderer,
   math: mathNodeRenderer,
   text: textNodeRenderer,
+  image: imageNodeRenderer,
 };
 const EDGE_RENDERERS: Record<Modality, ModalityEdgeRenderer> = {
   code: codeEdgeRenderer,
   math: mathEdgeRenderer,
   text: textEdgeRenderer,
+  image: imageEdgeRenderer,
 };
 
 export function classifyNode(modality: Modality, raw: RawGraphNode): NodeClassification {

@@ -33,10 +33,10 @@ import type { GraphViewNode, GraphViewStatus } from "../../graphViewTypes";
 
 export type AmtTreeViewProps = { projectId: number | null };
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 const C_ERR = "#ff8a8a";
 
@@ -332,7 +332,7 @@ export const AmtTreeView: React.FC<AmtTreeViewProps> = ({ projectId }) => {
                     marginLeft: f.level * 16,
                     borderRadius: 6,
                     cursor: "pointer",
-                    background: isSel ? "#1e2836" : "transparent",
+                    background: isSel ? "var(--color-border-faint)" : "transparent",
                   }}
                 >
                   <span
@@ -528,7 +528,7 @@ const NodeDetail: React.FC<{
           style={{
             ...wrap,
             whiteSpace: "pre-wrap",
-            background: "#0a0f1a",
+            background: "var(--color-bg)",
             border: `1px solid ${C_BORDER}`,
             borderRadius: 6,
             padding: 8,

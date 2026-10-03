@@ -41,11 +41,11 @@ import type { EdgeClass, GraphViewEdge, GraphViewNode, GraphViewStatus } from ".
 
 export type TextGrammarViewerProps = { projectId: number | null };
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
-const C_PANEL = "#0a0f1a";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
+const C_PANEL = "var(--color-bg)";
 
 const CAUSAL_FAMILY = new Set(["CausedBy", "Enables", "Prevents", "Performs", "Affects", "Implies"]);
 
@@ -159,7 +159,7 @@ export const TextGrammarViewer: React.FC<TextGrammarViewerProps> = ({ projectId 
                       </span>
                     )}
                     {causal && (
-                      <span style={{ fontSize: 10.5, color: "#8b98ab" }} title='resolve_text_edge_type maps both "causes" and "causedby" to CausedBy without swapping from/to — direction is not reliably recoverable.'>
+                      <span style={{ fontSize: 10.5, color: "var(--color-text-muted)" }} title='resolve_text_edge_type maps both "causes" and "causedby" to CausedBy without swapping from/to — direction is not reliably recoverable.'>
                         direction unverifiable
                       </span>
                     )}

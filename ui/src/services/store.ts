@@ -246,8 +246,12 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
     const result = await window.ozone.pipeline.execute(pipelineId, input);
 
     if (result.success) {
+      // Real backend field is task_id (snake_case, PipelineResponse in
+      // src/grpc/mod.rs) — result.taskId was always undefined, so every
+      // Task tracked here got id: undefined. Same interface-mismatch bug
+      // class as the workspace_tab/orchestratePrompt fixes this session.
       const task: Task = {
-        id: result.taskId,
+        id: result.task_id,
         pipelineId,
         status: "running",
         progress: 0,
@@ -262,7 +266,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
         },
       }));
 
-      return result.taskId;
+      return result.task_id;
     } else {
       throw new Error(result.error || "Pipeline execution failed");
     }
@@ -376,12 +380,17 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       let aggregatedContext = "";
       if (projectId) {
         try {
+          // window.ozone.pipeline.execute resolves the raw /pipeline/execute
+          // envelope ({success, output, error}), not the pipeline's own
+          // output fields directly — real data is under .output.* (same
+          // bug class found + fixed in workspace_tab/component.js this
+          // session: contextResult.context was always undefined here).
           const contextResult = await window.ozone.pipeline.execute(21, {
             action: "ForProject",
             project_id: projectId,
             token_budget: 50000,
           });
-          aggregatedContext = contextResult?.context?.context_text || "";
+          aggregatedContext = contextResult?.output?.context?.context_text || "";
         } catch (err) {
           console.warn("Context aggregation failed:", err);
         }

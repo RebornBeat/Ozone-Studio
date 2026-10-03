@@ -8,10 +8,16 @@
  * legend can't drift from what is drawn.
  *
  * GraphView owns the filter state. An edge is hidden when its edgeClass is in
- * hiddenEdgeClasses OR its edgeType is in hiddenEdgeTypes — this component
- * only renders controls and reports toggles. Note hiddenEdgeTypes is keyed by
- * edgeType string alone (not per modality), so toggling e.g. "Contains" hides
- * it in every modality; the modality tags on each row make that visible.
+ * hiddenEdgeClasses OR its per-modality type key (`edgeTypeKey`, below) is in
+ * hiddenEdgeTypes — this component only renders controls and reports
+ * toggles. Fixed 2026-09-29: hiddenEdgeTypes used to be keyed by bare
+ * edgeType string, so toggling e.g. "Contains" hid it in EVERY modality at
+ * once (code/math/text/image all share that name) — a real, previously
+ * flagged, never-fixed limitation. Now keyed by `${modality}::${edgeType}`,
+ * so each modality's occurrence of a shared type name is an independent row
+ * with its own checkbox; GraphView.tsx's filter predicate must build the
+ * identical key (via the exported `modalityOfEdge`/`edgeTypeKey` below) or
+ * the two will silently drift apart again.
  */
 import React, { useMemo } from "react";
 import type { EdgeClass, GraphViewEdge, Modality } from "../graphViewTypes";
@@ -22,9 +28,11 @@ export interface EdgeLegendFiltersProps {
    * actually present, never a hardcoded/aspirational list. */
   edges: GraphViewEdge[];
   hiddenEdgeClasses: Set<EdgeClass>;
+  /** Keyed by `edgeTypeKey(modality, edgeType)`, NOT bare edgeType — see the
+   * file header comment for why. */
   hiddenEdgeTypes: Set<string>;
   onToggleClass: (c: EdgeClass) => void;
-  onToggleType: (edgeType: string) => void;
+  onToggleType: (typeKey: string) => void;
 }
 
 // Display order only — a class is rendered solely if edges of that class exist.
@@ -46,19 +54,27 @@ const CLASS_HINT: Record<EdgeClass, string> = {
   governance: "Jurisdiction relationships",
 };
 
-const MODALITIES: readonly string[] = ["code", "math", "text"];
+const MODALITIES: readonly string[] = ["code", "math", "text", "image"];
 
 /** graphViewData.ts builds edge ids as `${modality}:${containerId}:...`. */
-function modalityOfEdge(edge: GraphViewEdge): Modality | null {
+export function modalityOfEdge(edge: GraphViewEdge): Modality | null {
   const prefix = edge.id.split(":")[0];
   return MODALITIES.includes(prefix) ? (prefix as Modality) : null;
 }
 
+/** The real per-modality filter key — see file header comment. Exported so
+ * GraphView.tsx's filter predicate can build the identical key rather than
+ * risk drifting from this component's own grouping. */
+export function edgeTypeKey(modality: string | null, edgeType: string): string {
+  return `${modality ?? "—"}::${edgeType}`;
+}
+
 interface TypeRow {
   edgeType: string;
+  key: string;
   count: number;
   notRealCount: number;
-  modalities: string[];
+  modality: string | null;
   representative: GraphViewEdge;
 }
 
@@ -68,10 +84,10 @@ interface ClassGroup {
   types: TypeRow[];
 }
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 const C_WARN = "#e8c14f";
 
 const Swatch: React.FC<{ edge: GraphViewEdge; dim: boolean }> = ({ edge, dim }) => {
@@ -113,17 +129,18 @@ export const EdgeLegendFilters: React.FC<EdgeLegendFiltersProps> = ({
         byClass.set(edge.edgeClass, types);
       }
       const modality = modalityOfEdge(edge);
-      const existing = types.get(edge.edgeType);
+      const key = edgeTypeKey(modality, edge.edgeType);
+      const existing = types.get(key);
       if (existing) {
         existing.count += 1;
         if (!edge.isReal) existing.notRealCount += 1;
-        if (modality && !existing.modalities.includes(modality)) existing.modalities.push(modality);
       } else {
-        types.set(edge.edgeType, {
+        types.set(key, {
           edgeType: edge.edgeType,
+          key,
           count: 1,
           notRealCount: edge.isReal ? 0 : 1,
-          modalities: modality ? [modality] : [],
+          modality,
           representative: edge,
         });
       }
@@ -135,7 +152,10 @@ export const EdgeLegendFilters: React.FC<EdgeLegendFiltersProps> = ({
   }, [edges]);
 
   const visibleCount = useMemo(
-    () => edges.filter((e) => !hiddenEdgeClasses.has(e.edgeClass) && !hiddenEdgeTypes.has(e.edgeType)).length,
+    () =>
+      edges.filter(
+        (e) => !hiddenEdgeClasses.has(e.edgeClass) && !hiddenEdgeTypes.has(edgeTypeKey(modalityOfEdge(e), e.edgeType)),
+      ).length,
     [edges, hiddenEdgeClasses, hiddenEdgeTypes],
   );
 
@@ -178,10 +198,10 @@ export const EdgeLegendFilters: React.FC<EdgeLegendFiltersProps> = ({
 
                 <div style={{ marginLeft: 18, marginTop: 3 }}>
                   {group.types.map((t) => {
-                    const typeHidden = hiddenEdgeTypes.has(t.edgeType);
+                    const typeHidden = hiddenEdgeTypes.has(t.key);
                     const effectivelyHidden = classHidden || typeHidden;
                     const tags = [
-                      t.modalities.length > 0 ? t.modalities.join("/") : null,
+                      t.modality,
                       t.notRealCount > 0
                         ? t.notRealCount === t.count
                           ? "schema-only"
@@ -190,11 +210,11 @@ export const EdgeLegendFilters: React.FC<EdgeLegendFiltersProps> = ({
                     ].filter(Boolean);
                     return (
                       <label
-                        key={t.edgeType}
+                        key={t.key}
                         title={
                           classHidden
                             ? `Hidden because the "${group.edgeClass}" class is hidden`
-                            : `Toggle "${t.edgeType}" edges (applies to every modality)`
+                            : `Toggle "${t.edgeType}" edges${t.modality ? ` for ${t.modality}` : ""} — other modalities' "${t.edgeType}" edges are unaffected`
                         }
                         style={{
                           display: "flex",
@@ -209,7 +229,7 @@ export const EdgeLegendFilters: React.FC<EdgeLegendFiltersProps> = ({
                           type="checkbox"
                           checked={!effectivelyHidden}
                           disabled={classHidden}
-                          onChange={() => onToggleType(t.edgeType)}
+                          onChange={() => onToggleType(t.key)}
                           style={{ margin: 0 }}
                         />
                         <Swatch edge={t.representative} dim={effectivelyHidden} />

@@ -25,9 +25,9 @@ import { setSelectedFile, useSelectedFile } from "../../fileSelection";
 
 export type WorkspaceBrowserProps = { projectId: number | null };
 
-const C_TEXT = "#dfe7f2";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
+const C_TEXT = "var(--color-text)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
 
 function currentUserId(): number {
   return (window as any).ozone?.auth?.getCurrentUserId?.() ?? 1;

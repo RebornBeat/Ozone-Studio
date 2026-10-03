@@ -43,11 +43,11 @@ import { MODALITY_COLOR } from "../../graphRenderers/defaults";
 import { loadAmtGenerations, AmtGeneration } from "../../data/amtLineage";
 import { getGraphEventClient, GraphEventFrame } from "../../graphEventClient";
 
-const C_TEXT = "#dfe7f2";
-const C_BODY = "#c7d0dc";
-const C_MUTED = "#8b98ab";
-const C_BORDER = "#1e2836";
-const C_PANEL = "#0a0f1a";
+const C_TEXT = "var(--color-text)";
+const C_BODY = "var(--color-text-secondary)";
+const C_MUTED = "var(--color-text-muted)";
+const C_BORDER = "var(--color-border-faint)";
+const C_PANEL = "var(--color-bg)";
 const C_WARN = "#e8c14f";
 
 interface Props {
@@ -101,7 +101,7 @@ const RingCluster: React.FC<{
       <text y={r + 16} textAnchor="middle" fontSize={11} fill={C_BODY}>
         {label}
       </text>
-      <text y={4} textAnchor="middle" fontSize={11} fill="#0a0f1a" fontWeight={700}>
+      <text y={4} textAnchor="middle" fontSize={11} fill="var(--color-bg)" fontWeight={700}>
         {count > 0 ? count : ""}
       </text>
     </g>

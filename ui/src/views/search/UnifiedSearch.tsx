@@ -205,8 +205,8 @@ export const UnifiedSearch: React.FC = () => {
           placeholder="Search containers, coordination events, model calls..."
           style={{
             background: "#101724",
-            color: "#dfe7f2",
-            border: "1px solid #1e2836",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-faint)",
             borderRadius: 6,
             padding: "5px 10px",
             fontSize: 12.5,
@@ -216,8 +216,8 @@ export const UnifiedSearch: React.FC = () => {
         <button
           type="submit"
           style={{
-            background: "#1e2836",
-            color: "#dfe7f2",
+            background: "var(--color-border-faint)",
+            color: "var(--color-text)",
             border: "1px solid #2c3a4f",
             borderRadius: 6,
             padding: "5px 10px",
@@ -238,24 +238,24 @@ export const UnifiedSearch: React.FC = () => {
             width: 420,
             maxHeight: 420,
             overflowY: "auto",
-            background: "#0a0f1a",
-            border: "1px solid #1e2836",
+            background: "var(--color-bg)",
+            border: "1px solid var(--color-border-faint)",
             borderRadius: 8,
             padding: 10,
             zIndex: 50,
             boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
           }}
         >
-          <div style={{ fontSize: 10.5, color: "#8b98ab", marginBottom: 6, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 10.5, color: "var(--color-text-muted)", marginBottom: 6, lineHeight: 1.5 }}>
             Matches container <b>keywords</b> (not names or full text) plus a capped scan of recent model calls and
             decision reviews. A container with no real keywords (common for text-graph and AMT containers) won't be
             found here even if its name matches — this is a real gap in what's searchable today, not a bug.
           </div>
 
-          {status === "loading" && <div style={{ color: "#8b98ab" }}>Searching…</div>}
+          {status === "loading" && <div style={{ color: "var(--color-text-muted)" }}>Searching…</div>}
           {status === "error" && <div style={{ color: "#ff8a8a" }}>Error: {error}</div>}
           {status === "ready" && results.length === 0 && (
-            <div style={{ color: "#8b98ab" }}>No matches for "{term.trim()}" in any searchable source.</div>
+            <div style={{ color: "var(--color-text-muted)" }}>No matches for "{term.trim()}" in any searchable source.</div>
           )}
           {cappedNotes.map((n) => (
             <div key={n} style={{ color: "#e8c14f", fontSize: 10.5, marginBottom: 4 }}>
@@ -265,7 +265,7 @@ export const UnifiedSearch: React.FC = () => {
 
           {grouped.map(({ group, items }) => (
             <div key={group} style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: "#8b98ab", marginBottom: 4 }}>
+              <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", color: "var(--color-text-muted)", marginBottom: 4 }}>
                 {GROUP_LABEL[group]} ({items.length})
               </div>
               {items.map((r, i) => (
@@ -276,13 +276,13 @@ export const UnifiedSearch: React.FC = () => {
                     padding: "5px 6px",
                     borderRadius: 5,
                     cursor: r.kind === "container" ? "pointer" : "default",
-                    color: "#c7d0dc",
+                    color: "var(--color-text-secondary)",
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.background = "#101724")}
                   onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                 >
-                  <div style={{ color: "#dfe7f2" }}>{r.title}</div>
-                  {r.subtitle && <div style={{ fontSize: 11, color: "#8b98ab" }}>{r.subtitle}</div>}
+                  <div style={{ color: "var(--color-text)" }}>{r.title}</div>
+                  {r.subtitle && <div style={{ fontSize: 11, color: "var(--color-text-muted)" }}>{r.subtitle}</div>}
                 </div>
               ))}
             </div>
