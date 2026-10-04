@@ -145,7 +145,7 @@ async function cmdChat(args) {
   if (!prompt.trim()) { console.error('usage: ozone chat "<prompt>"'); process.exit(1); }
   console.log("Thinking (this runs the full orchestration pipeline, can take a while)...");
   const result = await req("POST", "/orchestrate", {
-    prompt, user_id: 0, device_id: 0, consciousness_enabled: false, token_budget: 100000,
+    prompt, user_id: 0, device_id: 0, consciousness_enabled: true, // the consciousness gate participates (config [consciousness].enabled gates the loops; this is the per-request gate) token_budget: 100000,
   });
   if (result.response) console.log(`\n${result.response}\n`);
   else console.error(`No response: ${result.error ?? "unknown"}`);

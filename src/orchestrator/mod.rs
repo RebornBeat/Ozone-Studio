@@ -2853,6 +2853,59 @@ impl PromptOrchestrator {
         let _ = writeln!(f, "{}", record);
     }
 
+    /// THE MARKER VOCABULARY (operator, 2026-10-03: "why are others still
+    /// numbered?" — numbered codes are internal; users see named actions
+    /// with descriptions). One canonical surface: markers emitted through
+    /// `emit_marker` resolve here, flow to the UI as orchestration_stage
+    /// events (named, described), and land in the thinking log which the
+    /// Raw Thoughts viewer displays (both the description AND the raw
+    /// model response). Adding a marker = adding a row here.
+    pub(crate) fn marker_info(code: &str) -> (&'static str, &'static str) {
+        match code {
+            "[5.enrich]" => ("Methodology enrichment", "Loading related methodologies + blueprints from the graph for this request's intents"),
+            "[5.xref.1]" => ("Cross-reference — domain identification", "Identifying which methodology domains this layer needs"),
+            "[5.xref.2]" => ("Cross-reference — synthesis", "Synthesizing a missing methodology for an uncovered domain"),
+            "[5.xref.3]" => ("Cross-reference — creation", "Persisting the synthesized methodology into the store"),
+            "[5.xref.4]" => ("Cross-reference — layer complete", "Layer's methodology coverage pass finished"),
+            "[5.lanes]" => ("Branch discovery — parallel lanes", "Applying methodology batches in parallel; each lane applies its batch's methodologies to the intents"),
+            "[5.think]" => ("Thinking — model response captured", "A model response from this stage, stored verbatim in the thinking log (Raw Thoughts)"),
+            "[6.tools]" => ("Blueprint — applicable tools carried", "The aggregated tools/MCPs relevant to this request ride into the blueprint prompt"),
+            "[7.0]" => ("Simulation — plan self-critique", "The zero-shot simulation judges feasibility of the drafted plan"),
+            "[8.1]" => ("Consciousness gate — assembling", "Assembling the full traversed picture for the gate: AMT, blueprint, jurisdiction, methodology rules, simulation"),
+            "[8.2]" => ("Consciousness gate — deciding", "The decision gate judges the plan (watchdog-bounded)"),
+            "[8.3]" => ("Consciousness gate — decided", "Gate returned its decision"),
+            "[8b]" => ("Jurisdiction full gate", "Re-checking the RESOLVED plan against jurisdiction rules beside the consciousness gate"),
+            "[10.step]" => ("Step execution", "Executing a blueprint step through the fallback-protected model chain"),
+            "[13.0]" => ("Response delivery", "Assembling the final answer from step results through the rendering ladder"),
+            _ => ("Orchestration step", "Internal orchestration sub-step"),
+        }
+    }
+
+    /// Emit a marker as a REAL orchestration event (named action +
+    /// description — never a bare number) and log it. Called from the AMT
+    /// internals, blueprint, simulation, gate, and delivery paths.
+    pub(crate) fn emit_marker(
+        &self,
+        state: &OrchestrationState,
+        code: &str,
+        detail: &str,
+    ) {
+        let (name, description) = Self::marker_info(code);
+        let summary = if detail.is_empty() { description.to_string() } else { format!("{description} — {detail}") };
+        let user_id = state.request.user_id;
+        let device_id = state.request.device_id;
+        crate::orchestration_events::emit(
+            user_id,
+            device_id,
+            5,
+            &format!("AMT — {name}"),
+            true,
+            &summary,
+            0,
+        );
+        tracing::info!(stage = "5", marker = code, action = name, "{summary}");
+    }
+
     /// Resolve the meta-work model by the CONFIGURED FALLBACK ORDER
     /// (config [models.meta_fallback].order — openrouter/free → auto →
     /// bitnet), not by "first free" — found live: `find(is_free)` picked
@@ -3271,6 +3324,10 @@ impl PromptOrchestrator {
     /// the numeric StageResult.stage (several thinking-log entries can share
     /// one numbered stage, e.g. multiple AMT passes within Stage 5).
     fn record_thinking(&self, state: &mut OrchestrationState, stage: &str, output: &serde_json::Value) {
+        // Named action to the UI (never a bare code) — the description and
+        // the raw response are BOTH preserved: description here, full raw
+        // entry in the thinking log the Raw Thoughts viewer reads.
+        self.emit_marker(state, "[5.think]", stage);
         tracing::info!(stage = %stage, "[5.think] record_thinking start");
         // Previously skipped recording entirely when the extracted text was
         // empty — confirmed live: a real "Zero-Shot Simulation" call that

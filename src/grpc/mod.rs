@@ -262,6 +262,11 @@ pub struct OrchestrateRequest {
     pub workspace_id: Option<u64>,
     pub user_id: u64,
     pub device_id: u64,
+    /// Per-request consciousness decision gate. Server-side default TRUE:
+    /// with [consciousness].enabled in config, the gate participates in
+    /// every orchestration unless a caller explicitly opts out (found
+    /// hardcoded false in the CLI — the gate never ran).
+    #[serde(default = "default_consciousness_enabled")]
     pub consciousness_enabled: bool,
     pub token_budget: Option<u32>,
     pub model_config: Option<serde_json::Value>,
@@ -274,6 +279,10 @@ pub struct OrchestrateRequest {
     /// orchestrator regardless of what a caller sent.
     #[serde(default)]
     pub attached_files: Vec<serde_json::Value>,
+}
+
+fn default_consciousness_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize, Deserialize)]

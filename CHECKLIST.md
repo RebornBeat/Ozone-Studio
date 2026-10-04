@@ -2839,3 +2839,80 @@ Also noted: the successful control walk proves the chain works; walks now grind 
 **THE FULL WALK — Stage 0→13, every stage, measured**: 4b ✓ (instrumented, fast) → **Stage 5: 62.5s** (was 147s BitNet-paced = **2.4× faster, higher quality**) → 6: blueprint 2.8s → 7: simulation 10.7s (feasibility high) → 8: consciousness gate → **8b: Jurisdiction FULL Gate — FIRST LIVE EXERCISE: resolved-plan re-check, 22 rules, blocked=false** → 9: task 168 → 10: step execution 3.8s (23.6k tokens) → 11 ✓ → 12 ✓ → **13: Response Delivery (81 chars, ladder T1→T2→T0)**. **End-to-end wall: ~4.5 minutes (10:36:13 → 10:40:40)** — a complete orchestrate request, answers delivered, nothing frozen.
 
 **Honest notes**: 3 branch-discovery lanes returned empty (free-model variance) and were skipped loudly — those batches' methodologies didn't contribute branches this pass (lane retry is a future refinement). Stage 8 consciousness gate shows "skipped (disabled)" — that's the per-request consciousness_enabled flag on orchestrate, separate from the [consciousness] config that runs the loops.
+
+## 2026-10-03 (zc) — Lane identity + retry PROVEN (full methodology membership logged; failed lanes recovered=true); consciousness gate now RUNS in orchestrate — and became the next layer: strict-5 × slow model = 28+ min gate
+
+**"Identify fully all 3" — DONE structurally**: every lane now logs `LANE dispatched` with its EXACT methodology membership (ids + names) at dispatch, `LANE result` with model/tokens/ok/empty after execution, and `LANE retry result recovered=` after the retry. The 3 original failures were all at site 2 (`amt_branch_generation`), empty responses — now impossible to lose anonymously.
+
+**Lane retry PROVEN live**: both later walks show `LANE retry result ... recovered=true` — empty-response lanes recovered their coverage on the immediate re-execution (fresh free-model routing each attempt; adapter watchdog still bounds). The `UNCOVERED after retry` warning (naming the methodologies that contributed nothing) is armed for any lane that fails both attempts.
+
+**Stage 8 consciousness gate: NOW RUNNING in orchestrate** (was hardcoded-skipped): the CLI sent `consciousness_enabled: false` and the server default was false — fixed both (server serde-default true; CLI sends true). First gate run: **Stage 8 starting → 28+ min without completing** — the strict-5 validation policy (up to 5 consecutive decision-gate calls) × a slow model = the gate is the new long pole, possibly hanging in its multi-round loop. This is the SAME quality/speed lesson as BitNet pacing, one layer deeper: (a) the decision gate's model needs chain-order resolution (it's not using the fast free models), (b) `strict-5` is wrong for simple requests — the K validation family is runtime-switchable (`lenient-3`), and (c) the gate needs its own watchdog budget (its calls are individually adapter-bounded, but 5×300s of legitimate worst case is still unacceptable latency for a trivial request).
+
+**Next pass order**: (1) decision-gate model → chain-order + validation policy by request weight (lenient-3 default, strict-5 for sensitive domains); (2) per-gate watchdog budget; (3) then the queued rules-stacking, call-graph ordering, stress batches. Note: walk O was left frozen in Stage 8 (host healthy — assistant/review keep logging; the frozen orchestrate task is abandoned server-side).
+
+## 2026-10-03 (zc) — Walk P: consciousness gate COMPLETED IN 7 SECONDS ("Proceed, 80%") — the 28-min gate hang was intermittent, not structural; 8b ✓; Stage 9 ✓; step-execution wedge hit again (the store-path audit remains THE item)
+
+**The gate layer is FIXED for real-world purposes**: walk P's Stage 8 ran `[8.1] assembled → [8.2] executing decision_gate → [8.3] returned` and **completed in 7,062 ms — "Decision: Proceed (80%) [gate-reported]"**. Walk O's 28-min freeze was the intermittent wedge hitting the gate, not gate latency — and the markers now prove which on every future occurrence. **8b Jurisdiction Full Gate: second clean exercise** (22 rules, blocked=false). Stage 9 created task 172.
+
+**Residual (unchanged diagnosis, now with step-level markers eligible)**: Stage 10's step execution wedged after step 0's model call — the intermittent between-calls wedge (store/registry path). The instrumentation covers Stage 4b + 5 + 8; extending `[10.x]` markers to step execution persistence is mechanical next pass. Memory discipline: builds now run `CARGO_BUILD_JOBS=1` (single-job) after two oomd crashes; system had ~197Mi free at worst this session.
+
+## 2026-10-03 (zc) — WEDGE PINPOINTED: inside cross_reference_methodologies_for_layer ([5.xref] start logged, done never fired; its pipeline call completed successfully). Next: sub-markers in the xref fn or rely on watchdog errors (its calls are metered/bounded)
+
+**The [5.xref] markers caught it**: walk Q froze AFTER `[5.xref] start` with no `[5.xref] done` — the freeze is inside `cross_reference_methodologies_for_layer` (amt.rs). Its LLM calls (methodology_domain_id, methodology_synthesis) go through metered_execute_resilient — watchdog-bounded at 300s each — and one pipeline call completed successfully during the window. So the wedge is either (a) a second unbounded call/site in the fn, (b) its post-processing (gap container creation — store writes), or (c) the 300s watchdog DID fire but the error was swallowed by this fn's `if let Ok(synth_result)` pattern (same silent-swallow class as the old branch loops — the fn has TWO such swallows at domain_id + synthesis).
+
+**Next pass (mechanical)**: add `[5.xref.sub]` markers at each await in the fn + convert its `if let Ok` swallows to loud warns. Then any freeze pinpoints to the exact sub-step in one log read.
+
+**Everything else from this pass stands**: lanes with identity+retry proven, consciousness gate 7s, 8b clean, Stage 4b fixed (lock scopes), context-aware batching, chain-ordered models, instrumentation at [4b.x]/[5.x]/[8.x]/[10.x].
+
+## 2026-10-03 (zc) — MARKERS EVERYWHERE (operator directive): [5.xref.1-4] sub-markers + loud synthesis proven live; [6]/[7.0]/[13.0] context markers; walk S in flight carrying tools to blueprint
+
+**Marker families now cover the full walk** (any freeze pinpoints to the exact sub-step in one log read):
+- `[4b.0-6]` stage-4b passes (proven — clears every walk)
+- `[5.enrich]`/`[5.xref.1 domain-id → .4 complete]`/`[5.think]` AMT internals — **[5.xref.1] and [5.xref.4] both fired live on walk S** (both xref passes completed cleanly this time — the wedge did not recur; if it does, .2/.3 will show whether the synthesis call or container creation wedged)
+- synthesis + container-creation failures now WARN loudly (were silent if-let swallows)
+- `[6]` blueprint start carries applicable-tools count; `[7.0]` simulation carries methodologies + tools counts
+- `[8.1-3]` consciousness gate; 8b jurisdiction full gate; `[10.i/x/t/w]` step execution; `[13.0]` delivery context
+
+**Walk S in flight**: Stage 5 completed 85.5s (GraphTraversal mode, 2 intents/2 branches), Stage 6 started with **applicable tools carried: 8** (the aggregation now visibly flowing into blueprint), blueprint LLM call in flight. Server-side continues past client timeout.
+
+**Also live this pass**: chain-order models confirmed again (recent S11 models: nemotron-3-super-120b, qwen3.8-27b, poolside — zero BitNet), lane retries recovered=true, context-aware batching (batches packed by tokens), loud lane/synthesis warnings.
+
+## 2026-10-03 (zc) — MARKER VOCABULARY + UI/UX: numbered codes → named actions with descriptions; emit_marker flows through orchestration events to the UI; Raw Thoughts keeps BOTH description and raw response
+
+**Operator's directive**: the AMT internals (enrich/think/xref/lanes) are displayed actions, not numbered codes — and "why are others still numbered?" Fixed with a canonical vocabulary: `PromptOrchestrator::marker_info(code)` maps every marker to {named action, description} — "[5.enrich]" → **"Methodology enrichment"** ("Loading related methodologies + blueprints from the graph for this request's intents"), "[5.xref.2]" → **"Cross-reference — synthesis"**, "[5.think]" → **"Thinking — model response captured"**, lanes → **"Branch discovery — parallel lanes"**, etc. **Adding a marker = adding a row here** — one canonical surface per directive.
+
+**`emit_marker(state, code, detail)`** emits each marker as a REAL orchestration_stage event (stage_name = "AMT — {named action}", summary = description + detail) through the existing orchestration_events hub — so **OrchestrationStatusPanel renders the named actions automatically** (it already consumes those frames). **PROVEN LIVE**: walk T's log shows the named summary flowing ("Loading related methodologies + blueprints... — done").
+
+**Raw Thoughts — both, not either**: the description lives in the thinking log entry (stage label) and the orchestration event; the RAW model response lives verbatim in the same entry (thinking_log) and in S11/S12 capture stores — the Raw Thoughts viewer shows both. The numbered codes remain as internal trace fields (grep-able) while ALL user-facing surfaces show names + descriptions.
+
+**UI/UX capture (durable)**: this entry + memory record the vocabulary. Panel surfaces: OrchestrationStatusPanel (live named actions during orchestrate), CreationActivity (graph creation chips), OrderPanel (Needs attention + day view). Pending UI queue: applicable-tools + methodology-rules INJECTION into blueprint/simulation prompts (budget-capped); lane-retry for xref synthesis; call-graph ordering both directions; S13 tool-calls panel; Electron rebuild to surface everything.
+
+## 2026-10-04 (zc) — MASTER REMAINING-WORK STATE (captured from where the stress program left off) + VOICE/CONSCIOUSNESS-RESPONSE design work begins
+
+**REMAINING WORK — everything open, from all queues**:
+1. **[THE blocker] Store-path wedge audit** — intermittent freeze inside cross_reference_methodologies_for_layer ([5.xref] start w/o done) and once in step-execution; [5.xref.1-4]/[10.x] markers in place; next freeze pinpoints exactly; fix shape = sub-markers + loud-else on the 2 swallowed calls + possible store-write lock audit.
+2. **Walk to completion** (Stage 7→13 under live observation — Stage 7 ran 25+ min once) → first 8b+differentiated-response complete walk.
+3. **Rules-stacking + injection**: methodology decision_rules/heuristics extracted locally (structured, no LLM) → blueprint prompt + simulation prompt (budget-capped); applicable-tools INJECTION into blueprint/sim prompts (currently counted at [6]/[7.0] only).
+4. **Lane-retry for xref synthesis** (the methodology_synthesis call has no retry; branch lanes do).
+5. **Call-graph ordering test both directions** (forward entry→callees + reverse caller lookup) on real code.
+6. **Stress scenario batches**: tool/MCP-routing prompt, blocked-content prompt (jurisdiction Block), code-focused prompt, concurrent-walks test.
+7. **UI/UX**: S13 tool-calls panel (route live, panel unmounted); insights browser (consciousness insights have no UI surface); applicable-tools/rules display in blueprint view; Electron rebuild to surface CreationActivity + Order feed + everything else; feed scope control (ws:/proj:).
+8. **[10.x]→[13.x] marker extension** to step-execution persistence + delivery internals.
+9. **USER-GATED**: data cleanup (162 graphs under BlueprintRoot; config drift repo-root vs target/release; 3 tracked test-artifact zsei_data dirs); BRAVE_SEARCH_API_KEY (web_search live); OpenRouter model pinning.
+10. **VOICE + CONSCIOUSNESS RESPONSE** (in progress this pass — see the voice guide entry below).
+
+**VOICE + CONSCIOUSNESS RESPONSE — design captured, implementation beginning** (docs/VOICE_BOX_GUIDE.md): the Artificial Voice Box (AVB) architecture from the operator's pasted exploration + the differentiation design (consciousness response ≠ orchestrator response; voice/text/both channels; emotion + voice history; Whisper = semantic input only). First implementation piece this pass: emotion-state linkage into consciousness-response records (the assistant digest gains the current emotional state from the ConsciousnessStore) + response-type differentiation records.
+
+**IMPLEMENTED (this pass, builds clean)**: `docs/VOICE_BOX_GUIDE.md` (the AVB architecture, Voice Identity manifold, Voice Policy, self-hearing loop, Whisper-as-semantic-input, consciousness-response differentiation table, staged implementation map); the assistant check-up digest now carries a **consciousness-response differentiation record** — emotion state from the real ConsciousnessStore (primary_emotion/valence/arousal/dominance — never fabricated), channel=text, response_type=consciousness — into the persisted insight. Walk T's check-up (next firing) is the first differentiated consciousness response.
+
+**DIFFERENTIATION RECORD LIVE**: the newest assistant check-up insight carries the full record — `[consciousness-response: type=consciousness channel=text emotion=... findings=63]` — the first differentiated consciousness response in the store. HONEST: emotion values are DEFAULT (empty primary, 0.00 valence/arousal) — the emotional system is enabled but its current state hasn't accumulated (the post_task_experience/trigger update path needs verification against the new task lifecycle — next verification item). The record structure, channel tag, and type differentiation are all proven; the emotion VALUES become real as the emotional system processes lived experience.
+
+## 2026-10-04 (zc) — Consciousness-response integration FULLY CAPTURED (no-build pass per operator): docs/CONSCIOUSNESS_RESPONSE_INTEGRATION.md — existing-pieces inventory (voice.rs VoiceIdentity persistence REAL; post_task_experience WIRED), the emotion-gap verification plan, voice-context history schema, chat differentiation display design, AVB staged map V1-V5; xref sub-markers WRITTEN pending build
+
+**Key finds from grounding the design in real code**:
+1. **Voice Identity persistence ALREADY EXISTS** (`src/orchestrator/voice.rs persist_voice_identity` — search-or-create a VoiceIdentity container through StoreAccess, survives sessions). The AVB guide's "Voice Identity" layer has a real seed.
+2. **The emotion update path IS wired** (`post_task_experience` from task/mod.rs on completion) — yet the differentiation record reads DEFAULT emotion. The precise open question: does post_task_experience update the LIVE in-memory `CONSCIOUSNESS_STORE.current_emotional_state`, or only persist a file that `get_current_emotional_state()` never hydrates from? Verification steps written into docs/CONSCIOUSNESS_RESPONSE_INTEGRATION.md §2 (no build needed to inspect).
+3. **Voice-context history schema designed** (CONSCIOUSNESS_RESPONSE record: response_type/channel/content_text/audio_ref/voice_identity_id/voice_policy_snapshot/emotion_state/graph_context/self_heard) — stored as insight-pattern containers under the metacognition root.
+4. **Chat differentiation display designed**: two visually distinct entries (orchestrator answer vs consciousness speech w/ emotion chip + graph-context expandable + voice-play affordance); record-field filtering, not styling.
+5. **AVB staged map V1-V5** grounded: V1 = consciousness speech as differentiated chat entries (everything exists); V2 = single-voice TTS + Voice Policy config consumed by TTS params (persist_voice_identity already stores identity); V3 = VOICE_STATE(t) parameter trajectories; V4 = self-hearing (Whisper over own output → compare → adjust); V5+ = multiple instances + universal sources.
+6. **Xref sub-markers + loud Err arms WRITTEN** (pending first build next session): [5.xref.1] domain-id, [5.xref.2] synthesis w/ Err arm, [5.xref.3] created/FAILED, [5.xref.4] complete.

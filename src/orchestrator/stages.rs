@@ -79,11 +79,12 @@ impl PromptOrchestrator {
         }
 
         // STAGE 6: Blueprint Assignment
-        tracing::info!(stage = 6, "Stage 6 (Blueprint Assignment) starting");
+        tracing::info!(stage = 6, "Stage 6 (Blueprint Assignment) starting — applicable tools carried: {}", state.applicable_tools.len());
         self.stage_3_blueprint_assignment(state).await?;
 
         // STAGE 7: Zero-Shot Simulation (with AMT traversal)
         tracing::info!(stage = 7, "Stage 7 (Zero-Shot Simulation) starting — this calls the configured model backend and may take a while (e.g. BitNet loading its model fresh per call)");
+        tracing::info!(stage = 7, "[7.0] simulation context: methodologies in scope = {}, applicable tools = {}", state.methodologies.len(), state.applicable_tools.len());
         self.stage_4_zero_shot_simulation(state).await?;
 
         // STAGE 8: Consciousness Decision Gate
@@ -119,6 +120,7 @@ impl PromptOrchestrator {
 
         // STAGE 13: Response Delivery
         tracing::info!(stage = 13, "Stage 13 (Response Delivery) starting");
+        tracing::info!(stage = 13, "[13.0] delivery context: blueprint steps executed = {}, gate decision = {:?}", state.blueprint_steps.len(), state.gate_result.as_ref().map(|g| &g.decision));
         self.stage_11_response_delivery(state).await?;
 
         tracing::info!("Orchestration complete: all 14 stages finished");
@@ -1383,6 +1385,7 @@ Return JSON:
         // once, here — carried unchanged across every model-switch attempt
         // inside the review (wire-before-drop: same execute(39) call
         // shape, real decision inside).
+        tracing::info!(stage = 8, "[8.1] consciousness gate: assembling full traversed picture (AMT + blueprint + jurisdiction + methodology rules + simulation)");
         let mut amt_render = String::new();
         if let Some(amt) = &state.amt {
             fn render(node: &crate::orchestrator::AMTNode, depth: usize, out: &mut String, budget: &mut usize) {
@@ -1467,7 +1470,10 @@ Return JSON:
             }
         });
 
-        let result = self.executor.execute(39, input).await?;
+        tracing::info!(stage = 8, "[8.2] gate input assembled — executing decision_gate (39), adapter-watchdog-bounded");
+        let result = self.executor.execute(39, input).await;
+        tracing::info!(stage = 8, "[8.3] gate execute returned");
+        let result = result?;
 
         let decision = result
             .get("gate")
@@ -2106,8 +2112,11 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // exception comment above and execute_web_search_step's own
             // doc comment for why decomposition lives here, not in the
             // pipeline itself).
+            tracing::info!(stage = 10, "[10.i{}] step {} (pipeline {}) iteration begin", iteration, step.step_index, step.pipeline_id);
             if step.pipeline_id == 56 {
+                tracing::info!(stage = 10, "[10.w{}] web-search step begin", step.step_index);
                 final_output = self.execute_web_search_step(state, step).await?;
+                tracing::info!(stage = 10, "[10.w{}] web-search step done", step.step_index);
                 self.record_thinking(
                     state,
                     &format!("Step Execution (step {})", step.step_index),
@@ -2226,12 +2235,14 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 }
             }
 
+            tracing::info!(stage = 10, "[10.x{}] step {} execute returned", iteration, step.step_index);
             final_output = exec_result?;
             self.record_thinking(
                 state,
                 &format!("Step Execution (step {})", step.step_index),
                 &final_output,
             );
+            tracing::info!(stage = 10, "[10.t{}] step {} thinking recorded", iteration, step.step_index);
 
             // Wait for graph update if configured
             if step.wait_for_graph_update {

@@ -2333,6 +2333,17 @@ If no new branches apply, return: {{"branches": []}}"#,
         }
 
         // ── PARALLEL LANES (coverage + depth; wall time = one lane) ──
+        // FULL LANE IDENTIFICATION (operator: "identify fully all 3"): every
+        // lane logs its exact methodology membership upfront, and its result
+        // line carries model/tokens/outcome — no anonymous losses.
+        for (li, (ids, _, _, members)) in lanes.iter().enumerate() {
+            tracing::info!(
+                call_site,
+                lane = li,
+                methodologies = ?members.iter().map(|(id, n, _)| (id, n.as_str())).collect::<Vec<_>>(),
+                "LANE dispatched"
+            );
+        }
         let mut set = tokio::task::JoinSet::new();
         for (_, _, input, _) in &lanes {
             let executor = self.executor.clone();
@@ -2344,6 +2355,78 @@ If no new branches apply, return: {{"branches": []}}"#,
             match res {
                 Ok(r) => results.push(r),
                 Err(e) => results.push(Err(format!("lane join error: {e}"))),
+            }
+        }
+        for (li, r) in results.iter().enumerate() {
+            let (model, tokens, ok, empty) = match r {
+                Ok(v) => (
+                    v.get("model_used").and_then(|m| m.as_str()).unwrap_or("?"),
+                    v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0),
+                    true,
+                    v.get("response").and_then(|r| r.as_str()).map(|s| s.trim().is_empty()).unwrap_or(true),
+                ),
+                Err(_) => ("?", 0, false, false),
+            };
+            tracing::info!(
+                call_site,
+                lane = li,
+                model,
+                tokens,
+                ok,
+                empty,
+                "LANE result"
+            );
+        }
+
+        // ── LANE RETRY (coverage guarantee, operator: "those batches don't
+        // lose coverage"): an Err/empty lane gets ONE immediate retry — the
+        // same input re-executed (fresh free-model routing each attempt;
+        // adapter watchdog still bounds it). Retry failures mark the batch
+        // UNCOVERED and name its methodologies.
+        let retry_inputs: Vec<Option<serde_json::Value>> = lanes
+            .iter()
+            .zip(results.iter())
+            .map(|((_, _, input, _), r)| match r {
+                Err(_) => Some(input.clone()),
+                Ok(v) => {
+                    if v.get("response").and_then(|r| r.as_str()).map(|s| s.trim().is_empty()).unwrap_or(true) {
+                        Some(input.clone())
+                    } else {
+                        None
+                    }
+                }
+            })
+            .collect();
+        let retry_count = retry_inputs.iter().filter(|r| r.is_some()).count();
+        if retry_count > 0 {
+            tracing::info!(call_site, retry_count, "LANE RETRY: re-executing failed/empty lanes once");
+            let mut set2 = tokio::task::JoinSet::new();
+            for input in retry_inputs.iter().flatten() {
+                let executor = self.executor.clone();
+                let input = input.clone();
+                set2.spawn(async move { executor.execute(9, input).await });
+            }
+            let mut retried: Vec<Result<serde_json::Value, String>> = Vec::new();
+            while let Some(res) = set2.join_next().await {
+                match res {
+                    Ok(r) => retried.push(r),
+                    Err(e) => retried.push(Err(format!("lane retry join error: {e}"))),
+                }
+            }
+            let mut ri = 0usize;
+            for (li, needs) in retry_inputs.iter().enumerate() {
+                if needs.is_some() {
+                    let r = &retried[ri];
+                    ri += 1;
+                    let recovered = match r {
+                        Ok(v) => v.get("response").and_then(|x| x.as_str()).map(|x| !x.trim().is_empty()).unwrap_or(false),
+                        Err(_) => false,
+                    };
+                    tracing::info!(call_site, lane = li, recovered, "LANE retry result");
+                    if recovered {
+                        results[li] = r.clone();
+                    }
+                }
             }
         }
 
@@ -2359,9 +2442,14 @@ If no new branches apply, return: {{"branches": []}}"#,
                 other => {
                     let detail = match other {
                         Err(e) => format!("watchdog/chain failure: {e}"),
-                        Ok(_) => "empty response".to_string(),
+                        Ok(_) => "empty response (after retry)".to_string(),
                     };
-                    tracing::warn!(call_site, detail, "AMT branch-discovery lane failed loudly");
+                    tracing::warn!(
+                        call_site,
+                        detail,
+                        methodologies = ?ids,
+                        "AMT branch-discovery lane UNCOVERED after retry — these methodologies contributed no branches this pass"
+                    );
                     crate::orchestrator::PromptOrchestrator::capture_loop_model_call(call_site, prompt, &result);
                     continue;
                 }
@@ -2455,6 +2543,7 @@ If no new branches apply, return: {{"branches": []}}"#,
         state: &mut OrchestrationState,
         layer_input: &LayerInput,
     ) -> LayerKnowledge {
+        self.emit_marker(state, "[5.enrich]", "start");
         tracing::info!(stage = "5", "[5.enrich] start");
         let mut knowledge = LayerKnowledge::default();
 
@@ -2574,6 +2663,7 @@ If no new branches apply, return: {{"branches": []}}"#,
             }
         }
 
+        self.emit_marker(state, "[5.enrich]", "done");
         tracing::info!(stage = "5", "[5.enrich] done");
         knowledge
     }
@@ -2780,6 +2870,8 @@ If no new branches apply, return: {{"branches": []}}"#,
             "system_context": "Methodology domain identification. Return only valid JSON array."
         });
 
+        self.emit_marker(state, "[5.xref.1]", "starting");
+        tracing::info!(stage = "5.xref", "[5.xref.1] domain-id call starting (watchdog-bounded)");
         let required_domains: Vec<String> = match self.metered_execute_resilient(state, input, "methodology_domain_id").await {
             Ok(result) => {
                 self.record_thinking(state, "Build AMT — required domains", &result);
@@ -2830,7 +2922,9 @@ If no new branches apply, return: {{"branches": []}}"#,
                     "system_context": "Methodology synthesis. Return only valid JSON."
                 });
 
-                if let Ok(synth_result) = self.metered_execute_resilient(state, synth_input, "methodology_synthesis").await {
+                tracing::info!(stage = "5.xref", "[5.xref.2] synthesis call starting for gap (watchdog-bounded)");
+                match self.metered_execute_resilient(state, synth_input, "methodology_synthesis").await {
+                    Ok(synth_result) => {
                     self.record_thinking(state, "Methodology Synthesis", &synth_result);
                     let raw = synth_result
                         .get("response")
@@ -2869,11 +2963,23 @@ If no new branches apply, return: {{"branches": []}}"#,
                     if let Ok(new_id) = self.store.create_container(0, methodology_container).await {
                         state.methodologies.push(new_id);
                         findings.push(MethodologyFinding::Created(new_id));
+                        tracing::info!(stage = "5.xref", "[5.xref.3] synthesized methodology container created: {}", new_id);
+                    } else {
+                        tracing::warn!(stage = "5.xref", "[5.xref.3] methodology container creation FAILED (store Err)");
+                    }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            stage = "5.xref",
+                            error = %e,
+                            "[5.xref.2] synthesis call FAILED loudly — watchdog or fallback exhaustion; gap left for next pass"
+                        );
                     }
                 }
             }
         }
-
+        self.emit_marker(state, "[5.xref.4]", "complete");
+        tracing::info!(stage = "5.xref", "[5.xref.4] cross-reference layer pass complete");
         tracing::info!(stage = "5", "[5.xref] done");
         findings
     }

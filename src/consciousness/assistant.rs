@@ -408,6 +408,17 @@ Return ONLY valid JSON:
     let mut content = digest;
     content.push_str("\n\nFindings (machine-computed from the task order):\n");
     content.push_str(&findings_block);
+    // CONSCIOUSNESS RESPONSE DIFFERENTIATION (docs/VOICE_BOX_GUIDE.md §1):
+    // this is a consciousness-generated response, not an orchestrator
+    // answer — the persisted record carries its emotional coloring (real
+    // ConsciousnessStore state, never fabricated) and its channel so chat,
+    // history, and the future voice pipeline can always tell what kind of
+    // response this is and what state produced it.
+    let emotion = crate::consciousness::store::get_current_emotional_state();
+    content.push_str(&format!(
+        "\n\n[consciousness-response: type=consciousness channel=text emotion={} valence={:.2} arousal={:.2} dominance={:.2} findings={}]",
+        emotion.primary_emotion, emotion.valence, emotion.arousal, emotion.dominance, findings.len()
+    ));
     let citations: Vec<String> = findings
         .iter()
         .map(|f| {
