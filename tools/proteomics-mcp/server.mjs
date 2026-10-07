@@ -116,6 +116,19 @@ function extractFunctionDetail(entry) {
   };
 }
 
+// Real UniProt annotations as a graph block: the protein is the root, GO terms and
+// pathway memberships are its contained entities, with the UniProt values as attributes.
+function proteinGraph(detail) {
+  const nodes = [{ key: "protein", kind: "Protein", label: detail.accession, attributes: { accession: detail.accession, function_text: detail.function_text } }];
+  detail.go_terms.forEach((g, i) => {
+    nodes.push({ key: `go-${i}`, kind: "GOTerm", label: g.term ?? g.go_id, parent: "protein", attributes: { go_id: g.go_id, evidence: g.evidence } });
+  });
+  detail.pathways.forEach((p, i) => {
+    nodes.push({ key: `pathway-${i}`, kind: "Pathway", label: p.pathway_name ?? p.id, parent: "protein", attributes: { database: p.database, id: p.id } });
+  });
+  return { nodes, edges: [] };
+}
+
 const server = createServer((req, res) => {
   if (req.method !== "POST" || !(req.url ?? "").startsWith("/call")) {
     reply(res, 404, { error: "POST /call only" });
@@ -162,7 +175,8 @@ const server = createServer((req, res) => {
           reply(res, 200, { success: false, error: `real UniProt lookup failed for '${acc}': ${result.error}` });
           return;
         }
-        reply(res, 200, { success: true, output: extractFunctionDetail(result.entry) });
+        const detail = extractFunctionDetail(result.entry);
+        reply(res, 200, { success: true, output: { ...detail, graph: proteinGraph(detail) } });
       } else {
         reply(res, 200, { success: false, error: `unknown proteomics tool '${tool}' (protein_lookup, protein_search, protein_function)` });
       }

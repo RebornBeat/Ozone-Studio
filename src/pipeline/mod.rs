@@ -15,6 +15,7 @@ mod executor;
 pub(crate) mod registry;
 mod store;
 
+pub mod gate;
 pub mod remote;
 pub use executor::*;
 pub use registry::*;

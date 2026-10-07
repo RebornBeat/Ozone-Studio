@@ -92,41 +92,60 @@ pub struct ZeroShotSimOutput {
 
 // ========== LLM Integration ==========
 
+/// Operator policy: paid models are never used. Only the OpenRouter key is
+/// read, and only free OpenRouter models (`openrouter/free` or a `:free`
+/// suffix) on the OpenRouter endpoint are sent. Anything else is refused with
+/// the reason, so no request leaves for a paid provider.
+fn llm_configured() -> bool {
+    env::var("OPENROUTER_API_KEY").map(|k| !k.trim().is_empty()).unwrap_or(false)
+}
+
 async fn call_prompt_pipeline(prompt: &str, system: &str) -> Result<String, String> {
-    let api_key = env::var("ANTHROPIC_API_KEY")
-        .or_else(|_| env::var("OPENAI_API_KEY"))
-        .map_err(|_| "No API key configured")?;
-    
+    const POLICY: &str = "policy: only free OpenRouter models and local BitNet may be used";
+    let api_key = env::var("OPENROUTER_API_KEY")
+        .map_err(|_| "No OPENROUTER_API_KEY configured".to_string())?;
+
     let endpoint = env::var("OZONE_API_ENDPOINT")
-        .unwrap_or_else(|_| "https://api.anthropic.com/v1/messages".to_string());
-    
-    let model = env::var("OZONE_API_MODEL")
-        .unwrap_or_else(|_| "claude-sonnet-4-20250514".to_string());
-    
-    let client = reqwest::Client::new();
-    
+        .unwrap_or_else(|_| "https://openrouter.ai/api/v1/chat/completions".to_string());
+    if !endpoint.contains("openrouter.ai") {
+        return Err(format!("refused: endpoint '{endpoint}' is a paid direct provider; {POLICY}"));
+    }
+
+    let model = env::var("OZONE_API_MODEL").unwrap_or_else(|_| "openrouter/free".to_string());
+    if !(model == "openrouter/free" || model.ends_with(":free")) {
+        return Err(format!("refused: model '{model}' is not a free OpenRouter model; {POLICY}"));
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| format!("client build failed: {e}"))?;
+
+    // OpenAI-compatible chat completions: the system prompt is a message.
     let body = serde_json::json!({
         "model": model,
         "max_tokens": 1500,
-        "messages": [{"role": "user", "content": prompt}],
-        "system": system
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ]
     });
-    
+
     let response = client
         .post(&endpoint)
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", "2023-06-01")
+        .bearer_auth(&api_key)
         .header("content-type", "application/json")
         .json(&body)
         .send()
         .await
         .map_err(|e| format!("API error: {}", e))?;
-    
+
     let result: serde_json::Value = response.json().await
         .map_err(|e| format!("Parse error: {}", e))?;
-    
-    result["content"][0]["text"]
+
+    result["choices"][0]["message"]["content"]
         .as_str()
+        .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_string())
         .ok_or_else(|| "No response".to_string())
 }
@@ -330,7 +349,7 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
                 .collect();
             
             // Try LLM validation first, fall back to basic
-            let simulation = if env::var("ANTHROPIC_API_KEY").is_ok() || env::var("OPENAI_API_KEY").is_ok() {
+            let simulation = if llm_configured() {
                 validate_with_llm(&task_signature, &loaded_methods).await
                     .unwrap_or_else(|_| basic_validation(&task_signature, &loaded_methods))
             } else {
@@ -350,7 +369,7 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
         ZeroShotSimInput::ValidateMethodology { methodology_id, task_signature } => {
             let methodology = load_methodology(methodology_id)?;
             
-            let simulation = if env::var("ANTHROPIC_API_KEY").is_ok() || env::var("OPENAI_API_KEY").is_ok() {
+            let simulation = if llm_configured() {
                 validate_with_llm(&task_signature, &[methodology.clone()]).await
                     .unwrap_or_else(|_| basic_validation(&task_signature, &[methodology.clone()]))
             } else {
@@ -370,9 +389,12 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
         ZeroShotSimInput::ValidateBlueprint { blueprint_id, task_signature } => {
             let blueprint = load_blueprint(blueprint_id)?;
             
-            let (valid, issues) = if env::var("ANTHROPIC_API_KEY").is_ok() || env::var("OPENAI_API_KEY").is_ok() {
+            let (valid, issues) = if llm_configured() {
                 validate_blueprint_with_llm(&blueprint, &task_signature).await
-                    .unwrap_or_else(|_| (true, vec![]))
+                    // A failed LLM validation is no longer a silent pass: the
+                    // reason is carried as an issue. The blueprint is not
+                    // blocked by a provider outage, so valid stays true.
+                    .unwrap_or_else(|e| (true, vec![format!("LLM blueprint validation unavailable: {e}")]))
             } else {
                 (true, vec![])
             };
@@ -435,7 +457,7 @@ pub async fn execute(input: ZeroShotSimInput) -> Result<ZeroShotSimOutput, Strin
                 description: Some(task_description),
             };
             
-            let simulation = if env::var("ANTHROPIC_API_KEY").is_ok() || env::var("OPENAI_API_KEY").is_ok() {
+            let simulation = if llm_configured() {
                 validate_with_llm(&task_sig, &loaded_methods).await
                     .unwrap_or_else(|_| basic_validation(&task_sig, &loaded_methods))
             } else {

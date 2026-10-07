@@ -2916,3 +2916,649 @@ Also noted: the successful control walk proves the chain works; walks now grind 
 4. **Chat differentiation display designed**: two visually distinct entries (orchestrator answer vs consciousness speech w/ emotion chip + graph-context expandable + voice-play affordance); record-field filtering, not styling.
 5. **AVB staged map V1-V5** grounded: V1 = consciousness speech as differentiated chat entries (everything exists); V2 = single-voice TTS + Voice Policy config consumed by TTS params (persist_voice_identity already stores identity); V3 = VOICE_STATE(t) parameter trajectories; V4 = self-hearing (Whisper over own output → compare → adjust); V5+ = multiple instances + universal sources.
 6. **Xref sub-markers + loud Err arms WRITTEN** (pending first build next session): [5.xref.1] domain-id, [5.xref.2] synthesis w/ Err arm, [5.xref.3] created/FAILED, [5.xref.4] complete.
+
+## 2026-10-03 (zc) — ROOT-CAUSE CLASS IDENTIFIED: the Stage-5 hang BLOCKS runtime workers (watchdog timers cannot fire past it) — a synchronous/blocking call inside the async pipeline path; fix = spawn_blocking isolation + find the sync call
+
+**The decisive evidence**: walk X froze after 3 branch-refinement calls completed, the 4th "in flight" 30+ minutes. Its watchdog (model-300) never fired — **tokio timeouts require a live runtime worker to poll the timer wheel; if workers are blocked inside synchronous code, timers stall and no timeout can ever fire.** Combined with the futex-parked thread dumps: the hang is a BLOCKING call (std sync lock, sync process wait, or blocking IO) inside the async pipeline execution path. The watchdog was correct design but cannot cover worker-blocking hangs.
+
+**Fix (next pass, concrete)**: (1) wrap the pipeline subprocess execution in `tokio::task::spawn_blocking` (or verify the executor's process-wait is `tokio::process` with async wait, not std sync wait) in `src/pipeline/executor.rs`; (2) audit `src/pipeline/mod.rs` + `src/orchestrator/adapters.rs` + `src/zsei/mod.rs` storage paths for std-sync locks/held guards across awaits; (3) after the fix, the existing watchdogs become genuinely enforceable.
+
+**Also proven this walk**: Stage 2 = 125s, Stage 3 = 78ms (24 methodologies), Stage 4 = 1 graph — the early chain is healthy and fast; the freeze is localized to the Build AMT discovery loop's later iterations.
+
+**Executor audit addendum (this pass)**: the pipeline executor ALREADY isolates subprocess waits correctly (`spawn_blocking` + `cmd.output()` at executor.rs:482 — blocking-pool threads, separate from async workers), and every orchestrate path is adapter-timeout-wrapped. Yet walk X's 4th branch call ran 30+ min past its 300s watchdog. Contradiction resolution requires an actual backtrace: **next pass = debug build (`cargo build --debug`, separate target dir to protect release) + `gdb -p <pid> -batch -ex 'thread apply all bt'` at the moment of the freeze** — the blocked frame names the true cause (suspects remaining: a lock ordering issue between blueprints-read and store locks; a broadcast channel with no receiver backpressuring; the JoinSet lane serialization). The [5.xref]/[10.x] markers + this audit together make the next session decisive.
+
+## 2026-10-03 (zc) — GDB BACKTRACE CAPTURED AT THE FREEZE (the decisive evidence): ALL THREADS IDLE — this is a LOST-WAKEUP deadlock, not worker blocking; the awaiting task will never be woken
+
+**The setup worked**: host launched as gdb's child (bypasses ptrace_scope=1), timeout -s INT dumped all threads after 20 min, full symbolized frames captured (/tmp/gdb_walk.log, 76KB). Walk Z froze at the same place (`[5.xref] start`, no `[5.xref.1]` — inside cross_reference_methodologies_for_layer's preamble).
+
+**THE FINDING**: every thread PARKED — tokio workers in park_condvar, I/O driver in epoll_wait (timeout 42s), main thread parked in block_on. **The runtime is completely idle while the orchestration task sits incomplete.** The earlier "workers blocked in sync code" theory is DEAD — the workers are idle because there is nothing to run: the task's wakeup was LOST. It awaits a future that will never resolve.
+
+**What this means**: the freeze is a race — some completion signal (store query response, notify, channel send) fires BEFORE the task reaches its await, so the await misses it and sleeps forever. That's also why it looked intermittent (the race window) and why watchdogs never fired (nothing is running to time out — the timer would fire, but the FUTURE the watchdog wraps isn't the lost one; the task is parked on its own await).
+
+**Where**: between `[5.xref] start` and `[5.xref.1]` — the fn's preamble: the ranked-methodology member fetch loop (`store.get_container(id)` per id — the prime suspect: a store read whose response/notify raced) or known-branch composition. Earlier freezes at OTHER points (Stage 4b, mid-branch) suggest the racy signal is in a SHARED path (the store read path itself or the registry read) — every await on it can lose.
+
+**Next session (now precise)**: (1) read `src/zsei/mod.rs` + the storage backend's get_container/read path — find the notify/response mechanism and where a send-before-await race can lose a wakeup (tokio::sync::watch/Notify/broadcast misuse, or a oneshot whose sender dropped before await); (2) instrument `store.get_container` at entry/exit; (3) the fix is likely `notify_one` BEFORE await → use `notify_waiters` + registration first, or a stored-flag pattern. This also explains why restarts "fix" it (fresh state, race window not hit).
+
+## 2026-10-03 (zc) — THE WEDGE ROOT-CAUSED IN CODE: storage guards held ACROSS awaits in the ZSEI layer (get_container, traverse) — write-preferring RwLock starvation deadlock; fix = never hold storage guards across awaits
+
+**The gdb backtrace + the code now agree**:
+- Backtrace: ALL threads idle, orchestration task never woken (lost wakeup).
+- `src/zsei/mod.rs get_container` (line 263): takes `storage.read().await` at the "Load from storage" step — but the guard is held to the END of the fn (Rust scoping), ACROSS the subsequent `cache.write().await` block. Reader-holding-reader-chaining.
+- `src/zsei/mod.rs traverse`: takes `storage.read().await` and holds it ACROSS `self.traversal.traverse(&storage, request).await` — an await while holding the lock.
+- `query()` (the write choke point): takes `storage.write().await` + `query_processor.write().await`.
+
+**The deadlock mechanism**: tokio RwLock is write-preferring. When ANY task holds storage.read across an await, and a WRITE arrives (store_container/query — constant traffic from the amt_loop, assistant, beacon), the writer queues and ALL new readers block behind it. If the writer's own completion depends on any store read... circular. The intermittent nature = depends on concurrent store traffic timing (the amt_loop/assistant/beacon firing during a walk's store-heavy phases). Restarts clear it (fresh tasks, no queued writers). **This also explains the ORIGINAL Stage 4b freezes** — Stage 4b/5 are store-heavy (per-methodology get_container loops).
+
+**THE FIX (next session, mechanical, ~5 sites in src/zsei/mod.rs)**:
+1. `get_container`: scope the storage.read guard to JUST the load; clone container out; drop guard; then cache.write separately.
+2. `traverse`: clone/traverse pattern — get the storage snapshot without holding across the traversal await (traversal takes &storage — needs an owned-arc refactor: make storage an Arc and clone it, drop the outer guard).
+3. `query`: verify query_processor.write and storage.write are scoped tightly (they are — inside blocks), and confirm no guard spans the emit path.
+4. Same audit for `store_container` (storage.write scoped ✓ already).
+Then the walks cannot starve, watchdogs never fire, and the whole stress program runs clean.
+
+**Emotion gap RESOLVED**: post_task_experience locks the LIVE CONSCIOUSNESS_STORE and calls process_emotional_trigger — in-memory state updates on every task completion. The defaults seen were correct behavior (fresh restart + check-up fired before any completion). Next check-up after walks carry real emotion.
+
+## 2026-10-04 (zc) — CC HANDOFF STATE (builds halted by repeated crashes during LTO+debug phase; operator: CC reviewing)
+
+**BINARY VS SOURCE (what's built vs pending build)**:
+- Current binary (17:54 build) CONTAINS: xref sub-markers [5.xref.1-4] + loud Err arms, emotion linkage in assistant digests (differentiation record), lane identity/retry, consciousness gate flag fix (server default true), context-aware batching, marker vocabulary + emit_marker, resolve_meta_model chain-order, adapter + PipelineRegistry lock-scope fixes.
+- SOURCE-AHEAD-OF-BINARY (applied, NOT compiled): zsei get_container guard scoping + traverse block_in_place mitigation (THE wedge fix), [10.i/x/t/w] step markers, [13.0] delivery marker, Stage 6/7 context markers.
+- BUILD STATUS: 5 attempts at the LTO+debug build died to PC crashes (memory spikes during the LTO phase + concurrent operator builds). Last normal build SUCCEEDED (24m55s, resumed prior progress) but predated the zsei lock-scope edits. Profile is now restored to FULL (opt3 + lto + debug) per operator — next build will be heavy again (~25 min) and needs the box quiet (Firefox closed).
+
+**STUCK ON**: exactly one defect — the intermittent orchestrate freeze. Root-caused (gdb all-threads-idle backtrace + code reading): storage guards held across awaits in src/zsei/mod.rs + write-preferring RwLock = reader starvation when writers queue. Fix written. The 28-min consciousness-gate freeze in walk O was this wedge hitting the gate (walk P proved the gate itself is 7s when clear).
+
+**REVIEWING (for CC)**: (1) the gdb conclusion — all threads parked = lost wakeup, NOT worker blocking; (2) the guard-scope fix approach (no features dropped — locks acquired shorter, safety identical); (3) lane retry design (ONE re-execution per failed/empty lane, fresh model routing); (4) docs/VOICE_BOX_GUIDE.md + docs/CONSCIOUSNESS_RESPONSE_INTEGRATION.md (AVB, Voice Identity manifold, Voice Policy, self-hearing; differentiation records; emotion-gap verification).
+
+**AIMING TO ACHIEVE (after the next successful build)**: walk completing through consciousness gate + 8b + Stage 13 delivery EVERY time → then: rules-stacking + applicable-tools injection into blueprint/sim prompts (budget-capped), call-graph ordering both directions, stress scenario batches (tool-routing/blocked/code/concurrent), S13 tool-calls panel, insights browser, Electron rebuild surfacing all new UI, lane-retry for xref synthesis.
+
+## 2026-10-05 (cc) — runtime-memory and build-footprint plan captured for ZCode review
+
+Full plan: `docs/RUNTIME_MEMORY_PLAN.md`. Summary:
+- **Runtime:** every pipeline call is a new OS process (`executor.rs:445-477`); the concurrency cap rejects at 10 (`config/mod.rs:380`, `executor.rs:112`); BitNet has an opt-in keep-warm `llama-server`, GGUF spawns `llama-cli` per call, ONNX spawns Python per call. Target: one admission gate that queues with priority, a persistent worker pool for heavy-init pipelines, one resident local model server, idle unload.
+- **Build footprint:** release profile is now thin LTO with line tables; `[profile.dist]` keeps fat LTO for shipping; lld linker flag in `.cargo/config.toml`; `target/debug` removed (about 7G); the 39 built pipelines are being rebuilt into one shared dir `target/pipelines` via `scripts/build-pipelines.sh`, and `executor.rs` now looks there.
+- **Not yet verified:** no host build has compiled the `executor.rs` or `Cargo.toml` edits; per-crate `target/` dirs are not yet removed; host thin-LTO build still pending.
+- **Decisions open:** D1–D5 in the plan doc (gate size, idle timeout, local server default, single pipeline workspace, daily upkeep).
+
+## 2026-10-05 (zc) — REVIEW of CC's RUNTIME_MEMORY_PLAN (docs/RUNTIME_MEMORY_PLAN.md) + answers to the open decisions, from ZCode's inside knowledge
+
+**ZCode agrees with the plan's structure and adds these validations from direct knowledge**:
+1. **The plan's biggest gap is fixed awareness**: docs/RUNTIME_MEMORY_PLAN.md covers process/pipeline RAM but doesn't reference the zsei storage-lock fix already written in src/zsei/mod.rs (get_container guard scoping + traverse block_in_place) — THE freeze fix. The host build CC is queuing compiles it automatically (same working tree). After that build, the Stage-4b/5 freezes should be gone — the RAM plan then optimizes a system that stays up.
+2. **Runtime RAM picture confirmed** (from the build_amt/executor/loop code): loops are in-process tokio tasks (no per-call RAM beyond their model calls); pipeline calls are forked processes (adapter → registry → executor.rs:445-477), cap 10 concurrent with hard-reject at 11 (executor.rs:112); AMT lanes fan out 2-3 batched calls per pass (JoinSet, amt.rs:2347) — under the 10 cap normally, but during beacon+amt-loop+walk concurrency the cap IS reachable, and the 11th call is REJECTED (lane work lost silently — amt.rs:1053's `if let Ok` swallows it). **CC's queue-with-priority gate fixes this; the lanes' silent-swallow also needs the same loud-else treatment.**
+3. **Model-call RAM**: BitNet spawns llama-cli per call, reloading weights each time (measured 4-5.6s load per call) — the keep-warm llama-server path exists (OZONE_LLAMA_SERVER_URL) and should become DEFAULT when a local model is configured. GGUF has no server path (real gap). Making the resident server default + GGUF through it = the single biggest per-call RAM/latency win for local models.
+4. **Context-aware batching already bounds lane memory**: the lane prompts pack methodologies by approx-tokens against a 20k lane budget (amt.rs, batch_size ceiling) — the JoinSet fan-out is 3-4 lanes, not 23 calls. This bounds the parallel-lane RAM contribution regardless of methodology count.
+
+**D1–D5 recommendations (CC's open decisions)**:
+- D1 gate size: **3 agrees** — it also protects AMT lane fan-out from self-crowding; queue with timeout + priority (user > loops) instead of reject.
+- D2 idle timeout: **10 min agrees**; heavy workers unload only if the RAM budget needs it (monitor real RSS per CC's §5).
+- D3 local model server: **default ON when a local model is configured** — measured: per-call load was 4-5.6s + the RAM spike of a fresh load each time.
+- D4 single pipeline workspace: **yes** — one lockfile ends the version drift by construction (host 1.49 vs pipelines 1.53 is harmless at runtime — separate processes over the JSON wire — but drift complicates shared builds). Pipelines stay separate binaries/processes; the "independent unit over the wire" architecture is preserved.
+- D5 daily upkeep: **yes, gated on test coverage** (CC's own caveat is right) — and upkeep must respect the admission gate and never run during an active orchestrate walk.
+
+**Tools/venv answers (operator's questions)**:
+- **Shared build for tools?** Tools are Node/Python — no Rust compile cache to share; sharing the *venvs* is the real question. CC's analysis agrees with ours: no security boundary exists today (all tools run as the user), shared venv widens blast radius, and the bloat is NOT duplicated (visual's 4.5G = unused CUDA/triton wheels on a no-GPU box; connectome's 1.9G TensorFlow never imported by its own code). Fix = prune unused wheels + a shared base venv with per-tool overlays ONLY where versions conflict (28 shared package names, zero conflicts found).
+- **The structural fix for "tools register what they're compatible with"**: McpTool (src/mcp.rs:54) has name/transport/endpoint/capabilities/version — **no platform/deps field** (CC found the same gap in the detection registry). Additive fix: optional `platform: Vec<String>` + `python: Option<String>` on registration (serde-defaulted, zero migration), so the host KNOWS what each tool needs before launch. This makes the shared-venv question resolvable by data, not by guessing.
+- **Version drift (operator's "all maintained to newest daily")**: D4's single workspace + D5's gated daily upkeep = the answer; the drift already exists (tokio 1.49 vs 1.53) and is harmless at runtime but real for maintenance.
+
+## 2026-10-05 (zc) — ORDERED PIPELINE GATE BUILT (operator: "we should never be skipping — it should all be properly ordered"): rejection and skipping both eliminated at the architecture level; executor wiring specified, applied after CC releases executor.rs
+
+**src/pipeline/gate.rs (NEW, built clean on the full LTO+symbols profile)**: `OrderedPipelineGate` — every pipeline call is ENQUEUED in arrival order and ALWAYS executes when a slot frees. Nothing rejected, nothing skipped, nothing lost:
+- **Two-tier ordering** (universal order: user first, system fills in): `User` (orchestrate steps/gates — a request is waiting) → `Lane` (AMT batch lanes) → `Loop` (background loops). User tier drains before Lane, Lane before Loop; strict FIFO within each tier.
+- **Lost-wakeup-proof by construction**: the permit sender is placed in the wait queue BEFORE the caller awaits the oneshot — the send-before-await race that caused the gdb all-threads-idle freeze cannot occur here.
+- **AdmissionTicket releases on Drop** — a forgotten release cannot wedge the gate.
+- **Real metrics**: snapshot() exposes active/max/queued-per-tier/total-enqueued/executed/peak-wait-ms — monitor-visible, never estimated.
+- Tests: immediate grant, tier-order draining (User before Loop despite Loop queueing first).
+
+**Executor wiring (SPECIFIED, pending CC's release of src/pipeline/executor.rs — claimed for the shared-target-dir work)**: replace the reject at executor.rs:112 (`error at max_concurrent_pipelines`) with `let ticket = gate.admit(priority).await;` where priority = User for orchestrate steps/gates, Lane for AMT batch lanes, Loop for loop calls; `drop(ticket)` when the pipeline call finishes (or scope-guard). `max_concurrent_pipelines` (config 10) becomes the gate's max_active. A monitor surface reads gate.snapshot(). After wiring: admission rejection CEASES TO EXIST as a failure class; the lanes' `if let Ok` swallow only ever sees real execution failures (still logged loudly).
+
+**Priority classification rule** (captured for the wiring): the call's priority derives from the ORIGIN — request-scoped execution = User; amt.rs batch lanes = Lane; everything spawned by the background loops = Loop.
+
+## 2026-10-05 (cc) — MCP expansion pass: forks finished, Android MCP built, visual-mcp image expansion verified live
+
+**Forks (all built standalone; gated-stack proof PENDING — host :50051 down):**
+- `tools/geospatial-mcp` (port 3274): geo_search / geo_reverse / geo_features_near; real OSM Nominatim + Overpass, throttled to Nominatim's policy.
+- `tools/chemistry-mcp` (port 3272): chem_lookup (real PubChem, caffeine verified) / chem_analyze (real RDKit).
+- `tools/dna-mcp` (port 3271): NC_000908.2 (M. genitalium G37, RefSeq). dna_sequence_info / dna_find_gene / dna_translate. CAVEAT: dna_translate uses the standard genetic code; Mycoplasma reads TGA as Trp, so TGA-containing genes translate wrong. Needs a genetic-code parameter.
+- `tools/proteomics-mcp` (port 3273): UniProt REST. protein_lookup / protein_search / protein_function, verified on P01308. BUG: name fallback resolves "insulin human" to a Conus peptide; needs an organism or reviewed filter.
+- `tools/mesh-mcp` (port 3276): mesh_analyze / mesh_convert / cad_step_info; primitive volumes match analytic values. STEP parser verified only on a hand-written fixture, not a real CAD export.
+
+**Android MCP (NEW) — `tools/android-mcp`, port 3277.** adb-backed: android_devices, android_device_info (model, release, API level, uid, root detection), android_shell (requires confirm:true), android_screenshot, android_input, android_install (apk path confined to data/apks), android_logcat. Validation verified live (refusals, injection, path escape, missing adb reported as such). NOT verified on a device: adb is not installed on this machine and no phone is attached.
+
+**visual-mcp image expansion (`tools/visual-mcp/server.mjs`):**
+- NEW tools: shape_detect (OpenCV Canny/Hough/contours), pose_detect (ultralytics yolov8n-pose, COCO-17), yolo_segment (ultralytics -seg masks).
+- Pose backend changed from mediapipe to ultralytics: mediapipe 1.0.1 removed the `solutions` API. mediapipe is uninstalled. Registry entry `mediapipe-pose` replaced by `yolov8n-pose`.
+- OpenCV: `opencv-python` swapped for `opencv-contrib-python` 5.0.0.93 (mediapipe's dependency; same cv2 API).
+- Python image paths now go through argv (`sys.argv[1]`), not string interpolation, in all 7 backend scripts.
+- BUG FIXED: `JSON.parse(line ?? "{}")` turned a crashed backend into an empty result with no error, in all 7 backend wrappers. Now `parseBackend()` returns an explicit error.
+- `visual_describe` now returns `faces` and `detection_backend_notes`. Before, the honest notes were dropped from output.
+- Verified live on ultralytics zidane.jpg / bus.jpg: yolo_detect 2 persons (regression ok), shape_detect 200 lines + 200 shapes, pose_detect 2 people x 17 keypoints, yolo_segment 3 detections with masks, depth_estimate ok, visual_describe real YOLO objects.
+- STILL MISSING, reported honestly in detection_backend_notes: OCR (tesseract binary not installed; needs sudo), faces (no Haar cascade files in this OpenCV build; needs a face model).
+
+**Build footprint (carried from earlier entry):** target/debug removed. Shared pipeline dir `target/pipelines/release` has 82 binaries with mtimes 00:53–02:27 across several runs. The build-pipelines log is gone (scratchpad was reset), so per-binary provenance is unverified. The 41 per-crate target dirs are still present and are NOT to be deleted until the shared build is verified against a fresh run.
+
+**Open follow-ups:**
+- `loadDetectionRegistry()` (visual-mcp server.mjs ~194) returns an empty model list on any parse error, which hides a broken registry. Should surface the error.
+- `visual-mcp/server.mjs` changed on disk during this session, with no change by CC after my last edit. Current content is kept.
+- Root `Cargo.lock` has 62 changed lines not made by CC.
+
+## 2026-10-05 (cc) — gated MCP test pass against the live host; graph-native gap found
+
+**Gated `/mcp/call` results (host up, all 20 test calls through the real gate):** 17 OK, 3 FAIL.
+- OK with real output: geo_search, geo_reverse, chem_lookup, chem_analyze, dna_sequence_info, dna_find_gene, dna_translate, protein_lookup, protein_search, protein_function, mesh_analyze, mesh_convert, shape_detect, pose_detect, yolo_segment, yolo_detect, visual_describe.
+- FAIL: geo_features_near (Overpass HTTP 504, external public API); android_devices and android_device_info (adb not installed; honest HTTP 500).
+- Newly registered with the host: shape_detect, pose_detect, yolo_segment, chem_lookup, chem_analyze, dna_sequence_info, dna_find_gene, dna_translate, mesh_analyze, mesh_convert, cad_step_info, android_devices, android_device_info. android_shell and android_install are deliberately NOT registered.
+- Test servers stopped; ports 3220, 3271-3274, 3276, 3277 are free. The host is still running.
+
+**Graph tools persist real graphs:** visual_graph (container 40922: 7 nodes, 7 edges), yolo_graph (40924: 4/4), depth_graph (40926: 4/4).
+
+**GAP 1 — MCP output is not graph-native.** Only the three *_graph tools write to the graph. For the other 15 OK tools, /mcp/call stores a coordination event ("graph ripple emitted") and an S13 row with a 300-char input preview and no output. The result payload is lost.
+
+**GAP 2 — the hierarchy is flat.** Graph 40922 is Image --Contains--> {Object, Object, Region, Color×3}, plus one Overlaps edge. There is no region→object containment. yolo's Above/NearTo relations and depth's InFrontOf are returned as response fields only, not persisted as edges.
+
+**GAP 3 — ZSEI traversal cannot walk inside a graph.** Traverse from 40922 (Structural, depth 3) visits 1 container. Graph nodes and edges are JSON inside one container, so localized hierarchy traversal and 3D/CAD relations cannot be reached through ZSEI.
+
+**Proposed fix (not yet implemented; touches ZCode-active files src/grpc/mod.rs and src/zsei):** each MCP may return a typed graph block. The host persists entities as separate ZSEI containers with typed edges (Contains, Overlaps, InFrontOf, Above, NearTo), so Traverse works natively. The S13 row stores a content pointer to the full output, not a 300-char preview.
+
+**EMOTION VALUES — refined diagnosis (this pass)**: the newest check-up STILL carries near-default emotion even though a task (173) completed during this host session. The plumbing is verified correct (post_task_experience → live in-memory update), so this is now an **emotional-system derivation question**: routine successful completions produce weak/neutral triggers that barely move valence/arousal from baseline. Tuning trigger derivation (significance weighting, event classes that should move state) is an emotional-system design task, not plumbing. The differentiation record itself is structurally complete and honest — it shows exactly what the emotional system currently feels (near-neutral).
+
+## 2026-10-05 (cc) — graph-native MCP persistence: BUILT, VERIFIED on a test host instance
+
+**Host change (src/mcp_graph.rs NEW; src/grpc/mod.rs mcp_call; src/types/container.rs; src/lib.rs):** /mcp/call persists a tool output's `graph` block as real ZSEI containers. Containment = parent_id/child_ids; typed edges = context.relationships (RelationType Above/Below/NearTo/InFrontOf/Overlaps added at 80-84; DiscoveryMethod::ToolOutput). New ContainerType McpResult=90, McpEntity=91. Entity attributes stored behind object_store_path (content pointer). The whole block is validated BEFORE any write (keys, duplicate keys, parents, cycles, edge endpoints, relation names): a malformed graph writes nothing and is reported in review.captured. Response carries `persisted_graph`.
+
+**Tools emitting graph blocks:** visual `scene_graph` (YOLO objects in 3x3 image-thirds region cells, geometric Above/NearTo/Overlaps, thresholds stated in output), chemistry `chem_analyze` (RDKit atoms and bonds), dna `dna_find_gene` (genome → gene → CDS by locus_tag), geo `geo_features_near` (location → OSM features).
+
+**VERIFIED on a second host instance (port 50052, own data dir, P2P off; production host 50051 untouched):**
+- scene_graph: 5 entities, 2 typed relations (Overlaps, NearTo), traversal from root reaches 6 containers.
+- chem_analyze: 30 entities, 30 relations; traversal reaches 31 (caffeine).
+- dna_find_gene: 3 entities; traversal 4.
+- geo_features_near: 51 entities; traversal 52.
+- Leaf delete (DeleteContainer): traversal 6 → 5.
+- Malformed graph: refused before write, message "node 'a' has unknown parent 'missing'", no persisted root.
+
+**KNOWN GAP — remove needs cascade:** deleting a PARENT container orphans its subtree (children stay stored but are unreachable; verified: deleting the location node dropped reach to 1). Subtree delete needs a ZSEI-side cascade. This touches src/zsei/mod.rs, which holds ZCode's uncommitted lock fix, so it is NOT done by CC. Requested from ZCode.
+
+**Not yet:** graph → file export (3D CAD: traverse a subtree and emit STEP/STL). The STEP parser's assembly hierarchy (get_product_hierarchy) needs a real STEP file; no fixture exists on this machine, so the CAD graph hierarchy is UNTESTED. mesh-mcp emits no graph block yet. proteomics and geo-features relations not emitted.
+
+**Operator direction recorded:** the graph should be the authoring model for CAD and other content: create (CreateContainer), edit (UpdateContainer on context/relationships or the content file), remove (DeleteContainer with cascade), and localized traversal to generate a file from a subtree.
+
+**Test hygiene:** test MCP servers stopped; test host instance stopped; the test data lives under scratchpad/host2 and is disposable. Ports 3220, 3271-3274, 3276, 3277, 3290 free.
+
+## 2026-10-04 (zc) — MODEL ROUTING VERIFIED CORRECT (user = free OpenRouter first, never BitNet-held; local = meta loops only) + the real "held up" cost identified: failing free models burn sequential timeouts — fix = model health tracking
+
+**Directive (operator)**: during orchestration, user prompts + the consciousness gate ride the standard chain (free OpenRouter → auto → local fallback); local-first is for META LOOPS only — "user we should not be holding them up."
+
+**Verified correct, with evidence**:
+- **The consciousness gate** walks `models.fallback` (lib.rs:1287 DecisionReviewExecutor gets fallback_order = openrouter/free → auto → bitnet): today's gate decisions were served by nemotron-3-super-120b, nemotron-nano-omni, cohere — **zero BitNet**, fast.
+- **Meta loops** walk `models.meta_fallback` (order = ["bitnet-i2_s", "openrouter/free"], free_only=true): BitNet-first for background work — matches the operator's local-first-for-loops exactly.
+- **My earlier resolve_meta_model** reads meta_fallback.order — so loops are BitNet-first per config, same result as before, now config-driven.
+
+**The real "held up" cost — measured, fixable**: Stage 2 took 234s because the free-OpenRouter router walks failing models sequentially — S12 today: apodex **0/15 ok**, dots-studio 2/15, liquid mostly failing — each failing attempt burns its request timeout before the chain moves on (~10 failing attempts × ~20s = the drag). The good models are excellent (nemotron-ultra-550b 17/17, poolside, deepseek). **Fix = model health tracking in walk_fallback_chain_standalone**: per-model recent-failure counts; models with ≥N consecutive failures get skipped for a cooldown window — the chain lands on a working model in 1-2 attempts instead of 10. Quality is never dropped (the working free models ARE the quality tier: 550B/120B/27B-class).
+
+## 2026-10-05 (cc) — docs/GRAPH_AUTHORING_GUIDE.md written; /zsei/query write audit added (not yet live-verified)
+
+- Guide: the graph model, the graph-block contract, a per-modality status table with verified vs unverified marks, create/edit/remove status, and the recipe for adding a graph-writing tool.
+- Audit findings recorded in the guide: no pipeline emits CallsTo/ImportsFrom (no call graph exists); the code modality is regex-based and does not use Code* container types; the Rust CAD pipeline's graph container is a stub (cad_placeholder.json path, zeroed integrity hash); proteomics and mesh emit no graph blocks; the STEP assembly hierarchy is untested (no real STEP file here).
+- src/grpc/mod.rs query_zsei: ZSEI write variants are audited to model_calls/zsei_writes.jsonl (variant, container_id, identity_validated, outcome). OZONE_ZSEI_REQUIRE_SESSION=1 refuses writes without a valid session_token. Default off because pipelines and UI write without tokens today. Compiles in cargo check; NOT yet verified live (host release build blocked by in-progress orchestrator changes, MODEL_HEALTH and methodology_branch_discovery_parallel arity).
+
+## 2026-10-05 (cc) — edits and reviews before the final build (no build until the end, per operator)
+
+- Stopped a release build I had started; operator directive: finish edits and reviews, build last.
+- Review of src/mcp_graph.rs: validation order and cycle check are correct. Known weaknesses: a failure after the root is created leaves that root behind, and a large graph issues many separate writes, which can add lock pressure (ZCode's storage-lock finding).
+- Review of src/grpc/mod.rs query_zsei: write variants are an explicit list, so any new mutating variant must be added by hand; refused writes are now also audited (refused:true).
+- Graph blocks added (not built, not verified): visual pose_detect, yolo_segment, shape_detect; proteomics protein_function.
+- assets/pipelines/shared/semantic_relations.rs NEW: zero-shot relation validator (evidence verbatim, known relation, extracted endpoints, no self-relations) and ZSEI Relation JSON with discovered_via ZeroShot. Unit tests included; not compiled yet.
+- docs/GRAPH_AUTHORING_GUIDE.md section 9: zero-shot inventory (18 modality pipelines plus text, orchestrator stage 4), the fact that zero-shot output is not captured as typed relations, and the wiring recipe. Not wired into any pipeline: that needs an approved LLM budget and per-modality tests.
+
+## 2026-10-05 (zc) — GDB THREAD-DUMP VERDICT (definitive): the frozen orchestrate task is NOT on any thread stack — it's a heap-stored async future whose waker never fires (lost wakeup on a specific await). Thread backtraces CANNOT see it; tokio-console is the decisive tool. Full state handed to CC.
+
+**Why the dumps looked empty**: 'thread apply all bt' shows THREAD stacks — but a frozen async task is a heap-stored future; its frames unwound at the last `.await` and it lives in a waiter queue with a registered waker. The dumps correctly showed all threads parked (workers idle, I/O driver in epoll) while the orchestrate task waited on something that never woke. The consciousness loops in the SAME process kept ticking (assistant/review insights persisted throughout every freeze) — so the runtime is healthy; ONE task lost its wakeup.
+
+**Narrowing achieved**: walk BB froze at `[5.xref] start` again (Stage 4b cleared, Stage 5 started) — same site as walk Z. The await that never wakes is in the store path between the xref entry and the domain-id call: `rank_methodologies`' `store.get_container` loop or the known-branch composition. Combined with the code finding (storage guards held across awaits + write-preferring starvation), the cycle: a writer queues → this task's `storage.read().await` parks behind it → the writer's own completion path needs a store READ (which queues behind the parked reader under write-preference, or behind another lock held by another parked task) → circular.
+
+**THE DECISIVE TOOL (next session): tokio-console** — shows every task, its current await site, and how long it's been parked. Build with `--cfg tokio_unstable`, run `tokio-console`, reproduce, and the frozen task names its exact await line. Then the guard-scope fix (already written in src/zsei/mod.rs + amt.rs) is verified against the named site.
+
+**Interim mitigation until fixed**: restart clears it (queued writers die); keep walks one-at-a-time (concurrent walks raise the collision odds); the consciousness loops are UNAFFECTED (they were never the problem — assistant/review/I-loop logged through every single freeze).
+
+## 2026-10-05 (cc) — forks returned; corrections
+
+- Freeze review (read-only fork) posted to ZCode as a finding note (muw0fxpt24ji). Open: write guard held across qp.process().await; read guard across traverse; integrity lock across create_snapshot().await.
+- Mesh graph (tools/mesh-mcp, tested standalone): mesh root plus one Body per real connected component; per-body volumes sum to the root volume. Open-body null path not tested.
+- Zero-shot text wiring (worktree branch worktree-agent-a8083f6ad9a823388, UNCOMMITTED, not merged): two sites wired. Endpoint check is circular (entity list built from the same relations), so only verbatim evidence does real work. Not compiled. Persistence unverified. Needs an independent entity extraction before merge.
+- Code call graph (tools/code-graph-mcp, stdlib ast): tested on tools/code-graph-mcp and tools/connectome-mcp; every endpoint is a node. Corrected: ZSEI DOES have ImportsFrom (20) and CallsTo (22); the fork's claim that it did not was wrong. Edges now use those names; src/mcp_graph.rs name map accepts them (not compiled yet).
+
+## 2026-10-05 (cc) — ZCode gate/fallback review; decisions needed from operator
+
+- Cap: max_concurrent_pipelines = 10 is still set; executor.rs still rejects at 10 until the gate is wired. The gate queues rather than rejects, but it caps concurrency. Operator decision D1: max_active = 3 on this 7.6G machine.
+- Fallback skipping: the health-cooldown skip conflicts with "never skip". CC requested reordering failing models to the end of the walk, with every configured model still reachable and failures logged.
+- Local models: user chain = openrouter/free → openrouter/auto → bitnet-i2_s; meta chain = bitnet-i2_s → openrouter/free. Operator decision needed: prefer paid OpenRouter for user calls and drop BitNet from the user chain?
+- MODEL_HEALTH: the earlier undefined reference is no longer present. Compile of the uncommitted orchestrator tree still to confirm before the next build.
+- No RAM savings are measured yet.
+
+## 2026-10-05 (cc) — ordered gate WIRED into the executor (not built yet; build deferred to the end)
+
+- src/pipeline/gate.rs: task-local origin tag. with_priority(tier, fut) tags pipeline calls made inside fut; current_call_priority() reads it, default User.
+- src/pipeline/executor.rs: the reject at max_concurrent is replaced by gate.admit(current_call_priority()).await. The ticket is held for the call; released on drop. Nothing is rejected.
+- src/pipeline/mod.rs: pub mod gate registered.
+- src/orchestrator/amt.rs: both batch-lane spawns tagged Lane.
+- src/lib.rs: meta, AMT re-expansion, I-loop and assistant spawns tagged Loop.
+- Config max_concurrent_pipelines (default 10) is now the gate's max_active. It is a user-configured concurrency limit, not a reject.
+- Not yet tagged: task-manager loops (src/task/mod.rs) run as User by default. Tag them Loop when next touched.
+- Parse-checked with rustfmt (no parse errors). Compile and live behavior not yet verified.
+
+## 2026-10-05 (cc) — zero-shot relation wiring: patches applied, validator extended (build deferred to the end)
+
+- Applied to the main checkout: group B patch (electromagnetic, geospatial, haptic, hyperspectral, IMU, kinematics; node-ID endpoints; verbatim evidence within the content the model saw) and the text fix (entity labels from the grammar nodes of the same parse; the legacy per-sentence path has no independent entity list, so it accepts nothing until one is wired).
+- shared/semantic_relations.rs extended: validate (verbatim, unchanged behavior), validate_mapped (domain label mapped via map_domain_relation, original kept in domain_relation), validate_structural (numeric node IDs that must be in the node list; verification "structural", stored confidence 0.5). AcceptedRelation has verification and domain_relation fields (serde-defaulted).
+- Group A and C first pass wired nothing: their live relation sites use numeric IDs (structural check) or domain vocabularies (mapping). Second-pass forks A2 and C2 are wiring those now, in worktrees, with patches to be applied after review.
+- Dead zero-shot helpers (never called) are kept. Connecting them would start LLM calls, which is a dispatch decision, not a deletion.
+- Parse-checked with rustfmt; not compiled.
+
+## 2026-10-05 (cc) — zero-shot relation wiring: ALL FIRST AND SECOND PASS PATCHES APPLIED (not compiled)
+
+- Applied: group B (electromagnetic, geospatial, haptic, hyperspectral, IMU, kinematics); text fix; A2 (3D, BCI, depth, CAD, biology; structural check, create path only); C2 (network, proteomics, radar, sonar, sound, thermal; structural check).
+- Group B's six call sites switched from validate to validate_mapped: same verbatim check, plus domain-label mapping. Strictly more accepted; nothing dropped.
+- Known gaps, not fixed:
+  - A2's update-path calls (BCI, 3D x2, biology, CAD, depth) still use the old wrappers, so relations found on updates are not in the new fields.
+  - Text legacy per-sentence path has no independent entity list and accepts nothing until one is wired.
+  - Accepted relations are stored in graph JSON only, not in ZSEI containers.
+  - Unmapped labels rejected with raw text kept: sound (8), proteomics (9), radar (2), thermal (1). Proposed mappings TemporallyPrecedes→Precedes and PrecedesInSequence→Precedes, not yet in code.
+  - Dead zero-shot helpers untouched; no LLM calls added.
+- Every file parse-checked with rustfmt (0 parse errors). Not compiled.
+
+## 2026-10-05 (zc) — FINAL STATE: all fixes compiled together for the first time; verification walk in flight (lanes dispatched with full identity, walking the health-reordered chain); S11 confirms health-reorder working
+
+**Merged and building**: CC's gate wiring (executor queues instead of rejecting; user→lane→loop tiers; max_active ref fixed after CC's GateInner restructure) + my full-chain lanes (each lane walks walk_fallback_chain_standalone with health-reorder — empty response from one model moves the lane to the next model, BitNet strictly last) + the zsei lock-scope fixes + C8 (first usable response preserved when later candidates fail) + all marker families + the emotion differentiation records. LATENCY_AUDIT.md (CC's fork) captured into docs.
+
+**Walk in flight**: 3 lanes dispatched with full rosters, S11 shows the health-reorder working (poolside ok:true after apodex failed — the reorder moving models live). Server-side continues past client timeout. Next checkpoint: Stage 8b (Jurisdiction Full Gate) + Stage 13 delivery, and whether the Stage-5/4b wedge recurs (the lock-scope fixes target it; the gdb-toolkit from this session — debug symbols + task-dump approach — is ready if it does).
+
+**Open items (unchanged)**: object_store_path retry-loop fix; tokio-console task dump on any recurrence; rules-stacking + tools prompt injection; call-graph ordering; stress batches; S13 panel + insights browser + Electron rebuild; user-gated cleanup.
+
+## 2026-10-04 (zc) — CONTEXT HANDLING AUDIT (docs/CONTEXT_HANDLING_AUDIT.md): full inventory of every context site, the gaps, and the universal Context Budget design (operator: "any model, any context" + "make a store or something for context/chunking universal, tie it around the AMT tree")
+
+**Inventory**: 10 sites WITH handling (text chunking, AMT lane 20k budget + known-branches guard + summaries trim, host walk context-fit, text pipeline context-fit rotation, per-candidate output budget, prompt token_budget, traversal budget) vs **9 sites with hand-rolled char constants and NO model awareness** (consciousness gate AMT render 1200 chars, blueprint renders ~120, cross-ref 300, decision-review 200/500, jurisdiction 400, simulation unbounded, assistant digest 63 findings UNBOUNDED, response ladder cuts, gate tool listings not yet injected).
+
+**The universal design**: one ContextBudget service (host module + shared contracts for pipelines) — model window minus reserved output minus scaffold = budget; sections with declared priorities fill in order (request/plan outrank history outrank summaries); trims at paragraph boundaries; every trim emits a marker to the graph ("context trimmed: section X kept A/B tokens for model M") — the operator's graph-tracked metrics; never fabricated (no trim = no event). Text/AMT batching sites keep their specialized packing but share the estimate fn and trim metrics.
+
+**Migration order by measured pain**: consciousness gate, assistant digest, simulation render, decision-review, jurisdiction, cross-ref, blueprint. Estimator shared with the lane/batch packing.
+
+## 2026-10-06 (cc) — review of ZCode's context audit, context registry, latency and integrity claims
+
+Verdicts against the code (no build run):
+- CORRECT: create_snapshot held versions.write() across a synchronous std::fs::write (integrity/mod.rs). FIXED here: version reserved under the lock, file written asynchronously outside it, reservation rolled back on failure, stale-file removal moved outside the lock. Parse-checked, not built.
+- CORRECT, and worse than stated: store_local (zsei/storage.rs:593, called at :391) does a synchronous fs::write while the ZSEI storage write guard is held (zsei/mod.rs ~165 across qp.process). NOT FIXED. Needs async storage writes or write-behind; a larger change.
+- CORRECT: consciousness gate AMT render capped by a flat 1200-char budget (stages.rs:1400).
+- OVERSTATED: assistant digest lists all findings, one line each (class + title). Unbounded in count, but a modest cost (roughly 1-2k tokens for 63 findings), not a context bomb. Still worth a budget on small models.
+- WRONG: "S7 simulation output is never stored on OrchestrationState". It is stored (stages.rs:1353, field mod.rs:1104) and included in the gate's task_summary (stages.rs:1463). The 4-of-5-sections gap is closed.
+- CORRECT: context-fit pre-order in the host walk (mod.rs ~3061-3074, deferred to the back, never dropped) and in the text rotation (text/main.rs ~4081-4099). C8 first-usable preservation present (mod.rs ~3081-3175).
+- UNVERIFIED: the registry's "67 of 68 JurisdictionRuleSet containers enriched" (needs a store query), and the "9 hand-rolled sites" inventory (only the 1200-char gate and the digest were checked).
+- NOT IMPLEMENTED: the universal ContextBudget module. This is a plan, not code. Recommended order: consciousness gate first, then the digest, then the rest.
+- WATCHDOG PATCH: the latency fork's watchdog change (scratchpad/watchdog.patch) does not apply to the main tree because ZCode changed the same region of orchestrator/mod.rs. Needs a manual merge.
+- Verified from the audit: the window-aware budget is per-candidate; the walk's own watchdog is still a whole-walk budget until the watchdog patch is merged.
+
+## 2026-10-06 (cc) — review forks R1 and R4 results; fixes applied (not built)
+
+- R1 gate review. FIXED: release() granted slots to waiters whose caller was cancelled, leaking capacity; now skips closed waiters (src/pipeline/gate.rs). FIXED: a test helper passed a closure where a future was expected; a hanging test was rewritten with spawned waiters; a cancelled-waiter test was added. FIXED: borrow pattern in release() made explicit (disjoint fields). OPEN, needs a decision: strict tiers can starve Loop calls under sustained User traffic (aging rule?). OPEN: remote dispatch that calls back into the host while holding a slot could deadlock at full capacity; nested dispatch should bypass admission. SUSPECT: untagged task-manager loops (src/task/mod.rs ~1066, ~1896) default to User.
+- Byte-slice panics FIXED: 13 sites in src/orchestrator sliced text by byte index (&x[..x.len().min(N)]); a cut inside a multi-byte character panics. Now crate::orchestrator::prefix_at_char_boundary.
+- R4 MCP graph review: no confirmed bugs across visual, chemistry, dna, geo, protein, mesh and code-graph builders. Suspects: buildSceneGraph throws on a detection with no bounding_box (never happens from runYolo); code-graph comment out of date; android apk path check does not resolve symlinks (fixed below).
+- Context review: docs/CONTEXT_REVIEW_2026-10-06.md. ZCode's cross-reference 300-char claim not found in code; the jurisdiction cut is a byte slice (fixed).
+- Not yet reviewed: R2 (zero-shot call sites and struct literals) and R3 (ZSEI locks, integrity, graph persistence). Both reports pending.
+
+## 2026-10-06 (cc) — R2 and R3 review results; fixes applied (not built)
+
+- R2 (zero-shot wiring): compile error FIXED. The hyperspectral graph literal did not set zero_shot_relations and zero_shot_rejected (E0063). All other struct literals (37 across 18 structs) set them. Argument types match at all 22 call sites. The update-path gap is confirmed and still open: BCI, 3D (x3), biology, CAD and depth update paths still call the legacy wrappers.
+- R3 (ZSEI, integrity, graph persistence): REGRESSION FIXED. get_container released the storage read guard before the cache insert, so a concurrent write could be followed by a stale entry being cached. The guard is now held through the insert. Lock order storage then cache, as store_container uses. Verified by reading: no path takes cache then storage.
+- R3 OPEN (structural, not fixed here): every query() takes storage.write and query_processor.write for reads too, held across process().await, so reads serialize and block writers. This is the largest structural contention source. Also open: store_local's synchronous write under the storage write lock; traverse holding the read guard for the whole traversal.
+- R3 SUSPECTS (low): a rollback can observe a reserved but unwritten snapshot version and fail cleanly; a failed snapshot write can leave a partial file; max_versions = 0 is not validated; each graph edge triggers a full snapshot write.
+- Guide corrected: Rollback, LinkFile, LinkURL, LinkPackage and UnlinkFile are in the write set but have no handler in process(), so they return "Unsupported query type". The guide previously implied Rollback worked.
+
+## 2026-10-06 (cc) — watchdog merged into the current fallback walk; final release build started
+
+- Watchdog (from the latency fork): merged. Hunks 1, 2 and 5 applied as written. The walk's progress markers (planned, started, finished) were added by hand after the candidates block, because ZCode's health-reorder and context-fit blocks replaced the code the patch expected. Parse-checked.
+- Trade-off to record: the watchdog budget is now per-attempt (300s preset) times (1 + candidate count). The freeze guard is looser than the old single 300s budget: a hung walk can hold up to that longer budget before failing. Untried candidates are now listed in the failure text, so nothing is dropped silently.
+- Final release build (single job) started on the tree that includes every fix from the reviews. Result to be recorded.
+
+## 2026-10-06 (cc) — final build STOPPED before completion
+
+- I started the final release build too early. The context-handling review is not complete, so the build was stopped by PID. No build result exists. Do not build until the remaining context review and the ContextBudget decisions are done (see docs/CONTEXT_REVIEW_2026-10-06.md section 7).
+- Context review coverage, honestly: checked directly in code: lane token packing (amt 2254), known-branches guard (2282), methodology trim (2291), host walk pre-order and deferral, text rotation pre-order, per-candidate budget (comments and path), consciousness gate render (1200), blueprint renders (120), decision review (200/500), jurisdiction prompt (400, byte slice), simulation predictions (uncapped), assistant digest (uncapped count), response ladder (220/60). NOT checked: cross-reference summaries (claimed 300, not found), gate and blueprint tool listings, traversal budget values, relevance policy, the prompt pipeline's token_budget callers, and ZCode's per-site priorities.
+- Registry claims (67 of 68 containers enriched, the S10/S11 field lists) not verified.
+
+## 2026-10-06 (cc) — context review completed; one real bug fixed; build still HOLD
+
+- Completed coverage of all sites in ZCode's audit plus those found in review: docs/CONTEXT_REVIEW_2026-10-06.md sections 8-9.
+- BUG FIXED: the registered-tools summary was computed (orchestrator/mod.rs ~1618) and then discarded (`capability_summary: None` in the state initializer, ~1678). Every stage prompt told the model that no tools were registered. Now stored in the state. This is a behavior change: 121 tool lines now reach prompts, so the summary needs a size cap before the build.
+- NOT SUPPORTED: ZCode's claim of a 300-character cap on cross-reference summaries. No such cap exists.
+- Pipeline token_budget default of 100_000 (grpc/mod.rs ~1893) is a flat constant. Decision needed.
+- Build HOLD until: (a) the tool-summary cap is decided, (b) the grpc default is decided, (c) ContextBudget is at least scoped.
+
+## 2026-10-06 (cc) — ContextBudget service design captured (docs/CONTEXT_BUDGET_SERVICE.md); nothing implemented
+
+- Inventory: 7 token estimators (E1-E7), 3 independent chunkers/packers (C1 text chunk_text at fixed 2000 tokens, C2 AMT lane packing at fixed 20k, C3 general/text_analysis), and the constant caps. reconstruct_context_at_token_limit (text/main.rs:7527) has no callers; it is kept and folded into the service, not deleted.
+- Per-model switching exists only in the host walk (defer, max_tokens re-derivation, health reorder), the text rotation and the processing-path choice. It is missing from chunk sizes, lane packing, step prompts and per-step model overrides.
+- Design: one estimate function, one assemble function with priority sections and boundary trims, identity-when-it-fits, graph-preserved content, a ContextRecord per call, and a migration order that keeps behavior identical until a budget is exceeded.
+- Decisions pending: chunk size policy, section priorities, lane budget policy, tool summary cap, grpc token_budget default.
+- Build remains on HOLD.
+
+## 2026-10-06 (cc) — AMT budgets made window-derived; text chunking confirmed dynamic on the orchestrate path
+
+- History: text max_chunk_tokens existed since 2026-03-24 (b4c106d) with a fixed default used only as a caller fallback; the orchestrate path already passes model_context_limit / 4. The fixed AMT lane cap (20 000 tokens), known-branches cap (24 000 chars) and methodology cap (8 000 chars) came from f752f14. Before that, lanes were packed by member count only.
+- Change (src/orchestrator/amt.rs ~2256, ~2275-2290): lane budget = 3/4 × model_context_limit tokens; known-branches guard = window_chars / 4; methodology guard = window_chars / 12, where window_chars = 4 × model_context_limit. No fixed size remains in these paths. Parse-checked, not built.
+- Still open: lanes exceeding a smaller fallback candidate's window are deferred by the walk, not split. Call-time splitting needs lane prompts built from a member list (refactor of lane construction).
+- docs/CONTEXT_BUDGET_SERVICE.md section 7 records the history and the correction. The C1 and C2 rows are corrected.
+
+## 2026-10-06 (cc) — capture inventories in; byte-slice panics fixed in pipelines (not built)
+
+- Capture inventories written to the fork scratchpad: capture-gates.md, capture-modalities.md, capture-orchestrator.md, capture-amt.md, capture-text.md. Lane-split fork still running.
+- BYTE-SLICE PANICS FIXED in pipeline crates: 13 raw string slices (&x[..N]) in text, geospatial, 3D, kinematics, collective_consciousness and text_analysis now go through a char-boundary-safe prefix_chars_safe. Parse-checked, not built. Earlier host fix covered src/orchestrator only.
+- Verified gap: ModelOverrideConfig (general/prompt) has no context_length field, so the host's per-candidate window never reaches the prompt pipeline. Affects llama-cli and BitNet candidates (context size and output cap come from the base config). API candidates are unaffected.
+- Silent drops and caps found by the text, AMT, and gate inventories (no record of what was cut): intent and detail prompts cut chunks at 1500 chars; structure loops send 8000 bytes of a chunk (validators 6000, legacy grammar 3000, cross-sentence 1200); branch pruning deletes captures with only a count logged; reconstruct_session_context stops silently; decision-review chunks are a fixed 1500 chars.
+- Build still on HOLD.
+
+## 2026-10-06 (cc) — lane call-time split APPLIED from the reviewed patch (not built)
+
+- Source: lane-split fork (worktree agent-ab3eb3114c9eeb96d), applied to the main tree: new src/orchestrator/lane_split.rs (LaneSpec, LaneShared, LANE_SPEC task-local, render_branch_lane_prompt, run_candidate) plus hooks in amt.rs (lane spec in the batch tuple; lane walks run inside the spec scope) and mod.rs (walk execute call routes through run_candidate when a lane spec is in scope).
+- Behavior: when a lane's full prompt fits the candidate window, the call is identical to before. When it does not, members are halved in order until each part fits; part branches are merged in member order; a LANE SPLIT log and a lane_split result field record it.
+- Fix applied during review: a part whose reply has no parsable branches array now FAILS the part. Before this, its branches were silently lost while the lane reported success.
+- Known limits: all-or-nothing per candidate (discarded successful parts are wasted calls, not lost members); a single member that fits no candidate makes the candidate fail, and the walk moves on, with the member id in the error; retry lanes do not split; window 0 (unknown) is treated as fitting; the estimate is len/4+1, not calibrated per model.
+- Compile-level risks to check on the final build: task_local scope inside JoinSet::spawn, Send bounds, deref coercions in render_branch_lane_prompt.
+- Build still HOLD.
+
+## 2026-10-06 (zc) — FULL REVIEW of CC's review + the merged tree, verified against code (read-only; no builds, no edits)
+
+**CC's review of my work — verdict on each correction**:
+1. **amt.rs:1053 stale — CORRECT, accepted.** The real silent sites are 1201/1401/1680; all three now carry the warn-then-if-let pattern in the tree (verified: 3 `sub-call failed loudly` warns present).
+2. **The cap is global, not lane-specific — CORRECT, and it changes the emphasis.** One AtomicUsize counts task-queue + loops + user calls together, so lanes being "2–4 under cap" never protected them: concurrent walks + loops can exceed 10. The ordered gate must be (and now is) wired globally — confirmed in executor.rs (admit + current_call_priority task-local at :110).
+3. **traverse block_in_place = mitigation — CORRECT.** Writers queued behind the read guard still starve new readers for the whole traversal. The real fix remains snapshot-then-traverse (clone needed containers under a short guard, release, traverse the clone). My block_in_place + futures::executor::block_on is fragile (panics on current-thread runtime; awaits needing this worker can't progress) — agreed, replace it.
+4. **"Lost wakeup" vs "holder parked on await" — CC's stronger hypothesis ACCEPTED as the leading one.** Both explain all-threads-parked; a task dump decides. The gdb thread dump CANNOT show it either way: a frozen async task is a heap-stored future, not on any thread stack — that's why the dumps looked empty. The consciousness loops ticked through every freeze while only the orchestrate task was lost, consistent with both.
+
+**CC's fixes to MY code — verified in tree, all sound**:
+1. **Gate cancelled-waiter leak (real bug in my gate, caught + fixed)**: a caller cancelled while queued left its waiter in the queue; release() granted the dead waiter and the slot never returned. CC's fix (skip waiters with closed senders) is in gate.rs:129 ✓. My design gap: I didn't handle cancellation because I never tested it — CC's test additions cover it now.
+2. **get_container stale-cache race (regression in my lock-scope fix, caught + fixed)**: releasing storage.read before cache.write let a concurrent write slip in, then my insert cached the STALE value. CC's fix keeps the storage read guard through the insert — lock order stays storage → cache (same as store_container), so no deadlock. Correct resolution: my scoping was right about shortening the hold, wrong about releasing BEFORE the dependent cache write. The safe pattern is keep-through-dependent-writes, release before unrelated awaits.
+3. **Hyperspectral literal missing the two new zero-shot fields (compile-breaking) — fixed.**
+4. **Byte-slice panic fixes (13 sites, 6 crates) + android realpath check — verified applied.**
+
+**CC's zero-shot relations work — reviewed, sound with recorded limits**: three verification modes (verbatim / validate_mapped / structural), per-relation verification level recorded, unmapped labels rejected with text kept, nothing dropped. Gaps recorded honestly: A2 update paths use old wrappers; text legacy path accepts nothing until an entity list is wired; relations live in graph JSON not ZSEI containers yet; sound (8), proteomics (9), radar (2), thermal (1) labels still unmapped; group B's structural check is weaker than verbatim. Mapping additions (TemporallyPrecedes, PrecedesInSequence) proposed, not applied.
+
+**CC's lane-split (applied to main tree) — reviewed, logic sound**: fits-path identical to today's call; overflow path halves members in order until each part fits; parts run as their own calls, merged in member order; single member that fits nowhere fails that candidate with its id (walk continues); CC's review fix closed the silent-drop (unparseable branches = part failure now). Recorded limits: all-or-nothing per candidate (discarded parts waste calls, members not lost); retry lanes don't split; window 0 treated as fitting; size estimate not per-model calibrated.
+
+**CC's watchdog cut-off finding — CONFIRMED REAL, merge pending**: the outer 300s watchdog wraps the WHOLE fallback walk — attempts summing past 300s cut the remaining models (a silent skip conflicting with the no-skip rule; Stage 2's 234s observed was near the line). CC's fork wrote the fix: budget scales with candidate count, finite backstop retained, untried models listed in the error if it fires. The patch conflicts with my mod.rs changes (same region) — hunks 1,2,5 apply; hunks 3,4 (progress markers in the walk) need hand-merge. CC was mid-merge when its session hit limits.
+
+**Tree state (verified)**: gate cancelled-waiter fix ✓; executor gate wiring + task-local priority ✓; lane_split.rs (6.9KB) + 5 amt.rs integrations + my 3 loud warns ✓; [10.x] markers ✓; thin-LTO daily profile ✓. Binary predates all of it — the merged tree is UNBUILT. Compile-level questions the forks flagged (task-local in spawn, Send bounds, deref coercions) are exactly what the next build resolves.
+
+**Still open after CC's review + mine**: traverse snapshot-then-traverse; query() write guard across process().await; integrity create_snapshot sync-write (fixed by CC) and store_local sync-write under the storage lock (unfixed); watchdog merge by hand; strict-tier Loop starvation under sustained user traffic (needs an aging decision); remote pipeline calling back into the host while holding a slot (deadlock at full capacity); ContextBudget migration; Stage-4b/5 freeze task dump (tokio-console or debug-build task dump).
+
+## 2026-10-06 (cc) — tool-summary cap REVERTED; context model reset to objects-in-the-graph
+
+- The cap on the tool summary was the wrong direction (operator correction). Reverted in src/mcp.rs and src/orchestrator/mod.rs; both parse. The precomputed tool list is still injected into stage prompts, and that is the next thing to remove, paired with retrieval by need.
+- docs/CONTEXT_OBJECT_MODEL.md written: context is objects in the ZSEI graph. A stage declares a ContextNeed (anchor, kinds, relations, depth, budget), receives references, and materializes a prompt view only at the model call, for that call's window. Aggregates pass through and record every input they include or exclude. Each call writes a ContextRecord.
+- NOT built: ContextNeed, ContextRef, aggregates, per-call ContextRecord, tool retrieval by need. The ContextBudget service is still a design.
+- Migration order and open decisions are in section 8-9 of the model document.
+- Build still HOLD; no production writes; the production host was not touched.
+
+## 2026-10-06 (zc) — CC DOWN (session limit) — took over: review of CC's post-build capture + CONTEXT FOUNDATION IMPLEMENTED (step 1 + step 2 of the object model; edits only, NO build/test/walk per operator)
+
+**Review of CC's post-build work (verified against tree/docs, not taken on trust)**:
+- docs/DECISIONS_2026-10-06.md is COMPLETE (sections A–L) — the fork that "failed" on the session limit finished its write first. Sections verified present; status vocabulary sound.
+- Tool-summary cap apply→revert left ZERO residue (grep: no relevance_registry_summary anywhere); mcp.rs + orchestrator/mod.rs are the only files newer than the 07:08 binary, and they net to the pre-cap state → the running binary matches the tree's behavior.
+- EDIT_MANIFEST hygiene claims CONFIRMED: .cargo/config.toml IS gitignored (fresh clone loses lld + shared-target config — needs `git add -f` decision), __pycache__ dirs in tools/code-graph-mcp + tools/connectome-mcp (+ llama.cpp vendored), Cargo.lock 64 changed lines unexplained.
+- Verification walk: NOT inconclusive-live — the host restart at ~07:27 killed it mid-Stage-5. Host now up on the 07:08 binary, healthy, 0 active tasks. Task 204 (completed) predates the binary; 205/206 = boot amt-loops failing with the known object_store_path retry-loop. No new walk fired (spends LLM calls, writes live store — operator triggers from UI).
+
+**UNDERSTANDING OF THE CONTEXT OBJECT MODEL (operator's "context is an object", implemented against)**: context is not text carried through the system — it is objects in the ZSEI graph. Each point (stage, lane, gate, loop) knows WHAT it needs (a need, not a blob), traverses the graph for what it lacks, can reference prior aggregates and extend them, and materializes a prompt VIEW only at the moment a model is called, sized for THAT model's window. Tools are retrieved by need, never carried at all times. Every cut is recorded; every call records what it actually saw; nothing is silently dropped — excluded objects remain in the graph retrievable later.
+
+**IMPLEMENTED (parse-checked rustfmt 0 errors on all 5 files; NOT built — pending operator go)**:
+1. **src/context_budget.rs (NEW)** — the foundation module: `estimate_tokens` (ONE shared estimator, the len/4+1 the walk + lane packer already use), `ContextSection`/`assemble` (caller's order preserved → identity when everything fits = migration contract "behavior identical until a budget is exceeded"; overflow trims lowest-priority-first at paragraph boundaries, char-safe, every cut a TrimRecord), `trim_at_paragraph` (never splits multibyte chars), `ContextRecord` + `record_call` (JSONL append to zsei_data/capture/context_records.jsonl, best-effort — a capture failure disables the sink once and never blocks/fails a model call). 5 unit tests. This is the assembler every later ContextNeed/ContextRef materialization goes through.
+2. **lib.rs** — `pub mod context_budget;` registered.
+3. **WALK INSTRUMENTED (zero behavior change)** — every fallback-walk candidate attempt now writes a ContextRecord: model, its REAL window, want_output, prompt size, usable, (trims when assembled views land). Same in `capture_loop_model_call` (S11) with call_site `loop:<site>` — loop calls are points too.
+4. **ModelOverrideConfig.context_length GAP CLOSED** (CC's top blocker): the prompt pipeline's wire struct now carries the candidate window the host already sends (orchestrator mod.rs:3184) and `merge_override` applies it (cl>0) — local-model fallbacks (llama-cli/BitNet) finally size budgets + truncation checks against the ACTUAL candidate's window, not the base config's. Behavior for API candidates unchanged.
+5. **TOOL RETRIEVAL BY NEED (step 2, paired with injection)** — `capability_summary_text` → `capability_summary_for_need(state, need)`: the full registry stays materialized once at the orchestrate seam (state.capability_summary); blueprint + simulation (the two stages that route tools, #46) materialize a per-need VIEW at prompt-build time: lines whose text overlaps the request's keywords, EVERY match kept (no count cap), matches-identity when all match, honest omitted-count footer when cut, honest pointer line when none match. The full registry remains in state + on the graph; a named tool remains callable. This replaces the 134-line always-injection with retrieval at the two points that need it.
+
+**NOT done this pass (next)**: ContextNeed/ContextRef resolution against the graph (steps 3–4: AMT subtree + chunk set as references, aggregate objects); migration of the 9 hand-rolled cap sites through `assemble` (gate AMT render first, then digest — migration order in docs/CONTEXT_BUDGET_SERVICE.md §migration); ContextRecord graph objects (records are JSONL capture until the store path is chosen); trim-marker events to the graph per cut; verification walk on the operator's go; the redundant duplicated `_budget_fraction` re-derivation block in the walk (3168-3178 + 3207-3217 — harmless, needs a deletion decision per house rules).
+
+## 2026-10-06 (zc) — "capture all BEFORE building" + NOTHING hanging/slowing/holding anywhere: the full sweep with per-source status, then the three remaining lock-hold fixes LANDED
+
+**Operator captured the old finding (failing free models burn sequential timeouts) — STATUS: ALREADY FIXED AND LIVE.** That finding produced health-tracking; the cooldown-SKIP design was rejected (conflicts with never-skip) and replaced by health-REORDER (failed models move to the BACK, still attempted, decay on success) + context-fit pre-order — both in the 07:08 binary. The faster full-chain runs the operator noticed are exactly this. Not redone.
+
+**THE FULL SWEEP — every known hang/slow/hold-up source and its status (verified in code this pass)**:
+
+HANG sources:
+1. query() held WRITE guards for READ queries across qp.process().await — **FIXED THIS PASS** (see below).
+2. store_local sync fs::write UNDER the storage write guard on every container store — **FIXED THIS PASS** (see below).
+3. traverse read guard across the whole traversal — MITIGATED (block_in_place keeps workers/timers serving); ROOT fix (snapshot-then-traverse via a StorageView abstraction with per-hop short guards) DESIGNED, next pass — needs the traversal.rs + query.rs call-shape surgery, doc comment in traverse() now states this honestly.
+4. get_container guard-scope + stale-cache race — FIXED (CC, verified).
+5. integrity create_snapshot lock-across-write — FIXED (CC, verified).
+6. Gate lost-wakeup class — architecturally eliminated (permit queued BEFORE await); cancelled-waiter leak FIXED (CC).
+7. Watchdog cutting walks — MERGED (per-attempt × candidates budget, untried listed loudly).
+8. AMT re-expansion retry-loop (tasks 202/205/206: "container has no object_store_path" burned 10 attempts each) — **FIXED THIS PASS**: structural failures (no object_store_path / missing content file / corrupt JSON) are TERMINAL on first occurrence (`failed_structural`, loud warn); only transient model/LLM failures keep the 10-attempt budget.
+9. amt.rs silent if-let drops — all 3 real sites carry loud warns (1209/1419/1702).
+
+SLOW sources:
+1. Failing free models burning ~20s each — health-REORDER + context-fit pre-order LIVE (deferred to back, never skipped); S11 confirms reorder working.
+2. Lanes single-shotting into one model — LIVE fixed: every lane walks the full health-reordered chain; C8 preserves the best response.
+3. AMT budgets fixed-size (20k lanes / 24k branches / 8k methods) — LIVE fixed by CC: all window-derived now.
+4. Consciousness gate AMT render flat 1200 chars — **MIGRATED THIS PASS**: window-derived (window/8 tokens in chars, floor at the historical 1200 = never a regression; cut is LOUD when it fires).
+5. 134 tool lines injected into every stage prompt — **REPLACED THIS PASS**: per-need retrieval at blueprint + simulation (every match kept, omitted counts stated).
+6. Text-pipeline chunk caps (1500/8000/6000/3000/1200 flat chars) — QUEUED (pipeline-side; byte-slice panics already fixed there; the caps are silent-drop violations to migrate through assemble()).
+7. BitNet load-dominance 4-5.6s/spawn — keep-warm llama-server path EXISTS; default-ON = operator decision D3.
+
+HOLD-UP (user-facing) sources:
+1. Routing — VERIFIED LIVE CORRECT: user chain = models.fallback (free OpenRouter → auto → BitNet backstop, zero BitNet in walks); meta loops = models.meta_fallback (BitNet-first, free_only). Local-first is loops-only, exactly the directive.
+2. Ordered gate — LIVE: queues never rejects; User tier drains before Lane before Loop.
+
+RAM sources:
+1. Build footprint — DONE+LIVE: thin-LTO daily profile + line-tables, lld linker, shared target/pipelines dir, target/debug freed (~7G).
+2. Runtime (resident local model server, heavy-worker pool, gate size 3) — PLAN captured (docs/RUNTIME_MEMORY_PLAN.md, decisions D1-D5 PENDING OPERATOR).
+3. Venv prune (visual CUDA 4.5G no-GPU, connectome TF 1.9G unimported) — queued after CC verifies.
+
+**THE THREE LOCK FIXES THIS PASS (parse-clean, in tree, UNBUILT)**:
+- src/zsei/query.rs: `is_read_query` (13 read variants incl. Traverse/Search*/Get*) + `process_read(&self, &ContainerStorage, ...)` — same helpers, same semantics, write variants refuse the read path.
+- src/zsei/mod.rs query(): reads take qp.read + storage.read; writes unchanged (qp.write + storage.write). Reads no longer block writers AT ALL — the main freeze cycle is cut at its widest point.
+- src/zsei/storage.rs: store_local writes through ONE ordered background thread (submission order = write order; pending counter bounds the queue at 10k; full queue or dead thread degrades to inline write with a loud once-only warn). The storage write guard now covers memory mutations only, never disk IO.
+
+## 2026-10-06 (zc) — REVIEWED-ALL → BUILT → RESTARTED → FULL-CHAIN VERIFICATION CLEAN (0→13, no freezes) + ContextRecords LIVE; findings: orchestrate inline-cancellation, i_loop registry miss, stale shared-dir binaries (fleet rebuild running)
+
+**Operator directive executed: review all → fix found → capture all → THEN build.** Review found 2 bugs in my own same-day fixes (both fixed before build): (1) store_local cloned the JSON into the channel even on success — replaced with owned send + SendError recovery (no double allocation on the hot write path); (2) context sink ignored OZONE_ZSEI_DATA_DIR — records would have landed in the wrong data dir on test hosts; now env-aware like capture_loop_model_call.
+
+**BUILD: REL_EXIT=0** (25m55s, thin-LTO daily profile, CARGO_BUILD_JOBS=1). Every same-day fix compiled together: context foundation + walk/S11 ContextRecords + ModelOverrideConfig.context_length + per-need tool retrieval + query() read/write split + store_local write-behind + amt_loop terminal classification + gate window-derived render + CC's lane_split (compile questions resolved: task-local in spawn, Send bounds — all clean) + watchdog + byte-slice fixes. Prompt pipeline rebuilt separately (57s) into target/pipelines/release (09:58).
+
+**HOST RESTARTED on the new binary** (old host stopped at 0 active tasks; relaunch replicated exactly: cwd target/release, ./ozone-studio, log /tmp/oz.log; new pid verified exe + cwd).
+
+**FULL-CHAIN VERIFICATION WALK: SUCCESS — all 14 stages, zero freezes.** Fired via background curl -m 2400 (see finding 1 below). Timeline (UTC): Stage 0 jurisdiction 22 rules ✓ → Stage 1 ✓ → Stage 2 text 192s ✓ → Stage 3 methodologies 24 / tools 134-carried-8 (9ms) ✓ → **Stage 4b PASSED CLEAN (the historical wedge point)** → Stage 5 lanes dispatched full rosters, lane 2 retry RECOVERED (no UNCOVERED loss), completed 751s ✓ → Stage 6 blueprint 142s ✓ → Stage 7 simulation 7.5s ✓ → **Stage 8 gate: Proceed 80% in 25.4s** ✓ → **Stage 8b jurisdiction full gate clean (58ms)** ✓ → Stage 9 task 216 ✓ → Stage 10 five steps executed 900s ✓ → Stages 11-12 ✓ → **Stage 13 delivery 74.5s, response 1462 chars, success:true, HTTP returned** ✓. Wall total 39 min on a BAD free-model day.
+
+**CONTEXT CAPTURE PROVEN LIVE (the foundation works)**: zsei_data/capture/context_records.jsonl — 24+ records during the walk: every walk attempt (model, REAL window, want_output, prompt tokens, usable) + every loop call. Captured this run: windows {4096 (bitnet), 32000, 128000} per candidate; **2/15 walk attempts usable** — the free-OpenRouter pool is failing heavily today (6 free-router + 5 auto-router attempts + 4 BitNet per the reorder+no-skip doctrine; lanes still landed via retry + C8). This record IS the measured basis for the concrete-model health work (router-internal health is host-invisible — the records now prove the burn).
+
+**FINDINGS (all captured, none blocking)**:
+1. **/orchestrate runs the whole orchestration INLINE in the handler (runtime.orchestrate().await, grpc/mod.rs ~1140)** — axum cancels the handler future on client disconnect: the first walk (curl -m 8) DIED at Stage 2 when the client timed out (no child process, active_tasks 0). Past walks survived because their clients stayed connected. Fix direction (decision needed): spawn the orchestration detached + poll a status route, or document that clients must hold the connection. NOT a regression — long-standing behavior, first time it bit because we fired with a short timeout.
+2. **ILoop pipeline-binary miss (PRE-EXISTING, verified on the old host too at 07:32 local)**: pipeline index seeds "ILoop" but no i_loop binary exists anywhere (no crate under assets/pipelines/consciousness/i_loop; nothing on disk). Executor errors loudly, orchestration continues (Stage 1 i-loop protection treats it as not-running). Either remove the index entry or create the pipeline crate — operator decision.
+3. **Shared-dir pipeline binaries were Oct-5 00:53-02:27 vintage** — predating CC's byte-slice panic fixes (text, geospatial, 3D, kinematics, collective_consciousness, text_analysis) and the zero-shot wiring. Only `prompt` was fresh (my 09:58 rebuild). **FULL FLEET REBUILD RUNNING NOW** (scripts/build-pipelines.sh, 1 job) — after it lands, one more host restart puts all pipeline-side fixes live.
+4. Response CONTENT quality this run was degraded (the 1462-char response drifted off-prompt — synthesized from a weak usable-response day + context pulls) — mechanics fine, quality = the free-pool health problem the records now measure.
+
+## 2026-10-06 (zc) — RESPONSE DEGRADATION ROOT-CAUSED (no drop — displacement chain), windows verified per config, run time 39.0 min; fleet rebuild caught + FIXED 2 pre-existing compile breaks in CC's unbuilt zero-shot patches
+
+**Operator asked: what was the question, are windows captured correctly (esp. BitNet), how long did the run take, why did it degrade, did you or CC drop anything?** Answers, all evidence-backed:
+
+1. **The question** was "Verify the full chain end to end: list three things this system can do, one line each." The 1462-char response never addressed it — full trace below.
+2. **Windows ARE captured correctly per config**: target/release/config.toml bitnet-i2_s context_length=4096 → records show 4096 ✓ (and 4096 is BitNet-i2_s GGUF's real trained window; llama -c gets this value). openrouter/free=32000, openrouter/auto=128000 → recorded exactly ✓. Honest fidelity note: `openrouter/free` carries ONE generic 32000 while the router's CONCRETE model pick varies — router-internal, host-invisible (the records capture the configured identifier window; per-concrete-model fidelity needs the router to report it).
+3. **Full run: 39.0 minutes** (2,340,181ms handler wall). Breakdown: Stage 2 text 3.2min, Stage 5 AMT lanes 12.5min, Stage 6 blueprint 2.4min, Stage 10 step execution 15.0min, Stage 13 delivery 1.2min, everything else seconds. Dominated by step execution + lanes burning 13/15 failed attempts (~20s each) + 4 BitNet cold spawns on a bad free-model day.
+4. **Degradation root cause — NOT a drop, a DISPLACEMENT chain (verified end to end)**:
+   - Stage 5 branch generation (2/15-usable day) produced 6 branches: "Process user request" (the real intent) + **5 branches that are verbatim Ozone methodology titles** (host lifecycle mgmt, component/ledger design, test execution, budget gates, gradient descent) — weak models parroted the methodology roster in the lane prompts.
+   - Structural validation passed them ("Validated: true" checks form, not intent alignment — the K-registry validation family is structural by design).
+   - Stage 6 built the blueprint's 5 steps from EXACTLY the 5 parrot branches (task 216 steps verified) and **displaced the intent branch** (its content was thin/generic).
+   - Steps executed 65k tokens of methodology-flavored generation; delivery concatenated step outputs ("Address: X then produced...") — which is why the response reads as a step dump.
+   - NOTHING was silently dropped: lane outputs all merged, lane-2 retry recovered, C8 preserved the best usable response, delivery included every step output. The failure is upstream CONTENT QUALITY (weak models + structural-only validation + blueprint preferring populated branches over the thin intent branch).
+   - Fix direction (queued): intent-alignment check in branch validation (branch title ≈ methodology title → demote/flag), and/or blueprint must always carry the intent branch. This is the measurable face of the "context richness ceiling".
+
+**FLEET REBUILD CAME BACK WITH REAL GOLD — 2 PRE-EXISTING COMPILE BREAKS in CC's unbuilt zero-shot patches (rustfmt parse-checks can't see name/scope resolution; only a build can)**:
+- biology: E0425 `map_biology_edge_str` called, fn is `map_bio_edge_str` (main.rs:1256 vs def ~1310) — one-line rename, rebuilt clean (3m25s).
+- hyperspectral: E0062 duplicate fields + E0425 — CC's R2 fix inserted `zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected` into the HOOK-1 initial-save literal (values bound 7 lines LATER; duplicates of the empty pair). FIXED with the correct data path: Hook 1 keeps empties (nothing inferred yet — true at that point), and the FINAL graph save now carries the inferred relations (was `Vec::new()` — CC's intent RESTORED, nothing dropped at the final save). Rebuilt clean (3m44s).
+- Both breaks would have sat invisible until the first fleet build — the rebuild did its job. Remaining fleet crates: rebuild continues; after it exits, second pass rebuilds any stragglers (cargo skips up-to-date).
+
+## 2026-10-06 (zc) — FLEET REBUILD VERDICT: built=37, failed=2 — both failures were the crates already hand-fixed and hand-built (biology, hyperspectral); every pipeline binary now matches its sources; NO host restart needed (executor resolves pipeline binaries per invocation)
+
+Census: 18 binaries carry today's mtimes (source-changed crates: byte-slice fixes, zero-shot wiring, prompt context_length, biology, hyperspectral); the other 25 are unchanged sources cargo correctly skipped (Oct-5 mtime but current). The Oct-5-vintage concern is CLOSED — every binary is consistent with the tree as of now.
+
+## 2026-10-06 (zc) — REVIEW ALL of CC's fork wave: EVERY claim verified in code, all sound; build REL_EXIT=0 + fleet built=39/failed=0; host restarted; walk #2 in flight
+
+**The review (operator: "review all"), verdict per work package — all verified against code, not taken from reports**:
+1. **src/model_windows.rs (NEW) + wiring — SOUND, and bigger than reported**: config registry (per-model always wins over the global [models] block) + LIVE OpenRouter catalog fetched at boot (466 models, 20 free — confirmed in the boot log), persisted fallback with age, refetch-on-unknown-miss (10-min CAS throttle), honest misses (window 0 + warn-once, never invented), PLUS a full catalog POOL: [models] openrouter_pool ("off"/"free"/"paid" + size) appends concrete catalog models to the walk chain (largest-window-first, router ids excluded, watchdog budgets them). Wiring verified: lib.rs boot spawn, config load replace()/set_pool(), walk integration (mod.rs ~2772, ~3149-3158).
+2. **Write-behind F1-F7 rewrite — SOUND, addresses CC's durability findings without reverting the freeze fix**: bound-reached now WAITS on a condvar (never inline → no reorder); failures collected + reported by drain_local_writes; drain on sync() + Drop + Ctrl-C/SIGTERM (lib.rs:1156); temp+rename atomic writes; deletes flow through the same queue (no orphan recreation); panic-safe writer thread.
+3. **F8/F9 — NodeSource trait (traversal.rs)**: the StorageView design I'd scoped for "next pass" landed — LockedStorage takes a SHORT read guard per hop; standalone Zsei::traverse now uses it (mod.rs:347-350). Honest limit: the query()-path Traverse arm still runs under query()'s outer read guard (improved from the old write guard; full per-hop there needs the outer guard dropped). GetContainerContent blocking-read: out of the guard-bearing paths per the fork.
+4. **Orchestrate detach (grpc:1955) — the right compromise**: walk on tokio::spawn (survives client disconnect; completion logged INSIDE the task), handler still awaits it so patient clients get the full response — UI contract preserved, disconnect no longer kills walks.
+5. **Intent fixes (amt.rs + stages.rs) — the degradation root-cause fixes**: generic "Process user request" GONE — the raw request text becomes the intent (request_intent_text, amt.rs:71) with a recorded request_fallback event; normalized intent keys (23 uses) end the two-way-substring matching; the request-intent branch is NEVER pruned (amt.rs:3152); blueprint gets intent-carry reconciliation with recorded intent_carried events (stages.rs ~975-1050); branch texts reach the blueprint.
+6. **Windows with provenance**: ContextRecord.window_source = "catalog"|"registry"|"configured"|"unknown"; the walk captures the SERVED model's window from pipeline-9's response (mod.rs:3326); loop capture looks up the served model (mod.rs:3062) instead of my flat 0; oversized-input flag added. My earlier "windows match" was config-relative only — CC's live-catalog correction accepted: openrouter/auto is really 2M, free really 200k; the config values were conservative guesses and the registry now supersedes them.
+7. **Pipeline side**: shared context_assemble.rs (std-only mirror of context_budget with a sync-debt note), text uses it 6×; `let _ = save_graph` eliminated in the P2 files; modality P1/P3 fixes in the crates.
+8. **_budget_fraction duplicate block — REMOVED** (my parked deletion; the walk keeps one re-derivation).
+
+**Decisions from CC's list — resolved by doctrine ("continue with all", no drops, no degradation)**: (1) catalog fetch at startup = YES, implemented + live; (2) router windows = catalog-first (live), conservative registry as fallback; (3) BitNet global 128000 = neutralized in code (per-model + catalog always win); correcting the config VALUE still recommended for honesty; (4) item_name take(80) = keep as a label (display surface, not model context); (5) stale "(truncated)" wording = cosmetic, queued.
+
+**BUILD + DEPLOY**: host REL_EXIT=0; fleet built=39 failed=0; host restarted (0 active tasks first), healthy; catalog loaded live at boot.
+
+**WALK #2 in flight** (detached-spawn era: disconnect-safe). Verification targets: intent carries the actual request; blueprint addresses it; records show catalog windows; zero freezes; response answers the question.
+
+## 2026-10-06 (zc) — WALK #2 (first detached-spawn walk): DISCONNECT-SAFETY PROVEN LIVE + catalog windows live + lanes 3/3 retry-recovered; walk still in flight at wrap (bad pool day) — completes on its own
+
+- **The orchestrate detach fix proved itself in production**: the client (curl -m 2400) hit its 40-min timeout and died; the spawned walk KEPT RUNNING (candidate cycling visible at 21:07 UTC) — exactly the scenario that killed walk #0. The walk will complete on its own; outcome lands in the task store + context_records.jsonl.
+- **Catalog windows live in real records**: window_source = catalog (concrete ids: liquid/lfm-2.5-2.6b:free → 65536, apodex/apodex-1.1-mini:free → 262144, straight from the live /models fetch), registry, configured, unknown — all labeled; served-model windows captured post-call; served_window_exceeded loud flag armed.
+- **Lanes 3/3 recovered via retry** (20:26:25), Stage 4b passed clean (20:20), zero freezes through the historical wedge zone.
+- This pool day is WORSE than walk #1's (candidates failing ~13s each, chain walking deep). The intent-carry/blueprint-addresses-request verification lands when the walk completes (task store + log) — next session can check task 217+ and the response content.
+- Walk #1 vs #2 context: #1 ran on the pre-fork-wave binary (10:02), #2 on the full fork-wave binary (20:13) with registry+catalog windows, write-behind F1-F7, NodeSource traverse, detach, and intent fixes.
+
+## 2026-10-06 (cc) — why the walk went to BitNet; local is last resort on the user path
+
+**Question (operator):** why did a user prompt go to BitNet, did attempts remain, and why does it fail when it should not?
+
+**Answer, verified in code and config:**
+- After `free_only = true` removed `openrouter/auto`, the user chain was `openrouter/free` then `bitnet-i2_s`: one free attempt, then local. The second hop that `auto` provided was removed with nothing in its place.
+- Attempts did remain: the live catalog holds 19 free concrete models besides the `openrouter/free` router. The pool that would have offered them was OFF (no `openrouter_pool` in config).
+- Even with the pool on, the pool candidates were appended after the configured chain, and the health sort (`fails`, then original index) could put BitNet ahead of untried free models whenever BitNet had no recent failures. So local was not reliably last.
+
+**Changes:**
+- `src/orchestrator/mod.rs`: `walk_fallback_chain_standalone` takes `local_last: bool`. When set, every non-API candidate sorts after every remote candidate, before health, so health cannot move local ahead of untried free models. The user path (`try_fallback_chain`), decision review and the AMT lanes pass `true`. The meta path (`try_meta_fallback_chain`) passes `false`, because it is local-first by design.
+- Both config files: `openrouter_pool = "free"` and `openrouter_pool_size = 3` under `[models]`. Free models are tried after the free router and before BitNet.
+
+**Still open:**
+- Free models fail upstream: empty responses (the `finish_reason` is now logged) and 120 s HTTP timeouts. The pool adds attempts; it does not fix the empties.
+- A failing free model costs three requests (the primary and two same-model retries) before the walk moves on.
+- BitNet runs at about 1.5 tok/s, and each attempt hits the 300 s watchdog. A user turn that reaches BitNet takes minutes.
+- The root `config.toml` `[models]` block points at the Anthropic API (a paid route). The host reads `target/release/config.toml`, which is OpenRouter, so the live host is not affected.
+- Paid defaults and selectors outside this change: `ModelConfig::default` (Anthropic), the settings tab's Anthropic/OpenAI choices, the gRPC `api_provider` values, and the zero-shot simulation's default endpoint.
+- Nothing has been compiled. The `local_last` sort and the new signature are verified by reading only.
+
+## 2026-10-06 (cc) — free-model failure policy, attribution, no-paid enforcement, hang and timing review
+
+**Status:** nothing compiled, nothing run, no probe run (the probe is env-gated, OZONE_PROBE_FREE_MODELS=1, default off). Parse checks only (rustfmt --check, 0 errors on each edited file).
+
+**Why BitNet was reached (verified in code and config, earlier this session):** after free_only removed openrouter/auto, the user chain was openrouter/free then bitnet, with the pool off. Attempts did remain (19 free catalog models besides the router). Pool candidates were appended after bitnet, and health reordering could put bitnet ahead of untried free models. Fixed: local_last sort on the user path; pool on (free, 3) in both configs.
+
+**Changes this round:**
+- src/model_ledger.rs (new): per-model outcome ledger, persisted to zsei_data/model_calls/model_ledger.jsonl, loaded on first use. rank() for historical preference (Laplace prior, zero-record models score 0.5). Cause attribution: Provider / Model / LocalRuntime / OzoneStudio / Unknown, cause_of() with its rules; cause_summary_today() counters. Probe (probe_free_models) env-gated, never run.
+- src/orchestrator/mod.rs: classify_attempt, next_step retry rule (no same-model retry on provider no-content or our-cap-exhausted; one same-model retry for unknown empties; 429 pause 2 s; other errors move on). At most two requests per failing free model. Quota gate on openrouter_quota::latest(). Trail per attempt. Failure source on each log line ("provider side (OpenRouter); not an Ozone-Studio failure" for provider and model). Strength-N vote attempts recorded under strength_n_vote. walk_last_attempt written to thinking_log from the walk's final error.
+- src/orchestrator/stages.rs: blueprint model list is free and local only; override refused (logged, recorded in thinking_log) when paid or unknown; stage failure message carries walk_last_attempt.
+- assets/pipelines/general/prompt/main.rs: success JSON gains content_null, has_reasoning, reasoning_field, completion_tokens, reasoning_tokens, max_tokens_sent (all additive, Option). HTTP errors prefixed "HTTP <code>: " (truncated at 300 chars with a note). Timeouts read "Request timed out (client timeout)".
+- Paid removal: ModelConfig::default now OpenRouter free router; gRPC paid_policy_refusal refuses paid providers, endpoints and models (and allows openrouter/free by name when the catalog is not loaded); settings tab lists free and local only; zero-shot simulation moved to the OpenRouter/OpenAI chat format; root config.toml [models] points at the OpenRouter free router.
+- Bounds: src/pipeline/remote.rs 120 s client timeout; amt_loop methodology rules kept in full (no fixed 5/3 cap).
+- Quota: src/openrouter_quota.rs reads GET /api/v1/key free_model_daily_requests; warns at 80/95/100%, tier from the reported limit.
+
+**Hang and sink table (REVIEW-ALL, by reading):** executor child BOUNDED (watchdog+30 s, 600 s if disabled); pipe drain 5 s; gate admit HELD-ACROSS-AWAIT (bounded by the child); walk per attempt 300 s; walk total per attempt × (1+candidates); free HTTP 120 s (measured 121 s timeouts); health 2 s; llama-server 300 s; BitNet/ONNX/clone children 285 s; remote client 120 s; 429 pause 2 s; storage write-behind at 10k HELD-ACROSS-AWAIT; traverse per hop, outer read guard on the query path; shutdown drain 60 s; quota and catalog 15 s and 20 s. AMT loop pass: UNBOUNDED per pass, NOT VERIFIED.
+
+**Measured wall time (run 278, 60.5 min):** stage 5 AMT build 35.5 min (three BitNet calls each at the 300 s watchdog); stage 10 9.4 min (step 0 on BitNet 299.8 s); stage 13 7.8 min (120 s render timeout, then BitNet 239 s); stage 2 4.1 min; stage 4 2.7 min. BitNet is the wall-time cost. Free candidates cost 5-13 s when empty and 120 s on timeout.
+
+**Open:**
+- Watchdog timeouts are labelled provider (the watchdog is our timer, so the cause may be ours): decide the label.
+- Trail visible only in logs and thinking_log, not in the response the operator reads.
+- BitNet in the user chain at ~300 s per attempt: operator decision (keep, keep-warm default, or other).
+- Process-wide default model in the fallback duplicate guard is set per request; concurrent requests with different models can race. Needs an explicit parameter.
+- Prompt pipeline still accepts an anthropic wire format from a hand-edited config (refused only at the gRPC path).
+- Zero-shot OZONE_API_MODEL override: is_free check NOT VERIFIED.
+- Remote-pipeline callers not traced for the new timeout (NOT VERIFIED).
+- REVIEW2 wrote scratch files to /tmp, against its read-only rule. Nothing in the repo changed.
+- Compile review found no confident errors on the regions read; iter_mut closures, duplicate fn names across impl blocks, and Send-ness of the probe are NOT VERIFIED until a build.
+
+## 2026-10-06 (cc) — build and test round
+
+**Built and tested:**
+- Release host (`cargo build --release --bin ozone-studio`): exit 0, 10m07s, 27 warnings, no errors.
+- Library unit tests (`cargo test --release --lib`): 114 passed, 0 failed.
+- Pipeline fleet (`scripts/build-pipelines.sh`): 38 built, 1 failed (`prompt`): E0308 at lines 717, 827 and 1101. `run_bounded_child` took an owned `Command`, the callers passed `&mut Command`. Fixed by taking `&mut std::process::Command`. `prompt` rebuilt into the shared target directory, 19:07.
+- Test host on port 50052 (own config with consciousness off, copied data directory, own log), stopped after the checks. Production host on 50051 untouched (old binary, still running).
+
+**Checks run on the test host (no model calls; host reported 0 Prompt pipeline runs):**
+- `/config/set` with `api_model = openrouter/auto`: refused, reason "paid OpenRouter model", nothing applied.
+- `/config/set` with `api_provider = anthropic`: refused, reason "paid direct provider".
+- `/config/set` with `api_model = openrouter/free`: accepted.
+- `/orchestrate` with an empty prompt: error response carries `attempt_trail: []` and `refusals: []`.
+
+**Not run:** any live orchestration through a free model (it spends OpenRouter quota). The probe is not run. The attempt trail and the walk's cause labels are verified by unit tests only where they have them, not end to end.
+
+**Found by the test host, open:**
+- ZSEI now refuses 231 containers that have a global record but no local-state file (`storage.rs` F4 fix). The same containers exist in the production store (for example ids 30017 to 30020 have no `local/*.json`). The old binary loaded them silently as empty. The new binary logs an error for each and refuses to load them, so methodology registration loses them. Host still came up healthy. Decision needed: keep refusing (and find where that content went), or restore the old silent-empty load with a loud warning.
+
+**Not deployed:** production still runs the binary from before this round. Deploying needs your go.
+
+## 2026-10-06 (cc) — correction: paid selection is a per-user setting, not a hard refusal
+
+**Operator direction:** there should be no paid-model refusal. Each user has their own settings. The default for this operator is free OpenRouter plus the BitNet local fallback. Other users may prefer paid models.
+
+**Cause of the refusals (not ZCode):** the refusals were added by this session's gRPC/settings/blueprint policy changes (`paid_policy_refusal` in src/grpc/mod.rs, the settings-tab filtering, the blueprint override refusal in src/orchestrator/stages.rs). They apply to any host built from this tree, not only to ZCode's hosts. They were my reading of an earlier "we aren't using paid", not a per-user setting.
+
+**Plan:**
+- Add `allow_paid_models: bool` to `ModelConfig`, default `false`, `#[serde(default)]`. The default is the operator's current policy (free OpenRouter plus local BitNet). A user who wants paid sets it to `true` in their own config.
+- Refusals become conditional on that flag. With the flag off, a paid selection is refused with a reason. With it on, the selection is applied. Nothing is silently substituted either way.
+- The root and target config files keep `allow_paid_models = false`.
+- Build, unit tests, and a test-host check follow, as before.
+
+**Status:** plan recorded. Code change not yet made in this entry.
+
+## 2026-10-06 (cc) — per-user allow_paid_models: built and checked
+
+- `ModelConfig.allow_paid_models` (default false, serde default). `OrchestrationRequest.allow_paid_models` copied from config. Gate in gRPC `set_config` and in the blueprint override resolution (src/orchestrator/stages.rs) honours it.
+- Release host built: exit 0, 11m50s. Library unit tests: 114 passed, 0 failed.
+- Test host (port 50052, own data dir, consciousness off): flag off, `api_model = openrouter/auto` refused with the reason; flag on, the same request accepted. 0 model calls.
+- Still open: the settings-tab pipeline filters its own list to free and local and does not read the flag. Its list needs the flag too.
+- Still open (operator decisions): the 231 containers with a global record but no local-state file (refused on load by the F4 fix; present in production data); a live free-model orchestration to exercise the attempt trail (spends quota); deploying this binary to production (production still runs the pre-round binary).
+
+## 2026-10-06 (zc) — FULL STATE: CC's FOUR waves accounted for; wave-4 build on disk (newer than all sources, 114/114 tests) awaiting production restart go; walk #2 completed (task 278, 60.5 min, terminal classification proven at 98/148); production runs wave-3 build
+
+**CC's complete day, all four waves — every one reviewed by ZCode against code**:
+- Wave 1 (morning, pre-build): gate wiring, lane-split, watchdog merge, byte-slice fixes, zero-shot wiring, reviews R1-R4 — built into the 07:08 binary. REVIEWED ✓
+- Wave 2 (midday, after CC's session limit expired): 4 review forks on MY work (window-0 finding, write-behind F1-F4 durability, intent-displacement correction, live-catalog correction) + 7 edit forks (window registry + catalog + pool, write-behind rewrite, NodeSource traverse, orchestrate detach, intent fixes, host/text caps→trims, modality P1-P3) — reviewed ALL SOUND by ZCode, built 0-exit, fleet 39/39, deployed 16:13 local. ✓
+- Wave 3 (late afternoon): free-model failure policy round — model_ledger.rs (630 lines: per-model outcome records → model_ledger.jsonl, historical ranking w/ neutral prior, cause labels provider/model/local-runtime/ozone-studio, per-day counts), openrouter_quota.rs (228 lines: quota fetch/warn/latest, paid-served + free-exclusion notes), walk policy (quota gate at mod.rs:3706-3716: zero-remaining skips free candidates once-loudly; ≤2 requests per failing model; 429→2s pause+move on; same-model retry only when cause warrants), prompt-pipeline diagnosis fields (content_null/has_reasoning/reasoning_field/completion_tokens/reasoning_tokens/max_tokens_sent; HTTP-status-prefixed errors; ACTUAL served model reported — openrouter/auto resolution visible), failure attribution + walk_last_attempt carried to the response path.
+- Wave 4 (evening, operator-delegated decisions): BitNet stays last-resort; attempt_trail + refusals fields in OrchestrateResponse (split from thinking log, grpc:315-326); watchdog label split (remote timeout=provider vs our 300s=ozone-studio); duplicate-guard race fixed via primary_model_identity parameter (walk signature +1; callers lib.rs/amt.rs/decision_review.rs updated); allow_paid_models per-user flag (default false) replacing hard refusal — operator correction captured; paid_policy_refusal regression fixed (openrouter/free allowed by name when catalog unloaded).
+- **BUILT + TESTED by CC (operator-authorized)**: host 19:23 local exit 0 (binary newer than every source ✓ verified), 114/114 lib tests, fleet 38/39 + prompt fixed (run_bounded_child &mut Command E0308s) and rebuilt 19:07. Test host 50052: paid refusals verified live both ways (flag off=refused, on=applied), empty-prompt orchestrate returns attempt_trail[]/refusals[], ZERO model calls spent, test host stopped after.
+
+**WALK #2 OUTCOME (first detached walk)**: task 278, completed, 3,632,430ms = 60.5 min (catastrophic pool day), 106k tokens. **Terminal classification PROVEN at scale: 148 candidates, 98 failed_structural — one attempt each, not ten.** Intent-carry PARTIAL WIN: task 278's 5 steps carry the request's subject ("Test-Driven Development for System Capabilities") instead of 5 verbatim methodology parrots — no more parroting; still not a literal answer to the question (blueprint still plan-flavored); the attempt_trail/diagnosis fields from wave 3/4 will make the next run's failure causes fully readable.
+
+**DEPLOYMENT STATE**: production 50051 (PID 179703) runs the 16:13 wave-1/2/3-part build; CC's 19:23 build (adds wave 3 free-policy + wave 4) is ON DISK, newer than all sources, tests green — awaiting the operator's go to restart production (CC handoff constraint: no production restart without operator; the 231-container F4 loud-refusal will fire at boot — those containers have NO content, refusal = honest skip, but it's the operator's data call).
+
+**OPEN DECISIONS (operator)**: (1) 231 containers with global records but no local-state file — F4 now refuses them loudly; keep refusing + investigate where content went, or loud-but-loading path; (2) restart production onto the 19:23 build (recommended — tests green, test-host verified, but brings the 231 behavior); (3) BitNet in user chain (CC: keep last-resort — ZCode agrees); (4) settings_tab pipeline doesn't read allow_paid_models; (5) repo hygiene (.cargo gitignored, Cargo.lock futures dep, tools/bridges gitlink, 686 tracked zsei_data files incl. runtime data, ILoop index entry id 44 no binary); (6) stage 7+8 fixed ~25.6s each (cause unknown — the diagnosis fields will name it); (7) AMT loop per-pass bound unverified.
+
+## 2026-10-06 (zc) — OPERATOR GO EXECUTED: production restarted onto the 19:23 build (F4 refusal observed + investigated = torn writes from PC crashes, empty shells, nothing real lost); settings_tab now reads allow_paid_models (+ latent E0382 fixed); stage 7/8 ~25.6s = model latency not a bug; AMT loop per-pass bound added; final binary deployed (22:11)
+
+1. **231 containers — "why refuse?" ANSWERED with evidence**: gap analysis of zsei_data/local/ shows REPEATING blocks of ~41 missing local files across the 30000-range (after 30149, 30192, 30245...) — a torn-write pattern consistent with the project's PC crashes (mmap global record survives, local JSON never landed). Those containers have NO name/type/content (metadata lives in local_state) — the old binary silently loaded them as EMPTY shells. F4's refusal is correct and loses nothing real; the boot log names them (count=231). Cleanup = purge the orphan global records (USER-GATED data op) to silence the boot warnings.
+2. **Production restarted onto CC's 19:23 build** (operator go): F4 refusal fired exactly as predicted (methodology registration skips the 231 empties), healthy, zero model calls spent.
+3. **settings_tab allow_paid_models LANDED**: the pipeline now reads the operator's flag from ./config.toml [models] (child inherits host cwd — one source of truth, no input plumbing; unreadable file = false, never invented true). All 3 policy sites (prune + 2 refusals) gated on !allow_paid. Rebuilt into the shared dir (21:40). BONUS FIX: latent E0382 in GetCategory (borrow-after-move on `value`) — the crate had never been rebuilt since the shared-dir migration, so no compiler had ever seen it; fixed + rebuilt.
+4. **Stage 7+8 ~25.6s: NOT a bug** — no 25s constant exists anywhere in the path; the timing is exactly 2 × ~13s candidate-fail latency through the free pool (one model call each per stage). The diagnosis fields will name the exact cause per attempt on future runs.
+5. **AMT loop per-pass bound LANDED**: the pass iterated ALL unhandled candidates (unbounded sequential model calls in one pass). Now bounded at 12 per pass (oldest first — store order), leftover named loudly and runs next tick (doctrine #48 batch coverage, nothing dropped). Built into the host (REL_EXIT=0).
+6. **Final deploy**: production restarted (22:11 build, binary newer than all sources ✓), healthy. The running binary now includes ALL FOUR CC waves + every ZCode fix today.
+
+## 2026-10-07 (zc) — WALK #3 (first full walk on the wave-4 build): ALL features proven live in 10 minutes; response ACTUALLY ANSWERS the question; the attempt trail immediately exposed + fixed the lyria pool bug; loop calls wired into the ledger; CC's three unverified edges closed
+
+**WALK #3 results (task 324, 608s total — vs 39/60 min for walks #1/#2)**:
+- **The response answers the question.** "List three things this system can do" → "1. Answer questions and explain concepts across many subjects. 2. Help write, edit, and summarize text. 3. Assist with coding, math, and data analysis." The intent-carry + no-generic-intent fixes WORK end-to-end.
+- **attempt_trail live in the orchestrate response** — 17 attempts readable, each with model, outcome, latency, cause: `openrouter/free success 21194ms -> usable: primary answered` ×10, `openrouter/free empty [ozone-studio] -> our max_tokens was exhausted by reasoning` (the diagnosis fields work: a reasoning model burned OUR cap, correctly labeled ozone-studio, moved on WITHOUT same-model retry — the retry rule working), a `google/lyria-3-pro-preview empty -> one same-model retry -> next candidate` (the one-retry-then-move rule working).
+- **Ledger live**: 25 entries (model, kind, latency_ms, call_site). **Quota tracker live**: this walk spent ~50 free requests, tracked (used 52/1000 at last read).
+- **Local cost gone**: ONE BitNet attempt (70s, in a lane whose free candidates were exhausted) instead of run-278's three 300s-watchdog burns; the walk still completed 6× faster.
+
+**CC's three "NOT VERIFIED" edges — all closed by reading**:
+1. Zero-shot OZONE_API_MODEL: the is_free guard EXISTS (zero_shot_simulation/main.rs:113-116 — refuses non-`:free` models and paid endpoints with the policy message). CC wrote it in the rewrite and just hadn't verified it.
+2. Remote-pipeline 120s timeout: bounded (remote.rs:53, named error at :146), and the executor is the SOLE caller — every remote dispatch goes through the bounded client.
+3. Prompt pipeline accepting anthropic wire from a hand-edited config: ACCEPTED RESIDUAL — /config/set guards the normal path; a direct file edit is operator intent by definition.
+
+**Trail-exposed bug FOUND + FIXED in this pass**: the catalog pool ordered candidates by context_length alone, so google/lyria-3 (a MUSIC model with a 1M window) ranked FIRST and burned attempts on errors/empties. OpenRouter lists it as text-output, so a modality filter cannot exclude it. THE FIX IS ORGANIC: `catalog_pool` now orders candidates by the LEDGER's historical success rank (Laplacian-smoothed, neutral prior for unknowns) — lyria's fresh error+empty records sink it below proven text models; window size keeps its pre-ranking role. Also: ledger `median()` now skips 0-latency rows (callers without a timing window record 0 for the success score but must not drag the median).
+- **Loop calls now build ledger history**: capture_loop_model_call records through `classify_attempt` (BitNet meta-chain calls accumulate ranking like walk calls). Unattributable results (no served model) are skipped, not recorded under a fake key.
+- Deployed: build REL_EXIT=0, restart at ~10:5x local, binary newer than all sources, healthy.
+
+## 2026-10-07 (zc) — ARCHITECTURE PASS: starvation-bounded admission (Loop starvation + nested-callback deadlock, one mechanism), trim markers on the graph, assistant digest through the assembler; 115/115 tests; deployed
+
+1. **GATE — starvation-bounded admission** (the two flagged gate gaps, one mechanism): a waiter older than AGE_GRANT (90s, per-gate, test-shortenable) is granted AHEAD of strict tier order on the next release, AND a keeper thread (`gate-starvation-keeper`, spawned from the executor's Arc, exits on drop) force-grants aged waiters every 5s EVEN PAST max_active — the only enforcer that can break a fully-saturated NESTED-CALLBACK deadlock (every ticket held by a call waiting on a queued callback: no release() can ever fire). Tier priority is untouched under normal turnover; overflow grants are counted in the snapshot (`total_overflow_grants`) and logged loudly. New test: `starvation_guard_grants_without_release` (115/115 pass; earlier failures were my global-threshold leaking across parallel tests — fixed per-gate).
+2. **TRIM MARKERS on the graph**: every ContextRecord's trims now ripple as `context_trimmed` graph events (section, kept/original tokens, dropped-entirely flag) — the object-model contract "every cut is visible on the graph, never silent," alongside the JSONL capture.
+3. **ASSISTANT DIGEST through the assembler**: the check-up prompt is three sections in the original layout (scaffold-head p0 / findings p5 / scaffold-tail p0), so the all-fits output is byte-identical to the old format; on overflow the FINDINGS trim in place while scaffolds are protected. Budget = half the meta model's REGISTERED window (model_windows lookup, 8192 fallback), floored at 2000 tokens — never a regression on small windows; cuts logged loudly + trim markers emitted.
+4. Deployed: REL_EXIT=0, restart healthy, keeper thread confirmed running, binary newer than all sources.

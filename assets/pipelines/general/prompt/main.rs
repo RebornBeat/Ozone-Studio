@@ -36,6 +36,71 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+/// Run a local child process with a hard bound. The host sets
+/// OZONE_PIPELINE_TIMEOUT_SECS a margin below its own kill of this process, so
+/// the child dies first and cannot be left orphaned. Stdout and stderr drain on
+/// their own threads so a large write cannot block on a full pipe. A kill is an
+/// error, never partial output.
+fn run_bounded_child(cmd: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    let secs = env::var("OZONE_PIPELINE_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(285)
+        .max(1);
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+    let (out_tx, out_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut out_pipe = child.stdout.take();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = out_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        let _ = out_tx.send(buf);
+    });
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut err_pipe = child.stderr.take();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = err_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        let _ = err_tx.send(buf);
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if std::time::Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("local child process killed after {secs} seconds (time bound)"),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+    let collect = |rx: &std::sync::mpsc::Receiver<Vec<u8>>| {
+        rx.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "pipe still open 5 seconds after the child exited; a grandchild process may hold it",
+            )
+        })
+    };
+    Ok(std::process::Output {
+        status,
+        stdout: collect(&out_rx)?,
+        stderr: collect(&err_rx)?,
+    })
+}
+
 /// Pipeline input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptInput {
@@ -63,6 +128,13 @@ pub struct PromptInput {
 pub struct ModelOverrideConfig {
     pub model_type: Option<String>,
     pub model_identifier: Option<String>,
+    /// The CANDIDATE model's real context window, sent by the host's
+    /// fallback walk per attempt (orchestrator/mod.rs). Without this field
+    /// the override silently dropped it, so the pipeline sized budgets and
+    /// truncation checks against the BASE config's window even when the
+    /// walk had routed the call to a much smaller local model.
+    #[serde(default)]
+    pub context_length: Option<usize>,
     pub api_endpoint: Option<String>,
     pub api_key_env: Option<String>,
     pub api_key: Option<String>,
@@ -72,7 +144,7 @@ pub struct ModelOverrideConfig {
 }
 
 /// Pipeline output
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PromptOutput {
     pub response: String,
     pub model_used: String,
@@ -94,6 +166,23 @@ pub struct PromptOutput {
     pub load_time_ms: Option<f32>,
     #[serde(default)]
     pub total_time_ms: Option<f32>,
+    /// OpenAI-compatible path only: diagnostics read from the provider's own
+    /// response fields, so an empty answer can be told apart as a provider
+    /// fault or as our own output cap. Absent (not false) on other paths.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_null: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub has_reasoning: Option<bool>,
+    /// Which response field carried the reasoning text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_tokens: Option<u64>,
+    /// The max_tokens value this call sent, or absent if none was sent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_sent: Option<u32>,
 }
 
 /// Model configuration (read from OzoneConfig)
@@ -169,6 +258,11 @@ fn merge_override(base: &ModelConfig, over: &ModelOverrideConfig) -> ModelConfig
     }
     if over.local_model_path.is_some() {
         merged.local_model_path = over.local_model_path.clone();
+    }
+    if let Some(cl) = over.context_length {
+        if cl > 0 {
+            merged.context_length = cl;
+        }
     }
     merged
 }
@@ -282,6 +376,29 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
 }
 
 /// Call Anthropic API (Claude)
+/// Error text for a non-success HTTP status, shaped "HTTP <code>: <message>".
+/// The message is the provider's error.message when it has one, else the raw
+/// body. Cut to 300 characters with an explicit marker, so the host reads the
+/// status and the cause from one string.
+fn http_error_text(status: reqwest::StatusCode, body: &str) -> String {
+    let message = serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| {
+            v["error"]["message"]
+                .as_str()
+                .or_else(|| v["error"].as_str())
+                .map(String::from)
+        })
+        .unwrap_or_else(|| body.trim().to_string());
+    let total = message.chars().count();
+    let shown: String = message.chars().take(300).collect();
+    if total > 300 {
+        format!("HTTP {}: {} ... [truncated, {} chars total]", status.as_u16(), shown, total)
+    } else {
+        format!("HTTP {}: {}", status.as_u16(), shown)
+    }
+}
+
 async fn call_anthropic_api(
     endpoint: &str,
     api_key: &str,
@@ -335,11 +452,18 @@ async fn call_anthropic_api(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                format!("Request timed out (client timeout): {}", e)
+            } else {
+                format!("Request failed: {}", e)
+            }
+        })?;
     
     if !response.status().is_success() {
+        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("API error: {}", error_text));
+        return Err(http_error_text(status, &error_text));
     }
     
     let result: serde_json::Value = response.json().await
@@ -407,6 +531,7 @@ async fn call_anthropic_api(
         prompt_eval_tokens_per_sec: None,
         load_time_ms: None,
         total_time_ms: None,
+        ..Default::default()
     })
 }
 
@@ -457,46 +582,49 @@ async fn call_openai_api(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| {
+            if e.is_timeout() {
+                format!("Request timed out (client timeout): {}", e)
+            } else {
+                format!("Request failed: {}", e)
+            }
+        })?;
     
     if !response.status().is_success() {
+        let status = response.status();
         let error_text = response.text().await.unwrap_or_default();
-        return Err(format!("API error: {}", error_text));
+        return Err(http_error_text(status, &error_text));
     }
     
     let result: serde_json::Value = response.json().await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
     
-    let content = result["choices"][0]["message"]["content"]
+    let message = &result["choices"][0]["message"];
+    // content may be JSON null or absent; both mean "no content field".
+    let content_null = message.get("content").map_or(true, |c| c.is_null());
+    let content = message["content"]
         .as_str()
         .unwrap_or("")
         .to_string();
-    
+
     let tokens = result["usage"]["total_tokens"]
         .as_u64()
         .map(|t| t as u32);
-    
+
     let finish_reason = result["choices"][0]["finish_reason"]
         .as_str()
         .map(|s| s.to_string());
 
-    // Diagnostic only, never changes behavior: confirmed live this session
-    // (real OpenRouter key, real tokens_used, empty content) — capture WHY
-    // when it happens so a future debugging session doesn't have to
-    // re-derive it. The caller-side retry/fallback (is_unusable_pipeline9_
-    // result and callers) already handles the empty case correctly
-    // regardless of the reason; this is purely so the reason is visible in
-    // logs instead of requiring a fresh investigation each time.
-    if content.trim().is_empty() {
-        let message_preview = serde_json::to_string(&result["choices"][0]["message"])
-            .unwrap_or_default();
-        let message_preview: String = message_preview.chars().take(300).collect();
-        eprintln!(
-            "prompt pipeline: OpenAI-compatible response had no usable content \
-             (finish_reason={:?}, message={})",
-            finish_reason, message_preview
-        );
-    }
+    // Reasoning models carry their text in `reasoning` (OpenRouter) or
+    // `reasoning_content` (other providers). Record which one carried it.
+    let reasoning_field: Option<String> = ["reasoning", "reasoning_content"]
+        .iter()
+        .find(|f| message[**f].as_str().map_or(false, |s| !s.trim().is_empty()))
+        .map(|f| f.to_string());
+    let has_reasoning = reasoning_field.is_some();
+    let completion_tokens = result["usage"]["completion_tokens"].as_u64();
+    let reasoning_tokens = result["usage"]["completion_tokens_details"]["reasoning_tokens"].as_u64();
+    let max_tokens_sent = input.max_tokens;
 
     // Report the real model that actually served this call, not just the
     // requested identifier — this matters specifically for "auto" routing
@@ -507,6 +635,31 @@ async fn call_openai_api(
     // "openrouter/auto" regardless of what actually ran, making any
     // per-call model switch invisible even though it was really happening.
     let actual_model = result["model"].as_str().unwrap_or(model).to_string();
+
+    // Diagnostic only, never changes behavior: the host decides retry and
+    // fallback from the Ok result. These lines say WHY the content is empty,
+    // from the provider's own fields.
+    if content.trim().is_empty() {
+        let message_preview = serde_json::to_string(message).unwrap_or_default();
+        let message_preview: String = message_preview.chars().take(300).collect();
+        eprintln!(
+            "prompt pipeline: OpenAI-compatible response had no usable content \
+             (finish_reason={:?}, message={})",
+            finish_reason, message_preview
+        );
+        let absent = || "absent".to_string();
+        eprintln!(
+            "prompt pipeline: empty response model={} served={} finish_reason={} content_null={} has_reasoning={} completion_tokens={} reasoning_tokens={} max_tokens_sent={}",
+            model,
+            actual_model,
+            finish_reason.as_deref().unwrap_or("absent"),
+            content_null,
+            has_reasoning,
+            completion_tokens.map_or_else(absent, |v| v.to_string()),
+            reasoning_tokens.map_or_else(absent, |v| v.to_string()),
+            max_tokens_sent.map_or_else(absent, |v| v.to_string()),
+        );
+    }
 
     Ok(PromptOutput {
         response: content,
@@ -519,6 +672,12 @@ async fn call_openai_api(
         prompt_eval_tokens_per_sec: None,
         load_time_ms: None,
         total_time_ms: None,
+        content_null: Some(content_null),
+        has_reasoning: Some(has_reasoning),
+        reasoning_field,
+        completion_tokens,
+        reasoning_tokens,
+        max_tokens_sent,
     })
 }
 
@@ -555,7 +714,7 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
 
     // Same anti-repetition fix as execute_bitnet (see its comment) — applies
     // equally to any local llama.cpp-served GGUF model.
-    let output = std::process::Command::new(&llama_cli)
+    let output = run_bounded_child(std::process::Command::new(&llama_cli)
         .args([
             "-m", model_path,
             "-p", &prompt,
@@ -567,7 +726,7 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
             "--repeat-last-n", "1024",
             "--no-display-prompt",
         ])
-        .output();
+        );
     
     match output {
         Ok(result) => {
@@ -586,6 +745,7 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
                     prompt_eval_tokens_per_sec: None,
                     load_time_ms: None,
                     total_time_ms: None,
+                    ..Default::default()
                 })
             } else {
                 let error = String::from_utf8_lossy(&result.stderr);
@@ -664,9 +824,9 @@ except Exception as e:
         input.temperature.unwrap_or(0.7)
     );
     
-    let output = std::process::Command::new("python3")
+    let output = run_bounded_child(std::process::Command::new("python3")
         .args(["-c", &python_script])
-        .output();
+        );
     
     match output {
         Ok(result) => {
@@ -696,6 +856,7 @@ except Exception as e:
                     prompt_eval_tokens_per_sec: None,
                     load_time_ms: None,
                     total_time_ms: None,
+                    ..Default::default()
                 })
             } else {
                 Err(format!("Failed to parse ONNX output: {}", stdout))
@@ -863,6 +1024,7 @@ async fn execute_bitnet_server(
         prompt_eval_tokens_per_sec: None,
         load_time_ms: Some(0.0), // warm server: zero load
         total_time_ms: None,
+        ..Default::default()
     }))
 }
 
@@ -936,7 +1098,7 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     //    to make the repeated structural markers ("##", "Pipeline", ":",
     //    "Keywords") costlier across a much longer span.
     let run = tokio::task::spawn_blocking(move || {
-        std::process::Command::new(&clone_cli)
+        run_bounded_child(std::process::Command::new(&clone_cli)
             .args([
                 "-m", &clone_model_path,
                 "-p", &prompt,
@@ -947,7 +1109,7 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                 "--repeat-last-n", "1024",
                 "--no-display-prompt",
             ])
-            .output()
+            )
     })
     .await
     .map_err(|e| format!("BitNet task join failed: {}", e))?;
@@ -988,6 +1150,7 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                     prompt_eval_tokens_per_sec: metrics.as_ref().and_then(|m| m.prompt_eval_tokens_per_sec),
                     load_time_ms: metrics.as_ref().and_then(|m| m.load_time_ms),
                     total_time_ms: metrics.as_ref().and_then(|m| m.total_time_ms),
+                    ..Default::default()
                 })
             } else {
                 let error = String::from_utf8_lossy(&result.stderr);

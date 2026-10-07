@@ -57,6 +57,18 @@ async function throttleNominatim() {
   lastNominatimCallAt = Date.now();
 }
 
+// Real OSM features near a real point as a graph block: the location is the root,
+// and each feature is a contained entity with its real tags and position.
+function geoGraph(lat, lon, radiusM, elements) {
+  const nodes = [{ key: "location", kind: "Location", label: `${lat},${lon}`, attributes: { lat, lon, radius_m: radiusM } }];
+  elements.forEach((e, i) => {
+    const t = e.tags ?? {};
+    const label = t.name ?? t.amenity ?? t.highway ?? t.building ?? `${e.type}-${e.id}`;
+    nodes.push({ key: `feature-${i}`, kind: "OSMFeature", label: String(label), parent: "location", attributes: { osm_type: e.type, osm_id: e.id, lat: e.lat, lon: e.lon, tags: t } });
+  });
+  return { nodes, edges: [] };
+}
+
 function reply(res, code, body) {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -171,7 +183,7 @@ const server = createServer((req, res) => {
           lat: e.lat ?? e.center?.lat ?? null,
           lon: e.lon ?? e.center?.lon ?? null,
         }));
-        reply(res, 200, { success: true, output: { count: elements.length, features: elements } });
+        reply(res, 200, { success: true, output: { count: elements.length, features: elements, graph: geoGraph(lat, lon, radiusM, elements) } });
       } else {
         reply(res, 200, { success: false, error: `unknown geospatial tool '${tool}' (geo_search, geo_reverse, geo_features_near)` });
       }

@@ -17,6 +17,15 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::path::Path;
 
+/// Byte-bounded prefix that never splits a UTF-8 character. A raw byte slice
+/// panics when the cut lands inside a multi-byte character.
+fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
@@ -538,7 +547,7 @@ fn default_growth_patterns() -> Vec<GrowthPattern> {
 
 fn summarize_content(content: &str) -> String {
     if content.len() > 100 {
-        format!("{}...", &content[..100])
+        format!("{}...", prefix_chars_safe(&content, 100))
     } else {
         content.to_string()
     }

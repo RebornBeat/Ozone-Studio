@@ -15,8 +15,62 @@ use crate::types::zsei::{
     TraversalStats, Filter, Operator,
 };
 use super::storage::ContainerStorage;
+use crate::types::container::Container;
 use std::collections::{HashSet, VecDeque};
 use regex::Regex;
+
+/// Read access to the container graph, one call at a time.
+///
+/// Traversal used to borrow the whole store for its full duration, so a
+/// traversal blocked every writer until it finished. Each call through this
+/// trait is its own read: LockedStorage takes a short read guard per call and
+/// releases it before the next hop, and ContainerStorage answers directly for
+/// callers that already hold the store.
+#[allow(async_fn_in_trait)]
+pub trait NodeSource {
+    async fn load_node(&self, id: ContainerID) -> OzoneResult<Option<Container>>;
+    async fn children_of(&self, id: ContainerID) -> OzoneResult<Vec<ContainerID>>;
+    async fn all_node_ids(&self) -> Vec<ContainerID>;
+}
+
+impl NodeSource for ContainerStorage {
+    async fn load_node(&self, id: ContainerID) -> OzoneResult<Option<Container>> {
+        self.load(id)
+    }
+    async fn children_of(&self, id: ContainerID) -> OzoneResult<Vec<ContainerID>> {
+        self.get_children(id)
+    }
+    async fn all_node_ids(&self) -> Vec<ContainerID> {
+        self.all_ids()
+    }
+}
+
+/// Per-call read access to the shared store: each call takes the storage read
+/// lock for exactly that one lookup, then releases it.
+pub struct LockedStorage<'a> {
+    lock: &'a tokio::sync::RwLock<ContainerStorage>,
+}
+
+impl<'a> LockedStorage<'a> {
+    pub fn new(lock: &'a tokio::sync::RwLock<ContainerStorage>) -> Self {
+        Self { lock }
+    }
+}
+
+impl NodeSource for LockedStorage<'_> {
+    async fn load_node(&self, id: ContainerID) -> OzoneResult<Option<Container>> {
+        let guard = self.lock.read().await;
+        guard.load(id)
+    }
+    async fn children_of(&self, id: ContainerID) -> OzoneResult<Vec<ContainerID>> {
+        let guard = self.lock.read().await;
+        guard.get_children(id)
+    }
+    async fn all_node_ids(&self) -> Vec<ContainerID> {
+        let guard = self.lock.read().await;
+        guard.all_ids()
+    }
+}
 
 /// Traversal engine
 pub struct TraversalEngine {
@@ -37,9 +91,9 @@ impl TraversalEngine {
     }
     
     /// Perform traversal based on request
-    pub async fn traverse(
+    pub async fn traverse<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: TraversalRequest,
     ) -> OzoneResult<TraversalResult> {
         let start_time = std::time::Instant::now();
@@ -87,7 +141,7 @@ impl TraversalEngine {
             let pre_count = containers.len();
             let mut filtered = Vec::new();
             for cid in &containers {
-                if let Ok(Some(container)) = storage.load(*cid) {
+                if let Ok(Some(container)) = storage.load_node(*cid).await {
                     let ctx = &container.local_state.context;
                     let kw_match = kw_filters.iter().any(|f| {
                         ctx.keywords.iter().any(|k| k.contains(f.as_str()))
@@ -151,9 +205,9 @@ impl TraversalEngine {
     /// containers (e.g. a country's national law layered on a regional
     /// baseline it is NOT a structural child of) actually reachable by
     /// graph traversal instead of only by a flat, type-blind keyword scan.
-    async fn structural_traversal(
+    async fn structural_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         let mut containers = Vec::new();
@@ -182,7 +236,7 @@ impl TraversalEngine {
             visited.insert(current_id);
 
             // Check if this container matches filters
-            if self.matches_filters(storage, current_id, &request.filters)? {
+            if self.matches_filters(storage, current_id, &request.filters).await? {
                 containers.push(current_id);
                 paths.push(Path {
                     hops: path.clone(),
@@ -191,7 +245,7 @@ impl TraversalEngine {
             }
 
             // Add children to queue
-            let children = storage.get_children(current_id)?;
+            let children = storage.children_of(current_id).await?;
             for child_id in children {
                 if !visited.contains(&child_id) {
                     let mut new_path = path.clone();
@@ -202,7 +256,7 @@ impl TraversalEngine {
 
             // Add explicit relation targets to queue — real graph edges,
             // not just tree structure (see doc comment above).
-            if let Some(container) = storage.load(current_id)? {
+            if let Some(container) = storage.load_node(current_id).await? {
                 for rel in &container.local_state.context.relationships {
                     if !visited.contains(&rel.target_id) {
                         let mut new_path = path.clone();
@@ -217,9 +271,9 @@ impl TraversalEngine {
     }
     
     /// Semantic traversal - follow embeddings and associations
-    async fn semantic_traversal(
+    async fn semantic_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         let mut containers = Vec::new();
@@ -228,7 +282,7 @@ impl TraversalEngine {
         
         // Semantic traversal uses keyword/topic similarity instead of structure
         // Get starting container's keywords and topics
-        let start_container = match storage.load(request.start_container)? {
+        let start_container = match storage.load_node(request.start_container).await? {
             Some(c) => c,
             None => return self.structural_traversal(storage, request).await,
         };
@@ -239,7 +293,7 @@ impl TraversalEngine {
             .iter().map(|t| t.to_lowercase()).collect();
         
         // Search all containers for keyword/topic similarity
-        for id in storage.all_ids() {
+        for id in storage.all_node_ids().await {
             if containers.len() >= request.max_results as usize {
                 break;
             }
@@ -249,7 +303,7 @@ impl TraversalEngine {
             }
             visited.insert(id);
             
-            if let Some(container) = storage.load(id)? {
+            if let Some(container) = storage.load_node(id).await? {
                 // Calculate semantic similarity based on shared keywords/topics
                 let container_keywords: HashSet<String> = container.local_state.context.keywords
                     .iter().map(|k| k.to_lowercase()).collect();
@@ -262,7 +316,7 @@ impl TraversalEngine {
                 // Consider semantically similar if any keyword or topic overlap
                 if keyword_overlap > 0 || topic_overlap > 0 {
                     // Check filters
-                    if self.matches_filters(storage, id, &request.filters)? {
+                    if self.matches_filters(storage, id, &request.filters).await? {
                         let similarity = (keyword_overlap + topic_overlap) as f32;
                         containers.push(id);
                         paths.push(Path {
@@ -284,9 +338,9 @@ impl TraversalEngine {
     }
     
     /// Contextual traversal - based on task context
-    async fn contextual_traversal(
+    async fn contextual_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         let mut containers = Vec::new();
@@ -331,7 +385,7 @@ impl TraversalEngine {
             }
             visited.insert(current_id);
             
-            if let Some(container) = storage.load(current_id)? {
+            if let Some(container) = storage.load_node(current_id).await? {
                 // Calculate context relevance score
                 let mut relevance = 0.0f32;
                 
@@ -356,7 +410,7 @@ impl TraversalEngine {
                 }
                 
                 // Include if relevant and matches filters
-                if relevance > 0.3 && self.matches_filters(storage, current_id, &request.filters)? {
+                if relevance > 0.3 && self.matches_filters(storage, current_id, &request.filters).await? {
                     containers.push(current_id);
                     paths.push(Path {
                         hops: path.clone(),
@@ -379,9 +433,9 @@ impl TraversalEngine {
     }
     
     /// Hybrid traversal - combine multiple modes
-    async fn hybrid_traversal(
+    async fn hybrid_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         // Combine structural and semantic results
@@ -402,9 +456,9 @@ impl TraversalEngine {
     }
     
     /// ML-guided traversal - use trained model for path prediction
-    async fn ml_guided_traversal(
+    async fn ml_guided_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         // ML-guided traversal uses a trained model to predict best paths
@@ -455,21 +509,21 @@ impl TraversalEngine {
     }
     
     /// Brute force traversal - exhaustive search (fallback)
-    async fn brute_force_traversal(
+    async fn brute_force_traversal<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         request: &TraversalRequest,
     ) -> OzoneResult<(Vec<ContainerID>, Vec<Path>)> {
         let mut containers = Vec::new();
         let mut paths = Vec::new();
         
         // Check all containers
-        for id in storage.all_ids() {
+        for id in storage.all_node_ids().await {
             if containers.len() >= request.max_results as usize {
                 break;
             }
             
-            if self.matches_filters(storage, id, &request.filters)? {
+            if self.matches_filters(storage, id, &request.filters).await? {
                 containers.push(id);
                 paths.push(Path {
                     hops: vec![id],
@@ -482,9 +536,9 @@ impl TraversalEngine {
     }
     
     /// Check if a container matches the given filters
-    fn matches_filters(
+    async fn matches_filters<S: NodeSource + ?Sized>(
         &self,
-        storage: &ContainerStorage,
+        storage: &S,
         id: ContainerID,
         filters: &[Filter],
     ) -> OzoneResult<bool> {
@@ -492,7 +546,7 @@ impl TraversalEngine {
             return Ok(true);
         }
         
-        let container = match storage.load(id)? {
+        let container = match storage.load_node(id).await? {
             Some(c) => c,
             None => return Ok(false),
         };

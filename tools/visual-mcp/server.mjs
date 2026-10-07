@@ -22,6 +22,15 @@
 //                                              real InFrontOf relations returned (not yet
 //                                              a persisted typed edge — image 102's
 //                                              ImageEdgeType has no depth-axis variant today)
+//   scene_graph {input: {image_base64, confidence?}} → real YOLO objects in 3x3 region cells + geometric
+//                                              Above/NearTo/Overlaps edges, returned as a graph block
+//   yolo_segment {input: {model?, confidence?}}      → ultralytics -seg instance masks (polygons)
+//   pose_detect {input: {}}                          → ultralytics yolov8n-pose, COCO-17 keypoints per person
+//   shape_detect {input: {}}                         → OpenCV Canny + Hough lines + contour shapes
+//
+// Backends that cannot run on this machine (OCR needs the tesseract binary;
+// faces need Haar cascade files) return an explicit reason in
+// detection_backend_notes — an empty list is never silently a missing backend.
 //
 // Capture: ImageMagick `import -window root` (present on this machine,
 // DISPLAY :0). The capture command is FIXED, not caller-supplied — this
@@ -204,6 +213,13 @@ function loadDetectionRegistry() {
 // keep working unchanged.
 function isDetectionModel(m) { return (m.kind ?? "detection") === "detection"; }
 function isDepthModel(m) { return m.kind === "depth"; }
+// A backend that crashes before printing JSON must surface as an error, not as an
+// empty result: JSON.parse("{}") would otherwise look like "no detections, no reason".
+function parseBackend(line, out) {
+  if (!line) return { ok: false, error: `backend produced no JSON: ${out.slice(0, 300)}` };
+  try { return JSON.parse(line); } catch { return { ok: false, error: `backend JSON unparsable: ${line.slice(0, 200)}` }; }
+}
+
 function isSegmentationModel(m) { return m.kind === "segmentation"; }
 function isPoseModel(m) { return m.kind === "pose"; }
 
@@ -217,7 +233,7 @@ function runYolo(pngPath, modelName, confidence) {
       '    print(json.dumps({"ok": False, "error": "ultralytics not installed - pip install ultralytics to enable the detection backend"}))',
       "    sys.exit(0)",
       'model = YOLO("' + modelName + '.pt")',
-      'results = model.predict("' + pngPath + '", conf=' + confidence + ', verbose=False)',
+      'results = model.predict(sys.argv[1], conf=' + confidence + ', verbose=False)',
       "dets = []",
       "for r in results:",
       "    for box in r.boxes:",
@@ -229,17 +245,13 @@ function runYolo(pngPath, modelName, confidence) {
       'print(json.dumps({"ok": True, "model": "' + modelName + '", "detections": dets}))',
     ].join("\n");
     const yoloPython = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(yoloPython, ["-c", script], { timeout: 120000 });
+    const child = spawn(yoloPython, ["-c", script, pngPath], { timeout: 120000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try {
-        resolve(JSON.parse(line ?? "{}"));
-      } catch {
-        resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` });
-      }
+      resolve(parseBackend(line, out));
     });
   });
 }
@@ -267,7 +279,7 @@ function runDepth(pngPath, modelId, boxes) {
       '    print(json.dumps({"ok": False, "error": f"transformers/pillow/numpy not installed - {e}"}))',
       "    sys.exit(0)",
       'pipe = pipeline(task="depth-estimation", model="' + modelId + '")',
-      'img = Image.open("' + pngPath + '").convert("RGB")',
+      'img = Image.open(sys.argv[1]).convert("RGB")',
       "result = pipe(img)",
       'arr = np.array(result["depth"]).astype(float)',
       "boxes = json.loads('" + JSON.stringify(boxes ?? []).replace(/'/g, "\\'") + "')",
@@ -284,17 +296,13 @@ function runDepth(pngPath, modelId, boxes) {
       'print(json.dumps({"ok": True, "width": int(arr.shape[1]), "height": int(arr.shape[0]), "min": float(arr.min()), "max": float(arr.max()), "mean": round(float(arr.mean()), 2), "regions": regions}))',
     ].join("\n");
     const yoloPython = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(yoloPython, ["-c", script], { timeout: 120000 });
+    const child = spawn(yoloPython, ["-c", script, pngPath], { timeout: 120000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try {
-        resolve(JSON.parse(line ?? "{}"));
-      } catch {
-        resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` });
-      }
+      resolve(parseBackend(line, out));
     });
   });
 }
@@ -317,7 +325,7 @@ function runOcr(pngPath) {
       "except ImportError as e:",
       '    print(json.dumps({"ok": False, "error": f"pytesseract/pillow not installed - {e}"}))',
       "    sys.exit(0)",
-      'img = Image.open("' + pngPath + '")',
+      'img = Image.open(sys.argv[1])',
       "try:",
       "    data = pytesseract.image_to_data(img, output_type=pytesseract.Output.DICT)",
       "except Exception as e:",
@@ -336,14 +344,13 @@ function runOcr(pngPath) {
       'print(json.dumps({"ok": True, "regions": regions}))',
     ].join("\n");
     const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(pyBin, ["-c", script], { timeout: 60000 });
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 60000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try { resolve(JSON.parse(line ?? "{}")); }
-      catch { resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` }); }
+      resolve(parseBackend(line, out));
     });
   });
 }
@@ -363,13 +370,16 @@ function runFaces(pngPath) {
       "except ImportError as e:",
       '    print(json.dumps({"ok": False, "error": f"opencv-python not installed - {e}"}))',
       "    sys.exit(0)",
-      'img = cv2.imread("' + pngPath + '")',
+      'img = cv2.imread(sys.argv[1])',
       "if img is None:",
       '    print(json.dumps({"ok": False, "error": "cv2 could not read the image"}))',
       "    sys.exit(0)",
       "gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)",
       "cascade_path = cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'",
       "detector = cv2.CascadeClassifier(cascade_path)",
+      "if detector.empty():",
+      '    print(json.dumps({"ok": False, "error": "haar cascade file missing from this OpenCV build (cv2.data.haarcascades has no frontal-face xml)"}))',
+      "    sys.exit(0)",
       "faces = detector.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))",
       "out = []",
       "for (x, y, w, h) in faces:",
@@ -377,14 +387,13 @@ function runFaces(pngPath) {
       'print(json.dumps({"ok": True, "faces": out}))',
     ].join("\n");
     const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(pyBin, ["-c", script], { timeout: 30000 });
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 30000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try { resolve(JSON.parse(line ?? "{}")); }
-      catch { resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` }); }
+      resolve(parseBackend(line, out));
     });
   });
 }
@@ -406,7 +415,7 @@ function runShapes(pngPath) {
       "except ImportError as e:",
       '    print(json.dumps({"ok": False, "error": f"opencv-python/numpy not installed - {e}"}))',
       "    sys.exit(0)",
-      'img = cv2.imread("' + pngPath + '")',
+      'img = cv2.imread(sys.argv[1])',
       "if img is None:",
       '    print(json.dumps({"ok": False, "error": "cv2 could not read the image"}))',
       "    sys.exit(0)",
@@ -415,8 +424,8 @@ function runShapes(pngPath) {
       "lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=60, minLineLength=30, maxLineGap=10)",
       "line_out = []",
       "if lines is not None:",
-      "    for l in lines[:200]:",
-      "        x1, y1, x2, y2 = [int(v) for v in l[0]]",
+      "    for l in lines.reshape(-1, 4)[:200]:",
+      "        x1, y1, x2, y2 = [int(v) for v in l]",
       '        line_out.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2})',
       "contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)",
       "shape_out = []",
@@ -434,59 +443,165 @@ function runShapes(pngPath) {
       'print(json.dumps({"ok": True, "lines": line_out, "shapes": shape_out, "edge_pixel_count": int(np.count_nonzero(edges))}))',
     ].join("\n");
     const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(pyBin, ["-c", script], { timeout: 30000 });
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 30000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try { resolve(JSON.parse(line ?? "{}")); }
-      catch { resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` }); }
+      resolve(parseBackend(line, out));
     });
   });
 }
 
-// ── POSE ESTIMATION (docs/CAPABILITY_EXPANSION_REVIEW.md §1.3 — MediaPipe
-// Pose, real CPU inference, 33 real body landmarks per Google's own
-// published model.)
+// ── POSE ESTIMATION (ultralytics yolov8n-pose: real COCO-17 keypoints per
+// detected person, same backend and weight-download path as the detection
+// and segmentation models — no separate pose dependency.)
 function runPose(pngPath) {
   return new Promise((resolve) => {
     const script = [
       "import json, sys",
       "try:",
-      "    import mediapipe as mp",
-      "    import cv2",
+      "    from ultralytics import YOLO",
       "except ImportError as e:",
-      '    print(json.dumps({"ok": False, "error": f"mediapipe/opencv-python not installed - {e}"}))',
+      '    print(json.dumps({"ok": False, "error": f"ultralytics not installed - {e}"}))',
       "    sys.exit(0)",
-      'img = cv2.imread("' + pngPath + '")',
-      "if img is None:",
-      '    print(json.dumps({"ok": False, "error": "cv2 could not read the image"}))',
-      "    sys.exit(0)",
-      "h, w = img.shape[:2]",
-      "mp_pose = mp.solutions.pose",
-      "with mp_pose.Pose(static_image_mode=True) as pose:",
-      "    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)",
-      "    result = pose.process(rgb)",
-      "    if not result.pose_landmarks:",
-      '        print(json.dumps({"ok": True, "detected": False, "landmarks": []}))',
-      "    else:",
-      "        lms = []",
-      "        for i, lm in enumerate(result.pose_landmarks.landmark):",
-      '            lms.append({"index": i, "name": mp_pose.PoseLandmark(i).name, "x": round(lm.x * w, 1), "y": round(lm.y * h, 1), "z": round(lm.z, 4), "visibility": round(lm.visibility, 3)})',
-      '        print(json.dumps({"ok": True, "detected": True, "landmarks": lms, "width": w, "height": h}))',
+      "model = YOLO('yolov8n-pose.pt')",
+      "results = model.predict(sys.argv[1], conf=0.25, verbose=False)",
+      "names = ['nose','left_eye','right_eye','left_ear','right_ear','left_shoulder','right_shoulder','left_elbow','right_elbow','left_wrist','right_wrist','left_hip','right_hip','left_knee','right_knee','left_ankle','right_ankle']",
+      "people = []",
+      "for r in results:",
+      "    if r.keypoints is None:",
+      "        continue",
+      "    kxy = r.keypoints.xy.tolist()",
+      "    kconf = r.keypoints.conf.tolist() if r.keypoints.conf is not None else None",
+      "    boxes = r.boxes.xyxy.tolist() if r.boxes is not None else []",
+      "    for i, kp in enumerate(kxy):",
+      "        pts = []",
+      "        for j, (x, y) in enumerate(kp):",
+      "            c = round(float(kconf[i][j]), 3) if kconf else None",
+      "            pts.append({'name': names[j], 'x': round(float(x), 1), 'y': round(float(y), 1), 'confidence': c})",
+      "        box = [round(float(v), 1) for v in boxes[i]] if i < len(boxes) else None",
+      "        people.append({'bounding_box': box, 'keypoints': pts})",
+      "print(json.dumps({'ok': True, 'detected': len(people) > 0, 'people': people}))",
     ].join("\n");
     const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(pyBin, ["-c", script], { timeout: 60000 });
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 120000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try { resolve(JSON.parse(line ?? "{}")); }
-      catch { resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` }); }
+      resolve(parseBackend(line, out));
     });
   });
+}
+
+// Graph blocks for the detection tools that did not emit one yet. Every node is a real
+// output of the tool: keypoints, masks and shapes are not derived from each other.
+function buildPoseGraph(people) {
+  const nodes = [{ key: "image", kind: "Image", label: "image", attributes: {} }];
+  const edges = [];
+  (people ?? []).forEach((p, i) => {
+    nodes.push({ key: `person-${i}`, kind: "Person", label: `person ${i}`, parent: "image", attributes: { bounding_box: p.bounding_box } });
+    (p.keypoints ?? []).forEach((k, j) => {
+      nodes.push({ key: `kp-${i}-${j}`, kind: "Keypoint", label: k.name, parent: `person-${i}`, attributes: { x: k.x, y: k.y, confidence: k.confidence } });
+    });
+  });
+  return { nodes, edges };
+}
+
+function buildSegGraph(detections) {
+  const nodes = [{ key: "image", kind: "Image", label: "image", attributes: {} }];
+  (detections ?? []).forEach((d, i) => {
+    nodes.push({ key: `obj-${i}`, kind: "Object", label: d.label, parent: "image", attributes: { confidence: d.confidence, bounding_box: d.bounding_box, mask_polygon: d.mask_polygon ?? null } });
+  });
+  return { nodes, edges: [] };
+}
+
+function buildShapeGraph(lines, shapes) {
+  const nodes = [{ key: "image", kind: "Image", label: "image", attributes: {} }];
+  (lines ?? []).forEach((l, i) => {
+    nodes.push({ key: `line-${i}`, kind: "Line", label: "line", parent: "image", attributes: { x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 } });
+  });
+  (shapes ?? []).forEach((s, i) => {
+    nodes.push({ key: `shape-${i}`, kind: "Shape", label: s.shape, parent: "image", attributes: { vertices: s.vertices, area: s.area, bounding_box: s.bounding_box } });
+  });
+  return { nodes, edges: [] };
+}
+
+// ── SCENE GRAPH (graph block for host-side persistence) ──
+// Objects from real YOLO boxes, placed in 3x3 image-thirds cells (regions),
+// with edges computed from box geometry. The NearTo threshold is stated in the
+// output, not hidden.
+const NEAR_FRACTION_OF_DIAGONAL = 0.1;
+const CELL_NAMES = [
+  ["upper-left", "upper-center", "upper-right"],
+  ["middle-left", "center", "middle-right"],
+  ["lower-left", "lower-center", "lower-right"],
+];
+
+function runImageSize(pngPath) {
+  return new Promise((resolve) => {
+    const script = [
+      "import json, sys",
+      "try:",
+      "    from PIL import Image",
+      "except ImportError as e:",
+      '    print(json.dumps({"ok": False, "error": f"pillow not installed - {e}"}))',
+      "    sys.exit(0)",
+      "im = Image.open(sys.argv[1])",
+      'print(json.dumps({"ok": True, "width": im.size[0], "height": im.size[1]}))',
+    ].join("\n");
+    const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 30000 });
+    let out = "";
+    child.stdout.on("data", (d) => { out += d; });
+    child.stderr.on("data", (d) => { out += d; });
+    child.on("close", () => {
+      const line = out.split("\n").find((l) => l.startsWith("{"));
+      resolve(parseBackend(line, out));
+    });
+  });
+}
+
+function buildSceneGraph(dets, w, h) {
+  const diag = Math.hypot(w, h);
+  const nodes = [{ key: "image", kind: "Image", label: "image", attributes: { width: w, height: h } }];
+  const cellKeys = new Set();
+  const objKeys = [];
+  dets.forEach((d, i) => {
+    const [x1, y1, x2, y2] = d.bounding_box;
+    const row = Math.min(2, Math.max(0, Math.floor((3 * ((y1 + y2) / 2)) / h)));
+    const col = Math.min(2, Math.max(0, Math.floor((3 * ((x1 + x2) / 2)) / w)));
+    const cellKey = `cell-${row}-${col}`;
+    if (!cellKeys.has(cellKey)) {
+      cellKeys.add(cellKey);
+      nodes.push({ key: cellKey, kind: "GridCell", label: CELL_NAMES[row][col], parent: "image", attributes: { row, col, grid: "3x3 image thirds" } });
+    }
+    const key = `obj-${i}`;
+    objKeys.push(key);
+    nodes.push({ key, kind: "Object", label: d.label, parent: cellKey, attributes: { confidence: d.confidence, bounding_box: d.bounding_box } });
+  });
+  const edges = [];
+  for (let i = 0; i < dets.length; i++) {
+    for (let j = i + 1; j < dets.length; j++) {
+      const a = dets[i].bounding_box;
+      const b = dets[j].bounding_box;
+      const conf = Math.min(dets[i].confidence, dets[j].confidence);
+      const ix = Math.max(0, Math.min(a[2], b[2]) - Math.max(a[0], b[0]));
+      const iy = Math.max(0, Math.min(a[3], b[3]) - Math.max(a[1], b[1]));
+      if (ix * iy > 0) edges.push({ from: objKeys[i], to: objKeys[j], relation: "Overlaps", confidence: conf });
+      if (a[3] <= b[1]) edges.push({ from: objKeys[i], to: objKeys[j], relation: "Above", confidence: conf });
+      else if (b[3] <= a[1]) edges.push({ from: objKeys[j], to: objKeys[i], relation: "Above", confidence: conf });
+      const gapX = Math.max(0, Math.max(a[0], b[0]) - Math.min(a[2], b[2]));
+      const gapY = Math.max(0, Math.max(a[1], b[1]) - Math.min(a[3], b[3]));
+      if (Math.hypot(gapX, gapY) < NEAR_FRACTION_OF_DIAGONAL * diag) {
+        edges.push({ from: objKeys[i], to: objKeys[j], relation: "NearTo", confidence: conf });
+      }
+    }
+  }
+  return { nodes, edges, thresholds: { near_fraction_of_diagonal: NEAR_FRACTION_OF_DIAGONAL, grid: "3x3 image thirds" } };
 }
 
 // ── SEGMENTATION (docs/CAPABILITY_EXPANSION_REVIEW.md §1.4 — ultralytics'
@@ -502,7 +617,7 @@ function runYoloSeg(pngPath, modelName, confidence) {
       '    print(json.dumps({"ok": False, "error": "ultralytics not installed - pip install ultralytics to enable the segmentation backend"}))',
       "    sys.exit(0)",
       'model = YOLO("' + modelName + '.pt")',
-      'results = model.predict("' + pngPath + '", conf=' + confidence + ', verbose=False)',
+      'results = model.predict(sys.argv[1], conf=' + confidence + ', verbose=False)',
       "dets = []",
       "for r in results:",
       "    boxes = r.boxes",
@@ -521,14 +636,13 @@ function runYoloSeg(pngPath, modelName, confidence) {
       'print(json.dumps({"ok": True, "model": "' + modelName + '", "detections": dets}))',
     ].join("\n");
     const pyBin = process.env.OZONE_YOLO_PYTHON ?? "python3";
-    const child = spawn(pyBin, ["-c", script], { timeout: 120000 });
+    const child = spawn(pyBin, ["-c", script, pngPath], { timeout: 120000 });
     let out = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { out += d; });
     child.on("close", () => {
       const line = out.split("\n").find((l) => l.startsWith("{"));
-      try { resolve(JSON.parse(line ?? "{}")); }
-      catch { resolve({ ok: false, error: `backend produced no JSON: ${out.slice(0, 200)}` }); }
+      resolve(parseBackend(line, out));
     });
   });
 }
@@ -629,6 +743,8 @@ const server = createServer((req, res) => {
             capture: pngPath,
             objects: (analysis.objects ?? []).map((o) => ({ label: o.label, confidence: o.confidence, bounding_box: o.bounding_box })),
             text_regions: analysis.text_regions ?? [],
+            faces: analysis.faces ?? [],
+            detection_backend_notes: analysis.detection_backend_notes ?? null,
             colors: analysis.colors ?? [],
             composition: analysis.composition ?? {},
           },
@@ -812,6 +928,47 @@ const server = createServer((req, res) => {
             note: "Real per-object depth is a real node attribute (attributes.depth_median/depth_mean); InFrontOf relations are computed but not yet a persisted typed graph edge (image 102's ImageEdgeType has no depth-axis variant today) — returned in the response, not silently dropped.",
           },
         });
+      } else if (tool === "shape_detect") {
+        const pngPath = input.image_base64 ? ingestBase64(String(input.image_base64)) : await captureScreen();
+        const shapes = await runShapes(pngPath);
+        if (!shapes.ok) { reply(res, 200, { success: false, error: shapes.error ?? 'shape backend returned no result' }); return; }
+        reply(res, 200, {
+          success: true,
+          output: { lines: shapes.lines, shapes: shapes.shapes, edge_pixel_count: shapes.edge_pixel_count, capture: pngPath, graph: buildShapeGraph(shapes.lines, shapes.shapes) },
+        });
+      } else if (tool === "pose_detect") {
+        const pngPath = input.image_base64 ? ingestBase64(String(input.image_base64)) : await captureScreen();
+        const pose = await runPose(pngPath);
+        if (!pose.ok) { reply(res, 200, { success: false, error: pose.error }); return; }
+        reply(res, 200, {
+          success: true,
+          output: { detected: pose.detected, people: pose.people, capture: pngPath, graph: buildPoseGraph(pose.people) },
+        });
+      } else if (tool === "yolo_segment") {
+        const reg = loadDetectionRegistry();
+        const wanted = String(input.model ?? reg.models.find((m) => m.enabled && isSegmentationModel(m))?.name ?? "");
+        const model = reg.models.find((m) => m.name === wanted && m.enabled && isSegmentationModel(m));
+        if (!model) {
+          reply(res, 200, { success: false, error: `segmentation model '${wanted}' not found or disabled` });
+          return;
+        }
+        const pngPath = input.image_base64 ? ingestBase64(String(input.image_base64)) : await captureScreen();
+        const seg = await runYoloSeg(pngPath, model.name, Number(input.confidence ?? 0.5));
+        if (!seg.ok) { reply(res, 200, { success: false, error: seg.error }); return; }
+        reply(res, 200, { success: true, output: { model: model.name, detections: seg.detections, capture: pngPath, graph: buildSegGraph(seg.detections) } });
+      } else if (tool === "scene_graph") {
+        const reg = loadDetectionRegistry();
+        const detModel = reg.models.find((m) => m.enabled && isDetectionModel(m));
+        if (!detModel) { reply(res, 200, { success: false, error: "no enabled detection model registered" }); return; }
+        const pngPath = input.image_base64 ? ingestBase64(String(input.image_base64)) : await captureScreen();
+        const [yolo, size] = await Promise.all([
+          runYolo(pngPath, detModel.name, Number(input.confidence ?? 0.5)),
+          runImageSize(pngPath),
+        ]);
+        if (!yolo.ok) { reply(res, 200, { success: false, error: yolo.error }); return; }
+        if (!size.ok) { reply(res, 200, { success: false, error: size.error }); return; }
+        const graph = buildSceneGraph(yolo.detections, size.width, size.height);
+        reply(res, 200, { success: true, output: { model: detModel.name, detections: yolo.detections.length, graph, capture: pngPath } });
       } else {
         reply(res, 200, { success: false, error: `unknown visual tool '${tool}' (visual_describe | visual_graph | visual_ingest | yolo_detect | yolo_graph | depth_estimate | depth_graph)` });
       }

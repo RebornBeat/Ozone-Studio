@@ -18,6 +18,15 @@ use std::env;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+/// Byte-bounded prefix that never splits a UTF-8 character. A raw byte slice
+/// panics when the cut lands inside a multi-byte character.
+fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
 // ========== ZSEI Integration (real persistence) ==========
 //
 // create_graph() previously only minted an id via generate_id() and cached
@@ -1124,6 +1133,92 @@ pub struct SentenceNode {
     /// never resolves or loads knowledge here.
     #[serde(default)]
     pub knowledge_refs: Vec<KnowledgeRef>,
+    /// Validated zero-shot relations (ZSEI relation names, evidence verbatim in
+    /// this sentence). A subset of grammar_relationships, which stay unchanged.
+    #[serde(default)]
+    pub zero_shot_relations: Vec<ZeroShotRelationRecord>,
+    /// Zero-shot proposals the validator rejected, each with its reason.
+    #[serde(default)]
+    pub zero_shot_rejected: Vec<String>,
+}
+
+/// A zero-shot relation that passed semantic_relations::validate, in ZSEI names.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ZeroShotRelationRecord {
+    pub from: String,
+    pub to: String,
+    pub relation: String,
+    pub evidence: String,
+    pub discovered_via: String,
+    pub confidence: f32,
+}
+
+/// Grammar edge types whose meaning matches a ZSEI relation exactly. Other edge
+/// types have no ZSEI equivalent and stay only in grammar_relationships.
+fn grammar_edge_to_zsei(edge_type: &str) -> Option<&'static str> {
+    match edge_type {
+        "PartOf" => Some("PartOf"),
+        "HasPart" => Some("Contains"),
+        "TemporalPrecedes" => Some("Precedes"),
+        "TemporalFollows" => Some("Follows"),
+        "Contradicts" => Some("Contradicts"),
+        _ => None,
+    }
+}
+
+/// Validates the sentence's zero-shot grammar relations against the sentence text.
+/// `entity_labels` are the extracted entities that relation endpoints must match;
+/// they must come from an extraction step other than the relations themselves.
+/// Endpoints and evidence must appear verbatim in the sentence; rejected proposals
+/// are kept with their reason. grammar_relationships is never modified.
+fn apply_zero_shot_relations(sent: &mut SentenceNode, entity_labels: &[String]) {
+    let mut proposals = Vec::new();
+    let mut rejected: Vec<String> = Vec::new();
+    let mut unmapped = 0usize;
+    for rel in &sent.grammar_relationships {
+        let Some(zsei) = grammar_edge_to_zsei(&rel.edge_type) else {
+            unmapped += 1;
+            continue;
+        };
+        if !sent.content.contains(&rel.to_text) {
+            rejected.push(format!("to_text not verbatim in sentence :: {}", rel.to_text));
+            continue;
+        }
+        proposals.push(serde_json::json!({
+            "from": rel.from_text,
+            "to": rel.to_text,
+            "relation": zsei,
+            "evidence": rel.from_text,
+        }));
+    }
+    let verdict = semantic_relations::validate(
+        &serde_json::json!({ "relations": proposals }),
+        entity_labels,
+        &sent.content,
+    );
+    let accepted: Vec<ZeroShotRelationRecord> = verdict
+        .accepted
+        .into_iter()
+        .map(|a| ZeroShotRelationRecord {
+            from: a.from,
+            to: a.to,
+            relation: a.relation,
+            evidence: a.evidence,
+            discovered_via: "ZeroShot".to_string(),
+            confidence: 1.0,
+        })
+        .collect();
+    rejected.extend(verdict.rejected.into_iter().map(|r| format!("{} :: {}", r.reason, r.raw)));
+    if !rejected.is_empty() || unmapped > 0 {
+        eprintln!(
+            "zero-shot relations: {} accepted, {} rejected, {} grammar edges with no ZSEI equivalent",
+            accepted.len(),
+            rejected.len(),
+            unmapped
+        );
+    }
+    sent.zero_shot_relations = accepted;
+    sent.zero_shot_rejected = rejected;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2559,7 +2654,7 @@ impl TextModalityPipeline {
 
         let next_order = (count_so_far + 1) as u32;
         let task_word = if count_so_far == 0 { "no" } else { "no further" };
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are performing sentence identification and grammar correction on a text chunk, one sentence at a time, in reading order.
 
 YOUR ROLE:
@@ -2580,10 +2675,12 @@ Return ONLY valid JSON, no explanation, no markdown:
 If {task_word} sentence exists: {{"found": false}}"#,
             state_block = state_block,
             chunk_index = chunk_index,
-            chunk_text = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(8000))],
+            chunk_text = chunk_body,
             next_order = next_order,
             task_word = task_word,
         );
+        let chunk_view = fit_chunk_to_window("extract_next_sentence.chunk", chunk_text, 600, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -2657,7 +2754,7 @@ If {task_word} sentence exists: {{"found": false}}"#,
                 "is the candidate the FIRST sentence in the chunk, starting at its very beginning (ignoring leading whitespace)?",
             ),
         };
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are validating sentence extraction order.
 
 CHUNK TEXT:
@@ -2671,11 +2768,13 @@ QUESTION: In the chunk above, {question}
 
 Return ONLY valid JSON with a single one-word answer:
 {{"answer": "YES"}} or {{"answer": "NO"}}"#,
-            chunk = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(6000))],
+            chunk = chunk_body,
             prev_block = prev_block,
             candidate = candidate.original,
             question = question,
         );
+        let chunk_view = fit_chunk_to_window("sentence_order_validation.chunk", chunk_text, 20, &build);
+        let prompt = build(&chunk_view);
         self.confirm_times_yes(prompt, 5).await
     }
 
@@ -2893,6 +2992,8 @@ Return ONLY valid JSON with a single one-word answer:
                 properties: GrammarProperties::default(),
                 grammar_nodes: Vec::new(),
                 grammar_relationships: Vec::new(),
+                zero_shot_relations: Vec::new(),
+                zero_shot_rejected: Vec::new(),
                 knowledge_refs: Vec::new(),
             };
             nodes.push(node);
@@ -2959,7 +3060,7 @@ Return ONLY valid JSON with a single one-word answer:
             }
         };
 
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are tracking document SECTION structure across sequential text chunks, ONE structural event at a time, in reading order.
 
 WHAT A SECTION IS:
@@ -3001,8 +3102,10 @@ or {{"found": false}}"#,
             pattern = carry.formatting_pattern.as_deref().unwrap_or("not yet detected"),
             scan_offset = scan_offset,
             chunk_index = chunk_index,
-            chunk_text = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(8000))],
+            chunk_text = chunk_body,
         );
+        let chunk_view = fit_chunk_to_window("extract_next_section_event.chunk", chunk_text, 400, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -3064,7 +3167,7 @@ or {{"found": false}}"#,
         let level = event.get("level").and_then(|l| l.as_u64()).unwrap_or(1) as u8;
         let etype = event.get("type").and_then(|t| t.as_str()).unwrap_or("section_start");
 
-        let order_prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are validating section marker detection order.
 
 CHUNK TEXT:
@@ -3076,12 +3179,14 @@ QUESTION: Is this the FIRST structural marker in the chunk at or after offset {s
 
 Return ONLY valid JSON with a single one-word answer:
 {{"answer": "YES"}} or {{"answer": "NO"}}"#,
-            chunk = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(6000))],
+            chunk = chunk_body,
             title = title,
             pos = pos,
             level = level,
             scan_offset = scan_offset,
         );
+        let chunk_view = fit_chunk_to_window("validate_section_event.chunk", chunk_text, 20, &build);
+        let order_prompt = build(&chunk_view);
         if !self.confirm_times_yes(order_prompt, 5).await {
             return false;
         }
@@ -3265,7 +3370,7 @@ Return ONLY valid JSON with a single one-word answer:
             )
         };
 
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are detecting PARAGRAPH boundaries within a text chunk, one paragraph at a time, in reading order.
 
 WHAT A PARAGRAPH IS:
@@ -3289,8 +3394,10 @@ Return ONLY valid JSON:
 or {{"found": false}} if no paragraph remains after the given position."#,
             state_block = state_block,
             chunk_index = chunk_index,
-            chunk_text = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(8000))],
+            chunk_text = chunk_body,
         );
+        let chunk_view = fit_chunk_to_window("extract_next_paragraph.chunk", chunk_text, 300, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -3326,7 +3433,7 @@ or {{"found": false}} if no paragraph remains after the given position."#,
         let start = event.get("start").and_then(|s| s.as_u64()).map(|v| v as usize);
         let end = event.get("end").and_then(|s| s.as_u64()).map(|v| v as usize);
 
-        let order_prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are validating paragraph detection order.
 
 CHUNK TEXT:
@@ -3337,7 +3444,7 @@ PROPOSED: paragraph {start_desc}{end_desc}
 QUESTION: Is this the next paragraph boundary event in the chunk after offset {scan_offset}?
 
 Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#,
-            chunk = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(6000))],
+            chunk = chunk_body,
             start_desc = start
                 .map(|s| format!("starting at offset {}", s))
                 .unwrap_or_else(|| "continuing the previously open paragraph".to_string()),
@@ -3346,6 +3453,8 @@ Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#,
                 .unwrap_or_else(|| " (open at chunk end)".to_string()),
             scan_offset = scan_offset,
         );
+        let chunk_view = fit_chunk_to_window("validate_paragraph.chunk", chunk_text, 20, &build);
+        let order_prompt = build(&chunk_view);
         if !self.confirm_times_yes(order_prompt, 5).await {
             return false;
         }
@@ -3512,7 +3621,7 @@ Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#
             )
         };
 
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are detecting embedded non-prose modality content within a text chunk, ONE occurrence at a time, in reading order.
 
 WHAT YOU ARE LOOKING FOR:
@@ -3540,9 +3649,11 @@ or {{"found": false}}"#,
             state_block = state_block,
             scan = last_end.map(|e| e.to_string()).unwrap_or_else(|| "0".to_string()),
             chunk_index = chunk_index,
-            chunk_text = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(8000))],
+            chunk_text = chunk_body,
             order = order,
         );
+        let chunk_view = fit_chunk_to_window("extract_next_modality.chunk", chunk_text, 250, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -3579,7 +3690,7 @@ or {{"found": false}}"#,
         let e = event.get("span_end").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
         let m = event.get("modality").and_then(|v| v.as_str()).unwrap_or("");
 
-        let order_prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are validating modality detection order.
 
 CHUNK TEXT:
@@ -3590,12 +3701,14 @@ PROPOSED OCCURRENCE: modality '{m}' spanning characters {s}..{e}.
 QUESTION: Is the span at {s}..{e} the FIRST modality occurrence after offset {scan} in this chunk?
 
 Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#,
-            chunk = &chunk_text[..Self::floor_to_char_boundary(chunk_text, chunk_text.len().min(6000))],
+            chunk = chunk_body,
             m = m,
             s = s,
             e = e,
             scan = scan_offset,
         );
+        let chunk_view = fit_chunk_to_window("validate_modality.chunk", chunk_text, 20, &build);
+        let order_prompt = build(&chunk_view);
         if !self.confirm_times_yes(order_prompt, 5).await {
             return false;
         }
@@ -3757,7 +3870,7 @@ Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#
         text: &str,
         chunk_index: u32,
     ) -> Vec<ChunkGrammarRelationship> {
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"Analyze the grammatical and semantic relationships in this text.
 
 Text:
@@ -3777,8 +3890,10 @@ Return ONLY a valid JSON array:
   "source_sentence_start": 0,
   "source_sentence_end": 100
 }}]"#,
-            &text[..Self::floor_to_char_boundary(text, text.len().min(3000))]
+            chunk_body
         );
+        let chunk_view = fit_chunk_to_window("extract_grammar_relationships_from_text.text", text, 800, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -3990,7 +4105,25 @@ Return ONLY a valid JSON array:
             Err(e) => tracing::warn!(kind = ?which, error = %e, "primary extraction failed — walking fallback chain"),
         }
 
-        for cand in &fallback_chain_from_env() {
+        // CONTEXT-FIT PRE-ORDER (operator: "any model, any context" — the
+        // methodologies/batches ARE context): estimate this extraction's
+        // input size and try models that can hold it FIRST. Models too
+        // small for this input are deferred to the back — never dropped —
+        // but they would fail on context, so capable models go first.
+        // Found live: apodex/liquid/dots burned ~20s each on context
+        // overflow before the chain reached a capable model (Stage 2: 234s).
+        let input_tokens = text.len() / 4 + 1;
+        let ordered_chain: Vec<FallbackCandidate> = {
+            let (fits, deferred): (Vec<FallbackCandidate>, Vec<FallbackCandidate>) =
+                fallback_chain_from_env()
+                    .into_iter()
+                    .partition(|c| {
+                        c.context_length == 0
+                            || (input_tokens + 512) <= c.context_length as usize
+                    });
+            fits.into_iter().chain(deferred).collect()
+        };
+        for cand in &ordered_chain {
             let override_json = serde_json::json!({
                 "model_type": cand.model_type,
                 "model_identifier": cand.identifier,
@@ -4228,7 +4361,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
                 None => {
                     return Err(format!(
                         "invalid JSON array in response: {}",
-                        &response[..response.len().min(120)]
+                        prefix_chars_safe(&response, 120)
                     ))
                 }
             }
@@ -4641,6 +4774,9 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
                     sent.grammar_relationships = self
                         .extract_grammar_relationships_from_text(&sent.content, chunk.index)
                         .await;
+                    // This path has no independent entity extraction (grammar_nodes stay
+                    // empty here), so every proposal is rejected as unanchored until one exists.
+                    apply_zero_shot_relations(sent, &[]);
                 }
             }
             chunks_out
@@ -5231,6 +5367,8 @@ Return ONLY valid JSON with a single one-word answer:
                     properties: GrammarProperties::default(),
                     grammar_nodes: Vec::new(),
                     grammar_relationships: Vec::new(),
+                    zero_shot_relations: Vec::new(),
+                    zero_shot_rejected: Vec::new(),
                     knowledge_refs: Vec::new(),
                 });
             }
@@ -5294,7 +5432,7 @@ Return ONLY valid JSON with a single one-word answer:
         span_text: &str,
         chunk_index: u32,
     ) -> Vec<(String, String, usize, usize)> {
-        let prompt = format!(
+        let build = |chunk_body: &str| format!(
             r#"You are identifying and grammar-correcting ALL sentences in a text span, in reading order.
 
 RULES:
@@ -5311,8 +5449,10 @@ Return ONLY valid JSON:
   {{"order": 1, "original_sentence": "...", "span_start": 0, "span_end": 40, "corrected_sentence": "..."}}
 ]}}"#,
             chunk_index = chunk_index,
-            span_text = &span_text[..Self::floor_to_char_boundary(span_text, span_text.len().min(8000))],
+            span_text = chunk_body,
         );
+        let chunk_view = fit_chunk_to_window("list_sentences_for_paragraph.span", span_text, 2000, &build);
+        let prompt = build(&chunk_view);
 
         let input = serde_json::json!({
             "prompt": prompt,
@@ -5781,6 +5921,12 @@ Return ONLY valid JSON:
 
                         sent.grammar_nodes = grammar_nodes;
                         sent.grammar_relationships = relationships;
+                        // Endpoint labels are the subject/object nodes the same parse produced
+                        // for this sentence. Same LLM response as the relations, so this is a
+                        // weaker check than an independent extraction would be.
+                        let entity_labels: Vec<String> =
+                            sent.grammar_nodes.iter().map(|n| n.text.clone()).collect();
+                        apply_zero_shot_relations(sent, &entity_labels);
                     }
                 }
             }
@@ -5811,7 +5957,7 @@ Return ONLY valid JSON:
                     .collect::<Vec<_>>()
                     .join("\n");
 
-                let prompt = format!(
+                let build = |chunk_body: &str| format!(
                     r#"You are analyzing relationships between a sentence and its following sentences in a text corpus.
 
 SOURCE SENTENCE (id {from_id}):
@@ -5836,9 +5982,11 @@ Return ONLY valid JSON:
 }}
 If nothing relates, return empty arrays."#,
                     from_id = from_id,
-                    from_text = &from_text[..Self::floor_to_char_boundary(from_text, from_text.len().min(1200))],
+                    from_text = chunk_body,
                     sentence_list = sentence_list,
                 );
+                let chunk_view = fit_chunk_to_window("cross_sentence.source_sentence", from_text, 900, &build);
+                let prompt = build(&chunk_view);
 
                 let input = serde_json::json!({
                     "prompt": prompt,
@@ -6130,6 +6278,8 @@ If nothing relates, return empty arrays."#,
                     properties: GrammarProperties::default(),
                     grammar_nodes,
                     grammar_relationships: Vec::new(),
+                    zero_shot_relations: Vec::new(),
+                    zero_shot_rejected: Vec::new(),
                     knowledge_refs,
                 });
             }
@@ -6354,7 +6504,7 @@ TEXT:
 {}
 
 RESPOND ONLY WITH JSON."#,
-            &text[..text.len().min(2000)]
+            prefix_chars_safe(&text, 2000)
         );
 
         let input = serde_json::json!({
@@ -7647,6 +7797,77 @@ mod k_loops;
 #[path = "../../shared/capture.rs"]
 mod capture;
 
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
+/// Shared context assembler: window-fitted chunk views with every cut recorded.
+/// Host copy: src/context_budget.rs (keep the two in step).
+#[path = "../../shared/context_assemble.rs"]
+mod context_assemble;
+
+/// Trims recorded while building this process's prompts. Drained into the
+/// output by `output_with_context_records`, so every cut is visible to the
+/// caller. One-shot runs are exact; serve-mode requests drain after each one.
+static CONTEXT_TRIMS: std::sync::Mutex<Vec<context_assemble::TrimRecord>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// Set when a chunk was sent whole because the active window is unknown.
+static WINDOW_UNKNOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The active model's window in tokens. The host exports OZONE_CONTEXT_LENGTH
+/// from config at boot and pipeline children inherit it. None when unset or 0.
+fn active_window_tokens() -> Option<usize> {
+    env::var("OZONE_CONTEXT_LENGTH").ok()?.parse::<usize>().ok().filter(|w| *w > 0)
+}
+
+/// Fit one chunk into the active window for one prompt. The budget is window
+/// minus the call's output reservation minus the scaffold (the prompt built
+/// with an empty chunk). Every cut is recorded. With no known window the chunk
+/// is kept whole and the output says so (`window_unknown`); nothing is cut on
+/// a guess.
+fn fit_chunk_to_window(
+    section: &str,
+    chunk: &str,
+    output_reserve_tokens: usize,
+    build: impl Fn(&str) -> String,
+) -> String {
+    let Some(window) = active_window_tokens() else {
+        WINDOW_UNKNOWN.store(true, std::sync::atomic::Ordering::Relaxed);
+        return chunk.to_string();
+    };
+    let scaffold_tokens = context_assemble::estimate_tokens(&build(""));
+    let budget = window.saturating_sub(output_reserve_tokens + scaffold_tokens);
+    let assembled = context_assemble::assemble(
+        vec![context_assemble::ContextSection::new(section, 0, chunk)],
+        budget,
+    );
+    if !assembled.trims.is_empty() {
+        if let Ok(mut trims) = CONTEXT_TRIMS.lock() {
+            trims.extend(assembled.trims);
+        }
+    }
+    assembled.text
+}
+
+/// The pipeline output with its context records attached: `context_trims`
+/// (every cut made while building prompts) and `window_unknown`. Drains the
+/// collector so a serve-mode request never reports another request's cuts.
+fn output_with_context_records<T: serde::Serialize>(output: &T) -> serde_json::Value {
+    let mut value = serde_json::to_value(output).unwrap_or(serde_json::json!({
+        "success": false, "error": "serialization failed"
+    }));
+    let trims = CONTEXT_TRIMS
+        .lock()
+        .map(|mut t| std::mem::take(&mut *t))
+        .unwrap_or_default();
+    let window_unknown = WINDOW_UNKNOWN.swap(false, std::sync::atomic::Ordering::Relaxed);
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert("context_trims".to_string(), serde_json::json!(trims));
+        obj.insert("window_unknown".to_string(), serde_json::json!(window_unknown));
+    }
+    value
+}
+
 #[tokio::main]
 async fn main() {
     let executor = Arc::new(SubprocessExecutor);
@@ -7667,9 +7888,7 @@ async fn main() {
             let pipeline = pipeline_for_serve.clone();
             let rt = tokio::runtime::Runtime::new().expect("serve runtime");
             let output = rt.block_on(pipeline.execute(input));
-            serde_json::to_value(&output).unwrap_or(serde_json::json!({
-                "success": false, "error": "serialization failed"
-            }))
+            output_with_context_records(&output)
         });
         ozone_serve::serve(opts, PIPELINE_ID, PIPELINE_MODALITY.to_string(), vec!["agent".to_string()], handler);
     }
@@ -7679,7 +7898,8 @@ async fn main() {
 
     let output = pipeline.execute(input).await;
 
-    serde_json::to_writer(std::io::stdout(), &output).expect("Failed to write output");
+    serde_json::to_writer(std::io::stdout(), &output_with_context_records(&output))
+        .expect("Failed to write output");
 }
 
 #[cfg(test)]

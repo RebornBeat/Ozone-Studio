@@ -129,7 +129,9 @@ fn item_name(t: &TaskData) -> String {
             inputs
                 .and_then(|i| i.get("prompt"))
                 .and_then(|v| v.as_str())
-                .map(|p| p.chars().take(80).collect())
+                // Whole prompt: the cut here silently shortened what the
+                // digest model reads about the task. No fixed size cap.
+                .map(String::from)
         })
         .unwrap_or_else(|| format!("Task {}", t.task_id))
 }
@@ -335,23 +337,46 @@ async fn run_one_check_up(
     *last_fire = Some(now);
 
     // ── ONE batched digest call (the only LLM cost in the whole loop) ──
+    // CONTEXT BUDGET (docs/CONTEXT_OBJECT_MODEL.md — window-aware, every cut
+    // recorded): the prompt is three sections in the original layout, so the
+    // all-fits output is byte-identical to the old format!; the findings sit
+    // between the scaffolds at priority 5, so on overflow THEY trim in place
+    // (header/tail are protected scaffold). Budget = half the META model's
+    // registered window, floored at today's working size — never a
+    // regression on small windows.
+    let meta_model = crate::orchestrator::PromptOrchestrator::resolve_meta_model(
+        &available_models,
+        &meta_fallback,
+    );
+    let meta_window = meta_model.as_ref().map(|m| m.context_length).unwrap_or(8192) as usize;
+    let digest_budget = (meta_window / 2).max(2_000);
     let findings_block = findings
         .iter()
         .map(|f| format!("- [{}] {}", f.class, f.title))
         .collect::<Vec<_>>()
         .join("\n");
-    let prompt = format!(
-        r#"This is the personal assistant's periodic check-up, not a response to a user request.
-
-REAL FINDINGS from the operator's task order (all machine-computed, none guessed):
-{}
-
-In 3-5 sentences, write the operator a brief, honest check-up note: what needs attention first and why, anything these findings suggest about the day, no filler, no manufactured urgency beyond what the findings themselves carry.
-
-Return ONLY valid JSON:
-{{"digest": "your 3-5 sentence check-up note"}}"#,
-        findings_block
-    );
+    let assembled_findings = {
+        let a = crate::context_budget::assemble(
+            vec![
+                crate::context_budget::ContextSection::new("scaffold-head", 0, format!(
+                    "This is the personal assistant's periodic check-up, not a response to a user request.\n\nREAL FINDINGS from the operator's task order (all machine-computed, none guessed):\n"
+                )),
+                crate::context_budget::ContextSection::new("findings", 5, findings_block.clone()),
+                crate::context_budget::ContextSection::new("scaffold-tail", 0, "\n\nIn 3-5 sentences, write the operator a brief, honest check-up note: what needs attention first and why, anything these findings suggest about the day, no filler, no manufactured urgency beyond what the findings themselves carry.\n\nReturn ONLY valid JSON:\n{{\"digest\": \"your 3-5 sentence check-up note\"}}".replace("{{", "{").replace("}}", "}")),
+            ],
+            digest_budget,
+        );
+        if !a.trims.is_empty() {
+            tracing::warn!(
+                trims = a.trims.len(),
+                budget_tokens = digest_budget,
+                meta_window,
+                "assistant digest: findings trimmed to the meta model's window (recorded, markers emitted)"
+            );
+        }
+        a.text
+    };
+    let prompt = assembled_findings;
 
     let mut input = serde_json::json!({
         "prompt": prompt,
@@ -363,7 +388,7 @@ Return ONLY valid JSON:
     // convention amt_loop/meta_loop/i_loop use (never the user-facing chain).
     // Chain-order resolution (quality AND speed): openrouter/free first,
     // BitNet as offline backstop — was `find(is_free)` = always BitNet.
-    if let Some(default_model) = crate::orchestrator::PromptOrchestrator::resolve_meta_model(&available_models, &meta_fallback) {
+    if let Some(default_model) = meta_model.clone() {
         let _ = meta_fallback; // convention parity: same resolution order as i_loop
         let override_cfg = ModelConfigOverride {
             model_type: Some(default_model.model_type.clone()),

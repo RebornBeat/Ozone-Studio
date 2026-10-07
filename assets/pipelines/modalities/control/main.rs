@@ -1053,6 +1053,9 @@ pub enum ControlUpdate {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ControlModalityOutput {
     pub success: bool,
+    /// Set when a graph save failed. The graph built in this run is still returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     pub graph_id: Option<u64>,
     pub graph: Option<ControlGraph>,
     pub analysis: Option<ControlAnalysisResult>,
@@ -1986,14 +1989,18 @@ async fn create_graph(
     }
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&ControlGraph {
+    let mut save_errors: Vec<String> = Vec::new();
+    if let Err(e) = executor.save_graph(&ControlGraph {
         graph_id, project_id, source_description: analysis.source_description.clone(),
         nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
         state: GraphStateType::Created,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
-    });
+    }) {
+        eprintln!("control save_graph failed: file=assets/pipelines/modalities/control/main.rs container={graph_id} stage=created error={e}");
+        save_errors.push(format!("created: {e}"));
+    }
 
     // ── HOOK 2: OnInferRelationships ──
     let inferred = executor.infer_semantic_relationships(&nodes).await;
@@ -2037,11 +2044,15 @@ async fn create_graph(
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
     };
-    let _ = executor.save_graph(&final_graph);
+    if let Err(e) = executor.save_graph(&final_graph) {
+        eprintln!("control save_graph failed: file=assets/pipelines/modalities/control/main.rs container={} stage=enriched error={e}", final_graph.graph_id);
+        save_errors.push(format!("enriched: {e}"));
+    }
     if let Err(e) = persist_control_graph(&mut final_graph).await {
         eprintln!("control persist: graph built but ZSEI persistence failed: {e}");
+        save_errors.push(format!("persist: {e}"));
     }
-    ControlModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+    ControlModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
 }
 
 /// POST /zsei/query helper — same contract the other modality pipelines use:

@@ -27,7 +27,7 @@ pub use traversal::*;
 pub use query::*;
 
 use crate::config::ZSEIConfig;
-use crate::types::{ContainerID, OzoneResult};
+use crate::types::{ContainerID, OzoneError, OzoneResult};
 use crate::types::container::Container;
 use crate::types::zsei::{ZSEIQuery, ZSEIQueryResult, TraversalRequest, TraversalResult};
 use std::collections::HashMap;
@@ -160,7 +160,30 @@ impl ZSEI {
         } else {
             None
         };
-        let result = {
+        // Traversal and content reads take their own short guards (see
+        // traverse and container_content): neither holds the storage guard
+        // across a whole traversal or a disk read.
+        let result = if matches!(query, ZSEIQuery::Traverse(_)) {
+            let ZSEIQuery::Traverse(request) = query else {
+                unreachable!("matched Traverse above");
+            };
+            ZSEIQueryResult::TraversalResult(self.traverse(request).await?)
+        } else if matches!(query, ZSEIQuery::GetContainerContent { .. }) {
+            let ZSEIQuery::GetContainerContent { container_id } = query else {
+                unreachable!("matched GetContainerContent above");
+            };
+            self.container_content(container_id).await?
+        } else if crate::zsei::query::QueryProcessor::is_read_query(&query) {
+            // READ PATH (the largest structural contention source, fixed):
+            // read queries previously took the WRITE guards for their whole
+            // duration — every read serialized behind one write lock and
+            // blocked ALL writers (query()-across-await was the main
+            // Stage-4b/5 freeze cycle). Reads now share read guards;
+            // writers are never blocked by them.
+            let qp = self.query_processor.read().await;
+            let storage = self.storage.read().await;
+            qp.process_read(&storage, &self.traversal, query).await?
+        } else {
             let mut qp = self.query_processor.write().await;
             let mut storage = self.storage.write().await;
             qp.process(&mut storage, &self.traversal, query).await?
@@ -269,17 +292,24 @@ impl ZSEI {
             }
         }
         
-        // Load from storage
+        // Load from storage — LOCK-SCOPE FIX (found via gdb all-threads-idle
+        // backtrace + write-preferring RwLock starvation): the guard used to
+        // live to the end of the fn, across the cache.write().await below,
+        // widening the read hold while queued writers starved every reader.
+        // Hold storage.read() for JUST the load, release, then cache.write.
+        // The storage guard stays held through the cache insert. A writer that
+        // invalidates the cache cannot then be overtaken by this load, so no stale
+        // entry is cached. Lock order is storage -> cache, the same as store_container.
         let storage = self.storage.read().await;
         let container = storage.load(id)?;
-        
-        // Update cache if found
+
         if let Some(ref c) = container {
             let mut cache = self.cache.write().await;
             if cache.len() < self.config.max_containers_in_memory {
                 cache.insert(id, c.clone());
             }
         }
+        drop(storage);
         
         Ok(container)
     }
@@ -304,9 +334,74 @@ impl ZSEI {
     }
     
     /// Traverse from a starting container
+    ///
+    /// Traverse from a starting container, reading the graph one hop at a
+    /// time. Each storage read (container load, children, id scan) takes the
+    /// storage read lock for that single call and releases it before the next
+    /// hop, so a traversal never blocks writers for its whole duration. Each
+    /// hop's result is self-consistent; the traversal as a whole can observe
+    /// writes that land between hops. Result type, max_depth, max_results and
+    /// filter semantics are unchanged.
+    /// block_in_place keeps a worker serving so timers/watchdogs/loops still
+    /// progress during a traversal.
     pub async fn traverse(&self, request: TraversalRequest) -> OzoneResult<TraversalResult> {
-        let storage = self.storage.read().await;
-        self.traversal.traverse(&storage, request).await
+        let source = traversal::LockedStorage::new(&self.storage);
+        tokio::task::block_in_place(|| {
+            futures::executor::block_on(self.traversal.traverse(&source, request))
+        })
+    }
+
+    /// GetContainerContent without holding the storage guard across disk IO.
+    /// The path is resolved under a short read guard, the file is read on the
+    /// blocking pool with no guard held, and the container is re-checked under
+    /// a fresh guard afterwards: a delete or a changed object path during the
+    /// read is returned as an explicit error, never as content that no longer
+    /// matches the container.
+    async fn container_content(&self, container_id: ContainerID) -> OzoneResult<ZSEIQueryResult> {
+        let target = {
+            let storage = self.storage.read().await;
+            crate::zsei::query::QueryProcessor::content_target(&storage, container_id)?
+        };
+        let Some((full_path, object_store_path)) = target else {
+            // Honest absence: content lives inline in local_state.
+            return Ok(ZSEIQueryResult::Content { container_id, json: None, raw: None });
+        };
+
+        let read_path = full_path.clone();
+        let read = tokio::task::spawn_blocking(move || std::fs::read_to_string(read_path))
+            .await
+            .map_err(|e| OzoneError::StorageError(format!("GetContainerContent: read task failed: {e}")))?;
+
+        {
+            let storage = self.storage.read().await;
+            match storage.load(container_id)? {
+                None => {
+                    return Err(OzoneError::NotFound(format!(
+                        "Container {} was deleted while its content was being read",
+                        container_id
+                    )));
+                }
+                Some(c) if c.local_state.storage.object_store_path.as_deref() != Some(object_store_path.as_str()) => {
+                    return Err(OzoneError::StorageError(format!(
+                        "Container {} changed its object_store_path while its content was being read; retry",
+                        container_id
+                    )));
+                }
+                Some(_) => {}
+            }
+        }
+
+        let raw = read.map_err(|e| {
+            OzoneError::StorageError(format!(
+                "GetContainerContent: failed to read {} (object_store_path={}): {}",
+                full_path, object_store_path, e
+            ))
+        })?;
+        match serde_json::from_str::<serde_json::Value>(&raw) {
+            Ok(json) => Ok(ZSEIQueryResult::Content { container_id, json: Some(json), raw: None }),
+            // Not JSON: return the raw text rather than dropping it.
+            Err(_) => Ok(ZSEIQueryResult::Content { container_id, json: None, raw: Some(raw) }),
+        }
     }
     
     /// Get root container ID

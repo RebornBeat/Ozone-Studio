@@ -13,14 +13,15 @@
 //   License: NCBI GenBank/RefSeq records are public domain (a work of
 //     the US government, NIH/NCBI) — no restriction on reuse.
 //   566 real gene features, 524 real CDS features — real names/
-//     coordinates (e.g. "dnaN" at 685-1828), not placeholder data.
+//     coordinates (e.g. "dnaN" at 686..1828), not placeholder data.
 //
 // Tools:
 //   dna_sequence_info {}
 //     → real length/GC-content/gene-count/CDS-count for the bundled genome.
 //   dna_find_gene {input:{gene_name}}
 //     → real coordinates/product for a named real gene, searched across
-//       all 566 real gene/CDS features. Refuses cleanly if not found.
+//       all 566 real gene/CDS features (1-based inclusive, GenBank
+//       convention — dnaN is 686..1828). Refuses cleanly if not found.
 //   dna_translate {input:{sequence}}
 //     → real DNA→protein translation (Bio.Seq.translate, deterministic,
 //       zero fabrication). Refuses cleanly on invalid bases.
@@ -50,6 +51,22 @@ function runPython(stdinObj, timeoutMs = 15000) {
     child.stdin.write(JSON.stringify(stdinObj));
     child.stdin.end();
   });
+}
+
+// Real GenBank features as a graph block: a CDS is contained by the gene it
+// belongs to (matched by locus_tag); every other feature sits under the genome.
+function dnaGeneGraph(out) {
+  const genomeKey = "genome";
+  const nodes = [{ key: genomeKey, kind: "Genome", label: "NC_000908.2", attributes: { accession: "NC_000908.2" } }];
+  const geneKeyByTag = new Map();
+  out.matches.forEach((m, i) => {
+    if (m.type === "gene" && m.locus_tag) geneKeyByTag.set(m.locus_tag, `feature-${i}`);
+  });
+  out.matches.forEach((m, i) => {
+    const parent = m.type === "CDS" && m.locus_tag && geneKeyByTag.has(m.locus_tag) ? geneKeyByTag.get(m.locus_tag) : genomeKey;
+    nodes.push({ key: `feature-${i}`, kind: m.type, label: m.gene ?? m.locus_tag ?? `${m.type}-${i}`, parent, attributes: { start: m.start, end: m.end, strand: m.strand, locus_tag: m.locus_tag, product: m.product, coords: m.coords } });
+  });
+  return { nodes, edges: [] };
 }
 
 function reply(res, code, body) {
@@ -82,7 +99,7 @@ const server = createServer((req, res) => {
         reply(res, 200, out.success ? { success: true, output: out } : out);
       } else if (tool === "dna_find_gene") {
         const out = await runPython({ action: "find_gene", ...input });
-        reply(res, 200, out.success ? { success: true, output: out } : out);
+        reply(res, 200, out.success ? { success: true, output: { ...out, graph: dnaGeneGraph(out) } } : out);
       } else if (tool === "dna_translate") {
         const out = await runPython({ action: "translate", ...input });
         reply(res, 200, out.success ? { success: true, output: out } : out);

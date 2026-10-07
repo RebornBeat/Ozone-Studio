@@ -165,50 +165,90 @@ pub struct SettingsOutput {
     pub error: Option<String>,
 }
 
+/// Operator policy: paid models are never selectable. This pipeline cannot
+/// read the live OpenRouter catalog, so it applies the naming rule OpenRouter
+/// documents for free variants: `openrouter/free` or a `:free` suffix, on the
+/// OpenRouter endpoint. Local model types are always allowed. Returns the
+/// refusal text, or None when the selection is allowed.
+/// The operator's per-user paid-models setting, read from the host's
+/// config.toml ([models] allow_paid_models, default false). Pipeline children
+/// inherit the host's working directory, so the live file is the single
+/// source of truth — no input plumbing, and a /config/set change takes
+/// effect on the next settings operation. Unreadable file = false (the safe
+/// default), never an invented true.
+fn allow_paid_models() -> bool {
+    let Ok(text) = fs::read_to_string("config.toml") else { return false; };
+    let mut in_models = false;
+    for line in text.lines() {
+        let t = line.trim();
+        if t.starts_with('[') {
+            in_models = t == "[models]";
+            continue;
+        }
+        if in_models {
+            if let Some((key, val)) = t.split_once('=') {
+                if key.trim() == "allow_paid_models" {
+                    return val.trim().parse().unwrap_or(false);
+                }
+            }
+        }
+    }
+    false
+}
+
+fn paid_policy_refusal(model_type: &str, identifier: &str, endpoint: Option<&str>) -> Option<String> {
+    const POLICY: &str = "policy: only free OpenRouter models and local BitNet may be used";
+    if model_type != "api" {
+        return None;
+    }
+    if let Some(ep) = endpoint {
+        if !ep.contains("openrouter.ai") {
+            return Some(format!("refused: endpoint '{ep}' is a paid direct provider; {POLICY}"));
+        }
+    }
+    if identifier == "openrouter/free" || identifier.ends_with(":free") {
+        return None;
+    }
+    Some(format!("refused: model '{identifier}' is not a free OpenRouter model; {POLICY}"))
+}
+
+/// Drop stored API entries that the policy forbids from the selectable list,
+/// returning their identifiers so the caller can say what was removed.
+fn prune_paid_available(models: &mut ModelSettings) -> Vec<String> {
+    let mut removed = Vec::new();
+    models.available_models.retain(|m| {
+        if paid_policy_refusal(&m.model_type, &m.identifier, None).is_some() {
+            removed.push(m.identifier.clone());
+            false
+        } else {
+            true
+        }
+    });
+    removed
+}
+
 /// Get default settings
 fn default_settings() -> AllSettings {
     AllSettings {
         models: ModelSettings {
             active_model_type: "api".to_string(),
-            active_model_identifier: "claude-sonnet-4-20250514".to_string(),
-            api_endpoint: Some("https://api.anthropic.com/v1/messages".to_string()),
-            api_key_env: "ANTHROPIC_API_KEY".to_string(),
+            active_model_identifier: "openrouter/free".to_string(),
+            api_endpoint: Some("https://openrouter.ai/api/v1/chat/completions".to_string()),
+            api_key_env: "OPENROUTER_API_KEY".to_string(),
             local_model_path: None,
             context_length: 200000,
             gpu_layers: None,
             allow_user_selection: true,
             available_models: vec![
-                // API Models
+                // API Models: free OpenRouter only (operator policy). Paid
+                // direct providers (Anthropic, OpenAI) are not listed and
+                // are refused by paid_policy_refusal if requested.
                 AvailableModel {
-                    name: "Claude Sonnet 4".to_string(),
+                    name: "OpenRouter (Free router)".to_string(),
                     model_type: "api".to_string(),
-                    identifier: "claude-sonnet-4-20250514".to_string(),
-                    description: Some("Anthropic's Claude Sonnet 4 - balanced performance".to_string()),
+                    identifier: "openrouter/free".to_string(),
+                    description: Some("OpenRouter free router: free models only".to_string()),
                     context_length: Some(200000),
-                    is_local: false,
-                },
-                AvailableModel {
-                    name: "Claude Opus 4".to_string(),
-                    model_type: "api".to_string(),
-                    identifier: "claude-opus-4-20250514".to_string(),
-                    description: Some("Anthropic's most capable model".to_string()),
-                    context_length: Some(200000),
-                    is_local: false,
-                },
-                AvailableModel {
-                    name: "Claude Haiku 4".to_string(),
-                    model_type: "api".to_string(),
-                    identifier: "claude-haiku-4-20250514".to_string(),
-                    description: Some("Anthropic's fastest model".to_string()),
-                    context_length: Some(200000),
-                    is_local: false,
-                },
-                AvailableModel {
-                    name: "GPT-4 Turbo".to_string(),
-                    model_type: "api".to_string(),
-                    identifier: "gpt-4-turbo".to_string(),
-                    description: Some("OpenAI's GPT-4 Turbo".to_string()),
-                    context_length: Some(128000),
                     is_local: false,
                 },
                 // BitNet Models (1-bit quantized, CPU-efficient)
@@ -295,13 +335,18 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
                 _ => settings.pipelines.get(&category).cloned(),
             };
             
+            // Bind the emptiness check BEFORE `category_settings: value` moves it
+            // (E0382 — latent break; the crate had not been rebuilt since the
+            // shared-dir migration, so no compiler ever saw it).
+            let missing = value.is_none();
+
             Ok(SettingsOutput {
-                success: value.is_some(),
+                success: !missing,
                 settings: None,
                 category_settings: value,
                 available_models: None,
                 exported_json: None,
-                error: if value.is_none() { Some(format!("Category '{}' not found", category)) } else { None },
+                error: if missing { Some(format!("Category '{}' not found", category)) } else { None },
             })
         }
         
@@ -405,9 +450,32 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
                 }
             }
             
+            // Policy: stored paid entries leave the selectable list (named
+            // on stderr), and an active paid selection refuses the save —
+            // unless the operator's per-user allow_paid_models flag is set.
+            if !allow_paid_models() {
+            for removed in prune_paid_available(&mut settings.models) {
+                eprintln!("settings: removed paid entry '{removed}' from the selectable list (policy)");
+            }
+            if let Some(reason) = paid_policy_refusal(
+                &settings.models.active_model_type,
+                &settings.models.active_model_identifier,
+                settings.models.api_endpoint.as_deref(),
+            ) {
+                return Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some(reason),
+                });
+            }
+            } // allow_paid_models gate
+
             // Save to file
             save_settings(&settings)?;
-            
+
             Ok(SettingsOutput {
                 success: true,
                 settings: Some(settings),
@@ -478,6 +546,23 @@ pub async fn execute(input: SettingsInput) -> Result<SettingsOutput, String> {
                 });
             }
             
+            if !allow_paid_models() {
+            if let Some(reason) = paid_policy_refusal(
+                &model.model_type,
+                &model.identifier,
+                settings.models.api_endpoint.as_deref(),
+            ) {
+                return Ok(SettingsOutput {
+                    success: false,
+                    settings: None,
+                    category_settings: None,
+                    available_models: None,
+                    exported_json: None,
+                    error: Some(reason),
+                });
+            }
+            } // allow_paid_models gate
+
             settings.models.active_model_type = model.model_type;
             settings.models.active_model_identifier = model.identifier;
             

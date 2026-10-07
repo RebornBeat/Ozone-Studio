@@ -43,6 +43,7 @@ mod stages;
 mod graphs;
 pub mod meta_loop;
 pub mod amt_loop;
+pub mod lane_split;
 pub mod actors;
 pub mod i_loop;
 
@@ -160,6 +161,12 @@ pub struct OrchestrationRequest {
     pub fallback_order: Vec<String>,
     #[serde(default)]
     pub fallback_free_only: bool,
+    /// The primary attempt's model when the call carries no per-call override:
+    /// config `[models] api_model` for api model types, set by the host when it
+    /// builds the request. Lets the fallback walk see the model the primary
+    /// already ran, without a process-wide default. `None` for local primaries.
+    #[serde(default)]
+    pub primary_default_model: Option<String>,
     /// Separate fallback chain for "meta work" (drafting reusable
     /// methodologies/blueprints — see stage_3_blueprint_assignment) —
     /// populated server-side from OzoneConfig.models.meta_fallback, defaults
@@ -169,6 +176,10 @@ pub struct OrchestrationRequest {
     pub meta_fallback_order: Vec<String>,
     #[serde(default)]
     pub meta_fallback_free_only: bool,
+    /// Copied from the user's config (`allow_paid_models`). Paid overrides are
+    /// refused only while this is false.
+    #[serde(default)]
+    pub allow_paid_models: bool,
 }
 
 /// Voice input attached to a request by non-UI callers.
@@ -1012,6 +1023,12 @@ fn resolve_context_limit(
     available_models: &[crate::config::AvailableModel],
     active_context_length: u32,
 ) -> u32 {
+    // Fallback order, explicit:
+    // 1. A requested id that matches a registered entry → that entry's own
+    //    window. The global [models] value is never consulted for it.
+    // 2. No id requested → the active backend's window (`active_context_length`).
+    // 3. An id that matches nothing → the registered OpenRouter entry's window.
+    // 4. No OpenRouter entry → `active_context_length` (last resort).
     match requested_identifier {
         None => active_context_length,
         Some(id) => {
@@ -1411,6 +1428,16 @@ pub trait StoreAccess: Send + Sync {
 // Orchestrator Implementation
 // ============================================================================
 
+/// Byte-bounded prefix that never splits a UTF-8 character. A raw byte slice
+/// panics when the cut lands inside a multi-byte character.
+pub(crate) fn prefix_at_char_boundary(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+
 pub struct PromptOrchestrator {
     executor: Arc<dyn PipelineExecutor>,
     store: Arc<dyn StoreAccess>,
@@ -1436,6 +1463,170 @@ pub struct PromptOrchestrator {
     /// lands as a real sibling of `decision_review.jsonl` under
     /// `{data_dir}/model_calls/`, not a second, inconsistent base.
     data_dir: String,
+}
+
+/// Progress of the fallback walk in flight. Held outside the walk's future, so a
+/// watchdog cancellation still leaves the planned-but-untried list readable.
+#[derive(Default)]
+pub(crate) struct WalkProgress {
+    planned: Vec<String>,
+    started: Vec<String>,
+    finished: Vec<String>,
+    /// Candidates the walk did not attempt because the primary attempt
+    /// already ran the same model for this call. Logged when skipped; kept
+    /// apart from `planned`-but-untried so the watchdog message stays true.
+    skipped: Vec<String>,
+    /// One line per attempt or skip, in order: model, outcome, latency, and
+    /// the step taken next. Shown in the watchdog message and the walk logs.
+    trail: Vec<String>,
+}
+
+/// Append one line to the walk's trail, if a walk is in flight.
+fn note_attempt(model: &str, outcome: &str, latency_ms: u64, step: &str) {
+    let line = format!("{model} {outcome} {latency_ms}ms -> {step}");
+    let _ = WALK_PROGRESS.try_with(|p| {
+        p.lock().unwrap().trail.push(line);
+    });
+}
+
+/// Trail label for an attempt: its outcome kind, tagged with the attributed
+/// cause when there is one, so a reader can see who failed.
+fn attributed_kind(kind: &str, cause: Option<crate::model_ledger::Cause>) -> String {
+    match cause {
+        Some(c) => format!("{kind} [{}]", c.tag()),
+        None => kind.to_string(),
+    }
+}
+
+/// Logs one failed attempt under its attributed cause. Provider, model,
+/// local-runtime and unknown failures are warnings labelled with their source
+/// and are never logged as Ozone-Studio errors. Only a cause that is
+/// Ozone-Studio's own is logged at error level.
+fn log_attributed_failure(
+    cause: Option<crate::model_ledger::Cause>,
+    model: &str,
+    kind: &str,
+    latency_ms: u64,
+    call_site: &str,
+) {
+    use crate::model_ledger::Cause;
+    let Some(cause) = cause else {
+        return;
+    };
+    let source = cause.tag();
+    match cause {
+        Cause::OzoneStudio => tracing::error!(
+            failure_source = source, model, outcome = kind, latency_ms, call_site,
+            "attempt failed from Ozone-Studio's own cause"
+        ),
+        Cause::Provider => tracing::warn!(
+            failure_source = source, model, outcome = kind, latency_ms, call_site,
+            "attempt failed on the provider side (OpenRouter); not an Ozone-Studio failure"
+        ),
+        Cause::Model => tracing::warn!(
+            failure_source = source, model, outcome = kind, latency_ms, call_site,
+            "attempt failed on the model side (this model returned no usable answer); not an Ozone-Studio failure"
+        ),
+        Cause::LocalRuntime => tracing::warn!(
+            failure_source = source, model, outcome = kind, latency_ms, call_site,
+            "attempt failed in the local model runtime"
+        ),
+        Cause::Unknown => tracing::warn!(
+            failure_source = source, model, outcome = kind, latency_ms, call_site,
+            "attempt failed; the provider did not report a cause, so none is assumed"
+        ),
+    }
+}
+
+/// Records one strength-N vote attempt in the model ledger, attributed the
+/// same way as a walk attempt. Used by the vote loop, which calls the executor
+/// directly and so has no walk trail of its own.
+fn record_vote_attempt(
+    model: &str,
+    result: &Result<serde_json::Value, String>,
+    started: std::time::Instant,
+) {
+    let outcome = PromptOrchestrator::classify_attempt(result);
+    let kind = PromptOrchestrator::outcome_kind(&outcome);
+    let latency_ms = started.elapsed().as_millis() as u64;
+    let cause = crate::model_ledger::record(model, outcome, latency_ms, "strength_n_vote");
+    log_attributed_failure(cause, model, kind, latency_ms, "strength_n_vote");
+}
+
+/// The HTTP status from a provider error string that begins `HTTP <code>:`.
+/// Anything else (transport errors, timeouts) returns `None`.
+fn http_status_of(error: &str) -> Option<u16> {
+    let digits: String = error
+        .strip_prefix("HTTP ")?
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    digits.parse().ok()
+}
+
+tokio::task_local! {
+    static WALK_PROGRESS: std::sync::Arc<std::sync::Mutex<WalkProgress>>;
+}
+
+/// What to do after one failed attempt on one model (see `next_step`).
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum NextStep {
+    /// Make one more request to the same model (only for an empty answer
+    /// whose cause is not known to be permanent).
+    RetrySameModel,
+    /// Stop with this model and move to the next candidate. `pause_secs`
+    /// is slept before moving on (used for rate limiting).
+    MoveOn {
+        reason: &'static str,
+        pause_secs: u64,
+    },
+}
+
+/// Warn once per process per key, for chain problems that repeat every request.
+fn warn_once_process(key: String, message: String) {
+    static WARNED: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let seen = WARNED.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+    if seen.lock().unwrap_or_else(|e| e.into_inner()).insert(key) {
+        tracing::warn!("{message}");
+    }
+}
+
+/// The model the primary attempt for this input runs: its per-call override
+/// when present, else the configured default passed in by the caller (the
+/// request's `primary_default_model`, from config `[models] api_model` for api
+/// model types). `None` when neither is known; the walk then cannot prove a
+/// duplicate and attempts every entry. There is no process-wide default: two
+/// concurrent requests with different models must each see their own.
+pub(crate) fn primary_model_identity(
+    input: &serde_json::Value,
+    configured_default: Option<&str>,
+) -> Option<String> {
+    input
+        .get("model_override_config")
+        .and_then(|o| o.get("model_identifier"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| configured_default.map(str::to_string))
+}
+
+/// Chain order with repeated identifiers removed, first occurrence kept. Each
+/// repeat is logged once per process: the same model in one chain is a config
+/// error, and it used to cost a second request per failure.
+pub(crate) fn dedupe_chain_order(order: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::with_capacity(order.len());
+    for id in order {
+        if seen.insert(id.clone()) {
+            out.push(id.clone());
+        } else {
+            warn_once_process(
+                format!("dup:{id}"),
+                format!("fallback order lists '{id}' more than once — the repeat is ignored; each model is attempted at most once per walk"),
+            );
+        }
+    }
+    out
 }
 
 impl PromptOrchestrator {
@@ -1652,7 +1843,7 @@ impl PromptOrchestrator {
             gate_result: None,
             voice_identity: None,
             available_pipelines,
-            capability_summary: None,
+            capability_summary,
             applicable_tools: Vec::new(),
         };
 
@@ -2424,7 +2615,8 @@ impl PromptOrchestrator {
     ) -> Result<serde_json::Value, String> {
         let order = state.request.fallback_order.clone();
         let free_only = state.request.fallback_free_only;
-        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only)
+        // User path: local is strictly the last resort.
+        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only, true)
             .await
     }
 
@@ -2442,7 +2634,8 @@ impl PromptOrchestrator {
     ) -> Result<serde_json::Value, String> {
         let order = state.request.meta_fallback_order.clone();
         let free_only = state.request.meta_fallback_free_only;
-        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only)
+        // Meta path is local-first by design (config [models.meta_fallback]).
+        self.walk_fallback_chain(state, pipeline_id, input, last_error, &order, free_only, false)
             .await
     }
 
@@ -2454,7 +2647,13 @@ impl PromptOrchestrator {
         last_error: String,
         order: &[String],
         free_only: bool,
+        local_last: bool,
     ) -> Result<serde_json::Value, String> {
+        // Resolve the primary's identity before the input is moved into the walk.
+        let primary_model = primary_model_identity(
+            &input,
+            state.request.primary_default_model.as_deref(),
+        );
         let result = Self::walk_fallback_chain_standalone(
             &self.executor,
             pipeline_id,
@@ -2463,8 +2662,24 @@ impl PromptOrchestrator {
             &state.request.available_models,
             order,
             free_only,
+            local_last,
+            primary_model,
         )
         .await;
+        // The walk's final error text names its last attempt. Keep it on the
+        // task's thinking log so the stage's failure message can carry the
+        // cause (stages.rs reads "walk_last_attempt"). Stored, never dropped.
+        if let Err(final_error) = &result {
+            state.thinking_log.push(ThinkingEntry {
+                stage: "walk_last_attempt".to_string(),
+                raw_response: final_error.clone(),
+                tokens_used: None,
+                model_used: None,
+                eval_tokens_per_sec: None,
+                prompt_eval_tokens_per_sec: None,
+                load_time_ms: None,
+            });
+        }
         if let Ok(v) = &result {
             if let Some(tokens) = v.get("tokens_used").and_then(|t| t.as_u64()) {
                 state.tokens_used_so_far += tokens as u32;
@@ -2502,6 +2717,150 @@ impl PromptOrchestrator {
     /// Empty-response check still applies first — a hard error or missing
     /// text is empty, not "one real candidate," so this never contradicts
     /// the original check.
+    /// Why a pipeline-9 result was unusable, for logs. An `Err` carries its
+    /// own text. An empty `Ok` reports the provider's finish_reason, which
+    /// says whether the output was cut off or refused; "absent" means the
+    /// provider did not send one.
+    fn pipeline9_unusable_reason(result: &Result<serde_json::Value, String>) -> String {
+        match result {
+            Err(e) => e.clone(),
+            Ok(v) => format!(
+                "empty response, finish_reason={}",
+                v.get("finish_reason").and_then(|f| f.as_str()).unwrap_or("absent")
+            ),
+        }
+    }
+
+    /// Classify one pipeline-9 attempt into exactly one ledger outcome, so
+    /// every attempt is counted. An `Err` is an HTTP status (`HTTP <code>:`),
+    /// a timeout, or another error. An `Ok` with text is a success, unless
+    /// the text is confetti (several top-level JSON candidates), which is an
+    /// error. An `Ok` without text is an empty response, described by the
+    /// fields the prompt pipeline returns for diagnosis.
+    pub(crate) fn classify_attempt(
+        result: &Result<serde_json::Value, String>,
+    ) -> crate::model_ledger::Outcome {
+        use crate::model_ledger::Outcome;
+        match result {
+            // A client timeout from the HTTP layer ("timed out") is a Timeout,
+            // which the ledger attributes to the provider. Our own watchdog
+            // expiry ("watchdog timeout after ...") is NOT a provider timeout:
+            // it is our per-attempt budget, so it stays an OtherError, which the
+            // ledger attributes to Ozone-Studio.
+            Err(e) => match http_status_of(e) {
+                Some(status) => Outcome::HttpError { status },
+                None if e.contains("timed out") && !e.starts_with("watchdog") => Outcome::Timeout,
+                None => Outcome::OtherError(e.clone()),
+            },
+            Ok(v) => {
+                let text = v.get("response").and_then(|r| r.as_str()).unwrap_or("");
+                if !text.trim().is_empty() {
+                    if Self::extract_all_json_candidates_shared(text).len() > 1 {
+                        return Outcome::OtherError(
+                            "confetti: several top-level JSON candidates in one response".to_string(),
+                        );
+                    }
+                    return Outcome::Success;
+                }
+                Outcome::EmptyResponse {
+                    finish_reason: v.get("finish_reason").and_then(|f| f.as_str()).map(String::from),
+                    content_null: v.get("content_null").and_then(|b| b.as_bool()).unwrap_or(false),
+                    has_reasoning: v.get("has_reasoning").and_then(|b| b.as_bool()).unwrap_or(false),
+                    completion_tokens: v.get("completion_tokens").and_then(|n| n.as_u64()),
+                    reasoning_tokens: v.get("reasoning_tokens").and_then(|n| n.as_u64()),
+                }
+            }
+        }
+    }
+
+    /// Short label for an outcome, for the trail and logs.
+    pub(crate) fn outcome_kind(outcome: &crate::model_ledger::Outcome) -> &'static str {
+        use crate::model_ledger::Outcome;
+        match outcome {
+            Outcome::Success => "success",
+            Outcome::EmptyResponse { .. } => "empty",
+            Outcome::HttpError { .. } => "http-error",
+            Outcome::Timeout => "timeout",
+            Outcome::OtherError(text) if text.starts_with("watchdog") => "watchdog",
+            Outcome::OtherError(_) => "error",
+        }
+    }
+
+    /// The retry rule, by cause. A model gets at most two requests in total
+    /// (its first attempt and one same-model retry), and the retry is used
+    /// only for an empty answer whose cause is not known to be permanent.
+    /// Everything else moves on to the next candidate, immediately.
+    ///
+    /// | outcome                                             | next step                    |
+    /// |-----------------------------------------------------|------------------------------|
+    /// | empty, content null, finish_reason "stop"           | move on: no content          |
+    /// | empty, reasoning present and finish "length", or completion >= max_tokens sent | move on: our cap spent on reasoning |
+    /// | empty, any other cause, first attempt               | one same-model retry         |
+    /// | empty, any other cause, after the retry             | move on                      |
+    /// | HTTP 429                                            | sleep 2s, move on            |
+    /// | HTTP 5xx or other HTTP status                       | move on                      |
+    /// | timeout                                             | move on                      |
+    /// | other error or confetti                             | move on                      |
+    pub(crate) fn next_step(
+        outcome: &crate::model_ledger::Outcome,
+        max_tokens_sent: Option<u64>,
+        retry_used: bool,
+    ) -> NextStep {
+        use crate::model_ledger::Outcome;
+        match outcome {
+            Outcome::Success => NextStep::MoveOn { reason: "usable", pause_secs: 0 },
+            Outcome::EmptyResponse {
+                finish_reason,
+                content_null,
+                has_reasoning,
+                completion_tokens,
+                ..
+            } => {
+                let finish = finish_reason.as_deref();
+                if *content_null && finish == Some("stop") {
+                    return NextStep::MoveOn {
+                        reason: "provider returned no content",
+                        pause_secs: 0,
+                    };
+                }
+                let cap_spent = matches!(
+                    (completion_tokens, max_tokens_sent),
+                    (Some(c), Some(m)) if *c >= m
+                );
+                if (*has_reasoning && finish == Some("length")) || cap_spent {
+                    return NextStep::MoveOn {
+                        reason: "our max_tokens was exhausted by reasoning",
+                        pause_secs: 0,
+                    };
+                }
+                if retry_used {
+                    NextStep::MoveOn {
+                        reason: "empty again after the one same-model retry",
+                        pause_secs: 0,
+                    }
+                } else {
+                    NextStep::RetrySameModel
+                }
+            }
+            Outcome::HttpError { status: 429 } => NextStep::MoveOn {
+                reason: "rate limited (HTTP 429): the per-minute limit is account-wide",
+                pause_secs: 2,
+            },
+            Outcome::HttpError { .. } => NextStep::MoveOn {
+                reason: "provider HTTP error",
+                pause_secs: 0,
+            },
+            Outcome::Timeout => NextStep::MoveOn {
+                reason: "timed out",
+                pause_secs: 0,
+            },
+            Outcome::OtherError(_) => NextStep::MoveOn {
+                reason: "other error",
+                pause_secs: 0,
+            },
+        }
+    }
+
     pub(crate) fn is_unusable_pipeline9_result(
         pipeline_id: u64,
         result: &Result<serde_json::Value, String>,
@@ -2718,25 +3077,87 @@ impl PromptOrchestrator {
         input: serde_json::Value,
         call_site: &str,
     ) -> Result<serde_json::Value, String> {
-        let secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
-        if secs == u64::MAX {
+        let per_attempt_secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        if per_attempt_secs == u64::MAX {
             return self.metered_execute_resilient_inner(state, input, call_site).await;
         }
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(secs),
+        // Each candidate invocation is already bounded at the adapter by the same preset
+        // (adapters.rs ~95-125), so a walk of N candidates cannot legitimately take longer
+        // than (1 + N) attempts. The primary attempt keeps its current budget exactly.
+        let walk_candidates = {
+            let req = &state.request;
+            Self::chain_candidates(&req.available_models, &req.fallback_order, req.fallback_free_only)
+                .len()
+                .max(
+                    Self::chain_candidates(
+                        &req.available_models,
+                        &req.meta_fallback_order,
+                        req.meta_fallback_free_only,
+                    )
+                    .len(),
+                )
+        };
+        // The OpenRouter pool adds up to `size` candidates per walk (see
+        // model_windows::catalog_pool); the watchdog budgets for them too.
+        let pool_extra = {
+            let (mode, size) = crate::context_budget::model_windows::pool_settings();
+            if mode == "off" { 0 } else { size }
+        };
+        let secs = per_attempt_secs * (1 + walk_candidates as u64 + pool_extra as u64);
+        let progress = std::sync::Arc::new(std::sync::Mutex::new(WalkProgress::default()));
+        let guarded = WALK_PROGRESS.scope(
+            progress.clone(),
             self.metered_execute_resilient_inner(state, input, call_site),
-        )
-        .await
+        );
+        let timed = tokio::time::timeout(std::time::Duration::from_secs(secs), guarded).await;
+        // The walk's trail lives in `progress`, reachable only from here. Keep
+        // every line on the task's thinking log (stage "walk_trail"), so the
+        // attempt sequence is in the record, not only in the logs.
         {
+            let lines = progress.lock().unwrap_or_else(|e| e.into_inner()).trail.clone();
+            for line in lines {
+                state.thinking_log.push(ThinkingEntry {
+                    stage: "walk_trail".to_string(),
+                    raw_response: line,
+                    tokens_used: None,
+                    model_used: None,
+                    eval_tokens_per_sec: None,
+                    prompt_eval_tokens_per_sec: None,
+                    load_time_ms: None,
+                });
+            }
+        }
+        match timed {
             Ok(r) => r,
             Err(_) => {
+                let (untried, in_flight, trail) = {
+                    let g = progress.lock().unwrap();
+                    let untried: Vec<String> = g
+                        .planned
+                        .iter()
+                        .filter(|id| !g.started.contains(id) && !g.skipped.contains(id))
+                        .cloned()
+                        .collect();
+                    let in_flight: Vec<String> = g
+                        .started
+                        .iter()
+                        .filter(|id| !g.finished.contains(id))
+                        .cloned()
+                        .collect();
+                    (untried, in_flight, g.trail.clone())
+                };
                 tracing::error!(
                     call_site,
                     secs,
-                    "WATCHDOG: model call exceeded its budget — failing loudly (a hung call must never freeze its caller)"
+                    untried = ?untried,
+                    in_flight = ?in_flight,
+                    "WATCHDOG: model call exceeded its budget — failing loudly (a hung call must never freeze its caller); fallback candidates not attempted are listed"
                 );
                 Err(format!(
-                    "watchdog timeout after {secs}s — model call hung (call_site: {call_site})"
+                    "watchdog timeout after {secs}s — model call hung (call_site: {call_site}); in flight: [{}]; fallback candidates never attempted: [{}]; attempts so far: [{}]",
+                    in_flight.join(", "),
+                    untried.join(", "),
+                    trail.join(" | ")
                 ))
             }
         }
@@ -2777,12 +3198,80 @@ impl PromptOrchestrator {
                 );
             }
         }
-        let mut result = self.metered_execute(state, 9, input.clone()).await;
+        // REQUEST BOUND per failing model, per call: the primary makes at most
+        // 1 + 2 same-model requests here. The fallback walk never repeats the
+        // primary's model (duplicate guard in walk_fallback_chain_standalone),
+        // so a failing free model costs at most 3 requests before the walk
+        // moves to the next entry.
+        // PRIMARY POLICY (bounded): at most two requests to the primary model,
+        // its first attempt and at most one same-model retry, and the retry
+        // only when the cause is not known to be permanent (see next_step).
+        // Every attempt is recorded in the model ledger with its outcome and
+        // latency, and every decision is logged with its reason.
+        let primary_model = primary_model_identity(
+            &input,
+            state.request.primary_default_model.as_deref(),
+        )
+        .unwrap_or_else(|| "primary-unknown".to_string());
+        let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64());
         let mut retries = 0;
-        while Self::is_unusable_pipeline9_result(9, &result) && retries < 2 {
-            retries += 1;
-            tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
+        let mut result;
+        loop {
+            let started = std::time::Instant::now();
             result = self.metered_execute(state, 9, input.clone()).await;
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let outcome = Self::classify_attempt(&result);
+            if matches!(outcome, crate::model_ledger::Outcome::Success) {
+                note_attempt(&primary_model, "success", latency_ms, "usable: primary answered");
+                crate::model_ledger::record(&primary_model, outcome, latency_ms, call_site);
+                break;
+            }
+            let retry_used = retries >= 1;
+            let step = Self::next_step(&outcome, max_tokens_sent, retry_used);
+            let kind = Self::outcome_kind(&outcome);
+            let step_label = match &step {
+                NextStep::RetrySameModel => "one same-model retry",
+                NextStep::MoveOn { reason, .. } => *reason,
+            };
+            let cause = crate::model_ledger::record_with_cap(
+                &primary_model,
+                outcome,
+                latency_ms,
+                call_site,
+                max_tokens_sent,
+            );
+            note_attempt(&primary_model, &attributed_kind(kind, cause), latency_ms, step_label);
+            log_attributed_failure(cause, &primary_model, kind, latency_ms, call_site);
+            let reason = Self::pipeline9_unusable_reason(&result);
+            match step {
+                NextStep::RetrySameModel => {
+                    retries += 1;
+                    tracing::warn!(
+                        call_site = %call_site,
+                        model = %primary_model,
+                        outcome = kind,
+                        latency_ms,
+                        reason = %reason,
+                        "pipeline 9 primary: empty answer with no permanent cause — one same-model retry (the second and last request to this model)"
+                    );
+                    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                }
+                NextStep::MoveOn { reason: why, pause_secs } => {
+                    tracing::warn!(
+                        call_site = %call_site,
+                        model = %primary_model,
+                        outcome = kind,
+                        latency_ms,
+                        reason = %reason,
+                        decision = why,
+                        "pipeline 9 primary: model not retried — moving to the fallback chain"
+                    );
+                    if pause_secs > 0 {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(pause_secs)).await;
+                    }
+                    break;
+                }
+            }
         }
         let mut used_fallback = false;
         if Self::is_unusable_pipeline9_result(9, &result) {
@@ -2975,6 +3464,38 @@ impl PromptOrchestrator {
             "prompt_preview": cut(prompt, 200),
         });
         let _ = writeln!(f, "{}", record);
+        // CONTEXT RECORD (docs/CONTEXT_OBJECT_MODEL.md step 1): loop calls
+        // are points too — same capture contract as the fallback walk.
+        // The window is looked up for the model that SERVED the call
+        // (`model_used` is pipeline 9's response-reported id, e.g. the
+        // routed model behind openrouter/auto). A miss stays 0 = unknown and
+        // is named once in the log — never a guessed number.
+        let mut rec = crate::context_budget::ContextRecord::new(
+            format!("loop:{call_site}"),
+            model_used.clone(),
+        );
+        if !model_used.is_empty() {
+            match crate::context_budget::model_windows::window_for(&model_used) {
+                Some(w) => {
+                    rec.window_tokens = w as usize;
+                    rec.window_source = "registry";
+                }
+                None => crate::context_budget::model_windows::note_unknown(&model_used),
+            }
+        }
+        rec.prompt_tokens = crate::context_budget::estimate_tokens(prompt);
+        rec.usable = success;
+        crate::context_budget::record_call(rec);
+        // LEDGER (as-it-happens occurrence counting): loop calls are model
+        // outcomes too — BitNet meta-chain calls now build ranking history
+        // like walk calls do. Latency is unknown at this seam (0; the
+        // ledger's median skips zeros). Unattributable results (no served
+        // model in the response) are skipped rather than recorded under a
+        // fake key.
+        if !model_used.is_empty() {
+            let outcome = Self::classify_attempt(result);
+            crate::model_ledger::record(&model_used, outcome, 0, call_site);
+        }
     }
 
     /// The free-function core of `walk_fallback_chain`, usable by callers
@@ -2986,6 +3507,24 @@ impl PromptOrchestrator {
     /// pipeline-9 response the same as a hard error (see
     /// `is_unusable_pipeline9_result`) rather than stopping the walk on a
     /// technically-`Ok`-but-empty first candidate.
+    /// Per-model health: consecutive failures seen by the fallback walk.
+    /// Decays to zero on any success. Used to REORDER candidates (failed
+    /// models move to the back of the chain — still attempted, never
+    /// skipped). Static because the walk is a static fn.
+    fn model_health_map() -> std::sync::MutexGuard<'static, std::collections::HashMap<String, u32>> {
+        static HEALTH: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<String, u32>>> =
+            std::sync::OnceLock::new();
+        HEALTH.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new())).lock().unwrap()
+    }
+
+    pub(crate) fn record_model_failure(identifier: &str) {
+        *Self::model_health_map().entry(identifier.to_string()).or_insert(0) += 1;
+    }
+
+    pub(crate) fn record_model_success(identifier: &str) {
+        Self::model_health_map().remove(identifier);
+    }
+
     pub(crate) async fn walk_fallback_chain_standalone(
         executor: &Arc<dyn PipelineExecutor>,
         pipeline_id: u64,
@@ -2994,15 +3533,251 @@ impl PromptOrchestrator {
         available_models: &[crate::config::AvailableModel],
         order: &[String],
         free_only: bool,
+        local_last: bool,
+        primary_model: Option<String>,
     ) -> Result<serde_json::Value, String> {
-        let candidates: Vec<crate::config::AvailableModel> = order
-            .iter()
-            .filter_map(|id| available_models.iter().find(|m| &m.identifier == id).cloned())
-            .filter(|m| !free_only || m.is_free)
-            .collect();
+        // HEALTH-REORDER (operator: "we should never be skipping — properly
+        // ordered"): models with recent consecutive failures move to the
+        // BACK of the remaining chain — still attempted in full, just last,
+        // so user calls stop burning timeouts on known-dead models. The map
+        // is process-global and decays on success.
+        let order: Vec<String> = dedupe_chain_order(order);
+        // The walk runs only after the primary attempt failed, and the primary
+        // ran this input's model (override, else the configured default). Read
+        // it now, before the loop below writes per-candidate overrides into it.
+        // The caller resolved the primary's identity (per-call override, else
+        // the request's configured default) before the input was moved in.
+        let primary_id = primary_model;
+        if primary_id.is_none() {
+            warn_once_process(
+                "primary-identity-unknown".to_string(),
+                "fallback walk: the primary model is unknown (no api_model default and no per-call override), so a chain entry that repeats the primary cannot be detected".to_string(),
+            );
+        }
+        let candidates: Vec<crate::config::AvailableModel> = {
+            // CONTEXT-FIT PRE-ORDER (prevention, not reaction — operator:
+            // "ensure that it doesn't fail"): estimate this call's input
+            // size and sort models whose context can't hold input + output
+            // to the very back. They are NOT removed — for a smaller call
+            // they rank normally — but for this one they would fail on
+            // context length, so a capable model is tried first.
+            let input_tokens = {
+                let p = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let sys = input.get("system_context").and_then(|v| v.as_str()).unwrap_or("");
+                (p.len() + sys.len()) / 4 + 1
+            };
+            let want_output = input
+                .get("max_tokens")
+                .and_then(|t| t.as_u64())
+                .unwrap_or(512) as usize;
+            // Every chain entry is either kept or named in a log line saying
+            // why it is not attempted: unknown identifier, or removed by free_only.
+            let mut base: Vec<crate::config::AvailableModel> = Vec::new();
+            for id in order.iter() {
+                match available_models.iter().find(|m| &m.identifier == id) {
+                    Some(m) if !free_only || m.is_free => base.push(m.clone()),
+                    Some(m) => crate::openrouter_quota::note_free_only_exclusion(&m.identifier),
+                    None => warn_once_process(
+                        format!("unknown:{id}"),
+                        format!("fallback order names '{id}' but no [[models.available_models]] entry has that identifier — it is never attempted"),
+                    ),
+                }
+            }
+            // Pre-call window for OpenRouter candidates: the live catalog
+            // context_length, for router and concrete ids alike. The served
+            // model is checked after the call (see the record block below).
+            for m in base.iter_mut() {
+                if crate::context_budget::model_windows::is_openrouter(m) {
+                    if let Some(w) = crate::context_budget::model_windows::catalog_window(&m.identifier) {
+                        m.context_length = w as usize;
+                    }
+                }
+            }
+            // OpenRouter pool: concrete catalog models appended after the
+            // configured chain. The configured order is never changed.
+            let (pool_mode, pool_size) = crate::context_budget::model_windows::pool_settings();
+            if pool_mode != "off" && pool_size > 0 {
+                match available_models
+                    .iter()
+                    .find(|m| crate::context_budget::model_windows::is_openrouter(m))
+                {
+                    Some(template) => {
+                        let exclude: std::collections::HashSet<String> =
+                            order.iter().cloned().collect();
+                        let picked = crate::context_budget::model_windows::catalog_pool(
+                            &pool_mode,
+                            pool_size,
+                            &exclude,
+                            free_only,
+                        );
+                        if !picked.is_empty() {
+                            tracing::info!(
+                                pool = %pool_mode,
+                                ids = ?picked.iter().map(|e| e.id.as_str()).collect::<Vec<_>>(),
+                                "fallback chain: OpenRouter pool candidates added (sized from the live catalog)"
+                            );
+                        }
+                        let pool_start = base.len();
+                        for e in picked {
+                            base.push(crate::config::AvailableModel {
+                                name: e.id.clone(),
+                                model_type: template.model_type.clone(),
+                                identifier: e.id.clone(),
+                                context_length: e.context_length as usize,
+                                api_endpoint: template.api_endpoint.clone(),
+                                api_key_env: template.api_key_env.clone(),
+                                api_key: template.api_key.clone(),
+                                wire_protocol: template.wire_protocol.clone(),
+                                bitnet_cli_path: None,
+                                local_model_path: None,
+                                gpu_layers: None,
+                                provider: "openrouter".to_string(),
+                                is_free: e.is_free,
+                            });
+                        }
+                        // Historical preference among the pool's own models only:
+                        // the configured entries keep their configured order. A
+                        // model with a better success history is tried first; a
+                        // model with no history keeps its catalog position.
+                        let pool_ids: Vec<String> =
+                            base[pool_start..].iter().map(|m| m.identifier.clone()).collect();
+                        let ranked = crate::model_ledger::rank(&pool_ids);
+                        base[pool_start..].sort_by_key(|m| {
+                            ranked
+                                .iter()
+                                .position(|id| id == &m.identifier)
+                                .unwrap_or(usize::MAX)
+                        });
+                    }
+                    None => tracing::warn!(
+                        "[models] openrouter_pool is set but no configured model is served through OpenRouter; pool skipped"
+                    ),
+                }
+            }
+            let health = Self::model_health_map();
+            let mut scored: Vec<(bool, usize, usize, usize, crate::config::AvailableModel)> = base
+                .into_iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let fails = health
+                        .get(&m.identifier)
+                        .map(|c| *c as usize)
+                        .unwrap_or(0);
+                    // CONTEXT-FIT: true when input + output cannot fit the
+                    // model's context window.
+                    let too_small = m.context_length > 0
+                        && (input_tokens + want_output) > m.context_length as usize;
+                    // LOCAL-LAST (user path): a local model (anything that is
+                    // not an API entry) sorts after every remote candidate,
+                    // whatever its health. Local is the last resort, not a
+                    // peer that health reordering can move ahead of remote
+                    // free models that are still untried.
+                    let local_rank = usize::from(local_last && m.model_type != "api");
+                    // Sort key: (would-overflow, local-last, failure count, original order)
+                    (too_small, local_rank, fails.min(999), i, m)
+                })
+                .collect();
+            scored.sort_by(|a, b| {
+                a.0.cmp(&b.0)
+                    .then(a.1.cmp(&b.1))
+                    .then(a.2.cmp(&b.2))
+                    .then(a.3.cmp(&b.3))
+            });
+            let reordered = scored.into_iter().map(|(_, _, _, _, m)| m).collect::<Vec<_>>();
+            let deferred = reordered
+                .iter()
+                .filter(|m| {
+                    m.context_length > 0
+                        && (input_tokens + want_output) > m.context_length as usize
+                })
+                .count();
+            if deferred > 0 {
+                tracing::info!(
+                    input_tokens,
+                    want_output,
+                    deferred,
+                    total = reordered.len(),
+                    "fallback chain: context-overflow models deferred to the back (prevention, not skip)"
+                );
+            }
+            reordered
+        };
+
+        let _ = WALK_PROGRESS.try_with(|p| {
+            p.lock().unwrap().planned = candidates.iter().map(|m| m.identifier.clone()).collect();
+        });
 
         let mut result: Result<serde_json::Value, String> = Err(last_error);
+        // C8 (LATENCY_AUDIT.md): each iteration used to overwrite `result`,
+        // so if the LAST candidate failed, an earlier non-empty response was
+        // lost. Keep the first usable response and only advance on failure.
+        let mut best: Option<serde_json::Value> = None;
+        // QUOTA GATE: OpenRouter free candidates spend the account's free-model
+        // quota. A reading of zero remaining skips them, once and loudly, and
+        // the walk goes straight to the local fallback. An unknown reading
+        // (no check yet, or the field absent) is never treated as zero.
+        let quota_remaining = crate::openrouter_quota::latest().and_then(|q| q.remaining);
+        let quota_label = match quota_remaining {
+            Some(r) => r.to_string(),
+            None => "unknown".to_string(),
+        };
+        tracing::info!(
+            pipeline_id,
+            quota_remaining = %quota_label,
+            "fallback walk: OpenRouter free-model quota reading for this walk"
+        );
+        let quota_blocked: std::collections::HashSet<String> = if quota_remaining == Some(0) {
+            candidates
+                .iter()
+                .filter(|m| crate::context_budget::model_windows::is_openrouter(m) && m.is_free)
+                .map(|m| m.identifier.clone())
+                .collect()
+        } else {
+            std::collections::HashSet::new()
+        };
+        if !quota_blocked.is_empty() {
+            let mut names: Vec<&str> = quota_blocked.iter().map(|s| s.as_str()).collect();
+            names.sort();
+            tracing::warn!(
+                pipeline_id,
+                skipped = quota_blocked.len(),
+                models = ?names,
+                "OpenRouter free-model quota is EXHAUSTED for today (0 remaining): skipping {} free OpenRouter candidate(s) and going to the local fallback. They are not tried until the UTC day resets.",
+                quota_blocked.len()
+            );
+        }
+        let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64());
+
         for profile in &candidates {
+            // QUOTA SKIP: named once above, recorded here so the watchdog's
+            // untried list and the trail both say why it was not attempted.
+            if quota_blocked.contains(&profile.identifier) {
+                let _ = WALK_PROGRESS.try_with(|p| {
+                    p.lock().unwrap().skipped.push(profile.identifier.clone());
+                });
+                note_attempt(&profile.identifier, "skipped", 0, "quota exhausted (0 remaining)");
+                continue;
+            }
+            // DUPLICATE GUARD: this walk runs only after the primary attempt
+            // failed. If the chain names the model the primary already ran,
+            // attempting it again only repeats a failed request. The primary's
+            // own same-model retries are the bound for that model; the walk
+            // moves on to the next entry, so the local fallback is still reached.
+            if primary_id.as_deref() == Some(profile.identifier.as_str()) {
+                tracing::warn!(
+                    pipeline_id,
+                    model = %profile.identifier,
+                    "fallback walk skipped a duplicate: this model already failed as the primary attempt for this call (not re-requested; the next chain entry is tried)"
+                );
+                Self::record_model_failure(&profile.identifier);
+                let _ = WALK_PROGRESS.try_with(|p| {
+                    p.lock().unwrap().skipped.push(profile.identifier.clone());
+                });
+                continue;
+            }
+            let _ = WALK_PROGRESS.try_with(|p| {
+                p.lock().unwrap().started.push(profile.identifier.clone());
+            });
             tracing::warn!(
                 pipeline_id,
                 fallback_model = %profile.identifier,
@@ -3044,35 +3819,239 @@ impl PromptOrchestrator {
             if let Ok(v) = serde_json::to_value(&override_cfg) {
                 input["model_override_config"] = v;
             }
-            // Real bug fix (this session): token-aware callers set
-            // `_budget_fraction` (see `metered_execute_resilient`/
-            // `derive_output_budget`) expecting the output budget to
-            // "follow whatever model the walk ends at" — but `max_tokens`
-            // was previously derived ONCE from the primary model's context
-            // before this walk even started, then reused unchanged for
-            // every fallback candidate regardless of that candidate's real
-            // (possibly much smaller) context. Re-derive here, per
-            // candidate, from `profile.context_length` — the real value
-            // this loop already has in hand for the model it's about to
-            // call — so a fallback to a small-context local model gets a
-            // budget sized for ITS context, not the original model's.
-            if let Some(fraction) = input.get("_budget_fraction").and_then(|f| f.as_f64()) {
-                if let Some(obj) = input.as_object_mut() {
-                    obj.insert(
-                        "max_tokens".to_string(),
-                        serde_json::json!(Self::derive_output_budget(
-                            profile.context_length as u64,
-                            fraction as f32
-                        )),
+            // CANDIDATE POLICY: the same bounded rule as the primary. At most
+            // two requests to this model (first attempt, and one same-model
+            // retry only for an empty answer without a permanent cause); every
+            // attempt is recorded in the model ledger and appended to the trail.
+            let mut attempts = 0u32;
+            loop {
+                attempts += 1;
+                let started = std::time::Instant::now();
+                result = match crate::orchestrator::lane_split::current_lane_spec() {
+                    Some(spec) => {
+                        crate::orchestrator::lane_split::run_candidate(executor, pipeline_id, &input, &spec, profile.context_length as u64)
+                            .await
+                    }
+                    None => executor.execute(pipeline_id, input.clone()).await,
+                };
+                let latency_ms = started.elapsed().as_millis() as u64;
+                let walk_site = format!("walk:pipeline-{pipeline_id}");
+                let outcome = Self::classify_attempt(&result);
+                if matches!(outcome, crate::model_ledger::Outcome::Success) {
+                    tracing::info!(
+                        pipeline_id,
+                        model = %profile.identifier,
+                        latency_ms,
+                        "fallback candidate answered — walk ends here"
                     );
+                    note_attempt(&profile.identifier, "success", latency_ms, "usable: walk ends here");
+                    crate::model_ledger::record(&profile.identifier, outcome, latency_ms, &walk_site);
+                    break;
+                }
+                let step = Self::next_step(&outcome, max_tokens_sent, attempts >= 2);
+                let kind = Self::outcome_kind(&outcome);
+                let step_label = match &step {
+                    NextStep::RetrySameModel => "one same-model retry".to_string(),
+                    NextStep::MoveOn { reason, pause_secs } if *pause_secs > 0 => {
+                        format!("next candidate after {pause_secs}s ({reason})")
+                    }
+                    NextStep::MoveOn { reason, .. } => format!("next candidate ({reason})"),
+                };
+                let cause = crate::model_ledger::record_with_cap(
+                    &profile.identifier,
+                    outcome,
+                    latency_ms,
+                    &walk_site,
+                    max_tokens_sent,
+                );
+                note_attempt(&profile.identifier, &attributed_kind(kind, cause), latency_ms, &step_label);
+                log_attributed_failure(cause, &profile.identifier, kind, latency_ms, &walk_site);
+                match step {
+                    NextStep::RetrySameModel => {
+                        tracing::warn!(
+                            pipeline_id,
+                            model = %profile.identifier,
+                            outcome = kind,
+                            latency_ms,
+                            "fallback candidate: empty answer with no permanent cause — one same-model retry (its second and last request)"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                    }
+                    NextStep::MoveOn { reason, pause_secs } => {
+                        tracing::warn!(
+                            pipeline_id,
+                            model = %profile.identifier,
+                            outcome = kind,
+                            latency_ms,
+                            decision = reason,
+                            "fallback candidate failed — moving to the next candidate"
+                        );
+                        if pause_secs > 0 {
+                            tokio::time::sleep(std::time::Duration::from_secs(pause_secs)).await;
+                        }
+                        break;
+                    }
                 }
             }
-            result = executor.execute(pipeline_id, input.clone()).await;
+            // CONTEXT RECORD (docs/CONTEXT_OBJECT_MODEL.md step 1 — capture
+            // foundation, zero behavior change): what this attempt actually
+            // saw — model, its real window, the input size, whether the
+            // response was usable. Best-effort capture; must never affect
+            // the call itself.
+            {
+                let p = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+                let sys = input
+                    .get("system_context")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                // The window follows the model that SERVED this attempt
+                // (pipeline 9's response-reported `model_used` — for a router
+                // candidate such as openrouter/auto that is the routed model,
+                // not the router). The configured candidate window is the
+                // conservative figure used to size the request before the
+                // call; it is recorded only when the served window is unknown,
+                // and the source field says which one this record carries.
+                let served: Option<String> = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|v| v.get("model_used"))
+                    .and_then(|m| m.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
+                let mut rec = crate::context_budget::ContextRecord::new(
+                    format!("fallback_walk:pipeline-{pipeline_id}"),
+                    profile.identifier.clone(),
+                );
+                match served {
+                    Some(s) => {
+                        if let Some(w) = crate::context_budget::model_windows::catalog_window(&s) {
+                            rec.window_tokens = w as usize;
+                            rec.window_source = "catalog";
+                        } else {
+                            match crate::context_budget::model_windows::window_for(&s) {
+                                Some(w) => {
+                                    rec.window_tokens = w as usize;
+                                    rec.window_source = "registry";
+                                }
+                                None => {
+                                    rec.window_tokens = profile.context_length as usize;
+                                    rec.window_source = "configured";
+                                    if crate::context_budget::model_windows::is_openrouter(&profile) {
+                                        // A served OpenRouter id the catalog lacks:
+                                        // refetch, at most once per 10 minutes.
+                                        crate::context_budget::model_windows::request_refresh_if_stale();
+                                    }
+                                    if s != profile.identifier {
+                                        crate::context_budget::model_windows::note_unknown(&s);
+                                    }
+                                }
+                            }
+                        }
+                        // A paid model that a router in the chain chose is
+                        // billed against credits. Say so, once per day per model.
+                        if s != profile.identifier {
+                            if let Some(entry) = crate::model_windows::catalog_entry(&s) {
+                                if !entry.is_free {
+                                    crate::openrouter_quota::note_paid_served(&profile.identifier, &s);
+                                }
+                            }
+                        }
+                        rec.model = s;
+                    }
+                    None => {
+                        rec.window_tokens = profile.context_length as usize;
+                        rec.window_source = "configured";
+                    }
+                }
+                rec.want_output_tokens = input
+                    .get("max_tokens")
+                    .and_then(|t| t.as_u64())
+                    .unwrap_or(0) as usize;
+                rec.prompt_tokens = (p.len() + sys.len()) / 4 + 1;
+                rec.usable = !Self::is_unusable_pipeline9_result(pipeline_id, &result);
+                // The router's window is checked before the call, against
+                // the live value. After the call, the served model's window is
+                // the real limit; if the input this call sent does not fit it,
+                // say so loudly rather than accept it silently.
+                let sent_tokens = rec.prompt_tokens + rec.want_output_tokens;
+                if rec.window_tokens > 0 && sent_tokens > rec.window_tokens {
+                    rec.served_window_exceeded = true;
+                    tracing::warn!(
+                        served_window_exceeded = true,
+                        model = %rec.model,
+                        window_tokens = rec.window_tokens,
+                        window_source = rec.window_source,
+                        sent_tokens,
+                        "served model's context window is smaller than the input this call sent"
+                    );
+                }
+                crate::context_budget::record_call(rec);
+            }
+            let _ = WALK_PROGRESS.try_with(|p| {
+                p.lock().unwrap().finished.push(profile.identifier.clone());
+            });
+            // C8: stash the first usable response so later candidates can't
+            // destroy it (they still get their full attempts — no skips).
+            if !Self::is_unusable_pipeline9_result(pipeline_id, &result) && best.is_none() {
+                best = result.clone().ok();
+            }
+            // HEALTH DECAY/ACCUMULATE (health-reorder contract): a usable
+            // response decays the model's failure count to zero; an unusable
+            // one accumulates — failed models sink to the back of the NEXT
+            // walk, still attempted, never skipped.
+            match &result {
+                Ok(v)
+                    if v.get("response")
+                        .and_then(|r| r.as_str())
+                        .map(|r| !r.trim().is_empty())
+                        .unwrap_or(false) =>
+                {
+                    Self::record_model_success(&profile.identifier);
+                }
+                _ => Self::record_model_failure(&profile.identifier),
+            }
             if !Self::is_unusable_pipeline9_result(pipeline_id, &result) {
                 break;
             }
         }
+        // C8: if the walk ended on an unusable response but an earlier
+        // candidate produced a usable one, return THAT — quality preserved,
+        // no attempts dropped. Annotate which model won.
+        if Self::is_unusable_pipeline9_result(pipeline_id, &result) {
+            if let Some(best) = best {
+                let mut out = best;
+                if let Some(obj) = out.as_object_mut() {
+                    obj.insert("_recovered_from_earlier_candidate".to_string(), serde_json::json!(true));
+                }
+                return Ok(out);
+            }
+        }
         result
+    }
+
+    /// The candidates a walk will try, in chain order. Shared by the walk and by the
+    /// watchdog budget so both always agree on how many attempts a chain can make.
+    /// Repeated identifiers are removed here (first occurrence kept), so the same
+    /// model is never counted or attempted twice in one walk.
+    pub(crate) fn chain_candidates(
+        available_models: &[crate::config::AvailableModel],
+        order: &[String],
+        free_only: bool,
+    ) -> Vec<crate::config::AvailableModel> {
+        let order = dedupe_chain_order(order);
+        order
+            .iter()
+            .filter_map(|id| available_models.iter().find(|m| &m.identifier == id).cloned())
+            .filter(|m| {
+                if !free_only || m.is_free {
+                    return true;
+                }
+                // A named chain entry that free_only removes is said out loud,
+                // once per day per model, so a paid entry is never dropped silently.
+                crate::openrouter_quota::note_free_only_exclusion(&m.identifier);
+                false
+            })
+            .collect()
     }
 
     /// Orchestrator-side YES/NO confirmation — delegates to the shared
@@ -3105,14 +4084,22 @@ impl PromptOrchestrator {
                     // directly reduces wasted votes from a transient empty
                     // response, the same real backend behavior confirmed
                     // live elsewhere this session.
+                    // This closure has no request state, so only a per-call
+                    // override is known here; the configured default is not.
+                    let vote_model = primary_model_identity(&input, None)
+                        .unwrap_or_else(|| "primary-unknown".to_string());
+                    let started = std::time::Instant::now();
                     let mut attempt_result = self.executor.execute(9, input.clone()).await;
+                    record_vote_attempt(&vote_model, &attempt_result, started);
                     let mut retries = 0;
                     while PromptOrchestrator::is_unusable_pipeline9_result(9, &attempt_result)
                         && retries < 2
                     {
                         retries += 1;
                         tokio::time::sleep(tokio::time::Duration::from_millis(100 * retries as u64)).await;
+                        let started = std::time::Instant::now();
                         attempt_result = self.executor.execute(9, input.clone()).await;
+                        record_vote_attempt(&vote_model, &attempt_result, started);
                     }
                     match attempt_result {
                         Ok(result) => {
@@ -3831,8 +4818,10 @@ mod tests {
             available_models: Vec::new(),
             fallback_order: Vec::new(),
             fallback_free_only: false,
+            primary_default_model: None,
             meta_fallback_order: Vec::new(),
             meta_fallback_free_only: false,
+            allow_paid_models: false,
         };
 
         let response = orchestrator.orchestrate(request).await;

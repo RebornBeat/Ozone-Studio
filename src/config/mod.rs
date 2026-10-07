@@ -248,6 +248,7 @@ impl OzoneConfig {
             config
         };
         config.apply_hardware_region_detection().await;
+        Self::publish_model_windows(&config.models);
         Ok(config)
     }
 
@@ -305,7 +306,35 @@ impl OzoneConfig {
             .map_err(|e| OzoneError::ConfigError(format!("Failed to serialize config: {}", e)))?;
         std::fs::write(path, content)
             .map_err(|e| OzoneError::ConfigError(format!("Failed to write config: {}", e)))?;
+        Self::publish_model_windows(&self.models);
         Ok(())
+    }
+
+    /// Publish each model's context window to the process-wide registry
+    /// (`crate::context_budget::model_windows`). Per-model entries register
+    /// their identifier and local_model_path and always win; the global
+    /// `[models]` block registers its api_model and local_model_path only
+    /// for keys no per-model entry claimed.
+    fn publish_model_windows(models: &ModelConfig) {
+        let mut per_model: Vec<(String, u32)> = Vec::new();
+        for m in &models.available_models {
+            per_model.push((m.identifier.clone(), m.context_length as u32));
+            if let Some(p) = &m.local_model_path {
+                per_model.push((p.clone(), m.context_length as u32));
+            }
+        }
+        let mut global: Vec<(String, u32)> = Vec::new();
+        if let Some(api) = &models.api_model {
+            global.push((api.clone(), models.context_length as u32));
+        }
+        if let Some(p) = &models.local_model_path {
+            global.push((p.clone(), models.context_length as u32));
+        }
+        crate::context_budget::model_windows::replace(per_model, global);
+        crate::context_budget::model_windows::set_pool(
+            &models.openrouter_pool,
+            models.openrouter_pool_size,
+        );
     }
 }
 
@@ -658,6 +687,29 @@ pub struct ModelConfig {
     /// preference: BitNet (local) first, then OpenRouter's free router.
     #[serde(default = "default_meta_fallback")]
     pub meta_fallback: ModelFallbackConfig,
+
+    /// OpenRouter pool: "off" | "free" | "paid". When not "off", the fallback
+    /// walk appends up to `openrouter_pool_size` concrete models from the
+    /// live OpenRouter catalog (free-priced or paid-priced), each sized from
+    /// its own catalog context_length. Default "off": nothing changes until
+    /// config sets it. Router ids are never pool members.
+    #[serde(default = "default_openrouter_pool")]
+    pub openrouter_pool: String,
+    /// How many catalog models the pool adds per walk. Default 3.
+    #[serde(default = "default_openrouter_pool_size")]
+    pub openrouter_pool_size: usize,
+    /// Per-user choice. false (default): only free OpenRouter models and local
+    /// models are selectable. true: paid models may be selected as well.
+    #[serde(default)]
+    pub allow_paid_models: bool,
+}
+
+fn default_openrouter_pool() -> String {
+    "off".to_string()
+}
+
+fn default_openrouter_pool_size() -> usize {
+    3
 }
 
 fn default_meta_fallback() -> ModelFallbackConfig {
@@ -693,7 +745,7 @@ impl ModelConfig {
         let api_key_env_name = self
             .api_key_env
             .clone()
-            .unwrap_or_else(|| "ANTHROPIC_API_KEY".into());
+            .unwrap_or_else(|| "OPENROUTER_API_KEY".into());
         let mut env = vec![
             ("OZONE_MODEL_TYPE".to_string(), self.model_type.clone()),
             ("OZONE_API_KEY_ENV".to_string(), api_key_env_name.clone()),
@@ -732,12 +784,15 @@ impl ModelConfig {
 
 impl Default for ModelConfig {
     fn default() -> Self {
+        // Policy default: the OpenRouter FREE router. Paid direct providers
+        // (Anthropic, OpenAI, Google) are not used by default and are refused
+        // by set_config; local BitNet remains the fallback (see models.fallback).
         Self {
             model_type: "api".into(),
-            api_endpoint: Some("https://api.anthropic.com/v1/messages".into()),
-            api_key_env: Some("ANTHROPIC_API_KEY".into()),
+            api_endpoint: Some("https://openrouter.ai/api/v1/chat/completions".into()),
+            api_key_env: Some("OPENROUTER_API_KEY".into()),
             api_key: None,
-            api_model: Some("claude-sonnet-4-20250514".into()),
+            api_model: Some("openrouter/free".into()),
             local_model_type: None,
             local_model_path: None,
             context_length: 8192, // Default, overridden by per-model setting
@@ -745,9 +800,9 @@ impl Default for ModelConfig {
             allow_user_selection: true,
             available_models: vec![
                 AvailableModel {
-                    name: "Claude Sonnet (API)".into(),
+                    name: "OpenRouter (Free router)".into(),
                     model_type: "api".into(),
-                    identifier: "claude-sonnet-4-20250514".into(),
+                    identifier: "openrouter/free".into(),
                     context_length: 200000,
                     api_endpoint: None,
                     api_key_env: None,
@@ -756,15 +811,18 @@ impl Default for ModelConfig {
                     bitnet_cli_path: None,
                     local_model_path: None,
                     gpu_layers: None,
-                    provider: "anthropic".into(),
-                    is_free: false,
+                    provider: "openrouter".into(),
+                    is_free: true,
                 },
                 // Local models are added by user via UI or config
             ],
-            wire_protocol: None,
+            wire_protocol: Some("chat_completions".into()),
             bitnet_cli_path: None,
             fallback: ModelFallbackConfig::default(),
             meta_fallback: default_meta_fallback(),
+            openrouter_pool: default_openrouter_pool(),
+            openrouter_pool_size: default_openrouter_pool_size(),
+            allow_paid_models: false,
         }
     }
 }

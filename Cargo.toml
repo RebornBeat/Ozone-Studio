@@ -97,6 +97,7 @@ lazy_static = "1.4"
 
 # IPC with Electron
 tauri = { version = "1.5", optional = true }
+futures = "0.3.34"
 
 [build-dependencies]
 tonic-build = { version = "0.10", optional = true }
@@ -109,4 +110,13 @@ grpc = ["tonic", "prost", "tonic-build"]
 
 [profile.release]
 opt-level = 3
+lto = "thin"
+# Daily build: thin LTO + line tables keep real frames and file:line for gdb
+# backtraces at a fraction of fat-LTO link memory.
+debug = "line-tables-only"
+
+[profile.dist]
+inherits = "release"
 lto = true
+debug = false
+# Shipping build: full fat LTO, no debug info. Build only on an otherwise idle machine.

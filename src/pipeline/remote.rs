@@ -44,8 +44,16 @@ mod once_cell_lazy_client {
 
     impl Client {
         pub fn get(&self) -> &'static reqwest::Client {
+            // Bounded like the prompt pipeline's clients (120 s). Without a
+            // timeout a silent remote pipeline held its caller until the
+            // caller's own watchdog dropped the future.
             static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-            CLIENT.get_or_init(reqwest::Client::new)
+            CLIENT.get_or_init(|| {
+                reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(120))
+                    .build()
+                    .expect("reqwest client with a fixed timeout must build")
+            })
         }
     }
 }
@@ -134,7 +142,13 @@ impl RemotePipelines {
             .json(&body)
             .send()
             .await
-            .map_err(|e| format!("Remote pipeline {} unreachable: {}", pipeline_id, e))?;
+            .map_err(|e| {
+                if e.is_timeout() {
+                    format!("Remote pipeline {} timed out after 120s: {}", pipeline_id, e)
+                } else {
+                    format!("Remote pipeline {} unreachable: {}", pipeline_id, e)
+                }
+            })?;
 
         if !resp.status().is_success() {
             return Err(format!(
@@ -144,7 +158,13 @@ impl RemotePipelines {
             ));
         }
 
-        let output_json: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        let output_json: serde_json::Value = resp.json().await.map_err(|e| {
+            if e.is_timeout() {
+                format!("Remote pipeline {} timed out reading its response: {}", pipeline_id, e)
+            } else {
+                e.to_string()
+            }
+        })?;
         remote.call_count.fetch_add(1, Ordering::Relaxed);
 
         // Same output contract as invoke_pipeline: one JSON object → data map.

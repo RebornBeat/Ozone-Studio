@@ -292,6 +292,13 @@ pub enum RelationType {
     References = 40,
     ReferencedBy = 41,
 
+    // Spatial (scene graphs from MCP tools)
+    Above = 80,
+    Below = 81,
+    NearTo = 82,
+    InFrontOf = 83,
+    Overlaps = 84,
+
     // External
     DocumentedAt = 50,
     SourcedFrom = 51,
@@ -334,6 +341,7 @@ pub enum DiscoveryMethod {
     CodeAnalysis,
     TextAnalysis,
     WebNavigation,
+    ToolOutput,
 }
 
 /// Learned association between containers
@@ -466,6 +474,10 @@ pub enum ContainerType {
     URLReference = 55,
     PackageReference = 56,
 
+    // ── MCP graph persistence (tool outputs as real graph entities) ───────────
+    McpResult = 90,
+    McpEntity = 91,
+
     // ── Code-specific ─────────────────────────────────────────────────────────
     CodeModule = 60,
     CodeFunction = 61,
@@ -580,6 +592,8 @@ impl ContainerType {
             Self::DirectoryReference => "DirectoryReference",
             Self::URLReference => "URLReference",
             Self::PackageReference => "PackageReference",
+            Self::McpResult => "McpResult",
+            Self::McpEntity => "McpEntity",
             Self::CodeModule => "CodeModule",
             Self::CodeFunction => "CodeFunction",
             Self::CodeClass => "CodeClass",

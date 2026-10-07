@@ -66,8 +66,9 @@ def action_find_gene(input_obj):
                 "type": f.type,
                 "gene": gene_names[0] if gene_names else None,
                 "locus_tag": f.qualifiers.get("locus_tag", [None])[0],
-                "start": int(f.location.start),
+                "start": int(f.location.start) + 1,
                 "end": int(f.location.end),
+                "coords": "1-based inclusive (GenBank convention)",
                 "strand": f.location.strand,
                 "product": f.qualifiers.get("product", [None])[0],
             })

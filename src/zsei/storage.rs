@@ -19,6 +19,187 @@ use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::path::PathBuf;
 
+// WRITE-BEHIND QUEUE for local-state JSON files (see store_local). One
+// dedicated thread applies every local-state write and removal in submission
+// order, so the storage write guard never covers disk IO and no write can be
+// overtaken by an older one. The pending count bounds the queue: a caller that
+// finds the bound reached WAITS for the writer to catch up; it never writes
+// inline, which would reorder writes. A write that fails after one retry is
+// recorded and reported by drain_local_writes (called from sync(), from Drop,
+// and at process shutdown), so it is never dropped silently.
+const LOCAL_WRITE_MAX_PENDING: usize = 10_000;
+const LOCAL_WRITE_RETRY_PAUSE: std::time::Duration = std::time::Duration::from_millis(50);
+const LOCAL_WRITE_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Outstanding queued operations, with a condvar signalled on every change.
+static LOCAL_WRITE_PENDING: (std::sync::Mutex<usize>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+/// Writes that failed after their retry, held until the next drain reports them.
+static LOCAL_WRITE_FAILURES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+enum LocalOp {
+    Write(PathBuf, String),
+    Remove(PathBuf),
+}
+
+impl LocalOp {
+    fn path(&self) -> &PathBuf {
+        match self {
+            LocalOp::Write(path, _) | LocalOp::Remove(path) => path,
+        }
+    }
+}
+
+fn lock_ignoring_poison<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Apply one operation to disk. A write goes to a temp file in the same
+/// directory and is then renamed over the target, so a crash leaves either the
+/// old file or the complete new one, never a truncated JSON.
+fn apply_local_op(op: &LocalOp) -> std::io::Result<()> {
+    match op {
+        LocalOp::Write(path, contents) => {
+            let mut tmp = path.clone().into_os_string();
+            tmp.push(".tmp");
+            let tmp = PathBuf::from(tmp);
+            fs::write(&tmp, contents)?;
+            fs::rename(&tmp, path)
+        }
+        LocalOp::Remove(path) => match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+fn finish_local_op() {
+    let (count, signal) = &LOCAL_WRITE_PENDING;
+    let mut n = lock_ignoring_poison(count);
+    *n = n.saturating_sub(1);
+    signal.notify_all();
+}
+
+/// The single writer thread, or None if it could not be spawned.
+fn local_writer() -> Option<&'static std::sync::mpsc::Sender<LocalOp>> {
+    static WRITER: std::sync::OnceLock<Option<std::sync::mpsc::Sender<LocalOp>>> =
+        std::sync::OnceLock::new();
+    WRITER
+        .get_or_init(|| {
+            let (tx, rx) = std::sync::mpsc::channel::<LocalOp>();
+            let spawned = std::thread::Builder::new()
+                .name("zsei-local-writer".into())
+                .spawn(move || {
+                    for op in rx {
+                        // A panic in one write must not end the thread: that
+                        // would strand every queued op and its pending count.
+                        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                            apply_local_op(&op).or_else(|first| {
+                                eprintln!(
+                                    "zsei local-state write to {} failed ({first}); retrying once",
+                                    op.path().display()
+                                );
+                                std::thread::sleep(LOCAL_WRITE_RETRY_PAUSE);
+                                apply_local_op(&op)
+                            })
+                        }));
+                        let failure = match outcome {
+                            Ok(Ok(())) => None,
+                            Ok(Err(e)) => Some(format!("{}: {e}", op.path().display())),
+                            Err(_) => Some(format!("{}: writer panicked", op.path().display())),
+                        };
+                        if let Some(msg) = failure {
+                            eprintln!("zsei local-state write FAILED after retry: {msg}");
+                            lock_ignoring_poison(&LOCAL_WRITE_FAILURES).push(msg);
+                        }
+                        finish_local_op();
+                    }
+                });
+            match spawned {
+                Ok(_) => Some(tx),
+                Err(e) => {
+                    eprintln!(
+                        "zsei local-state writer thread failed to spawn ({e}) — local writes run inline; ordering holds because nothing is queued"
+                    );
+                    None
+                }
+            }
+        })
+        .as_ref()
+}
+
+/// Queue one local-state operation behind every earlier one, waiting first if
+/// the queue is at its bound. Errors are returned to the caller; queued
+/// failures are reported by drain_local_writes.
+fn enqueue_local_op(op: LocalOp) -> OzoneResult<()> {
+    let Some(tx) = local_writer() else {
+        // No writer thread exists, so nothing is queued and an inline write
+        // cannot overtake anything.
+        return apply_local_op(&op).map_err(|e| {
+            OzoneError::StorageError(format!("Failed to write local state {}: {e}", op.path().display()))
+        });
+    };
+    {
+        let (count, signal) = &LOCAL_WRITE_PENDING;
+        let mut n = lock_ignoring_poison(count);
+        while *n >= LOCAL_WRITE_MAX_PENDING {
+            n = signal.wait(n).unwrap_or_else(|e| e.into_inner());
+        }
+        *n += 1;
+    }
+    let path = op.path().display().to_string();
+    tx.send(op).map_err(|_| {
+        finish_local_op();
+        OzoneError::StorageError(format!("local-state writer is gone; operation on {path} was not queued"))
+    })
+}
+
+/// Read-only status for health reporting: (operations still queued, writes that
+/// failed after retry and are not yet reported by a drain). Does not take the
+/// failures; only drain_local_writes does.
+pub fn local_write_status() -> (usize, usize) {
+    let queued = *lock_ignoring_poison(&LOCAL_WRITE_PENDING.0);
+    let failed = lock_ignoring_poison(&LOCAL_WRITE_FAILURES).len();
+    (queued, failed)
+}
+
+/// Block until every queued local-state operation has reached disk, or
+/// `timeout` passes. Errors on timeout (with the count still queued), and
+/// otherwise lists every write that failed after its retry since the last
+/// drain. Failures are taken here, so each is reported once.
+pub fn drain_local_writes(timeout: std::time::Duration) -> OzoneResult<()> {
+    let deadline = std::time::Instant::now() + timeout;
+    {
+        let (count, signal) = &LOCAL_WRITE_PENDING;
+        let mut n = lock_ignoring_poison(count);
+        while *n > 0 {
+            let now = std::time::Instant::now();
+            if now >= deadline {
+                return Err(OzoneError::StorageError(format!(
+                    "local-state drain timed out with {} operation(s) still queued",
+                    *n
+                )));
+            }
+            let (guard, _) = signal
+                .wait_timeout(n, deadline - now)
+                .unwrap_or_else(|e| e.into_inner());
+            n = guard;
+        }
+    }
+    let failures = std::mem::take(&mut *lock_ignoring_poison(&LOCAL_WRITE_FAILURES));
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(OzoneError::StorageError(format!(
+            "{} local-state write(s) failed after retry: {}",
+            failures.len(),
+            failures.join("; ")
+        )))
+    }
+}
+
 const HEADER_SIZE: usize = 64;
 const INITIAL_FILE_SIZE: u64 = 16 * 1024 * 1024; // 16MB initial
 const MAGIC_BYTES: &[u8; 8] = b"OZONEZSE";
@@ -116,6 +297,7 @@ impl ContainerStorage {
         storage.load_index()?;
         storage.rebuild_child_ids_cache()?;
         storage.load_local_cache()?;
+        storage.report_missing_local_state();
 
         // Create root container if not exists
         storage.ensure_root()?;
@@ -321,6 +503,29 @@ impl ContainerStorage {
         Ok(())
     }
 
+    /// Every indexed container has a local-state file, because store() always
+    /// writes one. Report the ones that do not, so they are visible at boot
+    /// instead of reading back as empty containers.
+    fn report_missing_local_state(&self) {
+        let mut missing: Vec<ContainerID> = self
+            .index
+            .keys()
+            .copied()
+            .filter(|id| {
+                !self.local_cache.contains_key(id)
+                    && !self.local_path.join(format!("{}.json", id)).exists()
+            })
+            .collect();
+        if !missing.is_empty() {
+            missing.sort();
+            tracing::error!(
+                count = missing.len(),
+                ids = ?missing,
+                "ZSEI: containers have global records but no local-state file; loads of these will fail"
+            );
+        }
+    }
+
     /// Load local state cache from JSON files
     fn load_local_cache(&mut self) -> OzoneResult<()> {
         if let Ok(entries) = fs::read_dir(&self.local_path) {
@@ -329,6 +534,12 @@ impl ContainerStorage {
                 if path.extension().map(|e| e == "json").unwrap_or(false) {
                     if let Some(stem) = path.file_stem() {
                         if let Ok(id) = stem.to_string_lossy().parse::<u64>() {
+                            // Only containers the global index still holds. A
+                            // file left by a delete whose removal never ran
+                            // must not come back into the cache.
+                            if !self.index.contains_key(&id) {
+                                continue;
+                            }
                             if let Ok(contents) = fs::read_to_string(&path) {
                                 if let Ok(state) = serde_json::from_str::<LocalState>(&contents) {
                                     self.local_cache.insert(id, state);
@@ -368,8 +579,17 @@ impl ContainerStorage {
             return Ok(None);
         }
         
-        let local_state = self.load_local(id)?.unwrap_or_default();
-        
+        // store() always writes local state, so a global record without it is
+        // corruption. Refuse to read it back as an empty container.
+        let local_state = match self.load_local(id)? {
+            Some(state) => state,
+            None => {
+                return Err(OzoneError::StorageError(format!(
+                    "container {id} has a global record but no local-state file; refusing to load it as empty"
+                )));
+            }
+        };
+
         Ok(Some(Container {
             global_state: global_state.unwrap(),
             local_state,
@@ -590,17 +810,18 @@ impl ContainerStorage {
     }
     
     /// Store local state to JSON file
+    ///
+    /// Write-behind: the write is queued on the ordered writer thread (see
+    /// LOCAL_WRITE_MAX_PENDING above), so the storage write guard held by the
+    /// caller never covers disk IO. The cache is updated here, before the
+    /// write lands, so reads in this process see the new state at once.
     fn store_local(&mut self, id: ContainerID, state: &LocalState) -> OzoneResult<()> {
         self.local_cache.insert(id, state.clone());
-        
+
         let path = self.local_path.join(format!("{}.json", id));
         let contents = serde_json::to_string_pretty(state)
             .map_err(|e| OzoneError::StorageError(format!("Failed to serialize local state: {}", e)))?;
-        
-        fs::write(&path, contents)
-            .map_err(|e| OzoneError::StorageError(format!("Failed to write local state: {}", e)))?;
-        
-        Ok(())
+        enqueue_local_op(LocalOp::Write(path, contents))
     }
     
     /// Get all container IDs
@@ -662,20 +883,33 @@ impl ContainerStorage {
             }
         }
 
+        // Removal goes through the same ordered queue as writes, so a queued
+        // write for this id cannot land after the removal and recreate the file.
         let path = self.local_path.join(format!("{}.json", id));
-        if path.exists() {
-            fs::remove_file(&path).ok();
-        }
-
-        Ok(())
+        enqueue_local_op(LocalOp::Remove(path))
     }
     
-    /// Sync all data to disk
+    /// Sync all data to disk: drain the local-state queue, flush the mmap
+    /// index, then report any local-state write that failed.
     pub fn sync(&mut self) -> OzoneResult<()> {
-        if let Some(ref mut mmap) = self.global_mmap {
-            mmap.flush().map_err(|e| OzoneError::StorageError(format!("Failed to sync: {}", e)))?;
+        let drained = drain_local_writes(LOCAL_WRITE_DRAIN_TIMEOUT);
+        let flushed = match self.global_mmap {
+            Some(ref mut mmap) => mmap
+                .flush()
+                .map_err(|e| OzoneError::StorageError(format!("Failed to sync: {}", e))),
+            None => Ok(()),
+        };
+        drained?;
+        flushed
+    }
+}
+
+impl Drop for ContainerStorage {
+    fn drop(&mut self) {
+        // Queued local-state writes must reach disk before this instance goes away.
+        if let Err(e) = drain_local_writes(LOCAL_WRITE_DRAIN_TIMEOUT) {
+            eprintln!("zsei storage dropped with unreported local-state failures: {e}");
         }
-        Ok(())
     }
 }
 

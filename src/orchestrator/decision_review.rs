@@ -176,6 +176,7 @@ Return ONLY valid JSON:
                 result = self.inner.execute(9, model_input.clone()).await;
             }
             if pipeline9_unusable(&result) {
+                let primary_model = crate::orchestrator::primary_model_identity(&model_input, None);
                 result = PromptOrchestrator::walk_fallback_chain_standalone(
                     &self.inner,
                     9,
@@ -184,6 +185,8 @@ Return ONLY valid JSON:
                     &self.available_models,
                     &self.fallback_order,
                     self.fallback_free_only,
+                    true,
+                    primary_model,
                 )
                 .await;
             }

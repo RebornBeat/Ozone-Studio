@@ -30,6 +30,10 @@ pub mod blueprints;
 pub mod bootstrap;
 pub mod config;
 pub mod consciousness;
+pub mod context_budget;
+pub mod model_windows;
+pub mod openrouter_quota;
+pub mod model_ledger;
 pub mod grpc;
 pub mod integrity;
 pub mod methodologies;
@@ -71,6 +75,7 @@ pub mod hardware_region;
 /// FILE BEACON — real file-change → live-graph ripple for registered
 /// FileReference containers. See docs/guides/file-beacon-design.md.
 pub mod file_beacon;
+pub mod mcp_graph;
 
 
 // Re-exports
@@ -967,6 +972,26 @@ impl OzoneRuntime {
     pub async fn start(self) -> Result<(), OzoneError> {
         tracing::info!("Starting Ozone Studio runtime");
 
+        // OpenRouter live catalog: context windows and the free/paid pool
+        // come from it. Spawned, so start is not blocked; a failed fetch
+        // falls back to the persisted copy, loudly (model_windows.rs).
+        crate::context_budget::model_windows::spawn_catalog_refresh();
+
+        // OpenRouter free-model quota: OpenRouter's own count of today's
+        // free-model requests, polled and warned on (openrouter_quota.rs).
+        // Metadata call only; spends none of the quota it reports.
+        if let Ok(key) = std::env::var("OPENROUTER_API_KEY") {
+            if !key.trim().is_empty() {
+                crate::openrouter_quota::spawn_monitor(key.clone());
+                // One-shot free-model probe (model_ledger.rs). Off unless set:
+                // it calls every catalog free model once and spends quota.
+                if std::env::var("OZONE_PROBE_FREE_MODELS").as_deref() == Ok("1") {
+                    tracing::warn!("OZONE_PROBE_FREE_MODELS=1 — free-model probe starts once the catalog is loaded");
+                    tokio::spawn(crate::model_ledger::probe_free_models(key));
+                }
+            }
+        }
+
         // Wrap self in Arc<RwLock<...>> for sharing with server handlers
         let runtime = Arc::new(RwLock::new(self));
 
@@ -1024,13 +1049,13 @@ impl OzoneRuntime {
             // resolve identifiers against.
             let available_models = runtime.read().await.config.models.available_models.clone();
             let meta_fallback = runtime.read().await.config.models.meta_fallback.clone();
-            tokio::spawn(crate::orchestrator::meta_loop::run_methodology_meta_loop(
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::meta_loop::run_methodology_meta_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 refinement_config.clone(),
                 available_models.clone(),
                 meta_fallback.clone(),
-            ));
+            )));
 
             // Real AMT re-expansion loop (orchestrator/amt_loop.rs) — same
             // shape as the methodology meta-loop above, same
@@ -1038,14 +1063,14 @@ impl OzoneRuntime {
             // real re-expansion candidates recorded live by
             // amt.rs::record_amt_reexpansion_candidate whenever a
             // project-anchored AMT still has an unverified node.
-            tokio::spawn(crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::amt_loop::run_amt_reexpansion_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 refinement_config,
                 available_models,
                 meta_fallback,
                 runtime.read().await.task_manager.clone(),
-            ));
+            )));
 
             // GRAPH RIPPLE → AMT SYNC (task 43 groundwork): graph writes in
             // a project's scope convert into AMT re-expansion candidates and
@@ -1078,7 +1103,7 @@ impl OzoneRuntime {
             // now. Long, budget-safe interval (clamped floor, see
             // i_loop.rs's own doc comment for why the documented 60s
             // default is never honored literally).
-            tokio::spawn(crate::orchestrator::i_loop::run_i_loop(
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::orchestrator::i_loop::run_i_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 runtime.read().await.config.consciousness.enabled,
@@ -1088,7 +1113,7 @@ impl OzoneRuntime {
                 // from config rather than reusing those now-moved bindings.
                 runtime.read().await.config.models.available_models.clone(),
                 runtime.read().await.config.models.meta_fallback.clone(),
-            ));
+            )));
 
             // PERSONAL ASSISTANT (docs/PERSONAL_ASSISTANT_GUIDE.md §4):
             // the consciousness's operator-facing voice — watches the
@@ -1099,7 +1124,7 @@ impl OzoneRuntime {
             // 1800s budget-safety floor, woken instantly by real task
             // ripples via emit_task_ripple → notify_wake. The derived
             // /assistant/feed route works regardless of this gate.
-            tokio::spawn(crate::consciousness::assistant::run_assistant_loop(
+            tokio::spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Loop, crate::consciousness::assistant::run_assistant_loop(
                 executor_adapter.clone(),
                 store_adapter.clone(),
                 runtime.read().await.task_manager.clone(),
@@ -1107,7 +1132,7 @@ impl OzoneRuntime {
                 runtime.read().await.config.consciousness.assistant_interval_ms,
                 runtime.read().await.config.models.available_models.clone(),
                 runtime.read().await.config.models.meta_fallback.clone(),
-            ));
+            )));
 
             // FILE BEACON (docs/guides/file-beacon-design.md): real
             // external file-change -> live-graph ripple for registered
@@ -1116,8 +1141,38 @@ impl OzoneRuntime {
             crate::file_beacon::spawn(store_adapter);
         }
 
-        // Start gRPC server
-        grpc::start_server(runtime).await?;
+        // Start gRPC server. Ctrl+C or SIGTERM first drains the ZSEI
+        // local-state write queue: those JSON writes are queued in memory and
+        // would be lost if the process simply exited. A drain failure is
+        // returned, so the process exits with an error instead of silently.
+        let shutdown = async {
+            let ctrl_c = tokio::signal::ctrl_c();
+            #[cfg(unix)]
+            {
+                match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+                    Ok(mut term) => {
+                        tokio::select! {
+                            _ = ctrl_c => {}
+                            _ = term.recv() => {}
+                        }
+                    }
+                    Err(_) => {
+                        let _ = ctrl_c.await;
+                    }
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = ctrl_c.await;
+            }
+        };
+        tokio::select! {
+            served = grpc::start_server(runtime) => served?,
+            _ = shutdown => {
+                tracing::info!("Shutdown signal received: draining ZSEI local-state writes");
+                zsei::drain_local_writes(std::time::Duration::from_secs(60))?;
+            }
+        }
 
         Ok(())
     }
@@ -1266,6 +1321,14 @@ impl OzoneRuntime {
             fallback_free_only: self.config.models.fallback.free_only,
             meta_fallback_order: self.config.models.meta_fallback.order.clone(),
             meta_fallback_free_only: self.config.models.meta_fallback.free_only,
+            allow_paid_models: self.config.models.allow_paid_models,
+            // The primary attempt runs config's api_model when the call carries no
+            // per-call override; the walk uses it to avoid re-requesting that model.
+            primary_default_model: if self.config.models.model_type == "api" {
+                self.config.models.api_model.clone()
+            } else {
+                None
+            },
         };
 
         let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {

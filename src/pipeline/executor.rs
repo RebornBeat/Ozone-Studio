@@ -14,6 +14,158 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
+/// Hard bound for one pipeline child: the watchdog's budget plus a margin, so
+/// the watchdog fires first (the caller gets its error) and the child is
+/// killed after. A disabled watchdog (u64::MAX) still bounds the child, at
+/// 600s, so no child is ever unbounded.
+fn child_timeout_secs() -> u64 {
+    let watchdog = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+    if watchdog == u64::MAX {
+        600
+    } else {
+        watchdog.saturating_add(30)
+    }
+}
+
+/// Sets its flag on drop. Dropping the execute future (watchdog or disconnect)
+/// drops this, so the blocking child runner kills its child instead of letting
+/// it run on after its caller is gone.
+struct CancelOnDrop(Arc<std::sync::atomic::AtomicBool>);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Keeps the running count correct on every exit path, including a cancelled future.
+struct RunningGuard<'a>(&'a std::sync::atomic::AtomicUsize);
+
+impl Drop for RunningGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Marks a progress entry Failed when the execute future is dropped before it
+/// records its own outcome. Without this, a watchdog-cancelled run stays
+/// "Running" in the progress map forever.
+struct ProgressOnDrop {
+    map: Arc<tokio::sync::RwLock<HashMap<String, PipelineProgress>>>,
+    id: String,
+    armed: bool,
+}
+
+impl Drop for ProgressOnDrop {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let map = self.map.clone();
+        let id = self.id.clone();
+        handle.spawn(async move {
+            let mut m = map.write().await;
+            if let Some(p) = m.get_mut(&id) {
+                if matches!(p.status, ProgressStatus::Running) {
+                    p.status = ProgressStatus::Failed;
+                    p.completed_at = Some(now_secs());
+                    p.error = Some(
+                        "abandoned: the caller was dropped before this execution finished (watchdog or disconnect)"
+                            .to_string(),
+                    );
+                }
+            }
+        });
+    }
+}
+
+/// Run a pipeline child with a hard bound. Stdout and stderr are drained on
+/// their own threads, so a child that writes more than a pipe buffer cannot
+/// block on a full pipe. The child is killed when it outlives `timeout` or when
+/// `cancel` is set, and a kill is returned as an error, never as partial output.
+/// A pipe still held open after the child exits (a grandchild inherited it) is
+/// an error after five seconds, not a wait forever.
+fn run_child_bounded(
+    mut cmd: Command,
+    timeout: std::time::Duration,
+    cancel: Arc<std::sync::atomic::AtomicBool>,
+) -> std::io::Result<std::process::Output> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::atomic::Ordering;
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = cmd.spawn()?;
+
+    let (out_tx, out_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut out_pipe = child.stdout.take();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = out_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        let _ = out_tx.send(buf);
+    });
+
+    let (err_tx, err_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let mut err_pipe = child.stderr.take();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = err_pipe.as_mut() {
+            let _ = p.read_to_end(&mut buf);
+        }
+        let _ = err_tx.send(buf);
+    });
+
+    let deadline = std::time::Instant::now() + timeout;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        let reason = if cancel.load(Ordering::SeqCst) {
+            Some("its caller was dropped")
+        } else if std::time::Instant::now() >= deadline {
+            Some("its time bound")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!(
+                    "pipeline child killed after {} seconds: {}",
+                    timeout.as_secs(),
+                    reason
+                ),
+            ));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    };
+
+    let collect = |rx: &std::sync::mpsc::Receiver<Vec<u8>>| {
+        rx.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "pipe still open 5 seconds after the child exited; a grandchild process may hold it",
+            )
+        })
+    };
+    let stdout = collect(&out_rx)?;
+    let stderr = collect(&err_rx)?;
+    Ok(std::process::Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ProgressStatus {
     Queued,
@@ -46,8 +198,8 @@ pub struct PipelineExecutor {
     /// Path to custom pipelines
     custom_path: PathBuf,
 
-    /// Maximum concurrent pipelines
-    max_concurrent: usize,
+    /// Ordered admission: every call queues by origin tier and always runs.
+    gate: Arc<crate::pipeline::gate::OrderedPipelineGate>,
 
     /// Currently running pipeline count
     running_count: std::sync::atomic::AtomicUsize,
@@ -69,7 +221,13 @@ impl PipelineExecutor {
         Ok(Self {
             builtin_path: PathBuf::from(&config.builtin_path),
             custom_path: PathBuf::from(&config.custom_path),
-            max_concurrent: config.max_concurrent_pipelines,
+            gate: {
+                let g = std::sync::Arc::new(crate::pipeline::gate::OrderedPipelineGate::new(
+                    config.max_concurrent_pipelines,
+                ));
+                g.spawn_keeper();
+                g
+            },
             running_count: std::sync::atomic::AtomicUsize::new(0),
             remote: Arc::new(crate::pipeline::remote::RemotePipelines::new()),
             activity: Arc::new(crate::monitor::ActivityHub::new()),
@@ -105,23 +263,14 @@ impl PipelineExecutor {
             "Starting pipeline execution"
         );
 
-        let current = self
-            .running_count
+        let _admission = self
+            .gate
+            .admit(crate::pipeline::gate::current_call_priority())
+            .await;
+        self.running_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
-        if current >= self.max_concurrent {
-            self.running_count
-                .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-            tracing::warn!(
-                execution_id = %execution_id,
-                "Pipeline execution rejected: max concurrent ({}) reached",
-                self.max_concurrent
-            );
-            return Err(OzoneError::PipelineError(format!(
-                "Maximum concurrent pipelines ({}) reached",
-                self.max_concurrent
-            )));
-        }
+        // Decrements on every exit, including a dropped (cancelled) future.
+        let _running = RunningGuard(&self.running_count);
 
         // Register progress early
         let pipeline_name = crate::pipeline::registry::get_pipeline_info(blueprint.pipeline_id)
@@ -148,6 +297,13 @@ impl PipelineExecutor {
             );
         }
 
+        // Marks this entry Failed if the future is dropped before it finishes.
+        let mut progress_guard = ProgressOnDrop {
+            map: self.progress_map.clone(),
+            id: execution_id_str.clone(),
+            armed: true,
+        };
+
         // Previously ActivityHub::record was only ever called from a handful
         // of admin-type HTTP actions (device pairing, remote-pipeline
         // register/unregister) — never from actual pipeline dispatch, so
@@ -170,8 +326,6 @@ impl PipelineExecutor {
         {
             let cancelled = self.cancel_set.read().await;
             if cancelled.contains(&execution_id_str) {
-                self.running_count
-                    .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
                 let mut map = self.progress_map.write().await;
                 if let Some(p) = map.get_mut(&execution_id_str) {
                     p.status = ProgressStatus::Cancelled;
@@ -187,9 +341,8 @@ impl PipelineExecutor {
         let result = self
             .execute_inner(blueprint, input, execution_id, task_id)
             .await;
-
-        self.running_count
-            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+        // The outcome is recorded below; the guard must not overwrite it.
+        progress_guard.armed = false;
 
         // Update progress on completion
         let final_status = if result.is_ok() {
@@ -316,19 +469,14 @@ impl PipelineExecutor {
             pipeline_dir.join("target/release").join(name),
             pipeline_dir.join("target/debug").join(name),
         ];
-        // Each pipeline is its own independent workspace root under
-        // assets/pipelines/<category>/<name>/ — `cargo build --manifest-path
-        // assets/pipelines/.../Cargo.toml` places its binary in THAT crate's
-        // own target/ dir, never in builtin_path (which is only ever an empty
-        // deploy-style directory today, nothing copies into it). Anchor via
-        // CARGO_MANIFEST_DIR so this resolves regardless of the host's CWD at
-        // launch (e.g. run from target/release/).
-        let assets_pipeline_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("assets/pipelines")
-            .join(category)
-            .join(name);
-        candidates.push(assets_pipeline_dir.join("target/release").join(name));
-        candidates.push(assets_pipeline_dir.join("target/debug").join(name));
+        // Pipelines are independent workspace roots under assets/pipelines/, built
+        // by scripts/build-pipelines.sh into one shared target dir. Anchor via
+        // CARGO_MANIFEST_DIR so this resolves regardless of the host's CWD at launch.
+        candidates.push(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/pipelines/release")
+                .join(name),
+        );
         if let Ok(exe_dir) = std::env::current_exe() {
             if let Some(dir) = exe_dir.parent() {
                 candidates.push(dir.join(name));
@@ -475,24 +623,35 @@ impl PipelineExecutor {
             cmd.arg("--task-id").arg(tid.to_string());
         }
 
-        // Blocking child process (can run for minutes — e.g. BitNet loading
-        // its model fresh per call) — keep it off the async runtime's worker
-        // thread, same pattern the prompt pipeline itself already uses for
-        // its own BitNet subprocess call.
-        let output = tokio::task::spawn_blocking(move || cmd.output())
-            .await
-            .map_err(|e| {
-                OzoneError::PipelineError(format!(
-                    "Pipeline task join failed (execution {}): {}",
-                    execution_id, e
-                ))
-            })?
-            .map_err(|e| {
-                OzoneError::PipelineError(format!(
-                    "Failed to execute pipeline (execution {}): {}",
-                    execution_id, e
-                ))
-            })?;
+        // Blocking child process, now bounded: killed at the watchdog budget
+        // plus a margin, or when this call is dropped, so a stuck child can
+        // never outlive its caller while still holding a gate slot the gate
+        // believes is free. Kept off the async worker thread as before.
+        let child_secs = child_timeout_secs();
+        // The child's own subprocesses (a local model) get a bound a margin
+        // tighter, so they are killed before this child is.
+        cmd.env(
+            "OZONE_PIPELINE_TIMEOUT_SECS",
+            child_secs.saturating_sub(15).to_string(),
+        );
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let _cancel_on_drop = CancelOnDrop(cancel.clone());
+        let output = tokio::task::spawn_blocking(move || {
+            run_child_bounded(cmd, std::time::Duration::from_secs(child_secs), cancel)
+        })
+        .await
+        .map_err(|e| {
+            OzoneError::PipelineError(format!(
+                "Pipeline task join failed (execution {}): {}",
+                execution_id, e
+            ))
+        })?
+        .map_err(|e| {
+            OzoneError::PipelineError(format!(
+                "Failed to execute pipeline (execution {}): {}",
+                execution_id, e
+            ))
+        })?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

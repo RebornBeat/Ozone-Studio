@@ -22,6 +22,9 @@
 //!
 //! STORAGE: ZSEI containers under /Modalities/BCI/
 
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -851,6 +854,10 @@ pub struct BCIGraph {
     pub state_history: Vec<GraphStateTransition>,
     pub created_at: String, pub updated_at: String,
     pub version: u32, pub version_notes: Vec<VersionNote>,
+    #[serde(default)]
+    pub zero_shot_relations: Vec<semantic_relations::AcceptedRelation>,
+    #[serde(default)]
+    pub zero_shot_rejected: Vec<semantic_relations::RejectedRelation>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -923,6 +930,9 @@ pub enum BCIHeadlessOp {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct BCIModalityOutput {
     pub success: bool,
+    /// Set when a graph save failed. The graph built in this run is still returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     pub graph_id: Option<u64>,
     pub graph: Option<BCIGraph>,
     pub analysis: Option<BCIAnalysisResult>,
@@ -1141,9 +1151,20 @@ Return ONLY valid JSON array:
         }
     }
 
+    /// (from, to, raw label) for each validated accepted relation. The raw label
+    /// is the domain label when one was mapped, else the ZSEI relation name.
+    fn accepted_edge_keys(v: &semantic_relations::Validated) -> std::collections::HashSet<(String, String, String)> {
+        v.accepted.iter().map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone()))).collect()
+    }
+
     async fn infer_semantic_relationships(&self, nodes: &[BCIGraphNode]) -> Vec<(u64, u64, BCIEdgeType, String)> {
-        if nodes.len() < 2 { return vec![]; }
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+        self.infer_semantic_relationships_validated(nodes).await.0
+    }
+
+    async fn infer_semantic_relationships_validated(&self, nodes: &[BCIGraphNode]) -> (Vec<(u64, u64, BCIEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let shown: Vec<&BCIGraphNode> = nodes.iter().take(25).collect();
+        let node_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id,
             "type": format!("{:?}", n.node_type),
             "content": n.content.chars().take(80).collect::<String>(),
@@ -1163,23 +1184,40 @@ CorrelatesWithIntent, DrivesMotorAction, DecodedFrom, PhaseLockedTo,
 SpatialFilterOf, SameTrialAs, EncodesTuning, PhysiologicallyConnects,
 Affects, CausedBy, Enables, TemporalPrecedes, DerivedFrom, SimilarTo
 
+Also give each item "relation" (one of: {}) and "evidence" (a short reason naming the two nodes).
+
 Return ONLY valid JSON array:
-[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief"}}]"#,
-            serde_json::to_string_pretty(&node_list).unwrap_or_default());
+[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief", "relation": "RelationName", "evidence": "short reason"}}]"#,
+            serde_json::to_string_pretty(&node_list).unwrap_or_default(),
+            semantic_relations::ZSEI_RELATIONS.join(", "));
 
         match self.llm_zero_shot(&prompt, 600).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str).unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_node_id"].as_u64()?;
-                        let to = v["to_node_id"].as_u64()?;
-                        let etype = map_bci_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
-                        let reason = v["reason"].as_str().unwrap_or("").to_string();
-                        Some((from, to, etype, reason))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = shown.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected stays in zero_shot_rejected, not an edge.
+                let accepted = Self::accepted_edge_keys(&validated);
+                let legacy: Vec<(u64, u64, BCIEdgeType, String)> = items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
+                    let etype = map_bci_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect();
+                (legacy, validated)
             }
-            Err(_) => vec![],
+            Err(_) => (vec![], semantic_relations::Validated::default()),
         }
     }
 
@@ -1578,17 +1616,24 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
     edge_id += 1;
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&BCIGraph {
+    let mut save_errors: Vec<String> = Vec::new();
+    if let Err(e) = executor.save_graph(&BCIGraph {
         graph_id, project_id, source_description: analysis.source_description.clone(),
         nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
         state: GraphStateType::Created,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
-    });
+        zero_shot_relations: vec![], zero_shot_rejected: vec![],
+    }) {
+        eprintln!("bci save_graph failed: file=assets/pipelines/modalities/BCI/main.rs container={graph_id} stage=created error={e}");
+        save_errors.push(format!("created: {e}"));
+    }
 
     // ── HOOK 2: OnInferRelationships ──
-    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let (inferred, zs_sem) = executor.infer_semantic_relationships_validated(&nodes).await;
+    let zs_accepted = zs_sem.accepted;
+    let zs_rejected = zs_sem.rejected;
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
@@ -1612,12 +1657,17 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BCIAnalysisResult, 
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
+        zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected,
     };
-    let _ = executor.save_graph(&final_graph);
+    if let Err(e) = executor.save_graph(&final_graph) {
+        eprintln!("bci save_graph failed: file=assets/pipelines/modalities/BCI/main.rs container={} stage=enriched error={e}", final_graph.graph_id);
+        save_errors.push(format!("enriched: {e}"));
+    }
     if let Err(e) = persist_bci_graph(&mut final_graph).await {
         eprintln!("bci persist: graph built but ZSEI persistence failed: {e}");
+        save_errors.push(format!("persist: {e}"));
     }
-    BCIModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+    BCIModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
 }
 
 /// POST /zsei/query helper — same contract the other modality pipelines use:
@@ -2433,7 +2483,10 @@ pub async fn execute(input: BCIModalityAction) -> Result<BCIModalityOutput, Stri
                     graph.state = GraphStateType::SemanticEnriched;
                 }
                 BCISemanticHook::OnInferRelationships => {
-                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let (new_edges, zs) = executor.infer_semantic_relationships_validated(&graph.nodes).await;
+                    // Keep this run's accepted and rejected records; exact repeats are not appended twice.
+                    for r in zs.accepted { if !graph.zero_shot_relations.contains(&r) { graph.zero_shot_relations.push(r); } }
+                    for r in zs.rejected { if !graph.zero_shot_rejected.contains(&r) { graph.zero_shot_rejected.push(r); } }
                     let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {

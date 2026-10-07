@@ -32,6 +32,18 @@
 //!
 //! STORAGE: ZSEI containers under /Modalities/ThreeD/
 
+/// Byte-bounded prefix that never splits a UTF-8 character. A raw byte slice
+/// panics when the cut lands inside a multi-byte character.
+fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -1249,6 +1261,10 @@ pub struct ThreeDGraph {
     pub created_at: String, pub updated_at: String,
     pub version: u32,
     pub version_notes: Vec<VersionNote>,
+    #[serde(default)]
+    pub zero_shot_relations: Vec<semantic_relations::AcceptedRelation>,
+    #[serde(default)]
+    pub zero_shot_rejected: Vec<semantic_relations::RejectedRelation>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1258,6 +1274,9 @@ pub struct ThreeDGraph {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ThreeDModalityOutput {
     pub success: bool,
+    /// Set when a graph save failed. The graph built in this run is still returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     pub graph_id: Option<u64>,
     pub graph: Option<ThreeDGraph>,
     pub analysis: Option<ThreeDAnalysisResult>,
@@ -1415,10 +1434,21 @@ impl PipelineExecutor {
 // ─────────────────────────────────────────────────────────────────────────────
 
 impl PipelineExecutor {
-    async fn infer_semantic_relationships(&self, nodes: &[ThreeDGraphNode]) -> Vec<(u64, u64, ThreeDEdgeType, String)> {
-        if nodes.len() < 2 { return vec![]; }
+    /// (from, to, raw label) for each validated accepted relation. The raw label
+    /// is the domain label when one was mapped, else the ZSEI relation name.
+    fn accepted_edge_keys(v: &semantic_relations::Validated) -> std::collections::HashSet<(String, String, String)> {
+        v.accepted.iter().map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone()))).collect()
+    }
 
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(30).map(|n| serde_json::json!({
+    async fn infer_semantic_relationships(&self, nodes: &[ThreeDGraphNode]) -> Vec<(u64, u64, ThreeDEdgeType, String)> {
+        self.infer_semantic_relationships_validated(nodes).await.0
+    }
+
+    async fn infer_semantic_relationships_validated(&self, nodes: &[ThreeDGraphNode]) -> (Vec<(u64, u64, ThreeDEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+
+        let shown: Vec<&ThreeDGraphNode> = nodes.iter().take(30).collect();
+        let node_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
             "content": n.content.chars().take(80).collect::<String>(),
             "physics": n.physics_type, "mass": n.mass,
@@ -1434,33 +1464,54 @@ Available relationship types: CollidesWith, InfluencedByForce, Supports, Symmetr
 Above, Below, InFrontOf, Performs, Affects, CausedBy, Enables, FunctionalRole, PartOf,
 DescribedByText, ImplementedInCode, DerivedFrom, TemporalPrecedes
 
+Also give each item "relation" (one of: {}) and "evidence" (a short reason naming the two nodes).
+
 Return ONLY valid JSON array:
-[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief"}}]"#,
-            serde_json::to_string_pretty(&node_list).unwrap_or_default());
+[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief", "relation": "RelationName", "evidence": "short reason"}}]"#,
+            serde_json::to_string_pretty(&node_list).unwrap_or_default(),
+            semantic_relations::ZSEI_RELATIONS.join(", "));
 
         match self.llm_zero_shot(&prompt, 800).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
-                    .unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_node_id"].as_u64()?;
-                        let to = v["to_node_id"].as_u64()?;
-                        let etype = map_3d_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
-                        let reason = v["reason"].as_str().unwrap_or("").to_string();
-                        Some((from, to, etype, reason))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = shown.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected stays in zero_shot_rejected, not an edge.
+                let accepted = Self::accepted_edge_keys(&validated);
+                let legacy: Vec<(u64, u64, ThreeDEdgeType, String)> = items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
+                    let etype = map_3d_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect();
+                (legacy, validated)
             }
-            Err(_) => vec![],
+            Err(_) => (vec![], semantic_relations::Validated::default()),
         }
     }
 
     async fn infer_spatial_relationships(&self, objects: &[&ThreeDGraphNode]) -> Vec<(u64, u64, ThreeDEdgeType)> {
-        if objects.len() < 2 { return vec![]; }
+        self.infer_spatial_relationships_validated(objects).await.0
+    }
 
-        let obj_list: Vec<serde_json::Value> = objects.iter().take(20).map(|n| serde_json::json!({
+    async fn infer_spatial_relationships_validated(&self, objects: &[&ThreeDGraphNode]) -> (Vec<(u64, u64, ThreeDEdgeType)>, semantic_relations::Validated) {
+        if objects.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+
+        let shown: Vec<&ThreeDGraphNode> = objects.iter().take(20).copied().collect();
+        let obj_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id,
-            "name": &n.content[..n.content.len().min(40)],
+            "name": prefix_chars_safe(&n.content, 40),
             "location": n.location,
             "dimensions": n.dimensions,
             "bounding_box": n.bounding_box,
@@ -1475,23 +1526,38 @@ Objects:
 Determine: Above/Below, InFrontOf/Behind, LeftOf/RightOf, NearTo, Supports, Intersects, SymmetricalTo.
 Use location and bounding box data to reason about spatial arrangement.
 
+Also give each item "relation" (one of: {}) and "evidence" (a short reason from the location and bounding box data).
+
 Return ONLY valid JSON array:
-[{{"from_id": N, "to_id": M, "spatial_type": "Above|Below|InFrontOf|Behind|LeftOf|RightOf|NearTo|Supports|Intersects|SymmetricalTo"}}]"#,
-            serde_json::to_string_pretty(&obj_list).unwrap_or_default());
+[{{"from_id": N, "to_id": M, "spatial_type": "Above|Below|InFrontOf|Behind|LeftOf|RightOf|NearTo|Supports|Intersects|SymmetricalTo", "relation": "RelationName", "evidence": "short reason"}}]"#,
+            serde_json::to_string_pretty(&obj_list).unwrap_or_default(),
+            semantic_relations::ZSEI_RELATIONS.join(", "));
 
         match self.llm_zero_shot(&prompt, 600).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
-                    .unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_id"].as_u64()?;
-                        let to = v["to_id"].as_u64()?;
-                        let etype = map_3d_edge_str(v["spatial_type"].as_str().unwrap_or("NearTo"));
-                        Some((from, to, etype))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = shown.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Same rule as the semantic path: edges only from the accepted set.
+                let accepted = Self::accepted_edge_keys(&validated);
+                let legacy: Vec<(u64, u64, ThreeDEdgeType)> = items.iter().filter_map(|v| {
+                    let from = v["from_id"].as_u64()?;
+                    let to = v["to_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
+                    let etype = map_3d_edge_str(v["spatial_type"].as_str().unwrap_or("NearTo"));
+                    Some((from, to, etype))
+                }).collect();
+                (legacy, validated)
             }
-            Err(_) => vec![],
+            Err(_) => (vec![], semantic_relations::Validated::default()),
         }
     }
 
@@ -2021,17 +2087,24 @@ async fn create_graph(
     }
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&ThreeDGraph {
+    let mut save_errors: Vec<String> = Vec::new();
+    if let Err(e) = executor.save_graph(&ThreeDGraph {
         graph_id, project_id, source_description: format!("{} {}", analysis.source_format, analysis.source_path.as_deref().unwrap_or("")),
         nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
         state: GraphStateType::Created,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }],
-    });
+        zero_shot_relations: vec![], zero_shot_rejected: vec![],
+    }) {
+        eprintln!("3D save_graph failed: file=assets/pipelines/modalities/3D/main.rs container={graph_id} stage=created error={e}");
+        save_errors.push(format!("created: {e}"));
+    }
 
     // ── HOOK 2: OnInferRelationships ──
-    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let (inferred, zs_sem) = executor.infer_semantic_relationships_validated(&nodes).await;
+    let mut zs_accepted = zs_sem.accepted;
+    let mut zs_rejected = zs_sem.rejected;
     let valid_ids: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
@@ -2049,7 +2122,9 @@ async fn create_graph(
     let obj_nodes: Vec<&ThreeDGraphNode> = nodes.iter()
         .filter(|n| matches!(n.node_type, ThreeDNodeType::Object) && n.location.is_some())
         .collect();
-    let spatial = executor.infer_spatial_relationships(&obj_nodes).await;
+    let (spatial, zs_spa) = executor.infer_spatial_relationships_validated(&obj_nodes).await;
+    zs_accepted.extend(zs_spa.accepted);
+    zs_rejected.extend(zs_spa.rejected);
     for (from, to, etype) in spatial {
         if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
             edges.push(ThreeDGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
@@ -2074,12 +2149,17 @@ async fn create_graph(
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
+        zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected,
     };
-    let _ = executor.save_graph(&final_graph);
+    if let Err(e) = executor.save_graph(&final_graph) {
+        eprintln!("3D save_graph failed: file=assets/pipelines/modalities/3D/main.rs container={graph_id} stage=enriched error={e}");
+        save_errors.push(format!("enriched: {e}"));
+    }
     if let Err(e) = executor.persist_zsei(&final_graph, project_id).await {
         eprintln!("3D CreateGraph: ZSEI container persistence failed: {e}");
+        save_errors.push(format!("persist: {e}"));
     }
-    ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), ..Default::default() }
+    ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2279,7 +2359,9 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
             let mut graph = executor.load_graph(graph_id)?;
             let now = executor.now_iso8601();
             let obj_nodes: Vec<&ThreeDGraphNode> = graph.nodes.iter().filter(|n| matches!(n.node_type, ThreeDNodeType::Object)).collect();
-            let spatial = executor.infer_spatial_relationships(&obj_nodes).await;
+            let (spatial, zs) = executor.infer_spatial_relationships_validated(&obj_nodes).await;
+            for r in zs.accepted { if !graph.zero_shot_relations.contains(&r) { graph.zero_shot_relations.push(r); } }
+            for r in zs.rejected { if !graph.zero_shot_rejected.contains(&r) { graph.zero_shot_rejected.push(r); } }
             let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
             let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
             let mut added = 0;
@@ -2442,7 +2524,10 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
             match hook {
                 ThreeDSemanticHook::OnGraphCreated => { graph.state = GraphStateType::SemanticEnriched; }
                 ThreeDSemanticHook::OnInferRelationships => {
-                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let (new_edges, zs) = executor.infer_semantic_relationships_validated(&graph.nodes).await;
+                    // Keep this run's accepted and rejected records; exact repeats are not appended twice.
+                    for r in zs.accepted { if !graph.zero_shot_relations.contains(&r) { graph.zero_shot_relations.push(r); } }
+                    for r in zs.rejected { if !graph.zero_shot_rejected.contains(&r) { graph.zero_shot_rejected.push(r); } }
                     let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
@@ -2478,7 +2563,9 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                 match op {
                     ThreeDHeadlessOp::ComputeSpatial => {
                         let obj_nodes: Vec<&ThreeDGraphNode> = graph.nodes.iter().filter(|n| matches!(n.node_type, ThreeDNodeType::Object)).collect();
-                        let spatial = executor.infer_spatial_relationships(&obj_nodes).await;
+                        let (spatial, zs) = executor.infer_spatial_relationships_validated(&obj_nodes).await;
+                        for r in zs.accepted { if !graph.zero_shot_relations.contains(&r) { graph.zero_shot_relations.push(r); } }
+                        for r in zs.rejected { if !graph.zero_shot_rejected.contains(&r) { graph.zero_shot_rejected.push(r); } }
                         let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for (from, to, etype) in spatial {

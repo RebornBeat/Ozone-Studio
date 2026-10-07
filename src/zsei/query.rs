@@ -196,6 +196,169 @@ impl QueryProcessor {
         }
     }
     
+    /// READ-PATH CLASSIFICATION: the variants that only ever read. None of
+    /// these mutate the store or the processor (version_history is only
+    /// touched by the create/update/delete helpers), so they can run under
+    /// READ guards. Every other variant — writes, rollbacks, and the
+    /// currently-unsupported set — keeps the write path, preserving
+    /// behavior exactly.
+    pub fn is_read_query(query: &ZSEIQuery) -> bool {
+        matches!(
+            query,
+            ZSEIQuery::GetUserWorkspaces { .. }
+                | ZSEIQuery::GetProjects { .. }
+                | ZSEIQuery::GetProjectContext { .. }
+                | ZSEIQuery::GetContainer { .. }
+                | ZSEIQuery::GetContainerContent { .. }
+                | ZSEIQuery::GetCategories { .. }
+                | ZSEIQuery::GetMethodologies { .. }
+                | ZSEIQuery::GetMethodologiesByKeywords { .. }
+                | ZSEIQuery::SearchBlueprints { .. }
+                | ZSEIQuery::SearchBlueprintsByKeywords { .. }
+                | ZSEIQuery::SearchContainersByKeywords { .. }
+                | ZSEIQuery::Traverse(_)
+                | ZSEIQuery::GetVersionHistory { .. }
+        )
+    }
+
+    /// Resolve where a container's content file lives, under the caller's
+    /// storage guard. Returns (full path, object_store_path), or None when the
+    /// content is inline in local_state. Pure lookup: no disk IO.
+    pub fn content_target(
+        storage: &ContainerStorage,
+        container_id: ContainerID,
+    ) -> OzoneResult<Option<(String, String)>> {
+        let Some(container) = storage.load(container_id)? else {
+            return Err(crate::types::OzoneError::NotFound(format!("Container {} not found", container_id)));
+        };
+        let Some(object_store_path) = container.local_state.storage.object_store_path.clone() else {
+            return Ok(None);
+        };
+        // Same absolute-path-is-used-as-is / relative-path-joins-data-dir
+        // convention already established this session (amt_loop.rs,
+        // jurisdiction.rs, amt.rs).
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let full_path = if std::path::Path::new(&object_store_path).is_absolute() {
+            object_store_path.clone()
+        } else {
+            format!("{}/{}", data_dir, object_store_path)
+        };
+        Ok(Some((full_path, object_store_path)))
+    }
+
+    /// Process a READ query under READ guards (see is_read_query). Same
+    /// semantics as the matching arms of process() — bodies are delegated
+    /// to the same helpers with a shared &ContainerStorage. Write variants
+    /// must not arrive here (query() routes by is_read_query); anything
+    /// else errors identically to process()'s catch-all.
+    pub async fn process_read(
+        &self,
+        storage: &ContainerStorage,
+        traversal: &TraversalEngine,
+        query: ZSEIQuery,
+    ) -> OzoneResult<ZSEIQueryResult> {
+        match query {
+            ZSEIQuery::GetUserWorkspaces { user_id } => {
+                let ids = self.find_user_workspaces(storage, user_id)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::GetProjects { workspace_id } => {
+                let ids = storage.get_children(workspace_id)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::GetProjectContext { project_id } => {
+                if let Some(container) = storage.load(project_id)? {
+                    Ok(ZSEIQueryResult::Container(container))
+                } else {
+                    Err(crate::types::OzoneError::NotFound(format!("Project {} not found", project_id)))
+                }
+            }
+
+            ZSEIQuery::GetContainer { container_id } => {
+                if let Some(container) = storage.load(container_id)? {
+                    Ok(ZSEIQueryResult::Container(container))
+                } else {
+                    Err(crate::types::OzoneError::NotFound(format!("Container {} not found", container_id)))
+                }
+            }
+
+            ZSEIQuery::GetContainerContent { .. } => {
+                // The disk read used to run here, under the storage guard
+                // this function is handed. ZSEI::query now serves this query
+                // itself (container_content), with no guard held across IO.
+                // Reaching this arm means a caller bypassed query(), so fail
+                // loudly rather than reintroduce the guarded read.
+                Err(crate::types::OzoneError::StorageError(
+                    "GetContainerContent must be served by ZSEI::query (disk read outside the storage guard)".to_string(),
+                ))
+            }
+
+            ZSEIQuery::GetCategories { modality, parent_category } => {
+                let ids = self.find_categories(storage, modality, parent_category)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::GetMethodologies { category_ids } => {
+                let ids = self.find_methodologies_by_categories(storage, &category_ids)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::GetMethodologiesByKeywords { keywords } => {
+                let ids = self.find_methodologies_by_keywords(storage, &keywords)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::SearchBlueprints { task_signature } => {
+                let ids = self.search_blueprints(storage, task_signature)?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::SearchBlueprintsByKeywords { keywords } => {
+                let ids = self.search_registry.run(
+                    None,
+                    storage,
+                    &keywords,
+                    Some(ContainerType::Blueprint),
+                ).await?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::SearchContainersByKeywords {
+                keywords,
+                container_type,
+                strategy,
+            } => {
+                let ct = container_type.as_deref().and_then(|s| {
+                    serde_json::from_value::<ContainerType>(serde_json::Value::String(
+                        s.to_string(),
+                    ))
+                    .ok()
+                });
+                let ids = self
+                    .search_registry
+                    .run(strategy.as_deref(), storage, &keywords, ct)
+                    .await?;
+                Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::Traverse(request) => {
+                let result = traversal.traverse(&*storage, request).await?;
+                Ok(ZSEIQueryResult::TraversalResult(result))
+            }
+
+            ZSEIQuery::GetVersionHistory { container_id } => {
+                let history = self.get_version_history(container_id)?;
+                Ok(ZSEIQueryResult::VersionHistory(history))
+            }
+
+            _ => {
+                Err(OzoneError::ZSEIError("Unsupported query type".into()))
+            }
+        }
+    }
+
     /// Create a new container
     fn create_container(
         &mut self,

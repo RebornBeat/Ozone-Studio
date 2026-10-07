@@ -28,6 +28,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
@@ -1089,6 +1092,10 @@ pub struct ProteomicsGraph {
     pub state_history: Vec<GraphStateTransition>,
     pub created_at: String, pub updated_at: String,
     pub version: u32, pub version_notes: Vec<VersionNote>,
+    #[serde(default)]
+    pub zero_shot_relations: Vec<semantic_relations::AcceptedRelation>,
+    #[serde(default)]
+    pub zero_shot_rejected: Vec<semantic_relations::RejectedRelation>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1157,6 +1164,8 @@ pub enum ProteomicsOperation {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ProteomicsModalityOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     pub success: bool,
     pub graph_id: Option<u64>,
     pub graph: Option<ProteomicsGraph>,
@@ -1306,7 +1315,11 @@ Return ONLY valid JSON array:
     }
 
     async fn infer_semantic_relationships(&self, nodes: &[ProteomicsGraphNode]) -> Vec<(u64, u64, ProteomicsEdgeType, String)> {
-        if nodes.len() < 2 { return vec![]; }
+        self.infer_semantic_relationships_validated(nodes).await.0
+    }
+
+    async fn infer_semantic_relationships_validated(&self, nodes: &[ProteomicsGraphNode]) -> (Vec<(u64, u64, ProteomicsEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
         let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
             "node_id": n.node_id,
             "type": format!("{:?}", n.node_type),
@@ -1326,23 +1339,31 @@ Available types: InteractsWith, Activates, Inhibits, Phosphorylates, Cleaves,
 PartOfComplex, CoexpressedWith, ParticipatesIn, CausedBy, Enables, Prevents,
 DerivedFrom, FunctionalRole, InstanceOf, SimilarTo, OrthologTo
 
+Also give each item "relation" (one of the types above, exactly as written) and "evidence" (a short reason naming what the two nodes share).
+
 Return ONLY valid JSON array:
-[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief"}}]"#,
+[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief", "relation": "TypeName", "evidence": "brief"}}]"#,
             serde_json::to_string_pretty(&node_list).unwrap_or_default());
 
         match self.llm_zero_shot(&prompt, 800).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str).unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_node_id"].as_u64()?;
-                        let to = v["to_node_id"].as_u64()?;
-                        let etype = map_prot_edge_str(v["edge_type"].as_str().unwrap_or("InteractsWith"));
-                        let reason = v["reason"].as_str().unwrap_or("").to_string();
-                        Some((from, to, etype, reason))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let legacy: Vec<(u64, u64, ProteomicsEdgeType, String)> = items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let etype = map_prot_edge_str(v["edge_type"].as_str().unwrap_or("InteractsWith"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"], "to": v["to_node_id"],
+                    "relation": v["relation"], "evidence": v["evidence"],
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
+                (legacy, semantic_relations::validate_structural(&proposal, &ids))
             }
-            Err(_) => vec![],
+            Err(_) => (vec![], semantic_relations::Validated::default()),
         }
     }
 
@@ -1512,7 +1533,7 @@ async fn persist_proteomics_graph(graph: &mut ProteomicsGraph) -> Result<(), Str
     let abs = std::path::Path::new(&dir).join(&rel);
     if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
     std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
-        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges, "zero_shot_relations": graph.zero_shot_relations, "zero_shot_rejected": graph.zero_shot_rejected
     })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
     let _ = zsei_query(serde_json::json!({
         "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
@@ -2009,10 +2030,16 @@ async fn create_graph(
     }
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&ProteomicsGraph { graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }] });
+    let mut save_error: Option<String> = None;
+    let created_save = executor.save_graph(&ProteomicsGraph { zero_shot_relations: vec![], zero_shot_rejected: vec![], graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }] });
+    if let Err(e) = created_save {
+        eprintln!("proteomics create_graph: initial save_graph failed for graph {}: {e}", graph_id);
+        save_error.get_or_insert(format!("initial save_graph: {e}"));
+    }
 
     // ── HOOK 2: OnInferRelationships ──
-    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let (inferred, zs) = executor.infer_semantic_relationships_validated(&nodes).await;
+    let (zs_accepted, zs_rejected) = (zs.accepted, zs.rejected);
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
@@ -2030,12 +2057,16 @@ async fn create_graph(
     // Remove self-loop cross-modal placeholders from the real edge list — only keep ones with target_modality property
     // (they are intentional cross-modal markers, not errors)
 
-    let mut final_graph = ProteomicsGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
-    let _ = executor.save_graph(&final_graph);
+    let mut final_graph = ProteomicsGraph { zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected, graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
+    if let Err(e) = executor.save_graph(&final_graph) {
+        eprintln!("proteomics create_graph: final save_graph failed for graph {}: {e}", final_graph.graph_id);
+        save_error.get_or_insert(format!("final save_graph: {e}"));
+    }
     if let Err(e) = persist_proteomics_graph(&mut final_graph).await {
         eprintln!("proteomics persist: graph built but ZSEI persistence failed: {e}");
+        save_error.get_or_insert(format!("zsei persist: {e}"));
     }
-    ProteomicsModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+    ProteomicsModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), save_error, ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2344,7 +2375,9 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
             match hook {
                 ProteomicsSemanticHook::OnGraphCreated => { graph.state = GraphStateType::SemanticEnriched; }
                 ProteomicsSemanticHook::OnInferRelationships => {
-                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let (new_edges, zs) = executor.infer_semantic_relationships_validated(&graph.nodes).await;
+                    graph.zero_shot_relations.extend(zs.accepted);
+                    graph.zero_shot_rejected.extend(zs.rejected);
                     let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {

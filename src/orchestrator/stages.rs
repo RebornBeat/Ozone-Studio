@@ -145,15 +145,50 @@ impl PromptOrchestrator {
     /// registry text for prompt embedding. Reads the summary built at the
     /// orchestrate seam (state.capability_summary); honest "(none
     /// registered)" when absent — never a fabricated list.
-    pub(crate) fn capability_summary_text(state: &OrchestrationState) -> String {
-        state
-            .capability_summary
-            .clone()
-            .unwrap_or_else(|| "(no tools/MCPs registered)".to_string())
+    pub(crate) fn capability_summary_for_need(state: &OrchestrationState, need: &str) -> String {
+        let full = match &state.capability_summary {
+            Some(f) => f,
+            None => return "(no tools/MCPs registered)".to_string(),
+        };
+        let need_lower = need.to_lowercase();
+        let tokens: Vec<&str> = need_lower
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| t.len() > 2)
+            .collect();
+        if tokens.is_empty() {
+            // No keywords to retrieve by — say so, hand over the full
+            // registry rather than guessing at relevance.
+            return format!("(no need keywords to retrieve tools by) {full}");
+        }
+        let lines: Vec<&str> = full.lines().collect();
+        let matched: Vec<&str> = lines
+            .iter()
+            .filter(|l| {
+                let l_lower = l.to_lowercase();
+                tokens.iter().any(|t| l_lower.contains(t))
+            })
+            .copied()
+            .collect();
+        if matched.len() == lines.len() {
+            // Everything matches this need — identity view, nothing cut.
+            return full.clone();
+        }
+        if matched.is_empty() {
+            return format!(
+                "({} tools/MCPs registered; none matched this stage's need keywords — retrieval is by need; the full registry remains in orchestration state and on the graph, and any tool you know by name remains callable)",
+                lines.len()
+            );
+        }
+        format!(
+            "{}\n[tools retrieved for this need: {} of {} registered shown; the rest remain registered and callable by name]",
+            matched.join("\n"),
+            matched.len(),
+            lines.len()
+        )
     }
 
-    pub(crate) fn jurisdiction_summary(state: &OrchestrationState) -> String {
-        match &state.jurisdiction_gate_result {
+    pub(crate) fn jurisdiction_summary(state: &mut OrchestrationState) -> String {
+        let text = match &state.jurisdiction_gate_result {
             Some(g) => {
                 let base = format!(
                     "region rules loaded: {}, matched: {}, blocked: {}",
@@ -166,7 +201,6 @@ impl PromptOrchestrator {
                     let rules = g
                         .matched
                         .iter()
-                        .take(5)
                         .map(|(rule, action)| {
                             format!(
                                 "    - {} -> {:?}{}",
@@ -187,7 +221,6 @@ impl PromptOrchestrator {
                     let warnings = g
                         .warnings
                         .iter()
-                        .take(5)
                         .map(|w| format!("    - {}", w))
                         .collect::<Vec<_>>()
                         .join("\n");
@@ -197,7 +230,6 @@ impl PromptOrchestrator {
                     let confirmations = g
                         .confirmations
                         .iter()
-                        .take(5)
                         .map(|(rule, review)| {
                             format!(
                                 "    - {} -> {} ({})",
@@ -211,7 +243,10 @@ impl PromptOrchestrator {
                 sections.join("\n")
             }
             None => "no gate result".to_string(),
-        }
+        };
+        // Whole summary, sized against the reading model's window (was
+        // take(5) per list, silently). Every cut is recorded.
+        super::amt::render_within_window(state, "jurisdiction_summary", 8, text)
     }
 
     /// Real relationship edges among THIS REQUEST's own attached-file
@@ -247,13 +282,15 @@ impl PromptOrchestrator {
         }
         if let Some(amt) = &state.amt {
             parts.push(format!("Root intent: {}", amt.content));
-            let branches: Vec<&str> = amt.children.iter().map(|c| c.content.as_str()).take(6).collect();
+            // Every top-level branch name (was take(6): silent drop past six).
+            let branches: Vec<&str> = amt.children.iter().map(|c| c.content.as_str()).collect();
             if !branches.is_empty() {
                 parts.push(format!("Branches: {}", branches.join("; ")));
             }
         }
         if !state.request.prompt.is_empty() {
-            parts.push(format!("Request: {}", &state.request.prompt[..state.request.prompt.len().min(200)]));
+            // The whole request (was cut to 200 chars).
+            parts.push(format!("Request: {}", state.request.prompt.trim()));
         }
         if parts.is_empty() {
             return String::new();
@@ -261,12 +298,12 @@ impl PromptOrchestrator {
         format!("PROJECT STANDING CONTEXT (the source-of-truth structure this system built for this project):\n{}", parts.join("\n"))
     }
 
-    pub(crate) async fn file_relationship_summary(&self, state: &OrchestrationState) -> String {
+    pub(crate) async fn file_relationship_summary(&self, state: &mut OrchestrationState) -> String {
         if state.file_graphs.is_empty() {
             return String::new();
         }
         let mut lines = Vec::new();
-        'outer: for (path, &graph_id) in state.file_graphs.iter().take(10) {
+        for (path, &graph_id) in state.file_graphs.iter() {
             if let Ok(Some(container)) = self.store.get_container(graph_id).await {
                 let relationships = container
                     .get("local_state")
@@ -290,20 +327,20 @@ impl PromptOrchestrator {
                         "  - {} (#{}) <-> #{}: {} {:.2} via {}",
                         path, graph_id, target_id, relation_type, confidence, discovered_via
                     ));
-                    if lines.len() >= 10 {
-                        break 'outer;
-                    }
                 }
             }
         }
-        if lines.is_empty() {
+        // Every relationship line (was capped at 10 files / 10 lines,
+        // silently). Sized against the reading model's window; cuts recorded.
+        let text = if lines.is_empty() {
             String::new()
         } else {
             format!(
                 "RELATED FILES (from this request's own graph):\n{}",
                 lines.join("\n")
             )
-        }
+        };
+        super::amt::render_within_window(state, "file_relationships", 8, text)
     }
 
     async fn stage_3_blueprint_assignment(
@@ -443,12 +480,20 @@ impl PromptOrchestrator {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let available_models_desc: String = if state.request.available_models.is_empty() {
-            "  (only the default configured model)".to_string()
+        // Paid models are never offered to the blueprint model: the list is
+        // free OpenRouter models and local models only. A paid entry in
+        // config stays configured; it is simply not a choice this prompt
+        // can make. Overrides naming one are refused at resolution below.
+        let free_models_for_prompt: Vec<&crate::config::AvailableModel> = state
+            .request
+            .available_models
+            .iter()
+            .filter(|m| m.is_free || state.request.allow_paid_models)
+            .collect();
+        let available_models_desc: String = if free_models_for_prompt.is_empty() {
+            "  (no free or local models configured; the default chain is used)".to_string()
         } else {
-            state
-                .request
-                .available_models
+            free_models_for_prompt
                 .iter()
                 .map(|m| {
                     format!(
@@ -471,14 +516,24 @@ impl PromptOrchestrator {
             "  (none matched this request)".to_string()
         } else {
             let mut lines = Vec::new();
-            for &method_id in &state.methodologies {
+            // Copy of the ids: the loop body sizes rules against `state`
+            // (mutable), so it cannot keep a borrow of state.methodologies.
+            for method_id in state.methodologies.clone() {
                 if let Ok(Some(container)) = self.store.get_container(method_id).await {
                     let name = container
                         .get("local_state").and_then(|ls| ls.get("metadata"))
                         .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                         .unwrap_or("Unknown");
-                    match Self::load_methodology_rules_text(&container) {
-                        Some(rules) => lines.push(format!("  - {}: {}", name, rules)),
+                    match Self::load_methodology_rules_full(&container) {
+                        Some(rules) => {
+                            let rules = super::amt::render_within_window(
+                                state,
+                                "blueprint_methodology_rules",
+                                8,
+                                rules,
+                            );
+                            lines.push(format!("  - {}: {}", name, rules))
+                        }
                         None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
                     }
                 }
@@ -491,9 +546,28 @@ impl PromptOrchestrator {
         let file_relationships = self.file_relationship_summary(state).await;
         // REGISTERED CAPABILITIES (§11.2): compact registry summary so the
         // blueprint can route steps to tools/MCPs when the goal matches.
-        let capabilities = Self::capability_summary_text(state);
+        let capabilities =
+            Self::capability_summary_for_need(state, &state.request.prompt);
+        // The request text, and every branch's text (intents with their branches
+        // under them). The blueprint previously saw only the root label and
+        // "name: N children", so branch text never reached it. The branch block
+        // is window-derived; any trim is recorded (render_within_window).
+        let request_text = super::amt::request_intent_text(state);
+        let mut branch_block = String::new();
+        for c in &amt.children {
+            branch_block.push_str(&format!("- {}\n", c.content));
+            for g in &c.children {
+                branch_block.push_str(&format!("    - {}\n", g.content));
+            }
+        }
+        let branch_block =
+            super::amt::render_within_window(state, "blueprint_branches", 4, branch_block);
+
         let blueprint_prompt = format!(
             r#"Create a blueprint (execution plan) from this AMT.
+
+REQUEST (the user's request as stated — the blueprint must answer it):
+{request_text}
 
 AMT ROOT: {}
 BRANCHES ({branch_count} total — this AMT root represents {branch_count} distinct
@@ -508,7 +582,7 @@ otherwise):
 AVAILABLE PIPELINES:
 {}
 
-AVAILABLE MODELS (for optional per-step model_override.model_identifier):
+AVAILABLE MODELS — FREE AND LOCAL ONLY (for optional per-step model_override.model_identifier):
 {}
 
 APPLICABLE METHODOLOGIES (apply these rules directly when drafting steps —
@@ -565,16 +639,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
     "missing_capabilities": ["capability1", "capability2"]
 }}"#,
             amt.content,
-            amt.children
-                .iter()
-                .map(|c| format!(
-                    "- {}: {} children, chunk refs: {:?}",
-                    c.content,
-                    c.children.len(),
-                    c.source_chunk_indices
-                ))
-                .collect::<Vec<_>>()
-                .join("\n"),
+            branch_block,
             available_pipelines_desc,
             available_models_desc,
             methodologies_desc
@@ -927,6 +992,69 @@ steps this AMT's branch count above actually requires, not necessarily two):
             );
         }
 
+        // INTENT CARRY: when the request text is the intent node (the
+        // generic-intent displacement this pass fixes), some step must address
+        // it. Covered = a step description contains the normalised request.
+        // Otherwise one step for the request is appended. Recorded either way.
+        // Extracted intents are already covered per-branch by reconciliation
+        // above, so when no node is the request text this check reports
+        // not_applicable rather than guessing.
+        let request_key = super::amt::norm_intent_key(&request_text);
+        let request_node: Option<&AMTNode> = amt
+            .children
+            .iter()
+            .find(|c| super::amt::norm_intent_key(&c.content) == request_key)
+            .or_else(|| {
+                (super::amt::norm_intent_key(&amt.content) == request_key).then_some(&amt)
+            });
+        match request_node {
+            None => super::amt::record_intent_event(
+                state,
+                "intent_carried",
+                serde_json::json!({
+                    "status": "not_applicable",
+                    "reason": "no intent node equals the request text; per-branch reconciliation covers extracted intents",
+                }),
+            ),
+            Some(node) => {
+                let carried = state
+                    .blueprint_steps
+                    .iter()
+                    .any(|s| super::amt::norm_intent_key(&s.description).contains(&request_key));
+                if carried {
+                    super::amt::record_intent_event(
+                        state,
+                        "intent_carried",
+                        serde_json::json!({ "status": "already", "intent": request_text }),
+                    );
+                } else {
+                    let mut methodology_ids = Vec::new();
+                    collect_methodology_ids(node, &mut methodology_ids);
+                    state.blueprint_steps.push(BlueprintStep {
+                        step_index: next_step_index,
+                        action: "execute_prompt".to_string(),
+                        description: format!("Address: {}", request_text),
+                        pipeline_id: 9,
+                        context_requirements: branch_keywords(&request_text),
+                        loop_config: None,
+                        sub_steps: Vec::new(),
+                        depends_on: Vec::new(),
+                        wait_for_graph_update: false,
+                        max_retries: 1,
+                        timeout_ms: None,
+                        model_override: None,
+                        source_chunk_indices: node.source_chunk_indices.clone(),
+                        methodology_ids,
+                    });
+                    super::amt::record_intent_event(
+                        state,
+                        "intent_carried",
+                        serde_json::json!({ "status": "appended", "intent": request_text }),
+                    );
+                }
+            }
+        }
+
         // Store blueprint in ZSEI
         let blueprint_container = serde_json::json!({
             "container_type": "Blueprint",
@@ -995,10 +1123,10 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // the root intent + level-1 branch NAMES: AMT sub-details, extracted
         // signals, attached files, jurisdiction outcomes, and traversal-backed
         // related containers were all silently dropped. Everything below is
-        // real captured state, capped by characters (never truncated to
-        // nothing) so a large tree can't blow the token budget.
+        // real captured state. The tree renders in full here and is then sized
+        // to the model window by render_within_window (a trim is recorded, never
+        // silent; was a fixed 1500-char budget with the cut only in the prompt).
         let mut tree_render = String::new();
-        let mut tree_budget = 1500usize;
         fn render_tree(node: &crate::orchestrator::AMTNode, depth: usize, out: &mut String, budget: &mut usize) {
             if *budget == 0 {
                 out.push_str("  … (tree continues)\n");
@@ -1012,19 +1140,25 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 render_tree(child, depth + 1, out, budget);
             }
         }
-        render_tree(amt, 0, &mut tree_render, &mut tree_budget);
+        let mut unbounded = usize::MAX;
+        render_tree(amt, 0, &mut tree_render, &mut unbounded);
+        // `amt` is not used past this point, so the state borrow is free again.
+        let tree_render =
+            super::amt::render_within_window(state, "simulation_tree", 8, tree_render);
 
-        let entities_desc = if state.entities.is_empty() {
+        let entities_desc_raw = if state.entities.is_empty() {
             "(none extracted)".to_string()
         } else {
             state
                 .entities
                 .iter()
-                .take(12)
                 .map(|e| format!("{} ({})", e.text, e.entity_type))
                 .collect::<Vec<_>>()
                 .join(", ")
         };
+        // Every entity (was take(12), silently), sized against the window.
+        let entities_desc =
+            super::amt::render_within_window(state, "simulation_entities", 8, entities_desc_raw);
         let files_desc = if state.classified_file_graphs.is_empty() {
             "(none attached)".to_string()
         } else {
@@ -1051,13 +1185,13 @@ steps this AMT's branch count above actually requires, not necessarily two):
             "(none matched this request)".to_string()
         } else {
             let mut lines = Vec::new();
-            for &method_id in state.methodologies.iter().take(6) {
+            for &method_id in state.methodologies.iter() {
                 if let Ok(Some(container)) = self.store.get_container(method_id).await {
                     let name = container
                         .get("local_state").and_then(|ls| ls.get("metadata"))
                         .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                         .unwrap_or("Unknown");
-                    match Self::load_methodology_rules_text(&container) {
+                    match Self::load_methodology_rules_full(&container) {
                         Some(rules) => lines.push(format!("  - {}: {}", name, rules)),
                         None => lines.push(format!("  - {} (no detailed rules on file yet)", name)),
                     }
@@ -1069,6 +1203,9 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 lines.join("\n")
             }
         };
+        // Every methodology (was take(6), silently), sized against the window.
+        let methodologies_block =
+            super::amt::render_within_window(state, "simulation_methodologies", 8, methodologies_block);
 
         // Consciousness gate state — it RUNS AFTER this simulation (stage 8);
         // the model should know it will be applied.
@@ -1082,7 +1219,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // this request's signals — real container names, infrastructure
         // filtered, capped. This is the loopable element: every prompt call
         // sees what prior runs persisted, so answers build on the graph.
-        let related_names = {
+        let related_names_raw = {
             let hits = self
                 .store
                 .search_by_keywords(
@@ -1092,7 +1229,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 .await
                 .unwrap_or_default();
             let mut names = Vec::new();
-            for id in hits.into_iter().take(8) {
+            for id in hits.into_iter() {
                 if let Ok(Some(c)) = self.store.get_container(id).await {
                     let ctype = c
                         .get("local_state").and_then(|l| l.get("metadata"))
@@ -1104,9 +1241,6 @@ steps this AMT's branch count above actually requires, not necessarily two):
                         names.push(format!("{} (#{})", n, id));
                     }
                 }
-                if names.len() >= 5 {
-                    break;
-                }
             }
             if names.is_empty() {
                 "(no strongly related containers in the graph yet)".to_string()
@@ -1114,8 +1248,13 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 names.join("\n- ")
             }
         };
+        // Every related name (was capped at 5, silently), sized against the
+        // reading model's window; cuts recorded.
+        let related_names =
+            super::amt::render_within_window(state, "related_names", 8, related_names_raw);
 
-        let capabilities = Self::capability_summary_text(state);
+        let capabilities =
+            Self::capability_summary_for_need(state, &state.request.prompt);
         let simulate_prompt = format!(
             r#"Simulate executing this plan and predict outcomes.
 
@@ -1386,7 +1525,7 @@ Return JSON:
         // inside the review (wire-before-drop: same execute(39) call
         // shape, real decision inside).
         tracing::info!(stage = 8, "[8.1] consciousness gate: assembling full traversed picture (AMT + blueprint + jurisdiction + methodology rules + simulation)");
-        let mut amt_render = String::new();
+        let mut amt_full = String::new();
         if let Some(amt) = &state.amt {
             fn render(node: &crate::orchestrator::AMTNode, depth: usize, out: &mut String, budget: &mut usize) {
                 if *budget == 0 { return; }
@@ -1397,9 +1536,15 @@ Return JSON:
                     render(child, depth + 1, out, budget);
                 }
             }
-            let mut budget = 1200usize;
-            render(amt, 0, &mut amt_render, &mut budget);
+            // Full render here; sized to the window below. The AMT is the
+            // source of truth for this review. The old fixed 1200-char floor
+            // is removed; the budget is window/8 tokens, and every cut is
+            // recorded by render_within_window (an unknown window cuts nothing).
+            let mut unbounded = usize::MAX;
+            render(amt, 0, &mut amt_full, &mut unbounded);
         }
+        let amt_render =
+            super::amt::render_within_window(state, "gate_amt_render", 8, amt_full);
         let blueprint_render = state
             .blueprint_steps
             .iter()
@@ -1437,25 +1582,34 @@ Return JSON:
             None => "(simulation stage did not run or produced no result)".to_string(),
         };
         let mut methods_render = String::new();
-        for &method_id in state.methodologies.iter().take(4) {
+        for &method_id in state.methodologies.iter() {
             if let Ok(Some(container)) = self.store.get_container(method_id).await {
                 let name = container
                     .get("local_state").and_then(|l| l.get("metadata"))
                     .and_then(|m| m.get("name")).and_then(|n| n.as_str())
                     .unwrap_or("Unknown");
-                match Self::load_methodology_rules_text(&container) {
+                match Self::load_methodology_rules_full(&container) {
                     Some(rules) => methods_render.push_str(&format!("  - {}: {}\n", name, rules)),
                     None => methods_render.push_str(&format!("  - {} (no rules on file)\n", name)),
                 }
             }
         }
 
+        // Methodology rules (every methodology, was take(4)) and the whole
+        // request (was a 600-char cut) are sized against the window; cuts
+        // are recorded.
+        let methods_render =
+            super::amt::render_within_window(state, "gate_methodologies", 8, methods_render);
+        let request_full = state.cleaned_prompt.clone();
+        let request_text =
+            super::amt::render_within_window(state, "gate_request", 8, request_full);
+
         let input = serde_json::json!({
             "action": "Evaluate",
             "task_id": 0,
             "task_summary": format!(
                 "THE PLAN UNDER REVIEW (the blueprint is the goal — nothing has executed yet; judge the plan and its judgment with everything connected to it):\n\nREQUEST:\n{}\n\nAMT (SOURCE OF TRUTH):\n{}\n\nBLUEPRINT STEPS:\n{}\n\nJURISDICTION OUTCOME:\n{}\n\nMETHODOLOGY RULES IN SCOPE:\n{}\n\nSIMULATION PREDICTIONS (the system's own self-critique of this plan, from stage 4):\n{}",
-                &state.cleaned_prompt[..state.cleaned_prompt.len().min(600)],
+                request_text,
                 amt_render,
                 blueprint_render,
                 jurisdiction_ctx,
@@ -1656,7 +1810,7 @@ Return JSON:
                                 step.step_index,
                                 "completed",
                                 Some(result.tokens_used),
-                                Some(output_text[..200.min(output_text.len())].to_string()),
+                                Some(output_text.clone()),
                                 None, // execution_id
                                 &step.description,
                                 Some(format!(
@@ -1720,7 +1874,7 @@ Return JSON:
                                 step.step_index,
                                 "completed",
                                 Some(result.tokens_used),
-                                Some(output_text[..200.min(output_text.len())].to_string()),
+                                Some(output_text.clone()),
                                 None, // execution_id
                                 &step.description,
                                 Some(format!(
@@ -1905,11 +2059,23 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // every other branch's text too. Falls back to the full walk
             // when no branch scope is known (e.g. the single-step fallback
             // blueprint).
-            let session_context = self.reconstruct_session_context(
+            let session_budget = state.model_context_limit / 8;
+            let (session_context, session_dropped) = self.reconstruct_session_context(
                 state,
-                state.model_context_limit / 8,
+                session_budget,
                 &step.source_chunk_indices,
             );
+            if session_dropped > 0 {
+                super::amt::record_intent_event(
+                    state,
+                    "session_context_trimmed",
+                    serde_json::json!({
+                        "step": step.step_index,
+                        "dropped_units": session_dropped,
+                        "budget_tokens": session_budget,
+                    }),
+                );
+            }
             let context_input = serde_json::json!({
                 "action": "ForStep",
                 "query": format!("{} - {}", state.cleaned_prompt, step.description),
@@ -1975,6 +2141,20 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 }
             }
 
+            // Previous step outputs, whole, sized against this step's model
+            // window. The old per-output cut at 300 chars was silent.
+            let previous_block = if previous_outputs.is_empty() {
+                String::new()
+            } else {
+                let joined = previous_outputs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, o)| format!("Step {}: {}", i + 1, o))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                super::amt::render_within_window(state, "previous_step_outputs", 4, joined)
+            };
+
             // Build full context with previous outputs + coordination layer.
             // The coordination layer (task 43) carries scoped agent history
             // from the /SharedContext graph — included as a distinct labeled
@@ -1994,14 +2174,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 fc.push_str(&step_context);
                 if !previous_outputs.is_empty() {
                     fc.push_str("\n\nPrevious step outputs:\n");
-                    fc.push_str(
-                        &previous_outputs
-                            .iter()
-                            .enumerate()
-                            .map(|(i, o)| format!("Step {}: {}", i + 1, &o[..o.len().min(300)]))
-                            .collect::<Vec<_>>()
-                            .join("\n"),
-                    );
+                    fc.push_str(&previous_block);
                 }
                 fc
             };
@@ -2054,6 +2227,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     "Step context exceeds model's context budget — compacting"
                 );
                 let target_chars = (input_budget as usize).saturating_mul(4);
+                let context_window = state.model_context_limit as usize;
                 let compact_prompt = format!(
                     "Compress the following context to at most {} characters while preserving every \
                      fact, requirement, or constraint relevant to this task: \"{}\". Do not add \
@@ -2080,14 +2254,26 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                             .unwrap_or("")
                             .to_string();
                         if compacted.trim().is_empty() {
-                            full_context.chars().take(target_chars).collect()
+                            super::amt::render_within_budget(
+                                state,
+                                "step_context_compaction_fallback",
+                                context_window,
+                                input_budget as usize,
+                                full_context,
+                            )
                         } else {
                             compacted
                         }
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "Context compaction call failed — falling back to truncation");
-                        full_context.chars().take(target_chars).collect()
+                        super::amt::render_within_budget(
+                                state,
+                                "step_context_compaction_fallback",
+                                context_window,
+                                input_budget as usize,
+                                full_context,
+                            )
                     }
                 }
             } else {
@@ -2139,11 +2325,16 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // (confirmed live: the previous Context-before-request ordering
             // let a step's actual output become a regurgitation of its own
             // background context instead of a real answer).
+            // The original request is the task itself: whole, sized against the
+            // window; any trim is recorded.
+            let original_request = state.cleaned_prompt.clone();
+            let request_text =
+                super::amt::render_within_window(state, "original_request", 2, original_request);
             let step_prompt = format!(
                 "Original request: {}\n\nCurrent step ({}): {}\n\n\
                  Background context (may be empty or only partially relevant — \
                  use what helps, ignore the rest, never treat it as the task):\n{}",
-                &state.cleaned_prompt[..state.cleaned_prompt.len().min(500)],
+                request_text,
                 step.step_index + 1,
                 step.description,
                 full_context,
@@ -2163,27 +2354,69 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // ever asked for the identifier, not full connection details, so
             // pipeline 9 (which stays a dumb wire-protocol executor) needs
             // those details filled in before the override reaches it.
-            let has_explicit_override = step.model_override.is_some();
+            // PAID REFUSAL (policy: paid models are never used). An override
+            // naming a paid or unknown model is NOT applied: it is recorded
+            // with its reason and the step runs on the free chain. An override
+            // that resolves to a free or local model is applied, as before.
+            let mut override_applied = false;
             if let Some(model_override) = &step.model_override {
                 let mut resolved = model_override.clone();
-                if let Some(id) = &model_override.model_identifier {
-                    if let Some(profile) = state
+                let mut refusal: Option<&str> = None;
+                let requested = model_override
+                    .model_identifier
+                    .clone()
+                    .unwrap_or_else(|| "(no identifier)".to_string());
+                match &model_override.model_identifier {
+                    Some(id) => match state
                         .request
                         .available_models
                         .iter()
                         .find(|m| &m.identifier == id)
                     {
-                        resolved.model_type.get_or_insert_with(|| profile.model_type.clone());
-                        resolved.api_endpoint = resolved.api_endpoint.or_else(|| profile.api_endpoint.clone());
-                        resolved.api_key_env = resolved.api_key_env.or_else(|| profile.api_key_env.clone());
-                        resolved.api_key = resolved.api_key.or_else(|| profile.api_key.clone());
-                        resolved.wire_protocol = resolved.wire_protocol.or_else(|| profile.wire_protocol.clone());
-                        resolved.bitnet_cli_path = resolved.bitnet_cli_path.or_else(|| profile.bitnet_cli_path.clone());
-                        resolved.local_model_path = resolved.local_model_path.or_else(|| profile.local_model_path.clone());
+                        Some(profile) if !profile.is_free && !state.request.allow_paid_models => {
+                            refusal = Some("paid model")
+                        }
+                        Some(profile) => {
+                            resolved.model_type.get_or_insert_with(|| profile.model_type.clone());
+                            resolved.api_endpoint = resolved.api_endpoint.or_else(|| profile.api_endpoint.clone());
+                            resolved.api_key_env = resolved.api_key_env.or_else(|| profile.api_key_env.clone());
+                            resolved.api_key = resolved.api_key.or_else(|| profile.api_key.clone());
+                            resolved.wire_protocol = resolved.wire_protocol.or_else(|| profile.wire_protocol.clone());
+                            resolved.bitnet_cli_path = resolved.bitnet_cli_path.or_else(|| profile.bitnet_cli_path.clone());
+                            resolved.local_model_path = resolved.local_model_path.or_else(|| profile.local_model_path.clone());
+                        }
+                        None => refusal = Some("unknown model"),
+                    },
+                    None => {
+                        // Without an identifier the override must itself be
+                        // local or name an OpenRouter endpoint; anything else
+                        // could point at a paid provider.
+                        let local = model_override.model_type.as_deref().is_some_and(|t| t != "api");
+                        let openrouter = model_override
+                            .api_endpoint
+                            .as_deref()
+                            .is_some_and(|e| e.contains("openrouter.ai"));
+                        if !(local || openrouter) {
+                            refusal = Some("override without a free model identifier or OpenRouter endpoint");
+                        }
                     }
                 }
-                if let Ok(v) = serde_json::to_value(&resolved) {
-                    exec_input["model_override_config"] = v;
+                match refusal {
+                    Some(kind) => {
+                        let msg = format!("refused: {kind}; the step uses the free fallback chain");
+                        tracing::warn!(step = step.step_index, requested = %requested, "{msg}");
+                        state.thinking_log.push(crate::orchestrator::ThinkingEntry {
+                            stage: format!("model_override_refused:step{}", step.step_index),
+                            raw_response: format!("requested={requested}; {msg}"),
+                            ..Default::default()
+                        });
+                    }
+                    None => {
+                        override_applied = true;
+                        if let Ok(v) = serde_json::to_value(&resolved) {
+                            exec_input["model_override_config"] = v;
+                        }
+                    }
                 }
             }
 
@@ -2224,7 +2457,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // currently does on longer prompts), returns empty responses, or
             // the account is out of funds.
             if Self::is_unusable_pipeline9_result(step.pipeline_id, &exec_result) {
-                if step.pipeline_id == 9 && !has_explicit_override {
+                if step.pipeline_id == 9 && !override_applied {
                     let last_error = exec_result
                         .clone()
                         .err()
@@ -2292,7 +2525,13 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             let mut rules_text_parts = Vec::new();
             for &method_id in &step.methodology_ids {
                 if let Ok(Some(container)) = self.store.get_container(method_id).await {
-                    if let Some(rules) = Self::load_methodology_rules_text(&container) {
+                    if let Some(rules) = Self::load_methodology_rules_full(&container) {
+                        let rules = super::amt::render_within_window(
+                            state,
+                            "compliance_methodology_rules",
+                            8,
+                            rules,
+                        );
                         rules_text_parts.push(rules);
                     }
                 }
@@ -2301,12 +2540,16 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 None
             } else {
                 let output_text = self.extract_output_text(&final_output);
+                // The whole output is what gets judged; a 1500-char cut could
+                // pass a non-compliant output on the part that was never read.
+                let output_text =
+                    super::amt::render_within_window(state, "compliance_output", 4, output_text);
                 let compliance_prompt = format!(
                     "Decision rules for this task:\n{}\n\nOutput produced:\n{}\n\n\
                      Does the output comply with these rules? Return ONLY valid JSON: \
                      {{\"compliant\": true|false, \"reason\": \"brief explanation\"}}",
                     rules_text_parts.join(" / "),
-                    &output_text[..output_text.len().min(1500)]
+                    output_text
                 );
                 let compliance_input = serde_json::json!({
                     "prompt": compliance_prompt,
@@ -2444,11 +2687,25 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     )
                     .await;
             } else {
+                // The failure keeps its cause: the walk's last attempt (model,
+                // failure_source tag, outcome, next step) is read from the
+                // thinking log entry the walk writes as "walk_last_attempt".
+                // The message changes; the failure itself is unchanged.
+                let last_attempt = state
+                    .thinking_log
+                    .iter()
+                    .rev()
+                    .find(|e| e.stage == "walk_last_attempt")
+                    .map(|e| e.raw_response.clone());
+                let message = match last_attempt {
+                    Some(line) => format!("No response generated: last attempt {line}"),
+                    None => "No response generated".to_string(),
+                };
                 let _ = self
                     .task_manager
                     .read()
                     .await
-                    .fail_task(task_id, "No response generated".to_string())
+                    .fail_task(task_id, message)
                     .await;
             }
         }
@@ -2489,11 +2746,11 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         let experience_input = serde_json::json!({
             "action": "StoreExperience",
             "experience_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
-            "summary": &state.cleaned_prompt[..state.cleaned_prompt.len().min(200)],
+            "summary": crate::orchestrator::prefix_at_char_boundary(&state.cleaned_prompt, 200),
             "task_id": state.task_id,
             "user_id": state.request.user_id,
             "tags": state.topics.clone(),
-            "keywords": state.keywords.iter().take(10).cloned().collect::<Vec<_>>(),
+            "keywords": state.keywords.iter().cloned().collect::<Vec<_>>(),
             "methodologies_used": state.methodologies.clone(),
             "blueprint_id": state.blueprint_id,
             "significance": if state.final_response.is_some() { 0.5 } else { 0.3 },
@@ -2521,7 +2778,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             "trigger_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
             "source": "orchestrator",
             "intensity": 0.5,
-            "context": &state.cleaned_prompt[..state.cleaned_prompt.len().min(100)]
+            "context": crate::orchestrator::prefix_at_char_boundary(&state.cleaned_prompt, 100)
         });
 
         // Pipeline 43 = EmotionalBaselineUpdate
@@ -2551,39 +2808,46 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
     /// every chunk exactly as before. If a given scope matches no chunk at
     /// all (stale/bad indices), falls back to the full walk rather than
     /// silently returning nothing for that step.
+    /// Returns the context text and how many units did not fit the budget.
+    /// The caller records a non-zero count; nothing is dropped unrecorded.
     fn reconstruct_session_context(
         &self,
         state: &OrchestrationState,
         budget_tokens: u32,
         scope_chunk_indices: &[u32],
-    ) -> String {
+    ) -> (String, usize) {
         let budget_chars = (budget_tokens as usize).saturating_mul(4);
         let scoped = !scope_chunk_indices.is_empty();
-        let mut out = String::new();
-        'outer: for chunk in &state.processed_chunks {
+        // One unit per chunk without sentence nodes, otherwise one per
+        // sentence. Each unit keeps its raw length, which is what the budget
+        // check has always used.
+        let mut units: Vec<(&str, usize)> = Vec::new();
+        for chunk in &state.processed_chunks {
             if scoped && !scope_chunk_indices.contains(&chunk.index) {
                 continue;
             }
             if chunk.sentence_nodes.is_empty() {
-                if out.len() + chunk.cleaned_text.len() + 1 > budget_chars {
-                    break 'outer;
-                }
-                out.push_str(chunk.cleaned_text.trim());
-                out.push('\n');
+                units.push((chunk.cleaned_text.trim(), chunk.cleaned_text.len()));
                 continue;
             }
             for s in &chunk.sentence_nodes {
-                if out.len() + s.content.len() + 1 > budget_chars {
-                    break 'outer;
-                }
-                out.push_str(s.content.trim());
-                out.push('\n');
+                units.push((s.content.trim(), s.content.len()));
             }
+        }
+        let mut out = String::new();
+        let mut dropped = 0usize;
+        for (i, (text, raw_len)) in units.iter().enumerate() {
+            if out.len() + raw_len + 1 > budget_chars {
+                dropped = units.len() - i;
+                break;
+            }
+            out.push_str(text);
+            out.push('\n');
         }
         if scoped && out.trim().is_empty() {
             return self.reconstruct_session_context(state, budget_tokens, &[]);
         }
-        out.trim().to_string()
+        (out.trim().to_string(), dropped)
     }
 }
 

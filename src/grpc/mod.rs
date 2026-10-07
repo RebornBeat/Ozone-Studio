@@ -308,6 +308,39 @@ pub struct OrchestrateResponse {
     /// the reasoning that produced the final response, not just the answer.
     #[serde(default)]
     pub thinking_log: Vec<serde_json::Value>,
+    /// One line per model attempt the fallback walk made, in order (model,
+    /// outcome, cause, latency, next step), plus the walk's final error when
+    /// it failed. Empty when no walk ran. Read from the thinking log.
+    #[serde(default)]
+    pub attempt_trail: Vec<String>,
+    /// Paid or unknown model overrides the orchestrator refused, each with
+    /// its reason. The refused step ran on the free chain instead. Empty when
+    /// none. Read from the thinking log.
+    #[serde(default)]
+    pub refusals: Vec<String>,
+}
+
+/// Split the thinking log into the attempt trail and the refusals. Both are
+/// ordinary thinking-log entries, so the response shows them without a new
+/// channel: `walk_trail` and `walk_last_attempt` (the walk's own lines) feed
+/// the trail in order; `model_override_refused:*` feeds the refusals.
+fn attempt_trail_and_refusals(thinking_log: &[serde_json::Value]) -> (Vec<String>, Vec<String>) {
+    let mut trail = Vec::new();
+    let mut refusals = Vec::new();
+    for entry in thinking_log {
+        let stage = entry.get("stage").and_then(|s| s.as_str()).unwrap_or("");
+        let raw = entry
+            .get("raw_response")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string();
+        if stage == "walk_trail" || stage == "walk_last_attempt" {
+            trail.push(raw);
+        } else if stage.starts_with("model_override_refused") {
+            refusals.push(raw);
+        }
+    }
+    (trail, refusals)
 }
 
 // ============================================================================
@@ -1086,10 +1119,52 @@ async fn rerun_step(
     }
 }
 
+// ZSEI variants that mutate the store. Pipelines and the UI write through this
+// route without session tokens today, so writes are AUDITED by default; set
+// OZONE_ZSEI_REQUIRE_SESSION=1 to refuse writes that lack a valid session_token.
+const ZSEI_WRITE_VARIANTS: &[&str] = &[
+    "CreateContainer",
+    "UpdateContainer",
+    "DeleteContainer",
+    "LinkFile",
+    "LinkURL",
+    "LinkPackage",
+    "UnlinkFile",
+    "Rollback",
+];
+
+fn append_zsei_write_audit(data_dir: &str, row: &serde_json::Value) {
+    use std::io::Write;
+    let dir = format!("{}/model_calls", data_dir);
+    let outcome = std::fs::create_dir_all(&dir).and_then(|_| {
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(format!("{}/zsei_writes.jsonl", dir))?;
+        writeln!(f, "{}", row)
+    });
+    if let Err(e) = outcome {
+        tracing::warn!("ZSEI write audit row not recorded: {e}");
+    }
+}
+
 async fn query_zsei(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ZseiQueryRequest>,
 ) -> Json<ZseiResponse> {
+    let variant = req
+        .query
+        .as_object()
+        .and_then(|o| o.keys().next().cloned())
+        .unwrap_or_default();
+    let is_write = ZSEI_WRITE_VARIANTS.contains(&variant.as_str());
+    let container_id = req
+        .query
+        .get(&variant)
+        .and_then(|body| body.get("container_id"))
+        .and_then(|v| v.as_u64());
+    let session_token = req.session_token.clone();
+
     let query: ZSEIQuery = match serde_json::from_value(req.query) {
         Ok(q) => q,
         Err(e) => {
@@ -1103,7 +1178,51 @@ async fn query_zsei(
 
     let runtime = state.runtime.read().await;
 
-    match runtime.query_zsei(query).await {
+    let identity_validated = if session_token.trim().is_empty() {
+        false
+    } else {
+        let auth = runtime.auth.read().await;
+        let token_bytes = hex::decode(&session_token).unwrap_or_default();
+        auth.validate_session(&token_bytes).await.is_ok()
+    };
+
+    let require_session = std::env::var("OZONE_ZSEI_REQUIRE_SESSION")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+    if is_write && require_session && !identity_validated {
+        let row = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "variant": variant,
+            "identity_validated": identity_validated,
+            "container_id": container_id,
+            "success": false,
+            "refused": true,
+            "error": "session_token required (OZONE_ZSEI_REQUIRE_SESSION=1)",
+        });
+        append_zsei_write_audit(&runtime.config.general.data_dir, &row);
+        return Json(ZseiResponse {
+            success: false,
+            result: None,
+            error: Some(format!(
+                "ZSEI write '{variant}' refused: valid session_token required (OZONE_ZSEI_REQUIRE_SESSION=1)"
+            )),
+        });
+    }
+
+    let outcome = runtime.query_zsei(query).await;
+    if is_write {
+        let row = serde_json::json!({
+            "ts": chrono::Utc::now().to_rfc3339(),
+            "variant": variant,
+            "identity_validated": identity_validated,
+            "container_id": container_id,
+            "success": outcome.is_ok(),
+            "error": outcome.as_ref().err().map(|e| e.to_string()),
+        });
+        append_zsei_write_audit(&runtime.config.general.data_dir, &row);
+    }
+
+    match outcome {
         Ok(result) => Json(ZseiResponse {
             success: true,
             result: Some(serde_json::to_value(&result).unwrap_or_default()),
@@ -1422,10 +1541,80 @@ async fn get_config(
     })
 }
 
+/// Operator policy: paid models are never selectable. Returns the refusal
+/// reason when a `models` update names a paid direct provider, a paid direct
+/// endpoint, or an OpenRouter model the live catalog does not mark free (or
+/// does not list at all). None means the update may proceed. A refusal applies
+/// nothing: set_config returns success=false with this text as the error.
+fn paid_policy_refusal(models: &serde_json::Value) -> Option<String> {
+    const POLICY: &str = "policy: only free OpenRouter models and local BitNet may be used";
+    if let Some(p) = models.get("api_provider").and_then(|v| v.as_str()) {
+        if matches!(p, "anthropic" | "openai" | "google") {
+            return Some(format!("refused: api_provider '{p}' is a paid direct provider; {POLICY}"));
+        }
+    }
+    if let Some(ep) = models.get("api_endpoint").and_then(|v| v.as_str()) {
+        for paid_host in ["api.anthropic.com", "api.openai.com", "generativelanguage.googleapis.com"] {
+            if ep.contains(paid_host) {
+                return Some(format!("refused: api_endpoint '{ep}' is a paid direct provider; {POLICY}"));
+            }
+        }
+    }
+    if let Some(model) = models.get("api_model").and_then(|v| v.as_str()) {
+        match crate::model_windows::catalog_entry(model) {
+            Some(e) if e.is_free => {}
+            Some(_) => {
+                return Some(format!("refused: api_model '{model}' is a paid OpenRouter model; {POLICY}"))
+            }
+            // The free router is allowed by name: it is the policy's own free
+            // entry, and it must stay selectable while the catalog is not
+            // loaded (network down, no persisted copy yet).
+            None if model == "openrouter/free" => {}
+            None => {
+                return Some(format!(
+                    "refused: api_model '{model}' is not in the live OpenRouter free catalog (unknown, paid, or the catalog is not loaded yet); {POLICY}"
+                ))
+            }
+        }
+    }
+    // add_model: parse it here, so a malformed entry is refused with a reason
+    // rather than dropped by the silent `if let Ok` further down, and check the
+    // entry's provider, endpoint and (for API entries) its OpenRouter identifier.
+    if let Some(v) = models.get("add_model") {
+        match serde_json::from_value::<crate::config::AvailableModel>(v.clone()) {
+            Err(e) => {
+                return Some(format!("refused: add_model is malformed ({e}); nothing was applied"));
+            }
+            Ok(m) => {
+                let as_update = serde_json::json!({
+                    "api_provider": m.provider,
+                    "api_endpoint": m.api_endpoint,
+                    "api_model": if m.model_type == "api" { Some(m.identifier.clone()) } else { None },
+                });
+                if let Some(reason) = paid_policy_refusal(&as_update) {
+                    return Some(reason);
+                }
+            }
+        }
+    }
+    None
+}
+
 async fn set_config(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ConfigSetRequest>,
 ) -> Json<ConfigSetResponse> {
+    // Per-user policy: refuse paid selections only while this user's config
+    // has allow_paid_models = false (the default). Nothing is silently changed.
+    let allow_paid = state.runtime.read().await.config.models.allow_paid_models;
+    if let Some(refusal) = (!allow_paid)
+        .then(|| req.updates.get("models").and_then(paid_policy_refusal))
+        .flatten()
+    {
+        tracing::warn!(reason = %refusal, "set_config refused a paid model selection");
+        return Json(ConfigSetResponse { success: false, error: Some(refusal) });
+    }
+
     // Get config path
     let config_path = std::env::var("OZONE_CONFIG").unwrap_or_else(|_| "config.toml".to_string());
 
@@ -1457,23 +1646,16 @@ async fn set_config(
             }
             if let Some(v) = models.get("api_provider").and_then(|v| v.as_str()) {
                 // map to your actual fields
+                // Paid providers (anthropic, openai, google) never reach this
+                // point: paid_policy_refusal rejects them before any update.
                 model_config.api_endpoint = match v {
-                    "anthropic" => Some("https://api.anthropic.com/v1/messages".to_string()),
-                    "openai" => Some("https://api.openai.com/v1/chat/completions".to_string()),
-                    "google" => {
-                        Some("https://generativelanguage.googleapis.com/v1beta".to_string())
-                    }
                     "openrouter" => {
                         Some("https://openrouter.ai/api/v1/chat/completions".to_string())
                     }
                     _ => model_config.api_endpoint, // already Option<String>
                 };
-                // Anthropic uses its own wire format; every other canned
-                // provider here speaks OpenAI-style chat completions.
-                if matches!(v, "openai" | "google" | "openrouter") {
+                if v == "openrouter" {
                     model_config.wire_protocol = Some("chat_completions".to_string());
-                } else if v == "anthropic" {
-                    model_config.wire_protocol = Some("anthropic".to_string());
                 }
             }
             if let Some(v) = models.get("api_key").and_then(|v| v.as_str()) {
@@ -1788,6 +1970,8 @@ async fn orchestrate(
                     total_tokens_used: None,
                     amt_summary: None,
                     thinking_log: vec![],
+                    attempt_trail: vec![],
+                    refusals: vec![],
                 });
             }
         }
@@ -1849,26 +2033,53 @@ async fn orchestrate(
         },
     };
 
-    let runtime = state.runtime.read().await;
-
     // Run through the orchestrator — full 14-stage AMT flow:
     // Stage 1-3: Intent capture (IntentCapture, BranchCapture, DetailCapture)
     // Stage 4-5: Context aggregation + cross-reference
     // Stage 6-7: Blueprint search + selection
     // Stage 8-12: Pipeline execution per blueprint step
     // Stage 13-14: Response synthesis + consciousness post-hook
-    match runtime
-        .orchestrate(pipeline_input, req.user_id, req.device_id)
-        .await
-    {
-        Ok(result) => {
-            let execution_time_ms = start.elapsed().as_millis() as u64;
-            tracing::info!(
+    //
+    // DETACHED: the walk runs on its own task. Axum drops this handler
+    // future when the client disconnects (curl -m, UI reload), and before
+    // this the drop cancelled the walk mid-stage. The spawned task owns its
+    // runtime handle and runs to completion regardless; the completion log
+    // fires from inside the task, so a dropped client still leaves the
+    // outcome in the logs. The walk's task and stage records are written as
+    // it goes. A panic inside the walk becomes an error response, not silence.
+    let user_id = req.user_id;
+    let device_id = req.device_id;
+    let runtime_handle = state.runtime.clone();
+    let walk = tokio::spawn(async move {
+        let runtime = runtime_handle.read().await;
+        let outcome = runtime.orchestrate(pipeline_input, user_id, device_id).await;
+        match &outcome {
+            Ok(result) => tracing::info!(
                 "Orchestration complete: task={:?}, blueprint={:?}, {}ms",
                 result.task_id,
                 result.blueprint_id,
-                execution_time_ms
-            );
+                start.elapsed().as_millis() as u64
+            ),
+            Err(e) => tracing::error!("Orchestration failed: {}", e),
+        }
+        outcome
+    });
+    let outcome = match walk.await {
+        Ok(outcome) => outcome,
+        Err(join_err) => {
+            tracing::error!("Orchestration task aborted: {}", join_err);
+            Err(crate::types::OzoneError::TaskError(format!(
+                "orchestration task aborted: {join_err}"
+            )))
+        }
+    };
+
+    match outcome {
+        Ok(result) => {
+            let execution_time_ms = start.elapsed().as_millis() as u64;
+            // A failed walk still arrives here (success: false, log intact),
+            // so the trail is read on both success and failure.
+            let (attempt_trail, refusals) = attempt_trail_and_refusals(&result.thinking_log);
             Json(OrchestrateResponse {
                 success: result.success,
                 response: result.response_text,
@@ -1887,10 +2098,11 @@ async fn orchestrate(
                 total_tokens_used: result.total_tokens_used,
                 amt_summary: result.amt_summary,
                 thinking_log: result.thinking_log,
+                attempt_trail,
+                refusals,
             })
         }
         Err(e) => {
-            tracing::error!("Orchestration failed: {}", e);
             Json(OrchestrateResponse {
                 success: false,
                 response: None,
@@ -1905,6 +2117,11 @@ async fn orchestrate(
                 total_tokens_used: None,
                 amt_summary: None,
                 thinking_log: vec![],
+                // An Err here means the request was rejected before any walk
+                // (empty prompt) or the task aborted; no walk state exists to
+                // read a trail from, so both lists are empty by construction.
+                attempt_trail: vec![],
+                refusals: vec![],
             })
         }
     }
@@ -3263,6 +3480,18 @@ async fn mcp_call(
         crate::context_mirror::mirror(&zsei, &data_dir, &req).await.is_ok()
     };
 
+    // Graph-native MCP output: a tool's `graph` block becomes real ZSEI
+    // containers (containment + typed relations), not just a ripple event.
+    let graph_persisted = match result.output.as_ref() {
+        Some(out) if result.success => {
+            let zsei = runtime.zsei.read().await;
+            let data_dir = runtime.config.general.data_dir.clone();
+            crate::mcp_graph::persist_from_output(&zsei, &data_dir, &call_tool, &call_agent, out)
+                .await
+        }
+        _ => None,
+    };
+
     // S13 TOOL-CALL CAPTURE (capture unification, 2026-09-28 — operator
     // directive: tool calls are captured alongside pipeline calls, same
     // discipline, same store family): every /mcp/call appends one truthful
@@ -3357,6 +3586,14 @@ async fn mcp_call(
         if ripple_emitted {
             captured.push("graph ripple emitted for the call".to_string());
         }
+        match &graph_persisted {
+            Some(Ok(g)) => captured.push(format!(
+                "graph persisted: root {}, {} entities, {} relations",
+                g.root_id, g.entities, g.relations
+            )),
+            Some(Err(e)) => captured.push(format!("graph persistence failed: {e}")),
+            None => {}
+        }
         serde_json::json!({
             "captured": captured,
             "maybe_missed": maybe_missed,
@@ -3378,6 +3615,7 @@ async fn mcp_call(
         "usage": result.usage,
         "review": review,
         "jurisdiction_gate": jurisdiction_result,
+        "persisted_graph": graph_persisted.as_ref().and_then(|r| r.as_ref().ok()),
     }))
 }
 

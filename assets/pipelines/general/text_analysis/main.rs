@@ -32,6 +32,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+/// Byte-bounded prefix that never splits a UTF-8 character. A raw byte slice
+/// panics when the cut lands inside a multi-byte character.
+fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
+    let mut end = max_bytes.min(s.len());
+    while !s.is_char_boundary(end) {
+        end -= 1;
+    }
+    &s[..end]
+}
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
@@ -840,7 +849,7 @@ fn build_amt(text: &str, depth: u32) -> AMTNode {
     let mut root = AMTNode {
         id: next_id,
         node_type: "root".to_string(),
-        content: if text.len() > 100 { format!("{}...", &text[..100]) } else { text.to_string() },
+        content: if text.len() > 100 { format!("{}...", prefix_chars_safe(&text, 100)) } else { text.to_string() },
         children: vec![],
         relationships: vec![],
         metadata: HashMap::new(),
@@ -858,7 +867,7 @@ fn build_amt(text: &str, depth: u32) -> AMTNode {
         let para_node = AMTNode {
             id: next_id,
             node_type: "paragraph".to_string(),
-            content: if para.len() > 200 { format!("{}...", &para[..200]) } else { para.to_string() },
+            content: if para.len() > 200 { format!("{}...", prefix_chars_safe(&para, 200)) } else { para.to_string() },
             children: if depth > 1 {
                 // Split paragraph into sentences
                 let sentences: Vec<&str> = para.split(|c| c == '.' || c == '!' || c == '?')

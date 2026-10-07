@@ -1,0 +1,6 @@
+meshio==5.3.5
+networkx==3.7
+numpy==2.5.3
+numpy-stl==4.0.1
+python_step_parser==0.2.5
+trimesh==5.1.1

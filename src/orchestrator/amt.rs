@@ -4,6 +4,144 @@
 
 use super::*;
 
+/// Parent label for a branch or detail whose parent could not be resolved.
+/// Such items are attached to the root and recorded. They are never
+/// reattributed to the first intent, which was the silent displacement.
+pub(crate) const UNATTRIBUTED_PARENT: &str = "unattributed";
+
+/// Normalised key for every intent/branch equality decision: lowercase,
+/// whitespace collapsed, punctuation trimmed at both ends. Substring
+/// matching is not used for identity (it made short generic labels absorb
+/// or be absorbed by unrelated ones).
+pub(crate) fn norm_intent_key(s: &str) -> String {
+    s.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase()
+        .trim_matches(|c: char| !c.is_alphanumeric())
+        .to_string()
+}
+
+/// Match a raw label against candidates: exact normalised equality first,
+/// then a single unambiguous normalised containment. Returns the candidate
+/// index and how it matched ("exact" / "fuzzy"), or None when the label is
+/// empty, matches nothing, or is ambiguous. The caller records the None.
+pub(crate) fn match_label(candidates: &[&str], raw: &str) -> Option<(usize, &'static str)> {
+    let key = norm_intent_key(raw);
+    if key.is_empty() {
+        return None;
+    }
+    if let Some(i) = candidates.iter().position(|c| norm_intent_key(c) == key) {
+        return Some((i, "exact"));
+    }
+    let fuzzy: Vec<usize> = candidates
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| {
+            let k = norm_intent_key(c);
+            !k.is_empty() && (k.contains(&key) || key.contains(&k))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    if fuzzy.len() == 1 {
+        return Some((fuzzy[0], "fuzzy"));
+    }
+    None
+}
+
+/// Run-state record for every intent-path decision that is not a clean
+/// match: request fallback, parse or call failure, merge, prune, or
+/// unattributed item. Written to the thinking log (existing run-state list,
+/// shown by the Raw Thoughts viewer) and warned, so nothing leaves silently.
+pub(crate) fn record_intent_event(
+    state: &mut OrchestrationState,
+    kind: &str,
+    detail: serde_json::Value,
+) {
+    tracing::warn!(event = kind, detail = %detail, "intent path decision recorded");
+    state.thinking_log.push(ThinkingEntry {
+        stage: format!("intent_path:{kind}"),
+        raw_response: detail.to_string(),
+        ..Default::default()
+    });
+}
+
+/// The user's request text, used as the intent when extraction yields none.
+/// The whole request, never a generic label, never cut.
+pub(crate) fn request_intent_text(state: &OrchestrationState) -> String {
+    let cleaned = state.cleaned_prompt.trim();
+    if cleaned.is_empty() {
+        state.request.prompt.trim().to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// Window-derived render for a block that used to be cut by a fixed character
+/// budget. The block goes through the shared assembler at `window / divisor`
+/// tokens. Every cut is recorded in the run's thinking log. An unknown window
+/// (0) cuts nothing and says so, rather than guessing a size.
+pub(crate) fn render_within_window(
+    state: &mut OrchestrationState,
+    site: &str,
+    divisor: usize,
+    text: String,
+) -> String {
+    let window = state.model_context_limit as usize;
+    let budget = (window / divisor.max(1)).max(1);
+    render_within_budget(state, site, window, budget, text)
+}
+
+/// Same contract as `render_within_window`, with an explicit token budget for
+/// sites that already derive one (for example the step-context compaction
+/// input budget). `window` is only used to detect an unknown window: when it
+/// is 0 nothing is cut, and the miss is recorded.
+pub(crate) fn render_within_budget(
+    state: &mut OrchestrationState,
+    site: &str,
+    window: usize,
+    budget: usize,
+    text: String,
+) -> String {
+    if window == 0 {
+        record_intent_event(
+            state,
+            "render_window_unknown",
+            serde_json::json!({ "site": site, "chars": text.chars().count() }),
+        );
+        return text;
+    }
+    let budget = budget.max(1);
+    let assembled = crate::context_budget::assemble(
+        vec![crate::context_budget::ContextSection {
+            name: site.to_string(),
+            priority: 0,
+            text,
+        }],
+        budget,
+    );
+    if !assembled.trims.is_empty() {
+        let trims: Vec<serde_json::Value> = assembled
+            .trims
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "section": t.section,
+                    "original_tokens": t.original_tokens,
+                    "kept_tokens": t.kept_tokens,
+                    "dropped_entirely": t.dropped_entirely,
+                })
+            })
+            .collect();
+        record_intent_event(
+            state,
+            "render_trimmed",
+            serde_json::json!({ "site": site, "budget_tokens": budget, "trims": trims }),
+        );
+    }
+    assembled.text
+}
+
 impl PromptOrchestrator {
 
     pub(crate) async fn build_amt(&self, state: &mut OrchestrationState) -> Result<(), String> {
@@ -692,13 +830,19 @@ impl PromptOrchestrator {
                                     )
                                 })
                                 .unwrap_or_else(|| {
-                                    format!("  - {}", &s.content[..s.content.len().min(80)])
+                                    format!("  - {}", s.content)
                                 })
                         })
                         .collect::<Vec<_>>()
                         .join("\n")
                 };
 
+                // Both neighborhoods are sized against the window of the model
+                // that votes on them; any trim is recorded.
+                let a_summary =
+                    render_within_window(state, "pool_neighborhood_a", 4, pool_summary(a));
+                let b_summary =
+                    render_within_window(state, "pool_neighborhood_b", 4, pool_summary(b));
                 let prompt = format!(
                     r#"You are evaluating whether two candidate semantic neighborhoods belong to the SAME semantic neighborhood — one coherent goal, project, or topic — based on accumulated structural evidence.
 
@@ -718,8 +862,8 @@ QUESTION: Does the evidence indicate these two neighborhoods belong to the SAME 
 
 Return ONLY valid JSON with a single one-word answer:
 {{"answer": "YES"}} or {{"answer": "NO"}}"#,
-                    a_summary = pool_summary(a),
-                    b_summary = pool_summary(b),
+                    a_summary = a_summary,
+                    b_summary = b_summary,
                     shared = shared.join(", "),
                 );
 
@@ -773,32 +917,47 @@ Return ONLY valid JSON with a single one-word answer:
                 (false, false) => format!("{} {}", action, target),
                 (false, true) => format!("{} (regarding {})", action, actor),
                 _ => {
-                    let c = &all_sentences[pool[0]].content;
-                    c.chars().take(120).collect()
+                    // Whole first sentence as the label (was cut at 120
+                    // chars — a silent cut on the intent text itself).
+                    all_sentences[pool[0]].content.trim().to_string()
                 }
             };
 
-            // Dedup against existing intents (case-insensitive containment).
-            let already_known = state.intent_captures.iter().any(|ic| {
-                ic.intent.to_lowercase().contains(&intent_text.to_lowercase())
-                    || intent_text.to_lowercase().contains(&ic.intent.to_lowercase())
-            });
-
-            if already_known {
-                continue;
-            }
-
-            let intent_id = node_id_counter;
-            node_id_counter += 1;
             let chunk_ids: Vec<u32> = pool
                 .iter()
                 .map(|&si| all_sentences[si].chunk_id)
                 .collect::<HashSet<u32>>()
                 .into_iter()
                 .collect();
+
+            // Dedup by normalised equality (was two-way substring, which
+            // let a short generic intent absorb or be absorbed silently).
+            // A merge keeps this pool's chunks on the surviving intent and
+            // is recorded with both labels.
+            if let Some(existing) = state
+                .intent_captures
+                .iter_mut()
+                .find(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_text))
+            {
+                let merged_into = existing.intent.clone();
+                for ci in &chunk_ids {
+                    if !existing.source_chunk_indices.contains(ci) {
+                        existing.source_chunk_indices.push(*ci);
+                    }
+                }
+                record_intent_event(
+                    state,
+                    "intent_merged",
+                    serde_json::json!({ "merged": intent_text, "into": merged_into, "path": "graph" }),
+                );
+                continue;
+            }
+
+            let intent_id = node_id_counter;
+            node_id_counter += 1;
+            // Every pool sentence is kept as provenance (was take(3): silent).
             let source_sentences: Vec<String> = pool
                 .iter()
-                .take(3)
                 .map(|&si| all_sentences[si].original_content.clone())
                 .collect();
 
@@ -901,10 +1060,18 @@ Return ONLY valid JSON with a single one-word answer:
             }
         }
 
-        // Default intent when the graph produced nothing promotable.
+        // Intent fallback when the graph produced nothing promotable: the
+        // user's request itself (was the generic label "Process user
+        // request", which displaced the real intent). Recorded.
         if state.intent_captures.is_empty() {
+            let request_text = request_intent_text(state);
+            record_intent_event(
+                state,
+                "request_fallback",
+                serde_json::json!({ "path": "graph", "intent": request_text }),
+            );
             state.intent_captures.push(IntentCapture {
-                intent: "Process user request".to_string(),
+                intent: request_text,
                 is_parallel: false,
                 source_chunk_indices: (0..state.processed_chunks.len() as u32).collect(),
                 source_sentences: vec![],
@@ -953,6 +1120,9 @@ Return ONLY valid JSON with a single one-word answer:
             // per batch — full coverage at a fraction of the calls.
             // METHODOLOGY BRANCH DISCOVERY — batch (coverage) + parallel
             // 1×1 lanes (depth); capture applies serially afterwards.
+            let avail_models = state.request.available_models.clone();
+            let fallback_chain = state.request.fallback_order.clone();
+            let fallback_free = state.request.fallback_free_only;
             self.methodology_branch_discovery_parallel(
                 state,
                 &intents_summary,
@@ -963,6 +1133,9 @@ Return ONLY valid JSON with a single one-word answer:
                 "amt_branch_graph_native",
                 "Build AMT — branch discovery",
                 &mut node_id_counter,
+                &avail_models,
+                &fallback_chain,
+                fallback_free,
             )
             .await;
 
@@ -970,6 +1143,19 @@ Return ONLY valid JSON with a single one-word answer:
             // existing domain methodologies or synthesizes missing ones.
             // Bounded to the first 3 layers to control prompt explosion.
             let layers = state.intent_captures.len().min(3).max(1) as u32;
+            // Only the first three layers get a cross-reference pass. Recorded
+            // so the skipped layers are visible; raising the bound changes how
+            // many model calls run, which is an operator decision.
+            if state.intent_captures.len() > 3 {
+                record_intent_event(
+                    state,
+                    "cross_reference_layers_skipped",
+                    serde_json::json!({
+                        "total_layers": state.intent_captures.len(),
+                        "processed_layers": layers,
+                    }),
+                );
+            }
             for layer in 1..=layers {
                 let _findings = self
                     .cross_reference_methodologies_for_layer(state, layer)
@@ -1128,7 +1314,13 @@ Return ONLY valid JSON with a single one-word answer:
             // both AMT modes see identical methodology/modal context.
             let layer_input = self.gather_layer_input(state);
             let knowledge = self.enrich_with_zsei_knowledge(state, &layer_input).await;
-            let synthesis = self.synthesize_modal_evidence(&layer_input);
+            let mut synthesis = self.synthesize_modal_evidence(&layer_input);
+            synthesis.cross_modal_summary = render_within_window(
+                state,
+                "cross_modal_structure",
+                8,
+                std::mem::take(&mut synthesis.cross_modal_summary),
+            );
             let methodology_summaries_block = if knowledge.methodology_summaries.is_empty() {
                 String::new()
             } else {
@@ -1159,6 +1351,10 @@ Return ONLY valid JSON with a single one-word answer:
             // in this loop; iteration semantics identical.
             let chunks_snapshot = state.processed_chunks.clone();
             for chunk in &chunks_snapshot {
+                // The chunk is what the model analyzes: whole, sized against the
+                // window; any trim is recorded.
+                let chunk_text =
+                    render_within_window(state, "intent_chunk", 4, chunk.cleaned_text.clone());
                 let intent_prompt = format!(
                     r#"Analyze this text chunk to identify goals or intents expressed in it.
         A chunk may express MULTIPLE unrelated intents (parallel) or a single intent.
@@ -1185,7 +1381,7 @@ Return ONLY valid JSON with a single one-word answer:
                     serde_json::to_string(&known_intents_json).unwrap_or_default(),
                     chunk.index + 1,
                     state.processed_chunks.len(),
-                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)],
+                    chunk_text,
                     detected_modality_names.join(", "),
                     cross_modal_block = cross_modal_block,
                     methodology_summaries_block = methodology_summaries_block,
@@ -1198,15 +1394,38 @@ Return ONLY valid JSON with a single one-word answer:
                     "system_context": "Extract new intents not already listed. Return only valid JSON. No explanation."
                 });
 
-                if let Ok(result) = self.metered_execute_resilient(state, intent_input, "amt_intent_extraction").await {
+                let intent_input_result = self.metered_execute_resilient(state, intent_input, "amt_intent_extraction").await;
+                if let Err(e) = &intent_input_result {
+                    tracing::warn!(site = "amt_intent_extraction", error = %e, "AMT sub-call failed loudly — no silent skips");
+                    record_intent_event(
+                        state,
+                        "intent_call_failed",
+                        serde_json::json!({ "chunk": chunk.index, "error": e.to_string() }),
+                    );
+                }
+                if let Ok(result) = intent_input_result {
                     self.record_thinking(state, "Build AMT — intent extraction", &result);
                     let response = result
                         .get("response")
                         .and_then(|r| r.as_str())
                         .unwrap_or("{}");
                     let json_str = Self::extract_json_from_response(response, '{', '}');
-                    let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
-                        .unwrap_or_else(|_| serde_json::json!({"new_intents": []}));
+                    let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // Was a silent unwrap_or_else to zero intents.
+                            record_intent_event(
+                                state,
+                                "intent_parse_failed",
+                                serde_json::json!({
+                                    "chunk": chunk.index,
+                                    "response_chars": response.chars().count(),
+                                    "error": e.to_string(),
+                                }),
+                            );
+                            serde_json::json!({"new_intents": []})
+                        }
+                    };
 
                     if let Some(new_intents) = parsed.get("new_intents").and_then(|n| n.as_array())
                     {
@@ -1230,15 +1449,12 @@ Return ONLY valid JSON with a single one-word answer:
                                 continue;
                             }
 
-                            // Check for duplicates (case-insensitive substring match)
-                            let already_known = state.intent_captures.iter().any(|ic| {
-                                ic.intent
-                                    .to_lowercase()
-                                    .contains(&intent_str.to_lowercase())
-                                    || intent_str
-                                        .to_lowercase()
-                                        .contains(&ic.intent.to_lowercase())
-                            });
+                            // Duplicate check: normalised equality (was two-way
+                            // substring, which absorbed short intents silently).
+                            let already_known = state
+                                .intent_captures
+                                .iter()
+                                .any(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str));
 
                             if !already_known {
                                 state.intent_captures.push(IntentCapture {
@@ -1256,30 +1472,46 @@ Return ONLY valid JSON with a single one-word answer:
                                 new_insights_this_pass = true;
                             } else {
                                 // Aggregate: add this chunk as an additional source
-                                if let Some(existing) =
-                                    state.intent_captures.iter_mut().find(|ic| {
-                                        ic.intent
-                                            .to_lowercase()
-                                            .contains(&intent_str.to_lowercase())
-                                    })
-                                {
-                                    if !existing.source_chunk_indices.contains(&chunk.index) {
-                                        existing.source_chunk_indices.push(chunk.index);
-                                        if !source_sentence.is_empty() {
-                                            existing.source_sentences.push(source_sentence);
+                                // on the normalised-equal intent (recorded merge).
+                                let merged_into = state
+                                    .intent_captures
+                                    .iter_mut()
+                                    .find(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str))
+                                    .map(|existing| {
+                                        if !existing.source_chunk_indices.contains(&chunk.index) {
+                                            existing.source_chunk_indices.push(chunk.index);
+                                            if !source_sentence.is_empty() {
+                                                existing.source_sentences.push(source_sentence.clone());
+                                            }
                                         }
-                                    }
-                                }
+                                        existing.intent.clone()
+                                    });
+                                record_intent_event(
+                                    state,
+                                    "intent_merged",
+                                    serde_json::json!({
+                                        "merged": intent_str,
+                                        "into": merged_into,
+                                        "path": "chunk_extraction",
+                                    }),
+                                );
                             }
                         }
                     }
                 }
             }
 
-            // If no intents found at all, create a default
+            // No intents found at all: the request itself is the intent
+            // (was the generic "Process user request"). Recorded.
             if state.intent_captures.is_empty() {
+                let request_text = request_intent_text(state);
+                record_intent_event(
+                    state,
+                    "request_fallback",
+                    serde_json::json!({ "path": "chunk_extraction", "intent": request_text }),
+                );
                 state.intent_captures.push(IntentCapture {
-                    intent: "Process user request".to_string(),
+                    intent: request_text,
                     is_parallel: false,
                     source_chunk_indices: (0..state.processed_chunks.len() as u32).collect(),
                     source_sentences: vec![],
@@ -1298,6 +1530,9 @@ Return ONLY valid JSON with a single one-word answer:
                 .iter()
                 .map(|ic| ic.intent.clone())
                 .collect();
+            let avail_models = state.request.available_models.clone();
+            let fallback_chain = state.request.fallback_order.clone();
+            let fallback_free = state.request.fallback_free_only;
             self.methodology_branch_discovery_parallel(
                 state,
                 &intents_summary,
@@ -1308,6 +1543,9 @@ Return ONLY valid JSON with a single one-word answer:
                 "amt_branch_generation",
                 "Build AMT — branch refinement",
                 &mut node_id_counter,
+                &avail_models,
+                &fallback_chain,
+                fallback_free,
             )
             .await;
 ;
@@ -1352,6 +1590,8 @@ Return ONLY valid JSON with a single one-word answer:
                     })
                     .collect();
 
+                let detail_chunk_text =
+                    render_within_window(state, "detail_chunk", 4, chunk.cleaned_text.clone());
                 let detail_prompt = format!(
                     r#"Analyze this text chunk for specific details, requirements, and constraints that address the identified branches.
 
@@ -1388,7 +1628,7 @@ Return ONLY valid JSON with a single one-word answer:
                     serde_json::to_string(&known_details_json).unwrap_or_default(),
                     chunk.index + 1,
                     state.processed_chunks.len(),
-                    &chunk.cleaned_text[..chunk.cleaned_text.len().min(1500)]
+                    detail_chunk_text
                 );
 
                 let detail_input = serde_json::json!({
@@ -1398,7 +1638,11 @@ Return ONLY valid JSON with a single one-word answer:
                     "system_context": "Extract details per branch. Return only valid JSON. No explanation."
                 });
 
-                if let Ok(result) = self.metered_execute_resilient(state, detail_input, "amt_detail_extraction").await {
+                let detail_input_result = self.metered_execute_resilient(state, detail_input, "amt_detail_extraction").await;
+                if let Err(e) = &detail_input_result {
+                    tracing::warn!(site = "amt_detail_extraction", error = %e, "AMT sub-call failed loudly — no silent skips");
+                }
+                if let Ok(result) = detail_input_result {
                     self.record_thinking(state, "Build AMT — detail extraction", &result);
                     let response = result
                         .get("response")
@@ -1436,20 +1680,35 @@ Return ONLY valid JSON with a single one-word answer:
                                 continue;
                             }
 
-                            // Resolve parent branch (fuzzy)
-                            let resolved_branch = state
-                                .branch_captures
-                                .iter()
-                                .find(|bc| {
-                                    bc.branch
-                                        .to_lowercase()
-                                        .contains(&parent_branch.to_lowercase())
-                                        || parent_branch
-                                            .to_lowercase()
-                                            .contains(&bc.branch.to_lowercase())
-                                })
-                                .map(|bc| bc.branch.clone())
-                                .unwrap_or(parent_branch.clone());
+                            // Resolve parent branch: exact normalised, else one
+                            // unambiguous fuzzy match. An unresolved detail keeps
+                            // its raw parent and is recorded (was silent).
+                            let matched: Option<(String, &'static str)> = {
+                                let branch_texts: Vec<&str> =
+                                    state.branch_captures.iter().map(|bc| bc.branch.as_str()).collect();
+                                match_label(&branch_texts, &parent_branch)
+                                    .map(|(i, how)| (branch_texts[i].to_string(), how))
+                            };
+                            let resolved_branch = match matched {
+                                Some((found, how)) => {
+                                    if how == "fuzzy" {
+                                        record_intent_event(
+                                            state,
+                                            "detail_parent_fuzzy",
+                                            serde_json::json!({ "detail": content, "parent_raw": parent_branch, "resolved_to": found }),
+                                        );
+                                    }
+                                    found
+                                }
+                                None => {
+                                    record_intent_event(
+                                        state,
+                                        "detail_unattributed",
+                                        serde_json::json!({ "detail": content, "parent_raw": parent_branch }),
+                                    );
+                                    parent_branch.clone()
+                                }
+                            };
 
                             // Find parent intent for this branch
                             let resolved_intent = state
@@ -1459,12 +1718,11 @@ Return ONLY valid JSON with a single one-word answer:
                                 .map(|bc| bc.parent_intent.clone())
                                 .unwrap_or_default();
 
+                            // Normalised equality (was two-way substring: a longer
+                            // detail absorbed a shorter one with no record).
                             let already_exists = state.detail_captures.iter().any(|dc| {
                                 dc.parent_branch == resolved_branch
-                                    && (dc.content.to_lowercase().contains(&content.to_lowercase())
-                                        || content
-                                            .to_lowercase()
-                                            .contains(&dc.content.to_lowercase()))
+                                    && norm_intent_key(&dc.content) == norm_intent_key(&content)
                             });
 
                             if !already_exists {
@@ -1500,24 +1758,31 @@ Return ONLY valid JSON with a single one-word answer:
                                 node_id_counter += 1;
                                 new_insights_this_pass = true;
                             } else {
-                                // Aggregate
-                                if let Some(existing) =
-                                    state.detail_captures.iter_mut().find(|dc| {
+                                // Aggregate onto the normalised-equal detail (recorded).
+                                let merged = state
+                                    .detail_captures
+                                    .iter_mut()
+                                    .find(|dc| {
                                         dc.parent_branch == resolved_branch
-                                            && dc
-                                                .content
-                                                .to_lowercase()
-                                                .contains(&content.to_lowercase())
+                                            && norm_intent_key(&dc.content) == norm_intent_key(&content)
                                     })
-                                {
-                                    if !existing.source_chunk_indices.contains(&chunk.index) {
-                                        existing.source_chunk_indices.push(chunk.index);
-                                    }
-                                    if !source_sentence.is_empty()
-                                        && !existing.source_sentences.contains(&source_sentence)
-                                    {
-                                        existing.source_sentences.push(source_sentence);
-                                    }
+                                    .map(|existing| {
+                                        if !existing.source_chunk_indices.contains(&chunk.index) {
+                                            existing.source_chunk_indices.push(chunk.index);
+                                        }
+                                        if !source_sentence.is_empty()
+                                            && !existing.source_sentences.contains(&source_sentence)
+                                        {
+                                            existing.source_sentences.push(source_sentence.clone());
+                                        }
+                                    })
+                                    .is_some();
+                                if merged {
+                                    record_intent_event(
+                                        state,
+                                        "detail_merged",
+                                        serde_json::json!({ "detail": content, "parent_branch": resolved_branch }),
+                                    );
                                 }
                             }
                         }
@@ -1548,35 +1813,53 @@ Return ONLY valid JSON with a single one-word answer:
                                 continue;
                             }
 
-                            let already_exists = state.branch_captures.iter().any(|bc| {
-                                bc.branch
-                                    .to_lowercase()
-                                    .contains(&branch_str.to_lowercase())
-                                    || branch_str
-                                        .to_lowercase()
-                                        .contains(&bc.branch.to_lowercase())
-                            });
-
-                            if !already_exists {
-                                let resolved_parent = state
-                                    .intent_captures
-                                    .iter()
-                                    .find(|ic| {
-                                        ic.intent
-                                            .to_lowercase()
-                                            .contains(&parent_intent.to_lowercase())
-                                            || parent_intent
-                                                .to_lowercase()
-                                                .contains(&ic.intent.to_lowercase())
-                                    })
-                                    .map(|ic| ic.intent.clone())
-                                    .unwrap_or_else(|| {
-                                        state
-                                            .intent_captures
-                                            .first()
-                                            .map(|ic| ic.intent.clone())
-                                            .unwrap_or_default()
-                                    });
+                            // Duplicate: normalised equality. A merge keeps this
+                            // chunk on the surviving branch and is recorded (was
+                            // two-way substring, which dropped branches silently).
+                            if let Some(i) = state
+                                .branch_captures
+                                .iter()
+                                .position(|bc| norm_intent_key(&bc.branch) == norm_intent_key(&branch_str))
+                            {
+                                let merged_into = state.branch_captures[i].branch.clone();
+                                if !state.branch_captures[i].source_chunk_indices.contains(&chunk.index) {
+                                    state.branch_captures[i].source_chunk_indices.push(chunk.index);
+                                }
+                                record_intent_event(
+                                    state,
+                                    "branch_merged",
+                                    serde_json::json!({ "merged": branch_str, "into": merged_into, "path": "chunk_discovery" }),
+                                );
+                            } else {
+                                // Parent: exact, else one unambiguous fuzzy match,
+                                // else recorded as unattributed. Never the first
+                                // intent (that silent reattribution is removed).
+                                let resolved = {
+                                    let intent_texts: Vec<&str> =
+                                        state.intent_captures.iter().map(|ic| ic.intent.as_str()).collect();
+                                    match_label(&intent_texts, &parent_intent)
+                                        .map(|(i, how)| (intent_texts[i].to_string(), how))
+                                };
+                                let resolved_parent = match resolved {
+                                    Some((intent, how)) => {
+                                        if how == "fuzzy" {
+                                            record_intent_event(
+                                                state,
+                                                "branch_parent_fuzzy",
+                                                serde_json::json!({ "branch": branch_str, "parent_raw": parent_intent, "resolved_to": intent }),
+                                            );
+                                        }
+                                        intent
+                                    }
+                                    None => {
+                                        record_intent_event(
+                                            state,
+                                            "branch_unattributed",
+                                            serde_json::json!({ "branch": branch_str, "parent_raw": parent_intent }),
+                                        );
+                                        UNATTRIBUTED_PARENT.to_string()
+                                    }
+                                };
 
                                 // No per-intent count limit — same reasoning
                                 // as the methodology-driven branch path above.
@@ -1677,7 +1960,11 @@ Return ONLY valid JSON with a single one-word answer:
                     "system_context": "Identify cross-branch relationships. Return only valid JSON."
                 });
 
-                if let Ok(result) = self.metered_execute_resilient(state, crossref_input, "amt_cross_ref").await {
+                let crossref_input_result = self.metered_execute_resilient(state, crossref_input, "amt_cross_ref").await;
+                if let Err(e) = &crossref_input_result {
+                    tracing::warn!(site = "amt_cross_ref", error = %e, "AMT sub-call failed loudly — no silent skips");
+                }
+                if let Ok(result) = crossref_input_result {
                     self.record_thinking(state, "Build AMT — cross-reference", &result);
                     let response = result
                         .get("response")
@@ -1753,7 +2040,7 @@ Return ONLY valid JSON with a single one-word answer:
             } else if !state.intent_captures.is_empty() {
                 state.intent_captures[0].intent.clone()
             } else {
-                "Process user request".to_string()
+                request_intent_text(state)
             }
         };
 
@@ -1793,7 +2080,7 @@ Return ONLY valid JSON with a single one-word answer:
                 let branches_for_intent: Vec<&BranchCapture> = state
                     .branch_captures
                     .iter()
-                    .filter(|bc| bc.parent_intent == intent_capture.intent)
+                    .filter(|bc| norm_intent_key(&bc.parent_intent) == norm_intent_key(&intent_capture.intent))
                     .collect();
 
                 for branch_capture in branches_for_intent {
@@ -1807,7 +2094,7 @@ Return ONLY valid JSON with a single one-word answer:
                 let branches_for_intent: Vec<&BranchCapture> = state
                     .branch_captures
                     .iter()
-                    .filter(|bc| bc.parent_intent == intent_capture.intent)
+                    .filter(|bc| norm_intent_key(&bc.parent_intent) == norm_intent_key(&intent_capture.intent))
                     .collect();
 
                 for branch_capture in branches_for_intent {
@@ -1820,6 +2107,28 @@ Return ONLY valid JSON with a single one-word answer:
                         .metadata
                         .insert("knowledge_paths".to_string(), paths.join(", "));
                 }
+            }
+        }
+
+        // Branches whose parent matches no intent (the unattributed set, or a
+        // parent that no longer exists) were never attached and vanished from
+        // the AMT. Attach them to the root instead; the unattributed ones were
+        // already recorded when their parent was resolved.
+        let intent_keys: HashSet<String> = state
+            .intent_captures
+            .iter()
+            .map(|ic| norm_intent_key(&ic.intent))
+            .collect();
+        for bc in &state.branch_captures {
+            if !intent_keys.contains(&norm_intent_key(&bc.parent_intent)) {
+                if bc.parent_intent != UNATTRIBUTED_PARENT {
+                    tracing::warn!(
+                        branch = %bc.branch,
+                        parent = %bc.parent_intent,
+                        "branch parent matches no intent — attached to the root, not dropped"
+                    );
+                }
+                root_node.children.push(self.build_branch_node(state, bc, 1));
             }
         }
 
@@ -2012,6 +2321,21 @@ Return ONLY valid JSON with a single one-word answer:
     /// fabricating rule content — most of the 15 bootstrap methodologies are
     /// still in that state; only a few have real content written so far.
     pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
+        Self::load_methodology_rules_limited(container, 5, 3)
+    }
+
+    /// Every decision rule and heuristic, no per-methodology count cap. The
+    /// caller sizes the block against the reading model's window
+    /// (`render_within_window`), so nothing is cut silently.
+    pub(crate) fn load_methodology_rules_full(container: &serde_json::Value) -> Option<String> {
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
+    }
+
+    fn load_methodology_rules_limited(
+        container: &serde_json::Value,
+        rule_limit: usize,
+        heuristic_limit: usize,
+    ) -> Option<String> {
         let object_store_path = container
             .get("local_state")
             .and_then(|ls| ls.get("storage"))
@@ -2037,7 +2361,7 @@ Return ONLY valid JSON with a single one-word answer:
         let mut lines: Vec<String> = Vec::new();
 
         if let Some(rules) = parsed.get("decision_rules").and_then(|r| r.as_array()) {
-            for rule in rules.iter().take(5) {
+            for rule in rules.iter().take(rule_limit) {
                 let condition = rule.get("condition").and_then(|c| c.as_str()).unwrap_or("");
                 let action = rule.get("action").and_then(|a| a.as_str()).unwrap_or("");
                 if !condition.is_empty() && !action.is_empty() {
@@ -2047,7 +2371,7 @@ Return ONLY valid JSON with a single one-word answer:
         }
 
         if let Some(heuristics) = parsed.get("heuristics").and_then(|h| h.as_array()) {
-            for h in heuristics.iter().take(3) {
+            for h in heuristics.iter().take(heuristic_limit) {
                 let when = h.get("when_to_apply").and_then(|w| w.as_str()).unwrap_or("");
                 let desc = h.get("description").and_then(|d| d.as_str()).unwrap_or("");
                 if !when.is_empty() && !desc.is_empty() {
@@ -2198,6 +2522,9 @@ Return ONLY valid JSON with a single one-word answer:
         call_site: &'static str,
         record_label: &'static str,
         node_id_counter: &mut u64,
+        available_models: &[crate::config::AvailableModel],
+        fallback_order: &[String],
+        fallback_free_only: bool,
     ) -> bool {
         let policy = crate::k_registry::KAlgorithms::global().current_selection_policy();
         let ranked = self
@@ -2224,7 +2551,9 @@ Return ONLY valid JSON with a single one-word answer:
         // context budget; `batch_size` stays the member-count ceiling.
         // No coverage loss: every member lands in exactly one batch.
         let approx_tokens = |s: &str| s.len() / 4 + 1;
-        let lane_budget_tokens = 20_000usize; // 32k-context free models: content + scaffold + output fit comfortably
+        // Derived from the window of the model this request runs on, never a fixed
+        // size: three quarters of the window, the rest left for scaffold and output.
+        let lane_budget_tokens = (state.model_context_limit as usize).saturating_mul(3) / 4;
         let member_cap = policy.batch_size.max(1);
         let mut batches: Vec<Vec<(u64, String, String)>> = Vec::new();
         let mut cur: Vec<(u64, String, String)> = Vec::new();
@@ -2243,6 +2572,7 @@ Return ONLY valid JSON with a single one-word answer:
         }
 
         // ── Lane composition (serial, needs &state for known-branches) ──
+        let window_chars = (state.model_context_limit as usize).saturating_mul(4);
         let known_branches_json: Vec<serde_json::Value> = {
             // BUDGET GUARD: the known-list grows with every capture — feed
             // the NEWEST half when it would dominate the lane's context.
@@ -2251,74 +2581,66 @@ Return ONLY valid JSON with a single one-word answer:
                 .iter()
                 .map(|bc| serde_json::json!({"branch": bc.branch, "intent": bc.parent_intent}))
                 .collect();
-            let serialized = serde_json::to_string(&all).unwrap_or_default();
-            if serialized.len() > 24_000 {
-                all[all.len() / 2..].to_vec()
-            } else {
-                all
+            // The NEWEST entries that fit the lane budget are kept. Older
+            // entries left out are counted in the list itself and recorded.
+            // The old guard kept the newer half and dropped the rest silently.
+            let budget = window_chars / 4;
+            let mut kept: Vec<serde_json::Value> = Vec::new();
+            let mut used = 0usize;
+            for v in all.iter().rev() {
+                let len = serde_json::to_string(v).map(|s| s.len()).unwrap_or(0) + 1;
+                if used + len > budget {
+                    break;
+                }
+                used += len;
+                kept.push(v.clone());
             }
+            kept.reverse();
+            let omitted = all.len() - kept.len();
+            if omitted > 0 {
+                record_intent_event(
+                    state,
+                    "known_branches_trimmed",
+                    serde_json::json!({
+                        "kept": kept.len(),
+                        "omitted_older": omitted,
+                        "budget_chars": budget,
+                    }),
+                );
+                kept.insert(0, serde_json::json!({"omitted_older_known_branches": omitted}));
+            }
+            kept
         };
         let known_json = serde_json::to_string(&known_branches_json).unwrap_or_default();
-        let methodology_summaries_block = {
-            let block = methodology_summaries_block.to_string();
-            if block.len() > 8_000 {
-                let cut = block.len() - 8_000;
-                match block[cut..].find("\n") {
-                    Some(p) => format!("[earlier summaries trimmed for context budget] {}", &block[cut + p + 1..]),
-                    None => block[cut..].to_string(),
-                }
-            } else {
-                block
-            }
-        };
-        let mut lanes: Vec<(Vec<u64>, String, serde_json::Value, Vec<(u64, String, String)>)> = Vec::new();
+        // Window-sized through the shared assembler, so every trim is recorded.
+        // The old cut was a byte slice (it could split a multi-byte character)
+        // that kept the newest tail and recorded nothing about what it dropped.
+        let methodology_summaries_block = render_within_window(
+            state,
+            "methodology_summaries_lane",
+            12,
+            methodology_summaries_block.to_string(),
+        );
+        let lane_shared = std::sync::Arc::new(crate::orchestrator::lane_split::LaneShared {
+            intents: intents_summary.join("\n"),
+            jurisdiction_ctx: jurisdiction_ctx.to_string(),
+            standing_ctx: standing_ctx.to_string(),
+            file_relationships: file_relationships.to_string(),
+            methodology_summaries_block: methodology_summaries_block.clone(),
+            known_json: known_json.clone(),
+        });
+        let mut lanes: Vec<(
+            Vec<u64>,
+            String,
+            serde_json::Value,
+            Vec<(u64, String, String)>,
+            crate::orchestrator::lane_split::LaneSpec,
+        )> = Vec::new();
         for batch in &batches {
             if batch.is_empty() {
                 continue;
             }
-            let batch_listing = batch
-                .iter()
-                .map(|(id, name, desc)| {
-                    format!("- {} (container {}): {}", name, id, &desc[..desc.len().min(200)])
-                })
-                .collect::<Vec<_>>()
-                .join("\n");
-            let branch_prompt = format!(
-                r#"You are applying the following methodologies to a set of user intents.
-
-METHODOLOGIES (apply ALL of them; attribute each suggested branch to the methodology that requires it via "methodology"):
-{batch_listing}
-
-USER INTENTS:
-{}
-
-{methodology_summaries_block}
-
-ALREADY IDENTIFIED BRANCHES (do NOT repeat these):
-{known_json}
-
-JURISDICTION CONTEXT: {jurisdiction_ctx}
-{standing_ctx}
-{file_relationships}
-
-Based on these methodologies, what additional branches (sub-components, requirements, or considerations) should be addressed for each intent?
-Only suggest branches NOT already in the known list.
-
-Return ONLY valid JSON:
-{{
-    "branches": [
-        {{
-            "branch": "specific branch description",
-            "parent_intent": "the intent this branch belongs to",
-            "methodology": "the EXACT methodology name (from METHODOLOGIES) requiring this branch",
-            "rationale": "why this methodology requires this branch"
-        }}
-    ]
-}}
-If no new branches apply, return: {{"branches": []}}"#,
-                intents_summary.join("\n"),
-                methodology_summaries_block = methodology_summaries_block,
-            );
+            let branch_prompt = crate::orchestrator::lane_split::render_branch_lane_prompt(batch, &lane_shared);
             let input = serde_json::json!({
                 "prompt": branch_prompt,
                 "max_tokens": 900,
@@ -2326,7 +2648,11 @@ If no new branches apply, return: {{"branches": []}}"#,
                 "system_context": "Suggest branches per methodology batch. Return only valid JSON. No explanation."
             });
             let ids: Vec<u64> = batch.iter().map(|(id, _, _)| *id).collect();
-            lanes.push((ids, branch_prompt, input, batch.clone()));
+            let spec = crate::orchestrator::lane_split::LaneSpec {
+                members: batch.clone(),
+                shared: lane_shared.clone(),
+            };
+            lanes.push((ids, branch_prompt, input, batch.clone(), spec));
         }
         if lanes.is_empty() {
             return false;
@@ -2336,7 +2662,7 @@ If no new branches apply, return: {{"branches": []}}"#,
         // FULL LANE IDENTIFICATION (operator: "identify fully all 3"): every
         // lane logs its exact methodology membership upfront, and its result
         // line carries model/tokens/outcome — no anonymous losses.
-        for (li, (ids, _, _, members)) in lanes.iter().enumerate() {
+        for (li, (ids, _, _, members, _)) in lanes.iter().enumerate() {
             tracing::info!(
                 call_site,
                 lane = li,
@@ -2345,10 +2671,33 @@ If no new branches apply, return: {{"branches": []}}"#,
             );
         }
         let mut set = tokio::task::JoinSet::new();
-        for (_, _, input, _) in &lanes {
+        for (_, _, input, _, spec) in &lanes {
             let executor = self.executor.clone();
             let input = input.clone();
-            set.spawn(async move { executor.execute(9, input).await });
+            let spec = spec.clone();
+            let models = available_models.to_vec();
+            let order = fallback_order.to_vec();
+            let free_only = fallback_free_only;
+            // FULL CHAIN per lane (operator: "never skipping"): each lane
+            // walks the health-reordered fallback chain — an empty response
+            // from one free model moves the lane to the next model instead
+            // of ending it. BitNet remains the final chain entry only.
+            set.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, crate::orchestrator::lane_split::LANE_SPEC.scope(spec, async move {
+                let last_error = "lane starting".to_string();
+                let primary_model = crate::orchestrator::primary_model_identity(&input, None);
+                crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
+                    &executor,
+                    9,
+                    input,
+                    last_error,
+                    &models,
+                    &order,
+                    free_only,
+                    true,
+                    primary_model,
+                )
+                .await
+            })));
         }
         let mut results: Vec<Result<serde_json::Value, String>> = Vec::new();
         while let Some(res) = set.join_next().await {
@@ -2386,7 +2735,7 @@ If no new branches apply, return: {{"branches": []}}"#,
         let retry_inputs: Vec<Option<serde_json::Value>> = lanes
             .iter()
             .zip(results.iter())
-            .map(|((_, _, input, _), r)| match r {
+            .map(|((_, _, input, _, _), r)| match r {
                 Err(_) => Some(input.clone()),
                 Ok(v) => {
                     if v.get("response").and_then(|r| r.as_str()).map(|s| s.trim().is_empty()).unwrap_or(true) {
@@ -2404,7 +2753,7 @@ If no new branches apply, return: {{"branches": []}}"#,
             for input in retry_inputs.iter().flatten() {
                 let executor = self.executor.clone();
                 let input = input.clone();
-                set2.spawn(async move { executor.execute(9, input).await });
+                set2.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, async move { executor.execute(9, input).await }));
             }
             let mut retried: Vec<Result<serde_json::Value, String>> = Vec::new();
             while let Some(res) = set2.join_next().await {
@@ -2432,7 +2781,7 @@ If no new branches apply, return: {{"branches": []}}"#,
 
         // ── SERIAL application (state mutation never concurrent) ──
         let mut captured_any = false;
-        for ((ids, prompt, _, batch_members), result) in lanes.iter().zip(results.into_iter()) {
+        for ((ids, prompt, _, batch_members, _), result) in lanes.iter().zip(results.into_iter()) {
             match &result {
                 Ok(v) if v.get("response").and_then(|r| r.as_str()).map(|s| !s.trim().is_empty()).unwrap_or(false) => {
                     let tokens = v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0);
@@ -2458,8 +2807,22 @@ If no new branches apply, return: {{"branches": []}}"#,
             let Ok(result) = result else { continue; };
             let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
             let json_str = Self::extract_json_from_response(response, '{', '}');
-            let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
-                .unwrap_or_else(|_| serde_json::json!({"branches": []}));
+            let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                Ok(v) => v,
+                Err(e) => {
+                    // Was a silent unwrap_or_else to zero branches.
+                    record_intent_event(
+                        state,
+                        "branch_lane_parse_failed",
+                        serde_json::json!({
+                            "call_site": call_site,
+                            "response_chars": response.chars().count(),
+                            "error": e.to_string(),
+                        }),
+                    );
+                    serde_json::json!({"branches": []})
+                }
+            };
             if let Some(branches) = parsed.get("branches").and_then(|b| b.as_array()) {
                 for branch_val in branches {
                     let branch_str = branch_val
@@ -2475,21 +2838,35 @@ If no new branches apply, return: {{"branches": []}}"#,
                     if branch_str.is_empty() {
                         continue;
                     }
-                    let resolved_parent = state
-                        .intent_captures
-                        .iter()
-                        .find(|ic| {
-                            ic.intent.to_lowercase().contains(&parent_intent.to_lowercase())
-                                || parent_intent.to_lowercase().contains(&ic.intent.to_lowercase())
-                        })
-                        .map(|ic| ic.intent.clone())
-                        .unwrap_or_else(|| {
-                            state
-                                .intent_captures
-                                .first()
-                                .map(|ic| ic.intent.clone())
-                                .unwrap_or_default()
-                        });
+                    // Parent: exact normalised, else one unambiguous fuzzy
+                    // match, else recorded as unattributed (never the first
+                    // intent — that silent reattribution is removed).
+                    let matched: Option<(String, &'static str)> = {
+                        let intent_texts: Vec<&str> =
+                            state.intent_captures.iter().map(|ic| ic.intent.as_str()).collect();
+                        match_label(&intent_texts, &parent_intent)
+                            .map(|(i, how)| (intent_texts[i].to_string(), how))
+                    };
+                    let resolved_parent = match matched {
+                        Some((intent, how)) => {
+                            if how == "fuzzy" {
+                                record_intent_event(
+                                    state,
+                                    "branch_parent_fuzzy",
+                                    serde_json::json!({ "branch": branch_str, "parent_raw": parent_intent, "resolved_to": intent }),
+                                );
+                            }
+                            intent
+                        }
+                        None => {
+                            record_intent_event(
+                                state,
+                                "branch_unattributed",
+                                serde_json::json!({ "branch": branch_str, "parent_raw": parent_intent }),
+                            );
+                            UNATTRIBUTED_PARENT.to_string()
+                        }
+                    };
                     let attributed: Vec<u64> = branch_val
                         .get("methodology")
                         .and_then(|m| m.as_str())
@@ -2501,10 +2878,11 @@ If no new branches apply, return: {{"branches": []}}"#,
                         })
                         .map(|(id, _, _)| vec![*id])
                         .unwrap_or_else(|| ids.clone());
+                    // Duplicate under the same parent: normalised equality
+                    // (was two-way substring, which dropped branches silently).
                     let already_exists = state.branch_captures.iter().any(|bc| {
                         bc.parent_intent == resolved_parent
-                            && (bc.branch.to_lowercase().contains(&branch_str.to_lowercase())
-                                || branch_str.to_lowercase().contains(&bc.branch.to_lowercase()))
+                            && norm_intent_key(&bc.branch) == norm_intent_key(&branch_str)
                     });
                     if !already_exists {
                         let branch_id = *node_id_counter;
@@ -2523,14 +2901,20 @@ If no new branches apply, return: {{"branches": []}}"#,
                         .iter_mut()
                         .find(|bc| {
                             bc.parent_intent == resolved_parent
-                                && bc.branch.to_lowercase().contains(&branch_str.to_lowercase())
+                                && norm_intent_key(&bc.branch) == norm_intent_key(&branch_str)
                         })
                     {
+                        let merged_into = existing.branch.clone();
                         for aid in &attributed {
                             if !existing.source_methodology_ids.contains(aid) {
                                 existing.source_methodology_ids.push(*aid);
                             }
                         }
+                        record_intent_event(
+                            state,
+                            "branch_merged",
+                            serde_json::json!({ "merged": branch_str, "into": merged_into, "path": "methodology_discovery" }),
+                        );
                     }
                 }
             }
@@ -2598,7 +2982,7 @@ If no new branches apply, return: {{"branches": []}}"#,
                             .and_then(|ctx| ctx.get("keywords"))
                             .and_then(|k| k.as_array())
                             .map(|arr| {
-                                arr.iter().filter_map(|v| v.as_str()).take(5)
+                                arr.iter().filter_map(|v| v.as_str())
                                     .collect::<Vec<_>>().join(", ")
                             })
                             .unwrap_or_default();
@@ -2620,8 +3004,12 @@ If no new branches apply, return: {{"branches": []}}"#,
                         // content file exists yet (most methodologies still
                         // don't have one — this is a real, only partially
                         // filled gap, not a claim that all 15 now do).
-                        match Self::load_methodology_rules_text(&container) {
+                        match Self::load_methodology_rules_full(&container) {
                             Some(rules_text) => {
+                                // Whole rules block, sized against the reading
+                                // model's window; every cut is recorded.
+                                let rules_text =
+                                    render_within_window(state, "methodology_rules", 8, rules_text);
                                 knowledge.methodology_summaries.push(
                                     format!("[{}] — {}", name, rules_text)
                                 );
@@ -2646,7 +3034,9 @@ If no new branches apply, return: {{"branches": []}}"#,
                 .await
                 .unwrap_or_default();
 
-            knowledge.related_blueprint_ids = found_blueprints.into_iter().take(5).collect();
+            // Every hit kept (was take(5): silent). The field has no model
+            // reader; the set is what the blueprint lookup found.
+            knowledge.related_blueprint_ids = found_blueprints.into_iter().collect();
         }
 
         for modality in &layer_input.verified_modalities {
@@ -2730,7 +3120,9 @@ If no new branches apply, return: {{"branches": []}}"#,
                     active_modalities.len(), active_modalities.join(", "))
             } else { String::new() }
         } else {
-            let pair_descriptions: Vec<String> = cross_modal_pairs.iter().take(4)
+            // Every cross-modal pair (was take(4): silent). Sized at the
+            // prompt site by render_within_window.
+            let pair_descriptions: Vec<String> = cross_modal_pairs.iter()
                 .map(|(a, b, rel)| format!("{} {} {}", a, rel, b))
                 .collect();
             format!("Cross-modal structure: {}. Active: {}.",
@@ -2796,18 +3188,89 @@ If no new branches apply, return: {{"branches": []}}"#,
         state: &mut OrchestrationState,
         qualities: &[BranchQuality],
     ) {
-        let prunable: std::collections::HashSet<String> = qualities.iter()
+        let prunable: HashMap<String, f32> = qualities
+            .iter()
             .filter(|q| q.should_prune)
-            .map(|q| q.branch.clone())
+            .map(|q| (q.branch.clone(), q.total_score))
             .collect();
+        if prunable.is_empty() {
+            return;
+        }
 
-        if !prunable.is_empty() {
-            tracing::debug!(
-                "Branch quality pruning {} low-evidence branches: {:?}",
-                prunable.len(), prunable
+        // Protections: the request-intent branch is never pruned, and the last
+        // branch under an intent is never pruned (so no intent silently loses
+        // its whole subtree). Every decision is recorded, prunes and keeps.
+        let request_key = norm_intent_key(&request_intent_text(state));
+        let mut remaining: HashMap<String, usize> = HashMap::new();
+        for bc in &state.branch_captures {
+            *remaining.entry(norm_intent_key(&bc.parent_intent)).or_default() += 1;
+        }
+        let mut remove: HashSet<usize> = HashSet::new();
+        let mut events: Vec<serde_json::Value> = Vec::new();
+        for (i, bc) in state.branch_captures.iter().enumerate() {
+            let Some(score) = prunable.get(&bc.branch) else { continue };
+            let parent_key = norm_intent_key(&bc.parent_intent);
+            if norm_intent_key(&bc.branch) == request_key {
+                events.push(serde_json::json!({
+                    "branch": bc.branch, "parent": bc.parent_intent, "score": score,
+                    "kept": "request_intent",
+                }));
+                continue;
+            }
+            let left = remaining.get(&parent_key).copied().unwrap_or(0);
+            if left <= 1 {
+                events.push(serde_json::json!({
+                    "branch": bc.branch, "parent": bc.parent_intent, "score": score,
+                    "kept": "last_branch_of_intent",
+                }));
+                continue;
+            }
+            if let Some(l) = remaining.get_mut(&parent_key) {
+                *l -= 1;
+            }
+            remove.insert(i);
+            events.push(serde_json::json!({
+                "branch": bc.branch, "parent": bc.parent_intent, "score": score,
+                "pruned": true,
+            }));
+        }
+        for ev in events {
+            record_intent_event(state, "branch_prune", ev);
+        }
+        if remove.is_empty() {
+            return;
+        }
+
+        let mut removed_pairs: HashSet<(String, String)> = HashSet::new();
+        let mut kept_branches = Vec::with_capacity(state.branch_captures.len());
+        for (i, bc) in std::mem::take(&mut state.branch_captures).into_iter().enumerate() {
+            if remove.contains(&i) {
+                removed_pairs.insert((norm_intent_key(&bc.branch), norm_intent_key(&bc.parent_intent)));
+            } else {
+                kept_branches.push(bc);
+            }
+        }
+        state.branch_captures = kept_branches;
+
+        // Details go only with a pruned (branch, intent) pair that no kept branch
+        // still occupies; a detail is never dropped while its branch survives.
+        let kept_pairs: HashSet<(String, String)> = state
+            .branch_captures
+            .iter()
+            .map(|bc| (norm_intent_key(&bc.branch), norm_intent_key(&bc.parent_intent)))
+            .collect();
+        let details_before = state.detail_captures.len();
+        state.detail_captures.retain(|dc| {
+            let pair = (norm_intent_key(&dc.parent_branch), norm_intent_key(&dc.parent_intent));
+            !removed_pairs.contains(&pair) || kept_pairs.contains(&pair)
+        });
+        let details_removed = details_before - state.detail_captures.len();
+        if details_removed > 0 {
+            record_intent_event(
+                state,
+                "detail_pruned_with_branch",
+                serde_json::json!({ "count": details_removed }),
             );
-            state.branch_captures.retain(|bc| !prunable.contains(&bc.branch));
-            state.detail_captures.retain(|dc| !prunable.contains(&dc.parent_branch));
         }
     }
 
@@ -3129,6 +3592,8 @@ mod tests {
             fallback_free_only: false,
             meta_fallback_order: Vec::new(),
             meta_fallback_free_only: false,
+            allow_paid_models: false,
+            primary_default_model: None,
         }
     }
 

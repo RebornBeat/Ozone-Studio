@@ -144,7 +144,11 @@ impl PromptOrchestrator {
                 .find(|s| s.step_index == result.step_index)
                 .map(|s| s.description.clone())
                 .unwrap_or_else(|| fallback_intent_text.clone());
-            let object: String = output_text.chars().take(220).collect();
+            // Whole step output: a 220-char cut here silently truncated the
+            // delivered response. No model window is known at this site, so
+            // nothing is cut on a guess; the fallback walk's context-fit
+            // pre-order defers any render model that cannot hold the graph.
+            let object: String = output_text;
             sentences.push(ResponseSentenceSpec {
                 granularity: "frame".to_string(),
                 frame: Some(ResponseFrame {
@@ -427,10 +431,12 @@ Return ONLY the rendered text. No explanation. No markdown."#
         // Task recommendations for next steps (Pipeline 23) — unchanged.
         let recommend_input = serde_json::json!({
             "action": "Suggest",
-            "context": &state.cleaned_prompt[..state.cleaned_prompt.len().min(200)],
+            // Whole prompt, no 200-char cut: pipeline 23 reads it as context
+            // and no window is known here (see the walk's context-fit note above).
+            "context": state.cleaned_prompt,
             "completed_task_id": state.task_id,
             "topics": state.topics.clone(),
-            "keywords": state.keywords.iter().take(5).cloned().collect::<Vec<_>>()
+            "keywords": state.keywords.iter().cloned().collect::<Vec<_>>()
         });
         let _ = self.executor.execute(23, recommend_input).await;
 

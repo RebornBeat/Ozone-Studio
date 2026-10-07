@@ -295,7 +295,12 @@ impl PromptOrchestrator {
                     .get("global_state").and_then(|g| g.get("child_ids"))
                     .and_then(|c| serde_json::from_value(c.clone()).ok())
                     .unwrap_or_default();
-                for child_id in child_ids.iter().take(40) {
+                // No count cap: every child reaches the judgment prompt.
+                // The model window is not known at this site, so the
+                // fallback walk's context-fit pre-order decides which
+                // candidate can hold it, and its ContextRecord records the
+                // real window per call.
+                for child_id in child_ids.iter() {
                     if let Ok(Some(child)) = self.store.get_container(*child_id).await {
                         let kws: Vec<String> = child
                             .get("local_state").and_then(|l| l.get("context"))
@@ -505,10 +510,10 @@ pub(crate) async fn resolve_confirmation_reviews(
             "action": "Evaluate",
             "task_id": 0,
             "task_summary": format!(
-                "A user request matched a jurisdiction rule requiring confirmation before proceeding. Matched condition: \"{}\". Legal source: {}. Original request (truncated): {}{}",
+                "A user request matched a jurisdiction rule requiring confirmation before proceeding. Matched condition: \"{}\". Legal source: {}. Original request: {}{}",
                 rule.condition,
                 rule.source,
-                &prompt[..prompt.len().min(400)],
+                prompt,
                 standing_block
             ),
             "blueprint_id": blueprint_id,

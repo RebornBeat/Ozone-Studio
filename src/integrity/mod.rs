@@ -175,36 +175,45 @@ impl IntegrityMonitor {
         let hash = blake3::hash(data);
         let hash_bytes: Blake3Hash = *hash.as_bytes();
         
-        // Get current version number
-        let mut versions = self.versions.write().await;
-        let container_versions = versions.entry(container_id).or_insert_with(Vec::new);
-        let version = container_versions.last()
-            .map(|v| v.version + 1)
-            .unwrap_or(1);
-        
-        // Save snapshot
-        let snapshot_filename = format!("{}_{}.snapshot", container_id, version);
-        let snapshot_path = self.rollback_path.join(&snapshot_filename);
-        
-        std::fs::write(&snapshot_path, data)
-            .map_err(|e| OzoneError::IntegrityError(format!("Failed to write snapshot: {}", e)))?;
-        
-        // Record version
-        let container_version = ContainerVersion {
-            version,
-            timestamp: now,
-            hash: hash_bytes,
-            snapshot_path,
+        // Reserve the version under the lock; the file write happens outside it so a
+        // slow disk never blocks other containers' version bookkeeping.
+        let snapshot_path = {
+            let mut versions = self.versions.write().await;
+            let container_versions = versions.entry(container_id).or_insert_with(Vec::new);
+            let version = container_versions.last()
+                .map(|v| v.version + 1)
+                .unwrap_or(1);
+            let snapshot_path = self.rollback_path.join(format!("{}_{}.snapshot", container_id, version));
+            container_versions.push(ContainerVersion {
+                version,
+                timestamp: now,
+                hash: hash_bytes,
+                snapshot_path: snapshot_path.clone(),
+            });
+            snapshot_path
         };
-        
-        container_versions.push(container_version);
-        
-        // Trim old versions if needed
-        while container_versions.len() > self.config.max_versions as usize {
-            let old = container_versions.remove(0);
-            let _ = std::fs::remove_file(&old.snapshot_path);
+
+        if let Err(e) = tokio::fs::write(&snapshot_path, data).await {
+            let mut versions = self.versions.write().await;
+            if let Some(container_versions) = versions.get_mut(&container_id) {
+                container_versions.retain(|v| v.snapshot_path != snapshot_path);
+            }
+            return Err(OzoneError::IntegrityError(format!("Failed to write snapshot: {}", e)));
         }
-        
+
+        let stale: Vec<PathBuf> = {
+            let mut versions = self.versions.write().await;
+            let container_versions = versions.entry(container_id).or_insert_with(Vec::new);
+            let mut stale = Vec::new();
+            while container_versions.len() > self.config.max_versions as usize {
+                stale.push(container_versions.remove(0).snapshot_path);
+            }
+            stale
+        };
+        for path in stale {
+            let _ = tokio::fs::remove_file(path).await;
+        }
+
         Ok(())
     }
     

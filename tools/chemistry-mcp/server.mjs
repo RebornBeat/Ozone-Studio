@@ -39,6 +39,23 @@ const SELF_DIR = path.dirname(fileURLToPath(import.meta.url));
 const RDKIT_PYTHON = process.env.OZONE_RDKIT_PYTHON ?? path.join(SELF_DIR, ".venv", "bin", "python3");
 const PUBCHEM_BASE = "https://pubchem.ncbi.nlm.nih.gov/rest/pug";
 
+// Real RDKit atoms and bonds as a graph block: atoms and bonds are entities under
+// the molecule, and each bond references both of its atoms.
+function chemGraph(data, smiles) {
+  const nodes = [{ key: "molecule", kind: "Molecule", label: smiles, attributes: { num_atoms: data.num_atoms, num_heavy_atoms: data.num_heavy_atoms } }];
+  for (const a of data.atoms) {
+    nodes.push({ key: `atom-${a.atom_id}`, kind: "Atom", label: `${a.element}${a.atom_id}`, parent: "molecule", attributes: a });
+  }
+  const edges = [];
+  for (const b of data.bonds) {
+    const key = `bond-${b.bond_id}`;
+    nodes.push({ key, kind: "Bond", label: b.bond_type, parent: "molecule", attributes: b });
+    edges.push({ from: `atom-${b.atom1_id}`, to: key, relation: "References" });
+    edges.push({ from: `atom-${b.atom2_id}`, to: key, relation: "References" });
+  }
+  return { nodes, edges };
+}
+
 function reply(res, code, body) {
   res.writeHead(code, { "Content-Type": "application/json" });
   res.end(JSON.stringify(body));
@@ -194,7 +211,7 @@ const server = createServer((req, res) => {
         const smiles = String(input.smiles ?? "").trim();
         if (!smiles) throw new Error("smiles is required");
         const out = await runRdkitAnalyze(smiles);
-        reply(res, 200, out.ok ? { success: true, output: out } : { success: false, error: out.error });
+        reply(res, 200, out.ok ? { success: true, output: { ...out, graph: chemGraph(out, smiles) } } : { success: false, error: out.error });
       } else {
         reply(res, 200, { success: false, error: `unknown chemistry tool '${tool}' (chem_lookup, chem_analyze)` });
       }

@@ -234,10 +234,26 @@ async fn review_amt_candidates_once(
 
     let mut any_change = false;
 
+    // PER-PASS BOUND (the one hang/speed sink the session reviews could not
+    // verify): a burst of fresh candidates used to fire an unbounded number
+    // of sequential model calls in ONE pass — a long pass, and a burst
+    // starving everything queued behind it. Doctrine #48 ordering: each pass
+    // covers a bounded batch (oldest first — store order), the rest wait for
+    // the next tick. Structural failures terminal-classify in one attempt,
+    // so the backlog drains fast; the leftover count is named loudly.
+    const MAX_CANDIDATES_PER_PASS: usize = 12;
+    let mut attempted_this_pass = 0usize;
+    let mut left_for_next_pass = 0usize;
+
     for candidate in candidates.iter_mut() {
         if candidate.get("handled").and_then(|v| v.as_bool()) == Some(true) {
             continue;
         }
+        if attempted_this_pass >= MAX_CANDIDATES_PER_PASS {
+            left_for_next_pass += 1;
+            continue;
+        }
+        attempted_this_pass += 1;
         let Some(container_id) = candidate.get("container_id").and_then(|v| v.as_u64()) else {
             continue;
         };
@@ -347,6 +363,19 @@ async fn review_amt_candidates_once(
                 // Persisted on the candidate itself so the count survives a
                 // restart.
                 const MAX_REEXPAND_ATTEMPTS: u64 = 10;
+                // PERMANENT-FAILURE CLASSIFICATION (operator: "why is it
+                // failing? ensure that it doesn't" — burning 10 passes on a
+                // candidate that can never succeed IS the failure mode;
+                // tasks 202/205/206 were exactly this). Structural gaps
+                // never heal: the container will not grow an
+                // object_store_path retroactively, a content file that was
+                // never written stays missing, and corrupt JSON stays
+                // corrupt. Terminal on the FIRST occurrence with a loud,
+                // specific outcome; only transient failures (model/LLM)
+                // keep the retry budget.
+                let permanent = e.contains("has no object_store_path")
+                    || e.contains("No such file or directory")
+                    || e.contains("EOF while parsing");
                 let attempts = attempts_before + 1;
                 candidate["attempts"] = serde_json::json!(attempts);
                 any_change = true;
@@ -357,20 +386,35 @@ async fn review_amt_candidates_once(
                         .fail_task(*tid, e.clone())
                         .await;
                 }
-                if attempts >= MAX_REEXPAND_ATTEMPTS {
+                let outcome = if permanent {
+                    "failed_structural"
+                } else {
+                    "failed_after_max_attempts"
+                };
+                if permanent || attempts >= MAX_REEXPAND_ATTEMPTS {
                     tracing::warn!(
                         container_id,
                         attempts,
+                        permanent,
                         error = %e,
-                        "AMT re-expansion exceeded max attempts — marking failed, not retrying further"
+                        "AMT re-expansion terminal — marking failed now (structural failures get no retries; transient ones keep the budget)"
                     );
                     candidate["handled"] = serde_json::json!(true);
-                    candidate["outcome"] = serde_json::json!("failed_after_max_attempts");
+                    candidate["outcome"] = serde_json::json!(outcome);
                 } else {
                     tracing::warn!(container_id, attempts, error = %e, "AMT re-expansion attempt failed — will retry next pass");
                 }
             }
         }
+    }
+
+    if left_for_next_pass > 0 {
+        tracing::info!(
+            attempted = attempted_this_pass,
+            left_for_next_pass,
+            bound = MAX_CANDIDATES_PER_PASS,
+            "AMT re-expansion pass hit its per-pass candidate bound — the rest run on the next tick (batch coverage, nothing dropped)"
+        );
     }
 
     if any_change {
@@ -485,7 +529,12 @@ async fn try_reexpand_one(
     let mut guidance_parts: Vec<String> = Vec::new();
     for &method_id in &target_methodology_ids {
         if let Ok(Some(container)) = store.get_container(method_id).await {
-            if let Some(rules) = PromptOrchestrator::load_methodology_rules_text(&container) {
+            // Every rule and heuristic, no count cap (was the 5-rule / 3-heuristic
+            // loader, which dropped the rest silently). This loop has no
+            // OrchestrationState, so the window is applied where the call is
+            // made: the fallback walk sizes each candidate against its own
+            // window and defers the ones that cannot hold it.
+            if let Some(rules) = PromptOrchestrator::load_methodology_rules_full(&container) {
                 guidance_parts.push(rules);
             }
         }

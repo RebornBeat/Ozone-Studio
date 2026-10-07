@@ -22,6 +22,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
@@ -704,6 +707,10 @@ pub struct EMGraph {
     pub state_history: Vec<GraphStateTransition>,
     pub created_at: String, pub updated_at: String,
     pub version: u32, pub version_notes: Vec<VersionNote>,
+    #[serde(default)]
+    pub zero_shot_relations: Vec<semantic_relations::AcceptedRelation>,
+    #[serde(default)]
+    pub zero_shot_rejected: Vec<semantic_relations::RejectedRelation>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -770,6 +777,9 @@ pub enum EMOperation {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EMModalityOutput {
     pub success: bool,
+    /// Set when a graph save failed. The graph built in this run is still returned.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub save_error: Option<String>,
     pub graph_id: Option<u64>,
     pub graph: Option<EMGraph>,
     pub analysis: Option<EMAnalysisResult>,
@@ -913,8 +923,13 @@ Return ONLY valid JSON array: [{{"emitter_id": N, "emitter_class": "ClassName"}}
     }
 
     async fn infer_semantic_relationships(&self, nodes: &[EMGraphNode]) -> Vec<(u64, u64, EMEdgeType, String)> {
-        if nodes.len() < 2 { return vec![]; }
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+        self.infer_semantic_relationships_validated(nodes).await.0
+    }
+
+    async fn infer_semantic_relationships_validated(&self, nodes: &[EMGraphNode]) -> (Vec<(u64, u64, EMEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let shown: Vec<&EMGraphNode> = nodes.iter().take(25).collect();
+        let node_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
             "content": n.content.chars().take(80).collect::<String>(),
             "freq_mhz": n.freq_hz.map(|f| f / 1e6),
@@ -929,23 +944,37 @@ Nodes: {}
 Available types: TransmitsTo, InterferesWith, PropagatesThrough, OccupiesBand, DetectedIn,
 SameEmitterAs, TemporallyCorrelatedWith, FrequencyAdjacentTo, Affects, CausedBy, Enables, DerivedFrom
 
+Also give each item "relation" (one of: {}) and "evidence" (a phrase copied exactly from that node's content).
+
 Return ONLY valid JSON array:
-[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief"}}]"#,
-            serde_json::to_string_pretty(&node_list).unwrap_or_default());
+[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief", "relation": "RelationName", "evidence": "exact phrase"}}]"#,
+            serde_json::to_string_pretty(&node_list).unwrap_or_default(),
+            semantic_relations::ZSEI_RELATIONS.join(", "));
 
         match self.llm_zero_shot(&prompt, 600).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str).unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_node_id"].as_u64()?;
-                        let to = v["to_node_id"].as_u64()?;
-                        let etype = map_em_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
-                        let reason = v["reason"].as_str().unwrap_or("").to_string();
-                        Some((from, to, etype, reason))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let legacy: Vec<(u64, u64, EMEdgeType, String)> = items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let etype = map_em_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let entities: Vec<String> = shown.iter().map(|n| n.node_id.to_string()).collect();
+                let source: String = shown.iter()
+                    .map(|n| format!("{} {}", n.node_id, n.content.chars().take(80).collect::<String>()))
+                    .collect::<Vec<_>>().join("\n");
+                (legacy, semantic_relations::validate_mapped(&proposal, &entities, &source))
             }
-            Err(_) => vec![],
+            Err(_) => (vec![], semantic_relations::Validated::default()),
         }
     }
 
@@ -1328,10 +1357,15 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
     }
 
     // ── HOOK 1: OnGraphCreated ──
-    let _ = executor.save_graph(&EMGraph { graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }] });
+    let mut save_errors: Vec<String> = Vec::new();
+    if let Err(e) = executor.save_graph(&EMGraph { graph_id, project_id, source_description: analysis.source_description.clone(), nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id, state: GraphStateType::Created, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: format!("Created: {} nodes {} edges", nodes.len(), edges.len()), step_index: None, timestamp: now.clone(), change_type: ChangeType::Created }], zero_shot_relations: vec![], zero_shot_rejected: vec![] }) {
+        eprintln!("electromagnetic save_graph failed: file=assets/pipelines/modalities/electromagnetic/main.rs container={graph_id} stage=created error={e}");
+        save_errors.push(format!("created: {e}"));
+    }
 
     // ── HOOK 2: OnInferRelationships ──
-    let inferred = executor.infer_semantic_relationships(&nodes).await;
+    let (inferred, zs) = executor.infer_semantic_relationships_validated(&nodes).await;
+    let (zs_accepted, zs_rejected) = (zs.accepted, zs.rejected);
     let valid: std::collections::HashSet<u64> = nodes.iter().map(|n| n.node_id).collect();
     for (from, to, etype, reason) in inferred {
         if valid.contains(&from) && valid.contains(&to) && from != to {
@@ -1346,12 +1380,16 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
     let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
     for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
 
-    let mut final_graph = EMGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }] };
-    let _ = executor.save_graph(&final_graph);
+    let mut final_graph = EMGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }], zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected };
+    if let Err(e) = executor.save_graph(&final_graph) {
+        eprintln!("electromagnetic save_graph failed: file=assets/pipelines/modalities/electromagnetic/main.rs container={} stage=enriched error={e}", final_graph.graph_id);
+        save_errors.push(format!("enriched: {e}"));
+    }
     if let Err(e) = persist_em_graph(&mut final_graph).await {
         eprintln!("electromagnetic persist: graph built but ZSEI persistence failed: {e}");
+        save_errors.push(format!("persist: {e}"));
     }
-    EMModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), ..Default::default() }
+    EMModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1872,7 +1910,9 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
                     graph.state = GraphStateType::SemanticEnriched;
                 }
                 EMSemanticHook::OnInferRelationships => {
-                    let new_edges = executor.infer_semantic_relationships(&graph.nodes).await;
+                    let (new_edges, zs) = executor.infer_semantic_relationships_validated(&graph.nodes).await;
+                    graph.zero_shot_relations.extend(zs.accepted);
+                    graph.zero_shot_rejected.extend(zs.rejected);
                     let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
                     let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                     for (from, to, etype, reason) in new_edges {
