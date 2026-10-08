@@ -36,7 +36,18 @@ import { OZONE_HOST } from "./ozoneClient";
 // ── Wire contract (pinned by t_g4_graph_event_frame_wire_contract in
 // src/graph_events.rs, produced by graph_event_frame() in src/grpc/mod.rs) ─
 
-export type GraphEventAction = "created" | "updated" | "deleted" | "linked";
+export type GraphEventAction =
+  | "created"
+  | "updated"
+  | "deleted"
+  | "linked"
+  // Trim markers (docs/CONTEXT_OBJECT_MODEL.md's "every cut is visible on
+  // the graph, never silent" contract): emitted by src/context_budget.rs
+  // and src/orchestrator/stages.rs. Added here because the closed union
+  // was silently failing the type guard on these two real, already-wired
+  // backend events — they were arriving over the wire and being dropped.
+  | "context_trimmed"
+  | "session_context_trimmed";
 
 export interface GraphEventFrame {
   action: "graph_event";

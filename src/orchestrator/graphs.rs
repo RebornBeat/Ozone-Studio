@@ -499,7 +499,7 @@ impl PromptOrchestrator {
             "prompt": prompt,
             "max_tokens": 500,
             "temperature": 0.1,
-            "system_context": "File role classification. Return only valid JSON array."
+            "system_prompt": "File role classification. Return only valid JSON array."
         });
 
         // Completeness check, not just emptiness: confirmed real gap (audit

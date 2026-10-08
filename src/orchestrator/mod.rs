@@ -2846,6 +2846,10 @@ impl PromptOrchestrator {
                 reason: "rate limited (HTTP 429): the per-minute limit is account-wide",
                 pause_secs: 2,
             },
+            Outcome::HttpError { status: 403 } => NextStep::MoveOn {
+                reason: "HTTP 403: this model is not available to this account (e.g. age-gated) — treated as permanent for ranking",
+                pause_secs: 0,
+            },
             Outcome::HttpError { .. } => NextStep::MoveOn {
                 reason: "provider HTTP error",
                 pause_secs: 0,
@@ -3525,6 +3529,494 @@ impl PromptOrchestrator {
         Self::model_health_map().remove(identifier);
     }
 
+    /// One candidate's full attempt: the per-call budget override, the
+    /// bounded retry-with-classification loop (ledger + trail), the
+    /// ContextRecord capture, and the health accumulate/decay. Returns the
+    /// final result for this candidate. Shared by the sequential walk below
+    /// and the concurrent User-tier batch it dispatches — one copy of this
+    /// logic, so neither path can drift from the other or drop a record the
+    /// other keeps. No `&self`: a pure associated fn, so it is `'static`-safe
+    /// to call from inside a `JoinSet`-spawned future (docs/REVIEW_WATCHDOG_
+    /// 2026-10-07.md §10, A3).
+    async fn run_one_candidate(
+        executor: &Arc<dyn PipelineExecutor>,
+        pipeline_id: u64,
+        mut input: serde_json::Value,
+        profile: &crate::config::AvailableModel,
+        max_tokens_sent: Option<u64>,
+        other_model: Option<&crate::config::AvailableModel>,
+    ) -> Result<serde_json::Value, String> {
+        if let Some(fraction) = input.get("_budget_fraction").and_then(|f| f.as_f64()) {
+            if let Some(obj) = input.as_object_mut() {
+                obj.insert(
+                    "max_tokens".to_string(),
+                    serde_json::json!(Self::derive_output_budget(
+                        profile.context_length as u64,
+                        fraction as f32
+                    )),
+                );
+            }
+        }
+        let override_cfg = ModelConfigOverride {
+            model_type: Some(profile.model_type.clone()),
+            model_identifier: Some(profile.identifier.clone()),
+            max_tokens: None,
+            temperature: None,
+            context_length: Some(profile.context_length as u32),
+            api_endpoint: profile.api_endpoint.clone(),
+            api_key_env: profile.api_key_env.clone(),
+            api_key: profile.api_key.clone(),
+            wire_protocol: profile.wire_protocol.clone(),
+            bitnet_cli_path: profile.bitnet_cli_path.clone(),
+            local_model_path: profile.local_model_path.clone(),
+        };
+        if let Ok(v) = serde_json::to_value(&override_cfg) {
+            input["model_override_config"] = v;
+        }
+        // CANDIDATE POLICY: the same bounded rule as the primary. At most
+        // two requests to this model (first attempt, and one same-model
+        // retry only for an empty answer without a permanent cause); every
+        // attempt is recorded in the model ledger and appended to the trail.
+        let mut result: Result<serde_json::Value, String>;
+        let mut attempts = 0u32;
+        loop {
+            attempts += 1;
+            let started = std::time::Instant::now();
+            result = match crate::orchestrator::lane_split::current_lane_spec() {
+                Some(spec) => {
+                    crate::orchestrator::lane_split::run_candidate(executor, pipeline_id, &input, &spec, profile.context_length as u64)
+                        .await
+                }
+                None => executor.execute(pipeline_id, input.clone()).await,
+            };
+            let latency_ms = started.elapsed().as_millis() as u64;
+            let walk_site = format!("walk:pipeline-{pipeline_id}");
+            // CONFETTI RESCUE (data-driven: 25 of 189 ledger rows were
+            // confetti rejections — our own multi-candidate detector
+            // discarding responses that CONTAIN the answer): promote a
+            // non-empty JSON candidate to be THE response. The extractor
+            // already skips bare `{}`, so a leading empty object never wins.
+            // The answer was in the text all along — no retry, no candidate
+            // burned, downstream parsers see single-candidate text they
+            // already handle.
+            //
+            // ADJUDICATION (2026-10-08, operator-directed; data confirmed
+            // this is systemic, not walk-local: 33 real `cause=confetti`
+            // ledger rows across 6 call sites — assistant_check_up,
+            // i_loop_reflection, meta_loop_draft, zero_shot_simulation,
+            // amt_reexpansion, blueprint_assignment — 28 BitNet but 3
+            // openrouter/free + 2 nvidia/nemotron, so not BitNet-exclusive
+            // either). Confetti means the extractor found >=2 syntactically
+            // complete, independently parseable JSON candidates in ONE
+            // response: that ambiguity is about what the candidates MEAN,
+            // not how they're shaped, so no further regex can ever resolve
+            // it. Confetti IS this system's own reliable signal for exactly
+            // the moment a real judgment call is needed — not a BitNet
+            // quirk to patch around positionally. When a genuinely
+            // different model is available (`other_model` — never the same
+            // model that produced the confetti judging its own output),
+            // ask it to adjudicate among the real candidates, reusing this
+            // call's own task context — no new infrastructure, just the
+            // existing executor and contract. Any failure of the
+            // adjudication call itself (parse error, call error,
+            // out-of-range index, or the judge honestly finding none
+            // correct) falls back to the first-candidate rescue exactly as
+            // before — this can only ever be as good as today, never worse.
+            if pipeline_id == 9 {
+                if let Ok(v) = result.as_mut() {
+                    if let Some(text) = v.get("response").and_then(|r| r.as_str()).map(String::from) {
+                        let cands = Self::extract_all_json_candidates_shared(&text);
+                        if cands.len() > 1 {
+                            let mut chosen = 0usize;
+                            let mut adjudicated = false;
+                            if let Some(judge) = other_model {
+                                let task_prompt = input.get("prompt").and_then(|p| p.as_str()).unwrap_or("");
+                                let candidate_list = cands
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, c)| format!("[{i}]: {c}"))
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n");
+                                let adjudication_prompt = format!(
+                                    "A prior attempt at this task produced {} possibly-contradictory candidate answers (confetti — the generation contradicted itself). Original task:\n{}\n\nCandidates:\n{}\n\nWhich candidate (by index, starting at 0) actually and correctly answers the task? If none of them do, answer null — do not force a choice. Respond with ONLY this JSON, no other text: {{\"chosen_index\": <int or null>, \"reasoning\": \"<one short sentence>\"}}",
+                                    cands.len(),
+                                    task_prompt,
+                                    candidate_list
+                                );
+                                let judge_override = ModelConfigOverride {
+                                    model_type: Some(judge.model_type.clone()),
+                                    model_identifier: Some(judge.identifier.clone()),
+                                    max_tokens: None,
+                                    temperature: None,
+                                    context_length: Some(judge.context_length as u32),
+                                    api_endpoint: judge.api_endpoint.clone(),
+                                    api_key_env: judge.api_key_env.clone(),
+                                    api_key: judge.api_key.clone(),
+                                    wire_protocol: judge.wire_protocol.clone(),
+                                    bitnet_cli_path: judge.bitnet_cli_path.clone(),
+                                    local_model_path: judge.local_model_path.clone(),
+                                };
+                                let mut judge_input = input.clone();
+                                if let Some(obj) = judge_input.as_object_mut() {
+                                    obj.remove("_budget_fraction");
+                                    obj.insert("prompt".to_string(), serde_json::json!(adjudication_prompt));
+                                    obj.insert("max_tokens".to_string(), serde_json::json!(200u64));
+                                    obj.insert("temperature".to_string(), serde_json::json!(0.1));
+                                    // Replace, don't inherit, the original task's
+                                    // system_prompt (found 2026-10-08: once the
+                                    // "system_context"->"system_prompt" key-name
+                                    // bug was fixed, a plain `input.clone()` here
+                                    // would carry the ORIGINAL task's own JSON
+                                    // contract forward — two competing "return
+                                    // only JSON" instructions confusing a judge
+                                    // that already has its own, different shape
+                                    // to follow.
+                                    obj.insert(
+                                        "system_prompt".to_string(),
+                                        serde_json::json!(
+                                            "Adjudicating between candidate answers. Return only valid JSON."
+                                        ),
+                                    );
+                                    if let Ok(jv) = serde_json::to_value(&judge_override) {
+                                        obj.insert("model_override_config".to_string(), jv);
+                                    }
+                                }
+                                let judge_started = std::time::Instant::now();
+                                let judge_result = executor.execute(pipeline_id, judge_input).await;
+                                let judge_latency_ms = judge_started.elapsed().as_millis() as u64;
+                                let judge_outcome = Self::classify_attempt(&judge_result);
+                                let judge_resp_text = judge_result
+                                    .as_ref()
+                                    .ok()
+                                    .and_then(|jv| jv.get("response"))
+                                    .and_then(|r| r.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                crate::model_ledger::record_with_text(
+                                    &judge.identifier,
+                                    judge_outcome,
+                                    judge_latency_ms,
+                                    "confetti_adjudication",
+                                    None,
+                                    &adjudication_prompt,
+                                    &judge_resp_text,
+                                );
+                                if let Some(first) = Self::extract_all_json_candidates_shared(&judge_resp_text).first() {
+                                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(first) {
+                                        if let Some(serde_json::Value::Number(n)) = parsed.get("chosen_index") {
+                                            if let Some(idx) = n.as_u64() {
+                                                if (idx as usize) < cands.len() {
+                                                    chosen = idx as usize;
+                                                    adjudicated = true;
+                                                    tracing::info!(
+                                                        judge = %judge.identifier,
+                                                        chosen_index = idx,
+                                                        candidates = cands.len(),
+                                                        "confetti adjudicated: a different model chose among the candidates"
+                                                    );
+                                                }
+                                            }
+                                        } else {
+                                            tracing::info!(
+                                                judge = %judge.identifier,
+                                                candidates = cands.len(),
+                                                "confetti adjudication: judge found none of the candidates correct (or gave an unusable answer) — falling back to first-candidate rescue, same as today"
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                            if let Some(obj) = v.as_object_mut() {
+                                obj.insert("response".to_string(), serde_json::Value::String(cands[chosen].clone()));
+                                obj.insert("confetti_rescued".to_string(), serde_json::json!(cands.len()));
+                                if adjudicated {
+                                    obj.insert("confetti_adjudicated".to_string(), serde_json::json!(true));
+                                }
+                                tracing::info!(
+                                    model = %profile.identifier,
+                                    candidates = cands.len(),
+                                    chosen_index = chosen,
+                                    adjudicated,
+                                    "confetti rescued: candidate promoted to the response"
+                                );
+                                // COMPOSITION NOTE (intentional, not a redundant
+                                // double-check): the rescued/adjudicated text
+                                // written above still flows through this same
+                                // function's classify_attempt -> Success path,
+                                // which the relevance gate further down then
+                                // evaluates on its own merits (credits the
+                                // ledger only if it's actually on-topic). A
+                                // well-chosen candidate gets credited; an
+                                // off-domain one (e.g. the judge picking the
+                                // least-wrong of several bad options) still
+                                // correctly gets used-but-not-credited. These
+                                // two layers are meant to stack, not duplicate
+                                // each other — do not remove either expecting
+                                // the other already covers it.
+                            }
+                        }
+                    }
+                }
+            }
+            // REASONING SALVAGE (data-driven: 26 ozone-studio-classified
+            // empties were ALL finish_reason=length with reasoning tokens —
+            // a reasoning model that spent OUR cap thinking and got cut
+            // before emitting content). The answer is often drafted INSIDE
+            // the reasoning text: if the pipeline surfaced one and it holds
+            // a JSON candidate, promote it. Only when content itself is
+            // empty — a real answer is never overwritten.
+            if pipeline_id == 9 {
+                if let Ok(v) = result.as_mut() {
+                    let content_empty = v.get("response").and_then(|r| r.as_str()).map(|t| t.trim().is_empty()).unwrap_or(true);
+                    if content_empty {
+                        // Fixed 2026-10-08 (CC): was v.get("reasoning"), which
+                        // PromptOutput never exposed — only reasoning_field (the
+                        // field's NAME, not its content) existed, so this branch
+                        // was dead code. reasoning_text now carries the real text.
+                        if let Some(reasoning) = v.get("reasoning_text").and_then(|r| r.as_str()) {
+                            let cands = Self::extract_all_json_candidates_shared(reasoning);
+                            if let Some(first) = cands.first() {
+                                if let Some(obj) = v.as_object_mut() {
+                                    obj.insert("response".to_string(), serde_json::Value::String(first.clone()));
+                                    obj.insert("salvaged_from_reasoning".to_string(), serde_json::Value::Bool(true));
+                                    tracing::warn!(
+                                        model = %profile.identifier,
+                                        "reasoning salvage: content was empty (cap exhausted by reasoning) but the reasoning text held a JSON answer — promoted"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let outcome = Self::classify_attempt(&result);
+            // Full text, not previews — operator direction 2026-10-08: ranking
+            // decisions below need to be auditable against what was actually
+            // asked and answered. Computed once here; used by every ledger
+            // write in this function, success or failure.
+            let prompt_text = input.get("prompt").and_then(|p| p.as_str()).unwrap_or("").to_string();
+            let resp_text = result.as_ref().ok().and_then(|v| v.get("response")).and_then(|r| r.as_str()).unwrap_or("").to_string();
+            if matches!(outcome, crate::model_ledger::Outcome::Success) {
+                // RELEVANCE-GATED LEDGER CREDIT (data-driven: google/lyria —
+                // a MUSIC model — accumulated 41 ledger "successes" for text
+                // work because success only tested non-emptiness; those fake
+                // successes ranked it FIRST in the pool). The response is
+                // still USED (no skipping — the walk ends here either way),
+                // but a response sharing ZERO words with the request is not
+                // credited as a success: the ranking self-corrects at the
+                // source instead of the pool carrying an off-domain model on
+                // inflated history.
+                //
+                // Fixed 2026-10-08 (CC, per review fork + operator): the word-
+                // overlap check alone concentrated its false-negative risk on
+                // exactly the highest-stakes path (build_sub_step_input's bare
+                // user prompt) — a correct, concise answer ("508" to "What is
+                // 127 times 4?") shares no word with its prompt and was being
+                // wrongly demoted for being short, not for being wrong. A
+                // short response is not evidence of being off-domain the way
+                // a long, irrelevant one is — a terse answer is exempted from
+                // the check entirely, never silently penalized for brevity.
+                const SHORT_RESPONSE_CHARS: usize = 40;
+                let is_short = resp_text.trim().chars().count() < SHORT_RESPONSE_CHARS;
+                let overlap = is_short
+                    || prompt_text
+                        .split(|c: char| !c.is_alphanumeric())
+                        .filter(|w| w.len() > 3)
+                        .any(|w| resp_text.to_lowercase().contains(&w.to_lowercase()));
+                if overlap {
+                    tracing::info!(
+                        pipeline_id,
+                        model = %profile.identifier,
+                        latency_ms,
+                        "fallback candidate answered — walk ends here"
+                    );
+                    crate::model_ledger::record_with_text(&profile.identifier, outcome, latency_ms, &walk_site, max_tokens_sent, &prompt_text, &resp_text);
+                } else {
+                    tracing::warn!(
+                        pipeline_id,
+                        model = %profile.identifier,
+                        latency_ms,
+                        "fallback candidate answered but shares ZERO words with the request and is not short — using the response, ledger NOT credited (off-domain; ranking self-corrects)"
+                    );
+                    crate::model_ledger::record_with_text(
+                        &profile.identifier,
+                        crate::model_ledger::Outcome::OtherError(
+                            "off-domain: response shares zero request terms and is not short".to_string(),
+                        ),
+                        latency_ms,
+                        &walk_site,
+                        max_tokens_sent,
+                        &prompt_text,
+                        &resp_text,
+                    );
+                }
+                note_attempt(&profile.identifier, "success", latency_ms, "usable: walk ends here");
+                break;
+            }
+            let step = Self::next_step(&outcome, max_tokens_sent, attempts >= 2);
+            let kind = Self::outcome_kind(&outcome);
+            let step_label = match &step {
+                NextStep::RetrySameModel => "one same-model retry".to_string(),
+                NextStep::MoveOn { reason, pause_secs } if *pause_secs > 0 => {
+                    format!("next candidate after {pause_secs}s ({reason})")
+                }
+                NextStep::MoveOn { reason, .. } => format!("next candidate ({reason})"),
+            };
+            let cause = crate::model_ledger::record_with_text(
+                &profile.identifier,
+                outcome,
+                latency_ms,
+                &walk_site,
+                max_tokens_sent,
+                &prompt_text,
+                &resp_text,
+            );
+            note_attempt(&profile.identifier, &attributed_kind(kind, cause), latency_ms, &step_label);
+            log_attributed_failure(cause, &profile.identifier, kind, latency_ms, &walk_site);
+            match step {
+                NextStep::RetrySameModel => {
+                    tracing::warn!(
+                        pipeline_id,
+                        model = %profile.identifier,
+                        outcome = kind,
+                        latency_ms,
+                        "fallback candidate: empty answer with no permanent cause — one same-model retry (its second and last request)"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                NextStep::MoveOn { reason, pause_secs } => {
+                    tracing::warn!(
+                        pipeline_id,
+                        model = %profile.identifier,
+                        outcome = kind,
+                        latency_ms,
+                        decision = reason,
+                        "fallback candidate failed — moving to the next candidate"
+                    );
+                    if pause_secs > 0 {
+                        tokio::time::sleep(std::time::Duration::from_secs(pause_secs)).await;
+                    }
+                    break;
+                }
+            }
+        }
+        // CONTEXT RECORD (docs/CONTEXT_OBJECT_MODEL.md step 1 — capture
+        // foundation, zero behavior change): what this attempt actually
+        // saw — model, its real window, the input size, whether the
+        // response was usable. Best-effort capture; must never affect
+        // the call itself.
+        {
+            let p = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+            // Fixed 2026-10-08: was "system_context", a key PromptInput never
+            // read (its real field is "system_prompt") — every one of the 19
+            // real call sites that set this were silently dropping their own
+            // system-level grounding before it ever reached a model. This
+            // accounting read now tracks the renamed, now-real key.
+            let sys = input
+                .get("system_prompt")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            // The window follows the model that SERVED this attempt
+            // (pipeline 9's response-reported `model_used` — for a router
+            // candidate such as openrouter/auto that is the routed model,
+            // not the router). The configured candidate window is the
+            // conservative figure used to size the request before the
+            // call; it is recorded only when the served window is unknown,
+            // and the source field says which one this record carries.
+            let served: Option<String> = result
+                .as_ref()
+                .ok()
+                .and_then(|v| v.get("model_used"))
+                .and_then(|m| m.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_string);
+            let mut rec = crate::context_budget::ContextRecord::new(
+                format!("fallback_walk:pipeline-{pipeline_id}"),
+                profile.identifier.clone(),
+            );
+            match served {
+                Some(s) => {
+                    if let Some(w) = crate::context_budget::model_windows::catalog_window(&s) {
+                        rec.window_tokens = w as usize;
+                        rec.window_source = "catalog";
+                    } else {
+                        match crate::context_budget::model_windows::window_for(&s) {
+                            Some(w) => {
+                                rec.window_tokens = w as usize;
+                                rec.window_source = "registry";
+                            }
+                            None => {
+                                rec.window_tokens = profile.context_length as usize;
+                                rec.window_source = "configured";
+                                if crate::context_budget::model_windows::is_openrouter(profile) {
+                                    // A served OpenRouter id the catalog lacks:
+                                    // refetch, at most once per 10 minutes.
+                                    crate::context_budget::model_windows::request_refresh_if_stale();
+                                }
+                                if s != profile.identifier {
+                                    crate::context_budget::model_windows::note_unknown(&s);
+                                }
+                            }
+                        }
+                    }
+                    // A paid model that a router in the chain chose is
+                    // billed against credits. Say so, once per day per model.
+                    if s != profile.identifier {
+                        if let Some(entry) = crate::model_windows::catalog_entry(&s) {
+                            if !entry.is_free {
+                                crate::openrouter_quota::note_paid_served(&profile.identifier, &s);
+                            }
+                        }
+                    }
+                    rec.model = s;
+                }
+                None => {
+                    rec.window_tokens = profile.context_length as usize;
+                    rec.window_source = "configured";
+                }
+            }
+            rec.want_output_tokens = input
+                .get("max_tokens")
+                .and_then(|t| t.as_u64())
+                .unwrap_or(0) as usize;
+            rec.prompt_tokens = (p.len() + sys.len()) / 4 + 1;
+            rec.usable = !Self::is_unusable_pipeline9_result(pipeline_id, &result);
+            // The router's window is checked before the call, against
+            // the live value. After the call, the served model's window is
+            // the real limit; if the input this call sent does not fit it,
+            // say so loudly rather than accept it silently.
+            let sent_tokens = rec.prompt_tokens + rec.want_output_tokens;
+            if rec.window_tokens > 0 && sent_tokens > rec.window_tokens {
+                rec.served_window_exceeded = true;
+                tracing::warn!(
+                    served_window_exceeded = true,
+                    model = %rec.model,
+                    window_tokens = rec.window_tokens,
+                    window_source = rec.window_source,
+                    sent_tokens,
+                    "served model's context window is smaller than the input this call sent"
+                );
+            }
+            crate::context_budget::record_call(rec);
+        }
+        // HEALTH DECAY/ACCUMULATE (health-reorder contract): a usable
+        // response decays the model's failure count to zero; an unusable
+        // one accumulates — failed models sink to the back of the NEXT
+        // walk, still attempted, never skipped.
+        match &result {
+            Ok(v)
+                if v.get("response")
+                    .and_then(|r| r.as_str())
+                    .map(|r| !r.trim().is_empty())
+                    .unwrap_or(false) =>
+            {
+                Self::record_model_success(&profile.identifier);
+            }
+            _ => Self::record_model_failure(&profile.identifier),
+        }
+        result
+    }
+
     pub(crate) async fn walk_fallback_chain_standalone(
         executor: &Arc<dyn PipelineExecutor>,
         pipeline_id: u64,
@@ -3563,7 +4055,7 @@ impl PromptOrchestrator {
             // context length, so a capable model is tried first.
             let input_tokens = {
                 let p = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let sys = input.get("system_context").and_then(|v| v.as_str()).unwrap_or("");
+                let sys = input.get("system_prompt").and_then(|v| v.as_str()).unwrap_or("");
                 (p.len() + sys.len()) / 4 + 1
             };
             let want_output = input
@@ -3748,7 +4240,124 @@ impl PromptOrchestrator {
         }
         let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64());
 
+        // PARALLEL-CANDIDATE DISPATCH (A3, docs/REVIEW_WATCHDOG_2026-10-07.md
+        // §9-10, operator-approved): User-tier calls only — a human is
+        // waiting; Loop/Lane tiers stay strictly sequential, since nothing
+        // there justifies spending extra quota for latency. Free OpenRouter
+        // candidates only — local/BitNet candidates are never batched (they
+        // are single-flighted elsewhere; batching would defeat that). Width
+        // 3. `current_call_priority()` defaults to User when unset, matching
+        // this file's existing convention elsewhere — not a new ambiguity.
+        // Cost, stated plainly: firing 3 spends up to 3x the OpenRouter
+        // quota of one sequential attempt for this logical step, since
+        // OpenRouter counts a request once received, not once we finish
+        // reading it — an aborted loser still costs its request. This trade
+        // was accepted by the operator in exchange for latency on the
+        // User-tier path. Every fired attempt is classified and recorded by
+        // `run_one_candidate` itself, win or lose — losers that are still in
+        // flight when a winner is found are drained to completion in the
+        // background (not aborted), so no record is lost; the one accepted
+        // gap is that a straggler's WALK_PROGRESS "finished" trail marker
+        // can land after this call has already returned — model_ledger.jsonl
+        // is the durable record either way.
+        let mut batched_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let is_user_tier =
+            crate::pipeline::gate::current_call_priority() == crate::pipeline::gate::CallPriority::User;
+        if is_user_tier {
+            let batch: Vec<crate::config::AvailableModel> = candidates
+                .iter()
+                .filter(|m| {
+                    !quota_blocked.contains(&m.identifier)
+                        && primary_id.as_deref() != Some(m.identifier.as_str())
+                        && m.model_type == "api"
+                        && m.is_free
+                })
+                .take(3)
+                .cloned()
+                .collect();
+            if batch.len() > 1 {
+                tracing::info!(
+                    pipeline_id,
+                    models = ?batch.iter().map(|m| m.identifier.as_str()).collect::<Vec<_>>(),
+                    "fallback walk: User-tier parallel-candidate dispatch (up to {}x quota for this step, traded for latency)",
+                    batch.len()
+                );
+                let mut set = tokio::task::JoinSet::new();
+                for profile in batch.iter().cloned() {
+                    batched_ids.insert(profile.identifier.clone());
+                    let _ = WALK_PROGRESS.try_with(|p| {
+                        p.lock().unwrap().started.push(profile.identifier.clone());
+                    });
+                    let exec = executor.clone();
+                    let inp = input.clone();
+                    let mts = max_tokens_sent;
+                    set.spawn(crate::pipeline::gate::with_priority(
+                        crate::pipeline::gate::CallPriority::User,
+                        async move {
+                            // No adjudication judge in the parallel-batch path yet (first
+                            // increment scopes this to the sequential walk below, which is
+                            // where the existing confetti-rescue mechanism and its captured
+                            // ledger data already live) — None keeps today's first-candidate
+                            // behavior unchanged here.
+                            let r = Self::run_one_candidate(&exec, pipeline_id, inp, &profile, mts, None).await;
+                            (profile.identifier, r)
+                        },
+                    ));
+                }
+                let mut winner: Option<serde_json::Value> = None;
+                while let Some(joined) = set.join_next().await {
+                    match joined {
+                        Ok((model_id, r)) => {
+                            let _ = WALK_PROGRESS.try_with(|p| {
+                                p.lock().unwrap().finished.push(model_id.clone());
+                            });
+                            if !Self::is_unusable_pipeline9_result(pipeline_id, &r) {
+                                if best.is_none() {
+                                    best = r.clone().ok();
+                                }
+                                winner = r.ok();
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                pipeline_id,
+                                error = %e,
+                                "a batched candidate task panicked before completing its own record"
+                            );
+                        }
+                    }
+                }
+                if winner.is_some() {
+                    // Drain the rest in the background rather than letting
+                    // `set` drop here — JoinSet's Drop aborts every remaining
+                    // task, which would cut a sibling off mid-request after
+                    // its quota was already spent and lose its own ledger
+                    // record. run_one_candidate records itself as it
+                    // progresses, so draining it to completion is enough.
+                    tokio::spawn(async move { while set.join_next().await.is_some() {} });
+                }
+                if let Some(v) = winner {
+                    result = Ok(v);
+                    tracing::info!(pipeline_id, "User-tier parallel batch: first success wins");
+                }
+            }
+        }
+
         for profile in &candidates {
+            // Already attempted in the concurrent batch above — its ledger
+            // and trail entries were written there, win or lose.
+            if batched_ids.contains(&profile.identifier) {
+                continue;
+            }
+            // The batch above may have already produced a usable result —
+            // this mirrors the per-iteration check this loop already did at
+            // its own end (so it is a no-op for the purely-sequential path,
+            // which never re-enters with a usable `result`) and stops the
+            // sequential walk from attempting more once the batch has won.
+            if !Self::is_unusable_pipeline9_result(pipeline_id, &result) {
+                break;
+            }
             // QUOTA SKIP: named once above, recorded here so the watchdog's
             // untried list and the trail both say why it was not attempted.
             if quota_blocked.contains(&profile.identifier) {
@@ -3784,209 +4393,11 @@ impl PromptOrchestrator {
                 error = ?result.as_ref().err(),
                 "Pipeline call failed, trying next fallback"
             );
-            // PER-ATTEMPT BUDGET RE-DERIVATION — fixed 2026-09-22 (CC's
-            // doc-verification fork caught it; the comment previously
-            // claimed "the budget follows whatever model the walk ends at"
-            // while the code froze max_tokens from the PRIMARY model's
-            // context before the walk ever started). When the caller
-            // marked `_budget_fraction`, derive max_tokens from the
-            // CANDIDATE model's own context_length — the budget now
-            // genuinely follows the model being asked.
-            if let Some(fraction) = input.get("_budget_fraction").and_then(|f| f.as_f64()) {
-                if let Some(obj) = input.as_object_mut() {
-                    obj.insert(
-                        "max_tokens".to_string(),
-                        serde_json::json!(Self::derive_output_budget(
-                            profile.context_length as u64,
-                            fraction as f32
-                        )),
-                    );
-                }
-            }
-            let override_cfg = ModelConfigOverride {
-                model_type: Some(profile.model_type.clone()),
-                model_identifier: Some(profile.identifier.clone()),
-                max_tokens: None,
-                temperature: None,
-                context_length: Some(profile.context_length as u32),
-                api_endpoint: profile.api_endpoint.clone(),
-                api_key_env: profile.api_key_env.clone(),
-                api_key: profile.api_key.clone(),
-                wire_protocol: profile.wire_protocol.clone(),
-                bitnet_cli_path: profile.bitnet_cli_path.clone(),
-                local_model_path: profile.local_model_path.clone(),
-            };
-            if let Ok(v) = serde_json::to_value(&override_cfg) {
-                input["model_override_config"] = v;
-            }
-            // CANDIDATE POLICY: the same bounded rule as the primary. At most
-            // two requests to this model (first attempt, and one same-model
-            // retry only for an empty answer without a permanent cause); every
-            // attempt is recorded in the model ledger and appended to the trail.
-            let mut attempts = 0u32;
-            loop {
-                attempts += 1;
-                let started = std::time::Instant::now();
-                result = match crate::orchestrator::lane_split::current_lane_spec() {
-                    Some(spec) => {
-                        crate::orchestrator::lane_split::run_candidate(executor, pipeline_id, &input, &spec, profile.context_length as u64)
-                            .await
-                    }
-                    None => executor.execute(pipeline_id, input.clone()).await,
-                };
-                let latency_ms = started.elapsed().as_millis() as u64;
-                let walk_site = format!("walk:pipeline-{pipeline_id}");
-                let outcome = Self::classify_attempt(&result);
-                if matches!(outcome, crate::model_ledger::Outcome::Success) {
-                    tracing::info!(
-                        pipeline_id,
-                        model = %profile.identifier,
-                        latency_ms,
-                        "fallback candidate answered — walk ends here"
-                    );
-                    note_attempt(&profile.identifier, "success", latency_ms, "usable: walk ends here");
-                    crate::model_ledger::record(&profile.identifier, outcome, latency_ms, &walk_site);
-                    break;
-                }
-                let step = Self::next_step(&outcome, max_tokens_sent, attempts >= 2);
-                let kind = Self::outcome_kind(&outcome);
-                let step_label = match &step {
-                    NextStep::RetrySameModel => "one same-model retry".to_string(),
-                    NextStep::MoveOn { reason, pause_secs } if *pause_secs > 0 => {
-                        format!("next candidate after {pause_secs}s ({reason})")
-                    }
-                    NextStep::MoveOn { reason, .. } => format!("next candidate ({reason})"),
-                };
-                let cause = crate::model_ledger::record_with_cap(
-                    &profile.identifier,
-                    outcome,
-                    latency_ms,
-                    &walk_site,
-                    max_tokens_sent,
-                );
-                note_attempt(&profile.identifier, &attributed_kind(kind, cause), latency_ms, &step_label);
-                log_attributed_failure(cause, &profile.identifier, kind, latency_ms, &walk_site);
-                match step {
-                    NextStep::RetrySameModel => {
-                        tracing::warn!(
-                            pipeline_id,
-                            model = %profile.identifier,
-                            outcome = kind,
-                            latency_ms,
-                            "fallback candidate: empty answer with no permanent cause — one same-model retry (its second and last request)"
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-                    }
-                    NextStep::MoveOn { reason, pause_secs } => {
-                        tracing::warn!(
-                            pipeline_id,
-                            model = %profile.identifier,
-                            outcome = kind,
-                            latency_ms,
-                            decision = reason,
-                            "fallback candidate failed — moving to the next candidate"
-                        );
-                        if pause_secs > 0 {
-                            tokio::time::sleep(std::time::Duration::from_secs(pause_secs)).await;
-                        }
-                        break;
-                    }
-                }
-            }
-            // CONTEXT RECORD (docs/CONTEXT_OBJECT_MODEL.md step 1 — capture
-            // foundation, zero behavior change): what this attempt actually
-            // saw — model, its real window, the input size, whether the
-            // response was usable. Best-effort capture; must never affect
-            // the call itself.
-            {
-                let p = input.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
-                let sys = input
-                    .get("system_context")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-                // The window follows the model that SERVED this attempt
-                // (pipeline 9's response-reported `model_used` — for a router
-                // candidate such as openrouter/auto that is the routed model,
-                // not the router). The configured candidate window is the
-                // conservative figure used to size the request before the
-                // call; it is recorded only when the served window is unknown,
-                // and the source field says which one this record carries.
-                let served: Option<String> = result
-                    .as_ref()
-                    .ok()
-                    .and_then(|v| v.get("model_used"))
-                    .and_then(|m| m.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string);
-                let mut rec = crate::context_budget::ContextRecord::new(
-                    format!("fallback_walk:pipeline-{pipeline_id}"),
-                    profile.identifier.clone(),
-                );
-                match served {
-                    Some(s) => {
-                        if let Some(w) = crate::context_budget::model_windows::catalog_window(&s) {
-                            rec.window_tokens = w as usize;
-                            rec.window_source = "catalog";
-                        } else {
-                            match crate::context_budget::model_windows::window_for(&s) {
-                                Some(w) => {
-                                    rec.window_tokens = w as usize;
-                                    rec.window_source = "registry";
-                                }
-                                None => {
-                                    rec.window_tokens = profile.context_length as usize;
-                                    rec.window_source = "configured";
-                                    if crate::context_budget::model_windows::is_openrouter(&profile) {
-                                        // A served OpenRouter id the catalog lacks:
-                                        // refetch, at most once per 10 minutes.
-                                        crate::context_budget::model_windows::request_refresh_if_stale();
-                                    }
-                                    if s != profile.identifier {
-                                        crate::context_budget::model_windows::note_unknown(&s);
-                                    }
-                                }
-                            }
-                        }
-                        // A paid model that a router in the chain chose is
-                        // billed against credits. Say so, once per day per model.
-                        if s != profile.identifier {
-                            if let Some(entry) = crate::model_windows::catalog_entry(&s) {
-                                if !entry.is_free {
-                                    crate::openrouter_quota::note_paid_served(&profile.identifier, &s);
-                                }
-                            }
-                        }
-                        rec.model = s;
-                    }
-                    None => {
-                        rec.window_tokens = profile.context_length as usize;
-                        rec.window_source = "configured";
-                    }
-                }
-                rec.want_output_tokens = input
-                    .get("max_tokens")
-                    .and_then(|t| t.as_u64())
-                    .unwrap_or(0) as usize;
-                rec.prompt_tokens = (p.len() + sys.len()) / 4 + 1;
-                rec.usable = !Self::is_unusable_pipeline9_result(pipeline_id, &result);
-                // The router's window is checked before the call, against
-                // the live value. After the call, the served model's window is
-                // the real limit; if the input this call sent does not fit it,
-                // say so loudly rather than accept it silently.
-                let sent_tokens = rec.prompt_tokens + rec.want_output_tokens;
-                if rec.window_tokens > 0 && sent_tokens > rec.window_tokens {
-                    rec.served_window_exceeded = true;
-                    tracing::warn!(
-                        served_window_exceeded = true,
-                        model = %rec.model,
-                        window_tokens = rec.window_tokens,
-                        window_source = rec.window_source,
-                        sent_tokens,
-                        "served model's context window is smaller than the input this call sent"
-                    );
-                }
-                crate::context_budget::record_call(rec);
-            }
+            // Any other real candidate in the pool is a genuinely different
+            // model from `profile` — exactly what confetti adjudication
+            // needs (never the same model judging its own confused output).
+            let judge = candidates.iter().find(|c| c.identifier != profile.identifier);
+            result = Self::run_one_candidate(executor, pipeline_id, input.clone(), profile, max_tokens_sent, judge).await;
             let _ = WALK_PROGRESS.try_with(|p| {
                 p.lock().unwrap().finished.push(profile.identifier.clone());
             });
@@ -3994,21 +4405,6 @@ impl PromptOrchestrator {
             // destroy it (they still get their full attempts — no skips).
             if !Self::is_unusable_pipeline9_result(pipeline_id, &result) && best.is_none() {
                 best = result.clone().ok();
-            }
-            // HEALTH DECAY/ACCUMULATE (health-reorder contract): a usable
-            // response decays the model's failure count to zero; an unusable
-            // one accumulates — failed models sink to the back of the NEXT
-            // walk, still attempted, never skipped.
-            match &result {
-                Ok(v)
-                    if v.get("response")
-                        .and_then(|r| r.as_str())
-                        .map(|r| !r.trim().is_empty())
-                        .unwrap_or(false) =>
-                {
-                    Self::record_model_success(&profile.identifier);
-                }
-                _ => Self::record_model_failure(&profile.identifier),
             }
             if !Self::is_unusable_pipeline9_result(pipeline_id, &result) {
                 break;
@@ -4220,7 +4616,7 @@ impl PromptOrchestrator {
             "prompt": review_prompt,
             "max_tokens": 300,
             "temperature": 0.2,
-            "system_context": "AMT alignment review. Return only valid JSON."
+            "system_prompt": "AMT alignment review. Return only valid JSON."
         });
 
         if let Ok(result) = self.metered_execute_resilient(state, input, "on_step_complete_alignment").await {

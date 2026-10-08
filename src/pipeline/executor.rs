@@ -14,18 +14,17 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 
-/// Hard bound for one pipeline child: the watchdog's budget plus a margin, so
-/// the watchdog fires first (the caller gets its error) and the child is
-/// killed after. A disabled watchdog (u64::MAX) still bounds the child, at
-/// 600s, so no child is ever unbounded.
-fn child_timeout_secs() -> u64 {
-    let watchdog = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
-    if watchdog == u64::MAX {
-        600
-    } else {
-        watchdog.saturating_add(30)
-    }
-}
+/// Hard bound for one pipeline child: an absolute wall-clock ceiling only.
+/// Operator direction (2026-10-07): "silence is not evidence of a hang" — a
+/// reasoning model can think for minutes with no stdout, so an idle-silence
+/// kill (briefly tried the same day) would kill working calls mid-thought.
+/// The only kill trigger left is ABS_CEILING in run_child_bounded: a child
+/// that outlives it is killed regardless of whether it was silent or
+/// streaming the whole time. Naming WHICH internal call is actually stuck
+/// (vs. merely slow) needs a call-start marker protocol with its own shared
+/// state — deferred, see docs/REVIEW_WATCHDOG_2026-10-07.md §10.
+// (The former blind watchdog+30 budget, the per-pipeline 3× table tried on
+// 2026-10-07, AND the 150s idle-silence kill tried the same day — all GONE.)
 
 /// Sets its flag on drop. Dropping the execute future (watchdog or disconnect)
 /// drops this, so the blocking child runner kills its child instead of letting
@@ -90,47 +89,83 @@ impl Drop for ProgressOnDrop {
 /// an error after five seconds, not a wait forever.
 fn run_child_bounded(
     mut cmd: Command,
-    timeout: std::time::Duration,
     cancel: Arc<std::sync::atomic::AtomicBool>,
 ) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
     use std::sync::atomic::Ordering;
 
+    // ABSOLUTE CEILING ONLY (2026-10-07 correction): the idle-silence kill
+    // tried earlier the same day is GONE — "silence ≠ hung" (a reasoning
+    // model can think for minutes with no stdout; killing on silence would
+    // kill working calls mid-thought). A child now runs as long as it wants,
+    // silent or streaming, up to this one absolute bound. Diagnosing a
+    // genuine hang (vs. merely slow) is deferred to the call-start marker
+    // protocol — see docs/REVIEW_WATCHDOG_2026-10-07.md §10.
+    const ABS_CEILING: std::time::Duration = std::time::Duration::from_secs(1800);
+
     cmd.stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
 
-    let (out_tx, out_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let mut out_pipe = child.stdout.take();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = out_pipe.as_mut() {
-            let _ = p.read_to_end(&mut buf);
-        }
-        let _ = out_tx.send(buf);
-    });
+    let activity = Arc::new(std::sync::atomic::AtomicU64::new(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0),
+    ));
 
-    let (err_tx, err_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let mut err_pipe = child.stderr.take();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = err_pipe.as_mut() {
-            let _ = p.read_to_end(&mut buf);
-        }
-        let _ = err_tx.send(buf);
-    });
+    // Drain threads: incremental reads (NOT read_to_end, which only returns
+    // at EOF and would hide intermediate activity), each read refreshing the
+    // activity clock and forwarding bytes for collection.
+    fn drain(
+        mut pipe: impl Read + Send + 'static,
+        activity: Arc<std::sync::atomic::AtomicU64>,
+    ) -> std::sync::mpsc::Receiver<Vec<u8>> {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 8192];
+            loop {
+                match pipe.read(&mut buf) {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        activity.store(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0),
+                            Ordering::SeqCst,
+                        );
+                        if tx.send(buf[..n].to_vec()).is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+        rx
+    }
 
-    let deadline = std::time::Instant::now() + timeout;
+    let spawn_time = std::time::Instant::now();
+    let out_rx = drain(child.stdout.take().unwrap(), activity.clone());
+    let err_rx = drain(child.stderr.take().unwrap(), activity.clone());
+
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
         }
         let reason = if cancel.load(Ordering::SeqCst) {
-            Some("its caller was dropped")
-        } else if std::time::Instant::now() >= deadline {
-            Some("its time bound")
+            Some("its caller was dropped".to_string())
+        } else if std::time::Instant::now() - spawn_time > ABS_CEILING {
+            // Unconditional: applies whether the child was silent or
+            // streaming the whole time — not a silence judgment, a hard
+            // wall-clock bound. `activity` is kept (still fed by the drain
+            // threads below) as the liveness signal a future call-start
+            // marker protocol would read; nothing reads it for a kill
+            // decision anymore.
+            Some(format!("absolute ceiling ({}s)", ABS_CEILING.as_secs()))
         } else {
             None
         };
@@ -139,26 +174,27 @@ fn run_child_bounded(
             let _ = child.wait();
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!(
-                    "pipeline child killed after {} seconds: {}",
-                    timeout.as_secs(),
-                    reason
-                ),
+                format!("pipeline child killed: {}", reason),
             ));
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(200));
     };
-
+    // Collect the drained output: each drain thread forwards its bytes; after
+    // the child exits, a pipe still open 5s later means a grandchild is
+    // holding it (reported, never silently truncated).
     let collect = |rx: &std::sync::mpsc::Receiver<Vec<u8>>| {
-        rx.recv_timeout(std::time::Duration::from_secs(5)).map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "pipe still open 5 seconds after the child exited; a grandchild process may hold it",
-            )
-        })
+        let mut buf = Vec::new();
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+                Ok(chunk) => buf.extend_from_slice(&chunk),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                Err(_) => break,
+            }
+        }
+        buf
     };
-    let stdout = collect(&out_rx)?;
-    let stderr = collect(&err_rx)?;
+    let stdout = collect(&out_rx);
+    let stderr = collect(&err_rx);
     Ok(std::process::Output {
         status,
         stdout,
@@ -201,6 +237,16 @@ pub struct PipelineExecutor {
     /// Ordered admission: every call queues by origin tier and always runs.
     gate: Arc<crate::pipeline::gate::OrderedPipelineGate>,
 
+    /// Single-flight on the local BitNet/GGUF model (A6, 2026-10-07).
+    /// Confirmed root cause: two background loops (I-Loop, assistant
+    /// digest) reached the local model at the same instant and both died
+    /// together — nothing serialized them. Capacity 1, and deliberately
+    /// NEVER given `spawn_keeper()` (see its use site in `execute()`):
+    /// the starvation guard's force-grant-past-max_active would admit a
+    /// second holder while the first is still running, defeating
+    /// single-flight entirely. An API-bound call never touches this gate.
+    local_model_gate: Arc<crate::pipeline::gate::OrderedPipelineGate>,
+
     /// Currently running pipeline count
     running_count: std::sync::atomic::AtomicUsize,
 
@@ -228,6 +274,9 @@ impl PipelineExecutor {
                 g.spawn_keeper();
                 g
             },
+            // Capacity 1, spawn_keeper() deliberately NOT called — see the
+            // field doc comment.
+            local_model_gate: Arc::new(crate::pipeline::gate::OrderedPipelineGate::new(1)),
             running_count: std::sync::atomic::AtomicUsize::new(0),
             remote: Arc::new(crate::pipeline::remote::RemotePipelines::new()),
             activity: Arc::new(crate::monitor::ActivityHub::new()),
@@ -244,6 +293,41 @@ impl PipelineExecutor {
     /// Monitor activity hub accessor.
     pub fn activity_hub(&self) -> Arc<crate::monitor::ActivityHub> {
         self.activity.clone()
+    }
+
+    /// True when this call will invoke the local BitNet/GGUF model — the one
+    /// signal available here without new cross-module plumbing or a trait
+    /// change. Pipeline 9 (Prompt) is the only pipeline that ever calls a
+    /// model directly; every other pipeline either makes no model call or
+    /// routes through pipeline 9's own subprocess (confirmed by reading
+    /// SubprocessExecutor in the pipeline crates — those nested calls are
+    /// pipeline 9's own concern, not visible here, and out of scope for this
+    /// change). A per-call override (`model_override_config.model_type`,
+    /// set by the walk/a step — see stages.rs/mod.rs) wins when present;
+    /// absent one, the global default is read from `OZONE_MODEL_TYPE`,
+    /// which this process set on its OWN environment at boot
+    /// (`ModelConfig::to_pipeline_env` via `std::env::set_var`, not just
+    /// passed to a spawned child — so reading it here needs no new field).
+    fn targets_local_model(pipeline_id: PipelineID, input: &PipelineInput) -> bool {
+        if pipeline_id != 9 {
+            return false;
+        }
+        // input.data is the host's own untagged types::Value (not
+        // serde_json::Value) — match through the enum explicitly.
+        let model_type = input
+            .data
+            .get("model_override_config")
+            .and_then(|v| match v {
+                crate::types::Value::Map(m) => m.get("model_type"),
+                _ => None,
+            })
+            .and_then(|v| match v {
+                crate::types::Value::String(s) => Some(s.as_str()),
+                _ => None,
+            })
+            .map(|s| s.to_string())
+            .or_else(|| std::env::var("OZONE_MODEL_TYPE").ok());
+        matches!(model_type.as_deref(), Some("bitnet") | Some("gguf"))
     }
 
     /// Execute a pipeline
@@ -267,6 +351,19 @@ impl PipelineExecutor {
             .gate
             .admit(crate::pipeline::gate::current_call_priority())
             .await;
+        // Single-flight on the local model (A6) — see the field doc comment
+        // on `local_model_gate`. Held for the rest of this call, same scope
+        // as `_admission` above; an API-bound call gets `None` and never
+        // touches this gate.
+        let _local_admission = if Self::targets_local_model(blueprint.pipeline_id, &input) {
+            Some(
+                self.local_model_gate
+                    .admit(crate::pipeline::gate::current_call_priority())
+                    .await,
+            )
+        } else {
+            None
+        };
         self.running_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         // Decrements on every exit, including a dropped (cancelled) future.
@@ -627,17 +724,14 @@ impl PipelineExecutor {
         // plus a margin, or when this call is dropped, so a stuck child can
         // never outlive its caller while still holding a gate slot the gate
         // believes is free. Kept off the async worker thread as before.
-        let child_secs = child_timeout_secs();
-        // The child's own subprocesses (a local model) get a bound a margin
-        // tighter, so they are killed before this child is.
-        cmd.env(
-            "OZONE_PIPELINE_TIMEOUT_SECS",
-            child_secs.saturating_sub(15).to_string(),
-        );
+        // The child's own subprocesses (a local model) get a generous fixed
+        // bound: one load + generation with headroom. The child itself is
+        // not age-bounded anymore — idle-kill governs (run_child_bounded).
+        cmd.env("OZONE_PIPELINE_TIMEOUT_SECS", "600");
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let output = tokio::task::spawn_blocking(move || {
-            run_child_bounded(cmd, std::time::Duration::from_secs(child_secs), cancel)
+            run_child_bounded(cmd, cancel)
         })
         .await
         .map_err(|e| {

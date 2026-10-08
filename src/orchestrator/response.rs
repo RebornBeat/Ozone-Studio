@@ -307,7 +307,7 @@ Return ONLY the rendered text. No explanation. No markdown."#
                 ),
                 "max_tokens": 800,
                 "temperature": 0.4,
-                "system_context": "Constrained surface realization. Render only what the graph contains."
+                "system_prompt": "Constrained surface realization. Render only what the graph contains."
             });
             if let Ok(result) = self.metered_execute_resilient(state, input, "response_graph_render").await {
                 self.record_thinking(state, "Response Rendering (Tier 1)", &result);

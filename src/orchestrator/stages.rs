@@ -649,7 +649,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
             "prompt": blueprint_prompt,
             "max_tokens": 1000,
             "temperature": 0.3,
-            "system_context": "Generate execution blueprints. Respond with JSON only."
+            "system_prompt": "Generate execution blueprints. Respond with JSON only."
         });
 
         // NOTE: blueprint drafting is NOT detached "meta work" — it runs on
@@ -1283,10 +1283,6 @@ REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call — flag any step
 whose goal matches a registered capability instead of a pipeline):
 {capabilities}
 
-REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call — flag any step
-whose goal matches a registered capability instead of a pipeline):
-{capabilities}
-
 For each step, predict:
 1. What information will be needed
 2. What output will be produced
@@ -1347,7 +1343,7 @@ Return JSON:
             "prompt": simulate_prompt,
             "max_tokens": 800,
             "temperature": 0.3,
-            "system_context": "Simulate execution and predict outcomes. Respond with JSON only."
+            "system_prompt": "Simulate execution and predict outcomes. Respond with JSON only."
         });
 
         // Same Ok-but-empty coverage as blueprint assignment above — this
@@ -1969,7 +1965,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             "prompt": decompose_prompt,
             "max_tokens": 200,
             "temperature": 0.1,
-            "system_context": "Decompose search queries. Return only valid JSON."
+            "system_prompt": "Decompose search queries. Return only valid JSON."
         });
 
         let sub_queries: Vec<String> = match self.metered_execute_resilient(state, decompose_input, "web_search_decompose").await {
@@ -2239,7 +2235,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     "prompt": compact_prompt,
                     "max_tokens": input_budget,
                     "temperature": 0.2,
-                    "system_context": "Compact context losslessly for facts. Return only the compacted text, no explanation."
+                    "system_prompt": "Compact context losslessly for facts. Return only the compacted text, no explanation."
                 });
                 match self.metered_execute_resilient(state, compact_input, "context_compaction").await {
                     Ok(result) => {
@@ -2555,7 +2551,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     "prompt": compliance_prompt,
                     "max_tokens": 150,
                     "temperature": 0.1,
-                    "system_context": "Judge rule compliance. Return only valid JSON, no explanation outside the JSON."
+                    "system_prompt": "Judge rule compliance. Return only valid JSON, no explanation outside the JSON."
                 });
                 // A failure here (call error OR unparseable response) is a
                 // real model/network issue, not an expected "nothing to

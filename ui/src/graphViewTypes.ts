@@ -31,7 +31,43 @@
  * docs/GRAPH_RELATIONSHIP_REGISTRY.md) — never fabricated, never guessed.
  */
 
-export type Modality = "code" | "math" | "text" | "image";
+// Extended 2026-10-07 to the real modality pipeline set (directory names
+// under assets/pipelines/modalities/), matching EdgeLegendFilters.tsx's
+// MODALITIES array exactly (same casing: 3D/BCI/CAD/IMU uppercase, the rest
+// lowercase). KNOWN BLOCKER, not fixed here: ui/src/graphRenderers/index.ts
+// has `NODE_RENDERERS`/`EDGE_RENDERERS: Record<Modality, ...>` with only the
+// original 4 entries, and its own header says "forks never edit this" — that
+// file's object literals will now fail to type-check (missing properties)
+// until its owner adds the other 23 entries or widens the Record to Partial
+// and audits classifyNode/classifyEdge's non-optional lookups accordingly.
+export type Modality =
+  | "code"
+  | "math"
+  | "text"
+  | "image"
+  | "3D"
+  | "audio"
+  | "BCI"
+  | "biology"
+  | "CAD"
+  | "chemistry"
+  | "control"
+  | "depth"
+  | "dna"
+  | "eeg"
+  | "electromagnetic"
+  | "geospatial"
+  | "haptic"
+  | "hyperspectral"
+  | "IMU"
+  | "kinematics"
+  | "network"
+  | "proteomics"
+  | "radar"
+  | "sonar"
+  | "sound"
+  | "thermal"
+  | "video";
 
 // ─────────────────────────────────────────────────────────────────────────
 // Raw modality graph JSON — exactly as persisted at object_store_path.

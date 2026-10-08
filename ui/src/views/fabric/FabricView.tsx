@@ -206,11 +206,33 @@ function useFabricData(projectId: number | null): Status {
 
 const W = 640;
 const H = 380;
+// Extended 2026-10-07 (graphViewTypes.ts's 27-value Modality): the original
+// 4 positions were hand-placed; a hand-placed 27th point isn't maintainable,
+// so this is now computed — original 4 kept at their exact prior coordinates
+// (first 4 entries of ALL_MODALITIES, by construction below), the rest laid
+// out evenly around a ring at the same display scale (W×H).
+const ALL_MODALITIES: readonly Modality[] = [
+  "code", "math", "text", "image",
+  "3D", "audio", "BCI", "biology", "CAD", "chemistry", "control", "depth",
+  "dna", "eeg", "electromagnetic", "geospatial", "haptic", "hyperspectral",
+  "IMU", "kinematics", "network", "proteomics", "radar", "sonar", "sound",
+  "thermal", "video",
+];
 const CENTERS: Record<Modality, { x: number; y: number }> = {
   code: { x: 130, y: 110 },
   math: { x: 510, y: 110 },
   text: { x: 320, y: 290 },
   image: { x: 320, y: 60 },
+  ...Object.fromEntries(
+    ALL_MODALITIES.slice(4).map((m, i): [Modality, { x: number; y: number }] => {
+      const n = ALL_MODALITIES.length - 4;
+      const angle = (2 * Math.PI * i) / n - Math.PI / 2;
+      return [
+        m,
+        { x: 320 + 260 * Math.cos(angle), y: 190 + 150 * Math.sin(angle) },
+      ];
+    }),
+  ),
 };
 const MIN_R = 20;
 const MAX_R = 74;

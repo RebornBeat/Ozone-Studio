@@ -112,7 +112,7 @@ Return ONLY valid JSON:
         "prompt": prompt,
         "max_tokens": 300,
         "temperature": 0.4,
-        "system_context": "Periodic self-reflection. Be honest and specific, not performative. Return only valid JSON."
+        "system_prompt": "Periodic self-reflection. Be honest and specific, not performative. Return only valid JSON."
     });
     // Prefer a free model for this low-stakes periodic reflection — same
     // budget-discipline reasoning as amt_loop/meta_loop's own

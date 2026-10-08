@@ -11,6 +11,19 @@
 
 import { create } from "zustand";
 import { SystemStats } from "../App";
+import { OZONE_HOST } from "../ozoneClient";
+
+// GET /quota's real shape (src/grpc/mod.rs get_quota, 2026-10-07). `known`
+// is false — never a fabricated number — when the host hasn't completed a
+// quota poll yet or the snapshot file is unreadable.
+export interface QuotaStatus {
+  known: boolean;
+  reason?: string;
+  used?: number;
+  limit?: number;
+  remaining?: number;
+  tier?: "unfunded" | "funded";
+}
 
 // ============================================================================
 // Types
@@ -62,6 +75,10 @@ interface UIState {
   // tab's task-detail view default to "the thing I just sent" without a
   // separate lookup. Any task can still be viewed by id there.
   lastTaskId: number | null;
+
+  // OpenRouter free-model quota (GET /quota). null until the first fetch
+  // resolves; { known: false, ... } if the host has no reading yet.
+  quotaStatus: QuotaStatus | null;
 }
 
 interface UIActions {
@@ -100,6 +117,10 @@ interface UIActions {
   setSelectedModel: (model: string) => void;
   setConsciousnessEnabled: (enabled: boolean) => void;
   setLastTaskId: (taskId: number | null) => void;
+
+  // Fetches GET /quota and stores the result. Best-effort: a network
+  // failure leaves quotaStatus as whatever it already was, never guessed.
+  fetchQuota: () => Promise<void>;
 }
 
 // Default system stats - ALL ZEROS (no mock data!)
@@ -141,9 +162,13 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   promptInput: "",
   promptHistory: [],
   activeTab: "workspace",
-  selectedModel: "claude-sonnet-4-20250514",
+  // Matches the backend's own ModelConfig::default() (free OpenRouter
+  // router, per this session's free-by-default policy) — was a paid
+  // Anthropic model, inconsistent with that policy.
+  selectedModel: "openrouter/free",
   availableModels: [],
   lastTaskId: null,
+  quotaStatus: null,
 
   // Actions
   initializeApp: async (config: any) => {
@@ -158,7 +183,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
       selectedModel:
         modelConfig.api_model ||
         modelConfig.local_model_path ||
-        "claude-sonnet-4-20250514",
+        "openrouter/free",
       availableModels: modelConfig.available_models || [],
       consciousnessEnabled: config.consciousness?.enabled ?? false,
       // Real field name is enable_p2p (NetworkConfig, src/config/mod.rs) —
@@ -425,6 +450,17 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   setLastTaskId: (taskId: number | null) => {
     set({ lastTaskId: taskId });
+  },
+
+  fetchQuota: async () => {
+    try {
+      const res = await fetch(`${OZONE_HOST}/quota`);
+      const data: QuotaStatus = await res.json();
+      set({ quotaStatus: data });
+    } catch {
+      // Best-effort: leave quotaStatus as whatever it already was, never
+      // fabricate a reading on a network failure.
+    }
   },
 
   setConsciousnessEnabled: (enabled: boolean) => {

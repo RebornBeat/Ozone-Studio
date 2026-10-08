@@ -152,6 +152,16 @@ struct LedgerLine {
     reasoning_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     message: Option<String>,
+    /// Full text, not a preview — operator direction 2026-10-08: ranking
+    /// decisions (like the relevance gate below) need the real prompt and
+    /// response to be auditable/backtestable, not reconstructed from a
+    /// 200-char preview in a different file. Only populated by
+    /// `record_with_text`; every other caller leaves these absent, so older
+    /// rows and other call sites are unaffected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response: Option<String>,
     /// The attributed cause, stored at write time (see `Cause`). Rows written
     /// before this field existed have none, and are attributed on replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -172,6 +182,8 @@ fn to_line(model: &str, outcome: &Outcome, latency_ms: u64, call_site: &str, ts_
         completion_tokens: None,
         reasoning_tokens: None,
         message: None,
+        prompt: None,
+        response: None,
         cause: None,
         latency_ms,
         call_site: call_site.to_string(),
@@ -311,10 +323,48 @@ pub fn record_with_cap(
     call_site: &str,
     max_tokens_sent: Option<u64>,
 ) -> Option<Cause> {
+    record_inner(model, outcome, latency_ms, call_site, max_tokens_sent, None, None)
+}
+
+/// As `record_with_cap`, but also stores the full prompt and response text on
+/// the row — for call sites where that is worth the extra bytes (today: the
+/// walk, where ranking decisions need to be auditable). No existing caller's
+/// behavior changes; this is a second entry point, not a signature change.
+pub fn record_with_text(
+    model: &str,
+    outcome: Outcome,
+    latency_ms: u64,
+    call_site: &str,
+    max_tokens_sent: Option<u64>,
+    prompt: &str,
+    response: &str,
+) -> Option<Cause> {
+    record_inner(
+        model,
+        outcome,
+        latency_ms,
+        call_site,
+        max_tokens_sent,
+        Some(prompt.to_string()),
+        Some(response.to_string()),
+    )
+}
+
+fn record_inner(
+    model: &str,
+    outcome: Outcome,
+    latency_ms: u64,
+    call_site: &str,
+    max_tokens_sent: Option<u64>,
+    prompt: Option<String>,
+    response: Option<String>,
+) -> Option<Cause> {
     let ts = now_ms();
     let cause = cause_of_with_cap(&outcome, model, max_tokens_sent);
     let mut line = to_line(model, &outcome, latency_ms, call_site, ts);
     line.cause = cause.map(|c| c.tag().to_string());
+    line.prompt = prompt;
+    line.response = response;
     {
         let mut t = table().write().unwrap_or_else(|e| e.into_inner());
         t.entries

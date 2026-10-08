@@ -1291,6 +1291,45 @@ pub struct CaptureQuery {
     pub limit: Option<usize>,
 }
 
+/// GET /quota — OpenRouter free-model quota, read from the host's own
+/// snapshot (src/openrouter_quota.rs persists this on its own poll cycle;
+/// this route never calls OpenRouter itself, so it spends nothing). Uses
+/// OZONE_ZSEI_DATA_DIR directly, matching the writer's own path
+/// construction (openrouter_quota.rs::snapshot_path) rather than
+/// config.general.data_dir, since that's the directory the snapshot is
+/// actually written under and the two are not guaranteed to be the same
+/// value. No reading becomes a guessed number: a missing or unparsable
+/// snapshot returns `{"known": false, "reason": ...}`, never a fabricated
+/// used/limit/remaining.
+async fn get_quota() -> Json<serde_json::Value> {
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = format!("{}/model_calls/openrouter_quota.json", data_dir);
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+            Ok(mut v) => {
+                // Same tier rule openrouter_quota.rs itself uses: the
+                // reported limit decides the tier, not any other field.
+                if let Some(limit) = v.get("limit").and_then(|l| l.as_u64()) {
+                    let tier = if limit == 50 { "unfunded" } else { "funded" };
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("known".to_string(), serde_json::json!(true));
+                        obj.insert("tier".to_string(), serde_json::json!(tier));
+                    }
+                }
+                Json(v)
+            }
+            Err(e) => Json(serde_json::json!({
+                "known": false,
+                "reason": format!("quota snapshot is not valid JSON: {e}")
+            })),
+        },
+        Err(_) => Json(serde_json::json!({
+            "known": false,
+            "reason": "no quota snapshot yet (host has not completed a quota poll)"
+        })),
+    }
+}
+
 /// GET /capture/decision-reviews — B4.
 async fn get_decision_reviews(
     State(state): State<Arc<AppState>>,
@@ -2563,6 +2602,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/cancel", post(cancel_task))
         .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
+        // OpenRouter quota status, read-only, spends nothing (2026-10-07).
+        .route("/quota", get(get_quota))
         // CAPTURE STORES — decision-review / zero-shot-call JSONL reads,
         // outside the ZSEI container system (Batch B: B4/B5).
         .route("/capture/decision-reviews", get(get_decision_reviews))

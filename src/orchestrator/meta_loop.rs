@@ -241,7 +241,7 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
             "prompt": draft_prompt,
             "max_tokens": 800,
             "temperature": 0.3,
-            "system_context": "Draft real, practical methodologies only when the pattern genuinely warrants one. Return only valid JSON."
+            "system_prompt": "Draft real, practical methodologies only when the pattern genuinely warrants one. Return only valid JSON."
         });
         if let Some(profile) = escalated_model {
             let override_cfg = ModelConfigOverride {

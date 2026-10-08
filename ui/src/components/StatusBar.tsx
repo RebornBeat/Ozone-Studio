@@ -26,7 +26,20 @@ export function StatusBar() {
     isConnected,
     systemStats,
     consciousnessEnabled,
+    quotaStatus,
+    fetchQuota,
   } = useOzoneStore();
+
+  // OpenRouter free-model quota (GET /quota). No existing generic polling
+  // utility was found in this file or store.ts, so this is a self-contained
+  // poll — note for whoever next touches this: if a shared polling hook
+  // exists elsewhere (e.g. App.tsx/main.js), this should be merged into it
+  // rather than duplicated further.
+  useEffect(() => {
+    fetchQuota();
+    const id = setInterval(fetchQuota, 60_000);
+    return () => clearInterval(id);
+  }, [fetchQuota]);
 
   // Format large numbers with commas
   const formatNumber = (num: number): string => {
@@ -83,6 +96,28 @@ export function StatusBar() {
         <span className="status-icon">👥</span>
         <span className="status-value">{formatNumber(systemStats.peerCount)}</span>
         <span className="status-label">Peers</span>
+      </div>
+
+      {/* Divider */}
+      <div className="status-divider" />
+
+      {/* OpenRouter free-model quota (GET /quota) — never a fabricated
+          number: shows "quota: ?" until the host has a real reading. */}
+      <div
+        className="status-item status-quota"
+        title={
+          quotaStatus?.known
+            ? `OpenRouter free-model quota, ${quotaStatus.tier ?? "unknown tier"}`
+            : "OpenRouter quota not read yet"
+        }
+      >
+        <span className="status-icon">🔑</span>
+        <span className="status-value">
+          {quotaStatus?.known
+            ? `${formatNumber(quotaStatus.remaining ?? 0)}/${formatNumber(quotaStatus.limit ?? 0)}`
+            : "?"}
+        </span>
+        <span className="status-label">Free Quota</span>
       </div>
 
       {/* Divider */}

@@ -382,7 +382,7 @@ async fn run_one_check_up(
         "prompt": prompt,
         "max_tokens": 350,
         "temperature": 0.3,
-        "system_context": "Personal assistant check-up. Honest, specific, brief. Return only valid JSON."
+        "system_prompt": "Personal assistant check-up. Honest, specific, brief. Return only valid JSON."
     });
     // Free/local model for detached meta work — the same meta_fallback
     // convention amt_loop/meta_loop/i_loop use (never the user-facing chain).

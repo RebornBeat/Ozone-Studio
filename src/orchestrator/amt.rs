@@ -1391,7 +1391,7 @@ Return ONLY valid JSON with a single one-word answer:
                     "prompt": intent_prompt,
                     "max_tokens": 500,
                     "temperature": 0.2,
-                    "system_context": "Extract new intents not already listed. Return only valid JSON. No explanation."
+                    "system_prompt": "Extract new intents not already listed. Return only valid JSON. No explanation."
                 });
 
                 let intent_input_result = self.metered_execute_resilient(state, intent_input, "amt_intent_extraction").await;
@@ -1635,7 +1635,7 @@ Return ONLY valid JSON with a single one-word answer:
                     "prompt": detail_prompt,
                     "max_tokens": 700,
                     "temperature": 0.3,
-                    "system_context": "Extract details per branch. Return only valid JSON. No explanation."
+                    "system_prompt": "Extract details per branch. Return only valid JSON. No explanation."
                 });
 
                 let detail_input_result = self.metered_execute_resilient(state, detail_input, "amt_detail_extraction").await;
@@ -1957,7 +1957,7 @@ Return ONLY valid JSON with a single one-word answer:
                     "prompt": crossref_prompt,
                     "max_tokens": 150,
                     "temperature": 0.2,
-                    "system_context": "Identify cross-branch relationships. Return only valid JSON."
+                    "system_prompt": "Identify cross-branch relationships. Return only valid JSON."
                 });
 
                 let crossref_input_result = self.metered_execute_resilient(state, crossref_input, "amt_cross_ref").await;
@@ -2645,7 +2645,7 @@ Return ONLY valid JSON with a single one-word answer:
                 "prompt": branch_prompt,
                 "max_tokens": 900,
                 "temperature": 0.3,
-                "system_context": "Suggest branches per methodology batch. Return only valid JSON. No explanation."
+                "system_prompt": "Suggest branches per methodology batch. Return only valid JSON. No explanation."
             });
             let ids: Vec<u64> = batch.iter().map(|(id, _, _)| *id).collect();
             let spec = crate::orchestrator::lane_split::LaneSpec {
@@ -2867,14 +2867,21 @@ Return ONLY valid JSON with a single one-word answer:
                             UNATTRIBUTED_PARENT.to_string()
                         }
                     };
+                    // Fixed 2026-10-08: was a two-way substring scan (first
+                    // match wins, no ambiguity check) — the exact pattern this
+                    // file's own `already_exists` comment two lines below
+                    // already documents as having silently dropped branches
+                    // elsewhere. Reuses `match_label` (same file, line ~29),
+                    // already proven correct here: exact-normalised-match
+                    // first, then a normalised containment ONLY when exactly
+                    // one candidate matches (ambiguous → None, not a guess).
                     let attributed: Vec<u64> = branch_val
                         .get("methodology")
                         .and_then(|m| m.as_str())
                         .and_then(|mname| {
-                            batch_members.iter().find(|(_, n, _)| {
-                                mname.to_lowercase().contains(&n.to_lowercase())
-                                    || n.to_lowercase().contains(&mname.to_lowercase())
-                            })
+                            let names: Vec<&str> =
+                                batch_members.iter().map(|(_, n, _)| n.as_str()).collect();
+                            match_label(&names, mname).and_then(|(i, _)| batch_members.get(i))
                         })
                         .map(|(id, _, _)| vec![*id])
                         .unwrap_or_else(|| ids.clone());
@@ -3330,7 +3337,7 @@ Return ONLY valid JSON with a single one-word answer:
             "prompt": prompt,
             "max_tokens": 200,
             "temperature": 0.2,
-            "system_context": "Methodology domain identification. Return only valid JSON array."
+            "system_prompt": "Methodology domain identification. Return only valid JSON array."
         });
 
         self.emit_marker(state, "[5.xref.1]", "starting");
@@ -3382,7 +3389,7 @@ Return ONLY valid JSON with a single one-word answer:
                     "prompt": synth_prompt,
                     "max_tokens": 400,
                     "temperature": 0.2,
-                    "system_context": "Methodology synthesis. Return only valid JSON."
+                    "system_prompt": "Methodology synthesis. Return only valid JSON."
                 });
 
                 tracing::info!(stage = "5.xref", "[5.xref.2] synthesis call starting for gap (watchdog-bounded)");

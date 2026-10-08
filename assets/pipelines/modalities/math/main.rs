@@ -1950,7 +1950,7 @@ RESPOND ONLY WITH THE JSON ARRAY."#,
         "prompt": prompt,
         "max_tokens": 600,
         "temperature": 0.2,
-        "system_context": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
+        "system_prompt": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
     });
 
     const MAX_ATTEMPTS: u32 = 2;

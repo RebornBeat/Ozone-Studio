@@ -155,6 +155,21 @@ this pass (out of scope — cataloging only), but now precisely named with a
 fix shape available: wrap with the same `is_unusable_pipeline9_result` +
 `try_fallback_chain` pattern rows #10/#11 already use.
 
+> **RELATED, DISTINCT FINDING (2026-10-08)**: this exact call site
+> (`graphs.rs:502`) was ALSO one of 19 real sites across the orchestrator
+> setting a JSON key named `"system_context"` in its input map — a key
+> `PromptInput` (the pipeline-9 wire contract) never reads; the real field
+> is `system_prompt`. The "Return only valid JSON array" system-level
+> grounding this call tried to send was silently dropped before ever
+> reaching a model, every single time, since whenever this code was
+> written. Fixed (renamed to `system_prompt` at all 19 sites) — see
+> `CHECKLIST.md`'s 2026-10-08 entry for the full list and the data that
+> found it (every one of 6 real `cause=confetti` ledger call sites had this
+> exact bug, a 6-for-6 correlation). This is a separate defect from the
+> fallback/empty-response gap documented above — fixing the grounding does
+> NOT fix the missing `is_unusable_pipeline9_result` wrap; both are real,
+> independent gaps at the same call site.
+
 ## 3. Candidate locations for new zero-shot intelligence
 
 Read against everything above — places where a decision is currently made
@@ -538,6 +553,21 @@ were a genuine "nothing to say" answer. Not implemented at the other 19
 sites this pass — flagged to the user given severity (this degrades live
 production results, not just a sizing inefficiency), awaiting a decision on
 fix-now vs. continue-documenting.
+
+> **RELATED, DISTINCT FINDING (2026-10-08)**: by coincidence of scope, this
+> section's "~19 real sites" and a newly-found, separately-caused defect's
+> "19 real sites" are the SAME population — every real call site in
+> `src/orchestrator/*.rs` + `src/consciousness/assistant.rs` setting a JSON
+> key named `"system_context"` (meant as the model's system-level
+> grounding) was using a key `PromptInput` never reads; the real field is
+> `system_prompt`. Fixed (renamed at all 19 sites). Confirmed with real
+> ledger data: all 6 real `cause=confetti` call sites from this session's
+> data were among the 19 — a 6-for-6 correlation, strong evidence this
+> contributed to confetti specifically, not just general quality. This
+> does NOT fix the empty-response gap this section documents (that needs
+> the `is_unusable_pipeline9_result` wrap, still not done at 19 sites) —
+> it's an independent defect that happened to affect an overlapping set of
+> call sites. Full detail: `CHECKLIST.md`'s 2026-10-08 entry.
 
 ## 11. Does relationship data reach downstream stages, or is it write-only per request? (2026-09-22, investigation only)
 

@@ -23,6 +23,34 @@ that doesn't need it.
 `_budget_fraction` for its output shape, and emits `capture_zero_shot_call`
 metrics. No exceptions.
 
+**Review-before-judge rule (added 2026-10-08, operator-directed, learned the
+hard way on E8/confetti)**: a detected anomaly — confetti, an empty
+response, a repeated failure pattern, any of this doctrine's own "candidate
+locations" — is a TRAP that catches real defects, not an automatic trigger
+to build judgment-call infrastructure around it. Confetti was initially
+treated as something to *adjudicate* (E8's cross-model judge); reviewing
+WHY it actually happened instead found a plain, mechanical defect (`"system_
+context"` vs. the real `"system_prompt"` key — see E8's entry and
+`CHECKLIST.md` 2026-10-08) present at every one of the 6 real confetti call
+sites, a 6-for-6 correlation. Fixing that one key name plausibly does more
+to reduce confetti than any judge ever could; the judge is still a
+legitimate safety net for whatever residual ambiguity remains once real
+bugs are fixed, but building it FIRST — before reviewing root cause — would
+have been solving the wrong layer. **The required order, going forward,
+for any anomaly this doctrine's detection mechanisms surface**: (1) review
+— read the actual call-site code the anomaly traces back to, looking for a
+plain, fixable, mechanical defect (wrong field/key name, missing logic, a
+dead code path, anything a direct read would catch); (2) if found, fix it
+directly — this is cheaper, more certain, and closes the actual gap,
+exactly like the file-name/call-site corrections elsewhere in this doc; (3)
+only once real defects are ruled out or fixed does "does this need a real
+judgment call" become the live question — and the answer may still be yes
+(residual, genuine ambiguity a human or a bug fix can't resolve), but it is
+answered AFTER review, never assumed as the default response to an
+anomaly. A new zero-shot call site should never be the first thing built
+in response to a detected problem; it's what's left to build once the
+problem is actually understood.
+
 ---
 
 ## 2. The five intelligence expansions (registry §3 candidates → real builds)
@@ -67,6 +95,18 @@ metrics. No exceptions.
 | **Tests** | unit: branch the heuristic missed but the model says "covered" → no fallback step; branch genuinely uncovered → fallback step synthesized; heuristic-passed branches never trigger the call |
 
 ### E4: Web-search-need gate trace + possible fold
+
+> **RESOLVED (traced) 2026-10-08**: there is no separate gate, deterministic
+> or otherwise. Grepped every reference to pipeline 56 in `stages.rs`
+> (coercion-exemption at line 829, dispatch at line 2302) and the whole repo
+> for `needs_search`/`search_needed`/`requires_search`/`should_search` (zero
+> hits) — confirmed the "does this step need search" decision is made
+> entirely inside the #10 blueprint-assignment zero-shot call itself, which
+> writes `pipeline_id: 56` directly when it decides a step needs search. The
+> "fold a deterministic gate into #12" branch of this entry doesn't apply —
+> there's no deterministic gate to fold; it was already zero-shot the whole
+> time. Nothing to build here. Kept below as the historical record of the
+> original open question.
 
 | | |
 |---|---|
@@ -118,6 +158,72 @@ Surfaced by the graph/relationship audit's math-modality fork, right after it re
 | **Registries touched** | ZERO_SHOT_CALL_REGISTRY (new entry), CONTEXT_REGISTRY (math modality's proof-reference context), BUILDER_REGISTRY (math-graph section) |
 | **Tests** | unit: a step with an explicit citation never reaches this path (regex wins); a step with only implicit reference language resolves via the zero-shot call; a step with genuinely no reference (a true axiom/given) returns empty, not a hallucinated citation |
 
+### E8: Confetti-candidate adjudication — the operator's correction, backed by real data: confetti is the system's prime, reliable SIGNAL for where judgment calls are missing, not a walk-local quirk
+
+**CORRECTED 2026-10-08, same day as first written.** The first version of this entry
+(kept below, struck through in spirit not text, per this doc's additive convention)
+evaluated confetti-rescue too narrowly — as one local heuristic at the walk's single
+rescue site — and concluded against a zero-shot fix. The operator pushed back directly:
+confetti is not a walk-local quirk, it's the system's own **mechanical, zero-false-
+negative signal for exactly the moments regex/extraction has hit a hard ceiling** — by
+construction, confetti means the extractor found ≥2 syntactically complete, independently
+parseable JSON candidates in one response; no regex can ever disambiguate which one is
+"right," because the ambiguity is in what the candidates MEAN relative to the task, not in
+their syntax. That's a sharper, more defensible case for the doctrine than most of E1-E7.
+
+**Real data, checked before revising this (not re-argued from first principles alone)**:
+grepped `zsei_data/model_calls/model_ledger.jsonl` for `cause=confetti`-attributed rows —
+**33 real confetti events across 6 distinct call sites**, not one:
+`assistant_check_up` (11), `i_loop_reflection` (10), `meta_loop_draft` (8),
+`zero_shot_simulation` (2), `amt_reexpansion` (1), `blueprint_assignment` (1). The top two
+are BACKGROUND consciousness loops, not the user-facing walk at all — confirming this is
+systemic, not localized to where the walk's rescue mechanism happens to live. By model:
+28 BitNet, but **3 `openrouter/free` and 2 `nvidia/nemotron-3.5-lightning:free`** — confetti
+is real on cloud/API models too, just more frequent on BitNet; not a BitNet-only artifact
+that a local workaround can quietly absorb.
+
+**The "same model judging itself" objection from the first version doesn't hold up.**
+Read `next_step` (`mod.rs:2861-2864`) directly: `Outcome::OtherError(_) =>
+NextStep::MoveOn { reason: "other error", ... }` — confetti is handled completely
+generically today, at every one of these 6 sites except the walk's own rescue. The
+candidates are discarded, cause is attributed to `Model`, and the NEXT attempt starts from
+a blind, fresh prompt — no awareness that a prior attempt produced N semantically distinct
+candidates. The system already has multi-model fallback configured; it simply isn't using
+it to show the next model the ambiguous candidates — it wastes a full, blind regeneration
+instead. There is no new infrastructure needed to get a genuinely different judge: the
+fallback-chain machinery that already exists is the natural carrier.
+
+| | |
+|---|---|
+| **Currently** | confetti (`is_unusable_pipeline9_result`'s shared chokepoint, `extract_all_json_candidates_shared(text).len() > 1`) triggers one of two outcomes, both mechanical: at the walk's `run_one_candidate`, blind positional promotion of candidate `[0]`; everywhere else (6+ confirmed sites), blind discard + a fresh, blind retry via `NextStep::MoveOn`. Neither resolves the actual ambiguity — one guesses positionally, the other throws the signal away entirely. |
+| **Build** | at the chokepoint, when `is_unusable_pipeline9_result` fires specifically because of confetti (not empty-response, not a hard error — those have no candidate set to adjudicate), issue ONE new zero-shot call: "a prior attempt at [call-site-specific task framing] produced several possibly-contradictory candidates: [the extracted candidates]. Which one (by index) actually answers the task, or does none? Respond `{"chosen_index": int\|null, "reasoning": "..."}`." Route this call through the EXISTING fallback-chain/multi-model machinery so the judge is naturally a model different from whichever one produced the confetti — reuse, not new infrastructure. |
+| **Why this is a FAMILY of builds, not one generic mechanism** | per the operator's own framing — each call site needs its own task-framing in the adjudication prompt, the same way E1-E7 are each separately scoped (AMT branch confetti needs different context than blueprint-step confetti or methodology-draft confetti). The shared part is the chokepoint detection + the fallback-chain routing; the task-specific part is the prompt template per call site. Natural build order: the walk's own rescue site first (replace blind `[0]` with real adjudication — highest-traffic, already has a rescue path to improve), then the top two real-data sites (`assistant_check_up`, `i_loop_reflection` — background consciousness loops, 21 of 33 real events between them), then the remainder as volume justifies. |
+| **Context needed** | the extracted candidate list (already computed free by the chokepoint's own detection — no new extraction work) + whatever task context that specific call site already has in scope (varies per site, same as E1-E7) |
+| **Output shape** | `{"chosen_index": int\|null, "reasoning": "..."}` — `null` is a real, honest answer (none of the candidates actually address the task), not forced to pick something |
+| **Budget fraction** | small (short JSON judgment) — bounded by how often confetti actually fires (33 real events observed; rare relative to total call volume, so cost is bounded by construction, not estimation) |
+| **Call frequency** | only on confirmed confetti (not empty-response, not hard-error) — a narrow, well-scoped trigger condition the system already computes today |
+| **Registries touched** | ZERO_SHOT_CALL_REGISTRY (new entry per site wired), BUILDER_REGISTRY (chokepoint section), CONTEXT_REGISTRY (adjudication-provenance marker) |
+| **Tests** | unit: a 2-candidate confetti response where one candidate clearly answers the task → that index chosen; a confetti response where neither candidate is relevant → `chosen_index: null`, not forced; the walk's own rescue site specifically: compare outcomes against the old blind-`[0]` behavior on the same captured candidate sets, using the `confetti_rescued` markers already being written |
+| **Status** | **First increment BUILT 2026-10-08** (operator go: "continue with all"), at the walk's own rescue site only (`run_one_candidate`, `mod.rs:3592+`). `run_one_candidate` gained an `other_model: Option<&AvailableModel>` parameter; the sequential fallback-walk call site passes the first OTHER real candidate in the pool (`candidates.iter().find(|c| c.identifier != profile.identifier)`) — never the same model that produced the confetti; the parallel-batch dispatch call site passes `None` for now (scoped out of this increment — see next row). On confetti, when a judge is available, one small adjudication call (`max_tokens: 200`, `temperature: 0.1`) asks it to pick the correct candidate by index or answer `null` if none are correct; recorded via `record_with_text(..., "confetti_adjudication", ...)` so it's visible in the ledger going forward. Any failure (parse error, call error, out-of-range index, honest `null`) falls back to the original first-candidate rescue — strictly no worse than before. Compiled clean (`cargo check --release`, 4m44s, zero new warnings/errors). **NOT YET DEPLOYED** — production is a separate, already-known-stale binary; deploying is a distinct, operator-gated action per this project's standing "don't touch production without approval" rule. **Remaining scope, not yet built**: the parallel-batch dispatch path (still `None`/unchanged), and the 5 other real call sites found in the ledger data (`assistant_check_up`, `i_loop_reflection`, `meta_loop_draft`, `zero_shot_simulation`, `amt_reexpansion`, `blueprint_assignment`) — each uses the generic `OtherError → MoveOn` path today, not this mechanism; wiring them is call-site-specific work (each needs its own task-context framing, same as E1-E7), not a copy-paste of the walk's version. |
+
+---
+
+<details>
+<summary>First version of this entry (2026-10-08, same day, superseded above — kept per this doc's additive convention, not deleted)</summary>
+
+The operator asked directly: is confetti-rescue (`mod.rs:3592-3618`, promotes the first
+non-empty JSON candidate when a response contains several) right to stay static, or should
+it be a real judgment call? Evaluated against this doc's own doctrine (§1) rather than
+answered reflexively.
+
+| | |
+|---|---|
+| **Currently** | when pipeline 9 returns >1 distinct JSON candidate in one response (the documented live BitNet pattern: `Decide 0.9 → Reject 0.8 → Proceed 0.7 → ...`, descending self-revision), the walk unconditionally promotes candidate `[0]` (first) to be the response. This is a judgment call — "which of these is the model's real/intended answer" — made by an arbitrary positional rule with **zero verified evidence it's right more often than wrong**. |
+| **Why NOT a plain zero-shot fix (the ORIGINAL, too-narrow finding)** | the natural "judge" call would go through the SAME unreliable generation path that produced the confetti — asking a flaky process to grade its own confused output isn't guaranteed better. **This turned out to be too conservative**: it only considered the walk's single site, not the 5 other real call sites confetti occurs at, and it didn't check whether the fallback chain already provides a different-model path for free (it does — see the corrected entry above). |
+| **Original recommendation (superseded)** | do NOT build a plain same-model zero-shot judge call; wait and measure instead. **Superseded by the corrected entry above once real ledger data (33 events, 6 call sites, 3 different models) was actually checked rather than reasoned about in the abstract.** |
+
+</details>
+
 ---
 
 ## 3. The context-depth completions (audit findings → real builds)
@@ -168,6 +274,34 @@ Surfaced by the graph/relationship audit's math-modality fork, right after it re
 | **Owner** | either — after the restart + live test confirm the current batch is stable |
 
 ### C6: Unresolved/divergent zero-shot judgment as first-class persistent state (not a dropped return value)
+
+> **RESOLVED 2026-09-27, confirmed stale-doc 2026-10-08**: this was built
+> end-to-end before this note was written — `assets/pipelines/shared/
+> capture.rs` (111 lines, "C6-minimal, 2026-09-27"), pulled into text/code/
+> math's main.rs via `#[path = "../../shared/capture.rs"] mod capture;`
+> (no Cargo dependency needed — pipeline binaries are intentionally
+> excluded from the workspace, so textual module inclusion rather than a
+> shared crate answers the doc's own open question below). Writes
+> `{data_dir}/model_calls/pipeline_zero_shot_calls.jsonl`, registered as
+> **CONTEXT_REGISTRY.md S12**. text is wired at its single `llm_execute`
+> choke point (all 13 extractor/vote sites); math is wired at its one
+> real site (E7's `resolve_implicit_step_references`, dormant until E7
+> ships — capture lands with it, not after); code/image make zero
+> pipeline-9 calls today so have nothing to capture (code has the `#[path]`
+> include present-but-dormant; image doesn't, since it never needed it —
+> neither is a gap). Consumer side is also live: `src/consciousness/
+> review.rs`'s `read_pipeline_zero_shot_capture_store` + `GET /capture/
+> pipeline-zero-shot-calls` (`src/grpc/mod.rs`). One real bug found and
+> fixed while re-verifying this entry (2026-10-08): `review.rs`'s
+> `PipelineZeroShotRow` declared a field named `error` that the writer
+> never emits (the real error text lands in `response_preview`) — silently
+> always `None` under `#[serde(default)]`, and the S12 finding never cited
+> error text at all (unlike the sibling S13 class, which already did).
+> Fixed: field renamed to `response_preview` to match the real writer key,
+> and the failing-pipelines finding now cites the newest real error
+> verbatim, same pattern S13 already used. Kept below as the historical
+> record of the original ask, per this doc's own additive convention —
+> treat everything below as **history**, not an open decision.
 
 Raised directly by the operator during the C4 retrofits: "confetti" has been used as the retry-and-discard label for two genuinely different situations, and only one of them is actually noise.
 

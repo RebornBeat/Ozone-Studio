@@ -163,7 +163,7 @@ Return ONLY valid JSON:
                 "prompt": prompt,
                 "max_tokens": 300,
                 "temperature": 0.2,
-                "system_context": "Safety review gate. Valid JSON only."
+                "system_prompt": "Safety review gate. Valid JSON only."
             });
 
             // Resilient execution: retry + fallback walk (same as the

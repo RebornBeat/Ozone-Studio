@@ -176,6 +176,12 @@ pub struct PromptOutput {
     /// Which response field carried the reasoning text.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_field: Option<String>,
+    /// The reasoning text itself, when present and non-empty — distinct from
+    /// `reasoning_field` (which only names the key it came from). Lets a
+    /// caller salvage a drafted answer when `response` is empty because our
+    /// own cap cut generation short during reasoning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completion_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -621,6 +627,16 @@ async fn call_openai_api(
         .iter()
         .find(|f| message[**f].as_str().map_or(false, |s| !s.trim().is_empty()))
         .map(|f| f.to_string());
+    // The actual reasoning text, not just which field carried it — a reasoning
+    // model that exhausted our max_tokens cap still often drafted the real
+    // answer here before being cut off (2026-10-08: this was previously
+    // discarded after only computing reasoning_field/has_reasoning, so a
+    // host-side salvage attempt reading for the text had nothing to read).
+    let reasoning_text: Option<String> = reasoning_field
+        .as_deref()
+        .and_then(|f| message[f].as_str())
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.to_string());
     let has_reasoning = reasoning_field.is_some();
     let completion_tokens = result["usage"]["completion_tokens"].as_u64();
     let reasoning_tokens = result["usage"]["completion_tokens_details"]["reasoning_tokens"].as_u64();
@@ -675,6 +691,7 @@ async fn call_openai_api(
         content_null: Some(content_null),
         has_reasoning: Some(has_reasoning),
         reasoning_field,
+        reasoning_text,
         completion_tokens,
         reasoning_tokens,
         max_tokens_sent,

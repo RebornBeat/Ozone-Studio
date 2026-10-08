@@ -2574,13 +2574,43 @@ impl TextModalityPipeline {
             .and_then(|p| p.as_str())
             .unwrap_or("")
             .to_string();
-        let result = self.executor.execute(pipeline_id, input).await;
+        let mut result = self.executor.execute(pipeline_id, input.clone()).await;
         capture::capture_zero_shot_call(
             "text",
             "llm_execute",
             &prompt_preview,
             &result,
         );
+        // INNER RETRY (A2, docs/REVIEW_WATCHDOG_2026-10-07.md §10): this
+        // nested spawn (SubprocessExecutor, spawns pipeline 9's own binary
+        // directly) has no fallback chain of its own — one failed or empty
+        // attempt used to end this whole internal call here, with no
+        // second try. One bounded retry, same call, no model switch (a
+        // nested spawn has no access to the host's walk/ledger to switch
+        // models). Preserves every other already-completed internal call,
+        // since each is its own process. Never more than one retry.
+        let is_retry_worthy = match &result {
+            Err(_) => true,
+            Ok(v) => v
+                .get("response")
+                .and_then(|r| r.as_str())
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true),
+        };
+        if is_retry_worthy {
+            eprintln!(
+                "llm_execute: pipeline {pipeline_id} attempt unusable, retrying once (same call, no model switch)"
+            );
+            self.llm_calls.fetch_add(1, Ordering::Relaxed);
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            result = self.executor.execute(pipeline_id, input).await;
+            capture::capture_zero_shot_call(
+                "text",
+                "llm_execute",
+                &prompt_preview,
+                &result,
+            );
+        }
         let result = result?;
         if let Some(tokens) = result.get("tokens_used").and_then(|t| t.as_u64()) {
             self.llm_tokens_used.fetch_add(tokens, Ordering::Relaxed);
@@ -2686,7 +2716,7 @@ If {task_word} sentence exists: {{"found": false}}"#,
             "prompt": prompt,
             "max_tokens": 600,
             "temperature": 0.1,
-            "system_context": "Sentence identification with grammar correction. Return only valid JSON. No explanation."
+            "system_prompt": "Sentence identification with grammar correction. Return only valid JSON. No explanation."
         });
 
         match self.llm_execute(9, input).await {
@@ -3111,7 +3141,7 @@ or {{"found": false}}"#,
             "prompt": prompt,
             "max_tokens": 400,
             "temperature": 0.1,
-            "system_context": "Section structure tracking. Return only valid JSON. No explanation."
+            "system_prompt": "Section structure tracking. Return only valid JSON. No explanation."
         });
 
         // Retry on confetti (>1 candidate object in one response) before
@@ -3403,7 +3433,7 @@ or {{"found": false}} if no paragraph remains after the given position."#,
             "prompt": prompt,
             "max_tokens": 300,
             "temperature": 0.1,
-            "system_context": "Paragraph boundary detection. Return only valid JSON. No explanation."
+            "system_prompt": "Paragraph boundary detection. Return only valid JSON. No explanation."
         });
 
         match self.llm_execute(9, input).await {
@@ -3659,7 +3689,7 @@ or {{"found": false}}"#,
             "prompt": prompt,
             "max_tokens": 250,
             "temperature": 0.05,
-            "system_context": "Modality occurrence detection. Return only valid JSON. No explanation."
+            "system_prompt": "Modality occurrence detection. Return only valid JSON. No explanation."
         });
 
         match self.llm_execute(9, input).await {
@@ -3899,7 +3929,7 @@ Return ONLY a valid JSON array:
             "prompt": prompt,
             "max_tokens": 800,
             "temperature": 0.05,
-            "system_context": "Grammar relationship extraction. Return only valid JSON array."
+            "system_prompt": "Grammar relationship extraction. Return only valid JSON array."
         });
 
         // Retry on confetti (>1 candidate array) before accepting a result —
@@ -4002,7 +4032,7 @@ Return ONLY a valid JSON array:
             "prompt": clean_prompt,
             "max_tokens": (chunk.token_count + 150) as u32,
             "temperature": 0.1,
-            "system_context": "You are a text cleaning assistant. Return only valid JSON: {\"cleaned_text\": \"...\"}. No explanation. No markdown. No preamble."
+            "system_prompt": "You are a text cleaning assistant. Return only valid JSON: {\"cleaned_text\": \"...\"}. No explanation. No markdown. No preamble."
         });
 
         match self.executor.execute(9, clean_input).await {
@@ -4185,7 +4215,7 @@ RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
             "prompt": prompt,
             "max_tokens": 300,
             "temperature": 0.2,
-            "system_context": "Extract keywords. Respond only with valid JSON array."
+            "system_prompt": "Extract keywords. Respond only with valid JSON array."
         });
         if let Some(v) = override_json {
             input["model_override_config"] = v.clone();
@@ -4223,7 +4253,7 @@ RESPOND ONLY WITH JSON ARRAY."#,
             "prompt": prompt,
             "max_tokens": 500,
             "temperature": 0.2,
-            "system_context": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
+            "system_prompt": "Output only a valid JSON array. No explanation. No markdown code blocks. No preamble. Start directly with [."
         });
 
         // Retry on confetti (>1 candidate array in one response — same
@@ -4311,7 +4341,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             "prompt": prompt,
             "max_tokens": 200,
             "temperature": 0.2,
-            "system_context": "Output only a valid JSON array of strings. No explanation. No markdown. Start directly with [."
+            "system_prompt": "Output only a valid JSON array of strings. No explanation. No markdown. Start directly with [."
         });
         if let Some(v) = override_json {
             input["model_override_config"] = v.clone();
@@ -5458,7 +5488,7 @@ Return ONLY valid JSON:
             "prompt": prompt,
             "max_tokens": 2000,
             "temperature": 0.1,
-            "system_context": "Sentence listing with grammar correction. Return only valid JSON. No explanation."
+            "system_prompt": "Sentence listing with grammar correction. Return only valid JSON. No explanation."
         });
 
         match self.llm_execute(9, input).await {
@@ -5641,9 +5671,18 @@ Return ONLY valid JSON:
         let (t0, _) = self.llm_metrics_snapshot();
 
         // ── 1. Globally unique sentence ids ──
+        // STABLE across retries of the same chunks: derived from
+        // (chunk_id, chunk_offset), both already set at sentence creation
+        // and unchanged by a retry of the same request. A fresh
+        // Self::generate_id() here (time-based nanos) gave every retry a
+        // new id, so a killed-and-retried invocation wrote duplicate
+        // sentence containers instead of ever recognizing prior work.
+        // chunk_offset is masked to 32 bits (always true for any real
+        // document) so the two fields pack into one u64 with no collision
+        // across chunks or within one.
         for chunk in chunks.iter_mut() {
             for sent in chunk.sentence_nodes.iter_mut() {
-                sent.node_id = Self::generate_id();
+                sent.node_id = ((sent.chunk_id as u64) << 32) | (sent.chunk_offset as u64 & 0xFFFF_FFFF);
             }
         }
         let all_sentences: Vec<(u64, String)> = chunks
@@ -5709,7 +5748,7 @@ Return ONLY valid JSON:
                     "prompt": prompt,
                     "max_tokens": 800,
                     "temperature": 0.05,
-                    "system_context": "Grammar extraction. Return only valid JSON. No explanation."
+                    "system_prompt": "Grammar extraction. Return only valid JSON. No explanation."
                 });
 
                 // Retry on confetti (>1 candidate object) or a parse failure
@@ -5992,7 +6031,7 @@ If nothing relates, return empty arrays."#,
                     "prompt": prompt,
                     "max_tokens": 900,
                     "temperature": 0.1,
-                    "system_context": "Cross-sentence relationship analysis. Return only valid JSON."
+                    "system_prompt": "Cross-sentence relationship analysis. Return only valid JSON."
                 });
 
                 // Highest-value site in this file: the sole carrier of BOTH
@@ -6511,7 +6550,7 @@ RESPOND ONLY WITH JSON."#,
             "prompt": prompt,
             "max_tokens": 100,
             "temperature": 0.2,
-            "system_context": "Analyze sentiment. Respond with JSON only."
+            "system_prompt": "Analyze sentiment. Respond with JSON only."
         });
 
         // Fails closed to None on parse failure already (safe, no corrupted

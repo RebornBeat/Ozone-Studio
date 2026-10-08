@@ -32,6 +32,7 @@ interface ModelsCfg {
   context_length?: number;
   gpu_layers?: number | null;
   allow_user_selection?: boolean;
+  allow_paid_models?: boolean;
   wire_protocol?: string;
   bitnet_cli_path?: string;
   local_model_path?: string;
@@ -192,6 +193,7 @@ export const SettingsPanel: React.FC = () => {
         context_length: models.context_length || undefined,
         gpu_layers: models.gpu_layers ?? undefined,
         allow_user_selection: models.allow_user_selection,
+        allow_paid_models: models.allow_paid_models,
         wire_protocol: models.wire_protocol || undefined,
         bitnet_cli_path: models.bitnet_cli_path || undefined,
         local_model_path: models.local_model_path || undefined,
@@ -470,6 +472,22 @@ export const SettingsPanel: React.FC = () => {
                 />
                 <span>Allow model selection from the chat UI</span>
               </label>
+
+              <label className="otoggle" style={{ marginTop: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={models.allow_paid_models ?? false}
+                  onChange={(e) =>
+                    setModels({ ...models, allow_paid_models: e.target.checked })
+                  }
+                />
+                <span>Allow paid models</span>
+              </label>
+              <p style={{ color: "var(--color-text-muted)", fontSize: 12, margin: "2px 0 0" }}>
+                Off (default): only free OpenRouter models and the local model
+                are selectable. On: paid OpenRouter models and paid direct
+                providers (Anthropic, OpenAI, Google) can be chosen too.
+              </p>
             </div>
 
             <div className="ocard">

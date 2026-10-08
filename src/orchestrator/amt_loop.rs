@@ -609,7 +609,7 @@ If nothing substantive can be added, return: {{"details": []}}"#,
         "prompt": prompt,
         "max_tokens": 400,
         "temperature": 0.3,
-        "system_context": "Deepen one analysis branch with concrete detail. Return only valid JSON."
+        "system_prompt": "Deepen one analysis branch with concrete detail. Return only valid JSON."
     });
 
     // Model fallback escalation on retry — same reasoning and shape as the

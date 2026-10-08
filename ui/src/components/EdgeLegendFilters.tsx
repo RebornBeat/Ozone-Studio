@@ -54,7 +54,49 @@ const CLASS_HINT: Record<EdgeClass, string> = {
   governance: "Jurisdiction relationships",
 };
 
-const MODALITIES: readonly string[] = ["code", "math", "text", "image"];
+// Extended 2026-10-07: was ["code","math","text","image"] only — every other
+// real modality pipeline (directory names under assets/pipelines/modalities/)
+// fell through modalityOfEdge() as null, which merges same-named edge types
+// across DIFFERENT unlisted modalities into one legend row/filter key (the
+// exact cross-modality collision bug this file's header says was fixed
+// 2026-09-29 — that fix only covers the 4 modalities listed here). Casing
+// matches the real directory names (3D/BCI/CAD/IMU uppercase, others
+// lowercase); NOT VERIFIED beyond that — I could not confirm from this file
+// alone that the edge-id prefix string a caller passes in always matches the
+// directory name casing exactly. Likely still insufficient alone: `Modality`
+// (graphViewTypes.ts:34) is a separate, equally narrow `"code"|"math"|"text"
+// |"image"` type, and GraphView.tsx (not in this fork's claim) may have its
+// own hardcoded list gating which modalities are fetched before any edge
+// reaches this component at all — both are needed for these to ever render.
+const MODALITIES: readonly string[] = [
+  "code",
+  "math",
+  "text",
+  "image",
+  "3D",
+  "audio",
+  "BCI",
+  "biology",
+  "CAD",
+  "chemistry",
+  "control",
+  "depth",
+  "dna",
+  "eeg",
+  "electromagnetic",
+  "geospatial",
+  "haptic",
+  "hyperspectral",
+  "IMU",
+  "kinematics",
+  "network",
+  "proteomics",
+  "radar",
+  "sonar",
+  "sound",
+  "thermal",
+  "video",
+];
 
 /** graphViewData.ts builds edge ids as `${modality}:${containerId}:...`. */
 export function modalityOfEdge(edge: GraphViewEdge): Modality | null {

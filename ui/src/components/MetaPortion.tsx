@@ -80,6 +80,14 @@ interface TranscriptEntry {
   /** Real AMT structure stats for this response, when the run built one
    * (absent for e.g. a clarification-only response with no AMT). */
   amtSummary?: AMTSummary;
+  /** Per-attempt fallback-walk trail (model, outcome, cause, latency, next
+   * step), forwarded verbatim from OrchestrateResponse.attempt_trail. Always
+   * an array (possibly empty) on any response carrying these fields — older
+   * responses simply omit the key. Present on BOTH success and failure. */
+  attemptTrail?: string[];
+  /** Paid/unknown model-override refusals for this run, forwarded verbatim
+   * from OrchestrateResponse.refusals. Present on BOTH success and failure. */
+  refusals?: string[];
 }
 
 // Per-model accent so a model switch mid-conversation is visible at a
@@ -181,6 +189,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
   // Which transcript entries have their "Thinking" section expanded —
   // collapsed by default since raw_response content can be long.
   const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
+  // Which transcript entries have their "Trail" (attempt_trail + refusals)
+  // section expanded — same collapsed-by-default pattern as Thinking above.
+  const [expandedTrail, setExpandedTrail] = useState<Set<number>>(new Set());
   const [voiceWaveform, setVoiceWaveform] = useState<number[]>(new Array(24).fill(0.1));
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -665,12 +676,19 @@ export function MetaPortion({ width }: MetaPortionProps) {
           textareaRef.current.style.height = 'auto';
         }
 
-        // Add response to transcript
-        if (result.response) {
+        // Add response to transcript. Widened beyond `result.response` alone:
+        // a failed orchestration returns response: null with its diagnosis in
+        // attempt_trail/refusals/error (confirmed shape: {"success":false,
+        // "response":null,...,"attempt_trail":[],"refusals":[]}) — the old
+        // condition dropped that case entirely, so a failure with real trail/
+        // refusal content produced no transcript entry and nothing to expand.
+        const hasAttemptTrail = Array.isArray(result.attempt_trail) && result.attempt_trail.length > 0;
+        const hasRefusals = Array.isArray(result.refusals) && result.refusals.length > 0;
+        if (result.response || result.error || hasAttemptTrail || hasRefusals) {
           setTranscript(prev => [...prev, {
             id: Date.now(),
             role: 'assistant',
-            content: result.response,
+            content: result.response || result.error || 'No response generated',
             timestamp: Date.now(),
             emotion: emotionState.primary,
             modelUsed: result.model_used,
@@ -681,10 +699,12 @@ export function MetaPortion({ width }: MetaPortionProps) {
               ? result.thinking_log
               : undefined,
             amtSummary: result.amt_summary ?? undefined,
+            attemptTrail: Array.isArray(result.attempt_trail) ? result.attempt_trail : undefined,
+            refusals: Array.isArray(result.refusals) ? result.refusals : undefined,
           }]);
 
           // Speak the response if voice output is enabled
-          if (consciousnessEnabled) {
+          if (consciousnessEnabled && result.response) {
             await speakResponse(result.response);
           }
         }
@@ -1045,7 +1065,11 @@ export function MetaPortion({ width }: MetaPortionProps) {
                         >
                           {entry.content}
                         </div>
-                        {entry.role === 'assistant' && (entry.modelUsed || entry.stageCount) && (
+                        {entry.role === 'assistant' && (
+                          entry.modelUsed || entry.stageCount ||
+                          (entry.attemptTrail && entry.attemptTrail.length > 0) ||
+                          (entry.refusals && entry.refusals.length > 0)
+                        ) && (
                           <div
                             className="message-meta"
                             style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5 }}
@@ -1116,6 +1140,36 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                 {expandedThinking.has(entry.id) ? '▾' : '▸'} Thinking ({entry.thinkingLog.length})
                               </button>
                             )}
+                            {((entry.attemptTrail && entry.attemptTrail.length > 0) ||
+                              (entry.refusals && entry.refusals.length > 0)) && (
+                              <button
+                                onClick={() => {
+                                  setExpandedTrail(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(entry.id)) {
+                                      next.delete(entry.id);
+                                    } else {
+                                      next.add(entry.id);
+                                    }
+                                    return next;
+                                  });
+                                }}
+                                style={{
+                                  fontSize: 11,
+                                  opacity: 0.6,
+                                  background: 'none',
+                                  border: '1px solid #223046',
+                                  borderRadius: 999,
+                                  padding: '2px 8px',
+                                  cursor: 'pointer',
+                                  color: 'inherit',
+                                }}
+                                title="Fallback-walk attempt trail and any paid/unknown-model refusals for this run"
+                              >
+                                {expandedTrail.has(entry.id) ? '▾' : '▸'} Trail (
+                                {(entry.attemptTrail?.length ?? 0) + (entry.refusals?.length ?? 0)})
+                              </button>
+                            )}
                           </div>
                         )}
                         {entry.thinkingLog && entry.thinkingLog.length > 0 && expandedThinking.has(entry.id) && (
@@ -1162,6 +1216,59 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                 </div>
                               </div>
                             ))}
+                          </div>
+                        )}
+                        {((entry.attemptTrail && entry.attemptTrail.length > 0) ||
+                          (entry.refusals && entry.refusals.length > 0)) &&
+                          expandedTrail.has(entry.id) && (
+                          <div
+                            className="attempt-trail"
+                            style={{
+                              marginTop: 8,
+                              display: 'flex',
+                              flexDirection: 'column',
+                              gap: 6,
+                              fontSize: 12,
+                            }}
+                          >
+                            {entry.attemptTrail && entry.attemptTrail.length > 0 && (
+                              <div
+                                style={{
+                                  border: '1px solid #223046',
+                                  borderRadius: 8,
+                                  padding: '8px 10px',
+                                  background: 'rgba(255,255,255,0.02)',
+                                }}
+                              >
+                                <div style={{ opacity: 0.7, marginBottom: 4, fontSize: 11 }}>
+                                  Attempt trail ({entry.attemptTrail.length})
+                                </div>
+                                {entry.attemptTrail.map((line, i) => (
+                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                    {line}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {entry.refusals && entry.refusals.length > 0 && (
+                              <div
+                                style={{
+                                  border: '1px solid #5a2a2a',
+                                  borderRadius: 8,
+                                  padding: '8px 10px',
+                                  background: 'rgba(255,100,100,0.04)',
+                                }}
+                              >
+                                <div style={{ opacity: 0.8, marginBottom: 4, fontSize: 11, color: '#f87171' }}>
+                                  ⛔ Refused ({entry.refusals.length})
+                                </div>
+                                {entry.refusals.map((line, i) => (
+                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                    {line}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

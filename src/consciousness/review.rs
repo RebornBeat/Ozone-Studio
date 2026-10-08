@@ -133,8 +133,14 @@ struct PipelineZeroShotRow {
     call_site: String,
     #[serde(default)]
     success: bool,
+    // The writer (assets/pipelines/shared/capture.rs) never emits a key named
+    // "error" — on failure the real error text lands in `response_preview`
+    // (its Err branch writes `cut(e, 300)` there). An `error` field here would
+    // always deserialize to None under #[serde(default)] and silently drop
+    // the one thing a failing-pipeline finding most needs to cite. Read the
+    // field that's actually populated instead (found+fixed 2026-10-08).
     #[serde(default)]
-    error: Option<String>,
+    response_preview: String,
 }
 
 /// Read the real S12 capture store — same discipline as the S10/S11 readers.
@@ -353,9 +359,26 @@ pub async fn run_review_pass(
         }
         let failed = rows.iter().filter(|r| !r.success).count();
         if failed * 2 >= rows.len() {
+            // Cite the newest real error verbatim — no paraphrase (same
+            // discipline as the S13 class below).
+            let last_error = rows
+                .iter()
+                .rev()
+                .filter(|r| !r.success)
+                .find_map(|r| {
+                    if r.response_preview.is_empty() {
+                        None
+                    } else {
+                        Some(r.response_preview.as_str())
+                    }
+                })
+                .unwrap_or("(no error text captured)")
+                .chars()
+                .take(120)
+                .collect::<String>();
             failing_pipelines.push(format!(
-                "{}: {}/{} zero-shot calls failed (recent)",
-                pipeline, failed, rows.len()
+                "{}: {}/{} zero-shot calls failed (recent) — newest error: \"{}\"",
+                pipeline, failed, rows.len(), last_error
             ));
         }
     }
