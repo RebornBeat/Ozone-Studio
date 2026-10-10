@@ -1114,6 +1114,15 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     //    10,080 tokens and ~27 minutes almost entirely on this. Strengthened
     //    to make the repeated structural markers ("##", "Pipeline", ":",
     //    "Keywords") costlier across a much longer span.
+    // Fixed 2026-10-08: this call never passed -ngl at all, unlike the
+    // sibling execute_gguf two functions away — BitNet got zero GPU
+    // acceleration regardless of what the user configured, on any
+    // hardware (CUDA/ROCm/Metal/Vulkan builds of llama-cli alike). Same
+    // safe pattern as execute_gguf: defaults to 0 (CPU-only) when unset,
+    // so this cannot regress a GPU-less machine (this session's own dev
+    // box included) — it only enables acceleration that was always
+    // configurable but never actually reached the process.
+    let gpu_layers = config.gpu_layers.unwrap_or(0).to_string();
     let run = tokio::task::spawn_blocking(move || {
         run_bounded_child(std::process::Command::new(&clone_cli)
             .args([
@@ -1121,6 +1130,7 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
                 "-p", &prompt,
                 "-n", &max_tokens,
                 "--temp", &temp,
+                "-ngl", &gpu_layers,
                 "-c", &ctx,
                 "--repeat-penalty", "1.3",
                 "--repeat-last-n", "1024",

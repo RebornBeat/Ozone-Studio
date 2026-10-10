@@ -459,6 +459,39 @@ impl PromptOrchestrator {
 /// deliberately does NOT do — kept pure and synchronous so the routing
 /// logic itself is directly unit-testable without mocking a store/executor
 /// (see T-62b below).
+/// Word-boundary-aware containment — replaces plain `contains` for rule
+/// matching. The old substring match matched "abuse" inside "disa"buse and
+/// "child" inside child"ish" (demonstrated live 2026-10-08), false-
+/// positiveing Block/Warn/RequireConfirmation — the highest-stakes
+/// deterministic gate in the system. A match counts only when the characters
+/// immediately before and after the needle are NOT alphanumeric (string
+/// edges count as boundaries; hyphen/space/punctuation separate correctly).
+fn contains_word(haystack: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return false;
+    }
+    let mut search_from = 0usize;
+    while let Some(rel) = haystack[search_from..].find(needle) {
+        let start = search_from + rel;
+        let end = start + needle.len();
+        let before_ok = haystack[..start]
+            .chars()
+            .next_back()
+            .map_or(true, |c| !c.is_alphanumeric());
+        let after_ok = haystack[end..]
+            .chars()
+            .next()
+            .map_or(true, |c| !c.is_alphanumeric());
+        if before_ok && after_ok {
+            return true;
+        }
+        // Advance one full character from the match start (char-boundary
+        // safe for multibyte needles/text alike).
+        search_from = start + haystack[start..].chars().next().map_or(1, |c| c.len_utf8());
+    }
+    false
+}
+
 pub(crate) fn categorize_jurisdiction_matches(
     rules: &[JurisdictionRule],
     haystack: &str,
@@ -466,7 +499,7 @@ pub(crate) fn categorize_jurisdiction_matches(
 ) -> Vec<JurisdictionRule> {
     let mut confirmation_matches: Vec<JurisdictionRule> = Vec::new();
     for rule in rules {
-        if !rule.condition.is_empty() && haystack.contains(&rule.condition.to_lowercase()) {
+        if !rule.condition.is_empty() && contains_word(haystack, &rule.condition.to_lowercase()) {
             match rule.action {
                 RuleAction::Block => result.blocked = true,
                 RuleAction::Warn => result.warnings.push(format!(
@@ -1163,5 +1196,34 @@ mod graph_tests {
         assert!(!result.blocked);
         assert_eq!(result.confirmations[0].1.decision, "ReviewFailed");
         assert!(result.confirmations[0].1.reasoning.contains("pipeline unreachable"));
+    }
+}
+
+#[cfg(test)]
+mod word_boundary_tests {
+    use super::contains_word;
+
+    #[test]
+    fn rejects_substring_embeddings() {
+        // The demonstrated live false positives:
+        assert!(!contains_word("please do not disabuse this feature", "abuse"));
+        assert!(!contains_word("no childish behavior", "child"));
+    }
+
+    #[test]
+    fn accepts_real_words_and_edges() {
+        assert!(contains_word("content about abuse victims", "abuse"));
+        assert!(contains_word("child", "child")); // both edges = string edge
+        assert!(contains_word("child-safe materials", "child")); // punctuation separates
+        // The CONTRACT is both sides pre-lowercased by the caller (the real
+        // call site lowercases rule.condition and haystack) — contains_word
+        // itself does no case-folding, by design.
+        assert!(contains_word("abuse victims deserve care", "abuse"));
+        assert!(!contains_word("ABUSE of notation", "abuse")); // caller folds first
+    }
+
+    #[test]
+    fn empty_needle_never_matches() {
+        assert!(!contains_word("anything", ""));
     }
 }

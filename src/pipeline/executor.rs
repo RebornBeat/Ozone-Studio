@@ -90,6 +90,7 @@ impl Drop for ProgressOnDrop {
 fn run_child_bounded(
     mut cmd: Command,
     cancel: Arc<std::sync::atomic::AtomicBool>,
+    exec_id: String,
 ) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
@@ -122,10 +123,12 @@ fn run_child_bounded(
     fn drain(
         mut pipe: impl Read + Send + 'static,
         activity: Arc<std::sync::atomic::AtomicU64>,
+        stream_lines: Option<String>, // exec_id: forward complete stderr lines to tracing as they arrive
     ) -> std::sync::mpsc::Receiver<Vec<u8>> {
         let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
             let mut buf = [0u8; 8192];
+            let mut pending = String::new();
             loop {
                 match pipe.read(&mut buf) {
                     Ok(0) => break, // EOF
@@ -137,6 +140,30 @@ fn run_child_bounded(
                                 .unwrap_or(0),
                             Ordering::SeqCst,
                         );
+                        // STDERR STREAMING (observability gap, 2026-10-09):
+                        // pipeline diagnostics — grammar-wave markers,
+                        // extraction warnings, every eprintln! — were
+                        // captured into buffers and only shown on a non-zero
+                        // exit, hiding them during normal runs. When
+                        // stream_lines is set, complete lines are forwarded
+                        // to tracing as they arrive, prefixed with the
+                        // execution id so concurrent children stay
+                        // attributable. stdout is never streamed (it carries
+                        // the result JSON, parsed after exit).
+                        if let Some(exec_id) = &stream_lines {
+                            pending.push_str(&String::from_utf8_lossy(&buf[..n]));
+                            while let Some(pos) = pending.find('\n') {
+                                let line: String = pending.drain(..=pos).collect();
+                                let line = line.trim_end();
+                                if !line.trim().is_empty() {
+                                    tracing::info!(
+                                        execution_id = %exec_id,
+                                        "[pipeline] {}",
+                                        line
+                                    );
+                                }
+                            }
+                        }
                         if tx.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
@@ -144,13 +171,34 @@ fn run_child_bounded(
                     Err(_) => break,
                 }
             }
+            // Flush a trailing partial line (no newline before EOF).
+            if let Some(exec_id) = &stream_lines {
+                if !pending.trim().is_empty() {
+                    tracing::info!(
+                        execution_id = %exec_id,
+                        "[pipeline] {}",
+                        pending.trim_end()
+                    );
+                }
+            }
         });
         rx
     }
 
+    // STDERR STREAMING (observability gap, found 2026-10-09: pipeline
+    // diagnostics — grammar-wave markers, extraction warnings, everything a
+    // pipeline eprintln!s — were captured into buffers and only shown on a
+    // non-zero exit, so normal runs hid every diagnostic). stderr chunks are
+    // forwarded to tracing at info level as they arrive, prefixed with the
+    // execution id so concurrent children stay attributable. stdout is NOT
+    // streamed: it carries the result JSON and is parsed after exit.
     let spawn_time = std::time::Instant::now();
-    let out_rx = drain(child.stdout.take().unwrap(), activity.clone());
-    let err_rx = drain(child.stderr.take().unwrap(), activity.clone());
+    let out_rx = drain(child.stdout.take().unwrap(), activity.clone(), None);
+    let err_rx = drain(
+        child.stderr.take().unwrap(),
+        activity.clone(),
+        Some(exec_id.to_string()),
+    );
 
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -262,6 +310,23 @@ pub struct PipelineExecutor {
 }
 
 impl PipelineExecutor {
+    /// A3 (efficiency sweep, 2026-10-09): the admission gate's real queue
+    /// depth per tier, so a caller can check "is anything already queued"
+    /// BEFORE deciding whether to fire extra parallel work (e.g. the
+    /// User-tier parallel-candidate dispatch in the orchestrator, which
+    /// should not compete with already-queued work) — without going
+    /// through a full `admit()` call. Cheap: `GateSnapshot` is already
+    /// computed from a single mutex lock, no new state added.
+    /// NOTE: this struct is NOT reachable through the orchestrator's
+    /// `PipelineExecutor` TRAIT (a different type, defined in
+    /// `src/orchestrator/mod.rs`) — only through this concrete struct
+    /// directly. See that trait's definition and `RegistryExecutorAdapter`
+    /// (`src/orchestrator/adapters.rs`) for the remaining wiring this
+    /// doesn't reach on its own (named in full in today's CHECKLIST entry).
+    pub fn gate_snapshot(&self) -> crate::pipeline::gate::GateSnapshot {
+        self.gate.snapshot()
+    }
+
     /// Create new executor
     pub fn new(config: &PipelineConfig) -> OzoneResult<Self> {
         Ok(Self {
@@ -731,7 +796,7 @@ impl PipelineExecutor {
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let output = tokio::task::spawn_blocking(move || {
-            run_child_bounded(cmd, cancel)
+            run_child_bounded(cmd, cancel, execution_id.to_string())
         })
         .await
         .map_err(|e| {

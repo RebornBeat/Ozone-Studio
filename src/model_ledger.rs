@@ -231,7 +231,81 @@ fn from_line(line: &LedgerLine) -> Result<Outcome, String> {
 
 /// Load the persisted ledger. A missing file is an empty ledger. Unreadable
 /// rows are skipped and reported in one warning with the first bad line.
+/// B7 (efficiency sweep): reclassify HISTORICAL rows whose cause was stored
+/// as "unknown" before `http_status_of` learned to decode JSON-wrapped
+/// provider errors. 54 of 55 such rows were real HTTP responses (22×403,
+/// 19×502, 11×400, 2×429) hidden by the wrapper — this pass decodes the
+/// status from the row's own `message` text and sets the honest cause.
+/// Idempotent: a decoded row no longer says "unknown", so a second pass is
+/// a no-op rewrite-skipping. Returns how many rows were reclassified.
+/// Failure to parse a line leaves it untouched; the rewrite is atomic
+/// (temp + rename) so a crash mid-pass cannot corrupt the ledger.
+fn reclassify_historical_http_errors() -> usize {
+    let path = ledger_path();
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return 0;
+    };
+    let decode_status = |message: &str| -> Option<u16> {
+        let idx = message.find("HTTP ")?;
+        let digits: String = message[idx + 5..]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        digits.parse().ok()
+    };
+    let cause_for = |status: u16| -> Option<&'static str> {
+        match status {
+            429 | 402 | 500..=599 => Some("provider"),
+            401 | 403 => Some("ozone-studio"),
+            400 => Some("provider"), // "Provider returned error" bodies — the
+            // provider endpoint rejected the request; the row keeps its full
+            // message verbatim, so the nuance stays inspectable.
+            _ => None,
+        }
+    };
+    let mut changed = 0usize;
+    let mut out = String::with_capacity(text.len());
+    for line in text.lines().filter(|l| !l.trim().is_empty()) {
+        let Ok(mut row) = serde_json::from_str::<serde_json::Value>(line) else {
+            out.push_str(line);
+            out.push('\n');
+            continue;
+        };
+        let is_unknown = row.get("cause").and_then(|c| c.as_str()) == Some("unknown");
+        let message = row
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+        if is_unknown {
+            if let Some(status) = decode_status(&message) {
+                if let Some(cause) = cause_for(status) {
+                    row["cause"] = serde_json::Value::String(cause.to_string());
+                    changed += 1;
+                }
+            }
+        }
+        out.push_str(&row.to_string());
+        out.push('\n');
+    }
+    if changed == 0 {
+        return 0;
+    }
+    let tmp = path.with_extension("jsonl.reclassify-tmp");
+    if std::fs::write(&tmp, out).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+    tracing::info!(
+        reclassified = changed,
+        "model ledger: historical unknown rows decoded to their real HTTP causes"
+    );
+    changed
+}
+
 fn load_file() -> Table {
+    // B7 pass runs before the parse so historical rows count under their
+    // real causes from the first read of this process. Idempotent.
+    let _ = reclassify_historical_http_errors();
     let mut table = Table::default();
     let path = ledger_path();
     let text = match std::fs::read_to_string(&path) {
@@ -680,4 +754,91 @@ pub async fn probe_free_models(api_key: String) {
         failed,
         "free-model probe finished; results are in model_calls/model_ledger.jsonl"
     );
+}
+
+// B10 (efficiency-sweep finding): cause_of_with_cap's keyword chain was
+// cited all session ("provider almost never the cause") with zero tests
+// locking its behavior. These pin the classification CONTRACT as understood
+// 2026-10-08 — if a future edit changes any of these, that is a deliberate
+// contract change, not an accident.
+#[cfg(test)]
+mod cause_classifier_tests {
+    use super::*;
+
+    #[test]
+    fn success_never_has_a_cause() {
+        assert_eq!(cause_of(&Outcome::Success, "any-model"), None);
+    }
+
+    #[test]
+    fn http_statuses_split_by_class() {
+        let e = |s: u16| Outcome::HttpError { status: s };
+        assert!(matches!(cause_of(&e(429), "m"), Some(Cause::Provider)));
+        assert!(matches!(cause_of(&e(500), "m"), Some(Cause::Provider)));
+        assert!(matches!(cause_of(&e(502), "m"), Some(Cause::Provider)));
+        // 401/403 = OUR account/config problem, not the provider's.
+        assert!(matches!(cause_of(&e(403), "m"), Some(Cause::OzoneStudio)));
+        assert!(matches!(cause_of(&e(401), "m"), Some(Cause::OzoneStudio)));
+        assert!(matches!(cause_of(&e(400), "m"), Some(Cause::Unknown)));
+    }
+
+    #[test]
+    fn timeouts_split_local_vs_remote() {
+        assert!(matches!(
+            cause_of(&Outcome::Timeout, "bitnet-i2_s"),
+            Some(Cause::LocalRuntime)
+        ));
+        assert!(matches!(
+            cause_of(&Outcome::Timeout, "openrouter/free"),
+            Some(Cause::Provider)
+        ));
+    }
+
+    #[test]
+    fn confetti_is_model_side_and_watchdog_is_ours() {
+        assert!(matches!(
+            cause_of(
+                &Outcome::OtherError("confetti: several candidates".into()),
+                "m"
+            ),
+            Some(Cause::Model)
+        ));
+        assert!(matches!(
+            cause_of(
+                &Outcome::OtherError("watchdog timeout after 300s".into()),
+                "m"
+            ),
+            Some(Cause::OzoneStudio)
+        ));
+    }
+
+    #[test]
+    fn reasoning_cap_exhaustion_is_ours_and_plain_empties_are_not() {
+        let outcome = |finish: Option<&str>, reasoning: bool, ct: Option<u64>| {
+            Outcome::EmptyResponse {
+                finish_reason: finish.map(String::from),
+                content_null: false,
+                has_reasoning: reasoning,
+                completion_tokens: ct,
+                reasoning_tokens: None,
+            }
+        };
+        // Thinking spent OUR cap: ozone-studio, one file over from the fix.
+        assert!(matches!(
+            cause_of_with_cap(
+                &outcome(Some("length"), true, Some(800)),
+                "m",
+                Some(500)
+            ),
+            Some(Cause::OzoneStudio)
+        ));
+        // Plain stop-with-no-content with no diagnosis fields: honestly
+        // UNKNOWN (this exact class was the sweep's own finding — the 18
+        // unknown empties — and improving the label requires the diagnosis
+        // fields to arrive from the pipeline, which is future work).
+        assert!(matches!(
+            cause_of_with_cap(&outcome(Some("stop"), false, None), "m", None),
+            Some(Cause::Unknown)
+        ));
+    }
 }

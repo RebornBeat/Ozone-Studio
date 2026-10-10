@@ -1714,6 +1714,13 @@ async fn update_graph(graph_id: u64, updates: ImageGraphUpdate) -> Result<ImageG
     graph.metadata.edge_count = graph.edges.len();
     graph.updated_at = now;
 
+    // PERSIST (fixed 2026-10-09, GRAPH_RELATIONSHIP_REGISTRY §3b
+    // priority-0): update_graph applied every node/edge change in memory
+    // and then returned a fabricated success — the update was never written
+    // to disk, so the next get_graph for this id silently lost it.
+    // CreateGraph two arms up already calls persist_image_graph; UpdateGraph
+    // now does the same.
+    persist_image_graph(&mut graph).await?;
     Ok(graph)
 }
 

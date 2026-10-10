@@ -86,10 +86,24 @@ async fn review_methodology_gaps_once(
 
     let mut any_change = false;
 
+    // PER-PASS BOUND (parity with amt_loop's MAX_CANDIDATES_PER_PASS = 12;
+    // efficiency sweep Tier 2 #6): a burst of many fresh gaps used to run
+    // arbitrarily long in ONE pass, pushing every subsequent pass's start
+    // later. Bounded waves, oldest first (store order); leftovers are named
+    // loudly and run on the next tick — never silently dropped.
+    const MAX_GAPS_PER_PASS: usize = 12;
+    let mut attempted_this_pass = 0usize;
+    let mut left_for_next_pass = 0usize;
+
     for gap in gaps.iter_mut() {
         if gap.get("handled").and_then(|h| h.as_bool()).unwrap_or(false) {
             continue;
         }
+        if attempted_this_pass >= MAX_GAPS_PER_PASS {
+            left_for_next_pass += 1;
+            continue;
+        }
+        attempted_this_pass += 1;
 
         let keywords: Vec<String> = gap
             .get("keywords")
@@ -389,6 +403,15 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
                 tracing::warn!(error = %e, ?keywords, "Methodology meta-loop: create call failed, will retry next cycle");
             }
         }
+    }
+
+    if left_for_next_pass > 0 {
+        tracing::info!(
+            attempted = attempted_this_pass,
+            left_for_next_pass,
+            bound = MAX_GAPS_PER_PASS,
+            "meta_loop pass hit its per-pass gap bound — the rest run on the next tick (batch coverage, nothing dropped)"
+        );
     }
 
     if any_change {

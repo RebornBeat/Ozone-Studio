@@ -5664,44 +5664,26 @@ Return ONLY valid JSON:
     /// Returns the updated chunks and the tokens consumed by this phase.
     /// (The legacy per-chunk extractor remains available as a selectable
     /// option: extract_grammar_relationships_from_text / GrammarExtractionMode::PerSentence.)
-    async fn extract_grammar_from_graphs(
-        &self,
-        mut chunks: Vec<ProcessedChunk>,
-    ) -> (Vec<ProcessedChunk>, u64) {
-        let (t0, _) = self.llm_metrics_snapshot();
 
-        // ── 1. Globally unique sentence ids ──
-        // STABLE across retries of the same chunks: derived from
-        // (chunk_id, chunk_offset), both already set at sentence creation
-        // and unchanged by a retry of the same request. A fresh
-        // Self::generate_id() here (time-based nanos) gave every retry a
-        // new id, so a killed-and-retried invocation wrote duplicate
-        // sentence containers instead of ever recognizing prior work.
-        // chunk_offset is masked to 32 bits (always true for any real
-        // document) so the two fields pack into one u64 with no collision
-        // across chunks or within one.
-        for chunk in chunks.iter_mut() {
-            for sent in chunk.sentence_nodes.iter_mut() {
-                sent.node_id = ((sent.chunk_id as u64) << 32) | (sent.chunk_offset as u64 & 0xFFFF_FFFF);
-            }
-        }
-        let all_sentences: Vec<(u64, String)> = chunks
-            .iter()
-            .flat_map(|c| {
-                c.sentence_nodes
-                    .iter()
-                    .map(|s| (s.node_id, s.content.clone()))
-            })
-            .collect();
-
-        // ── 2. Per-sentence grammar extraction ──
-        for chunk in chunks.iter_mut() {
-            for sent in chunk.sentence_nodes.iter_mut() {
-                if !sent.grammar_relationships.is_empty() || !sent.grammar_nodes.is_empty() {
-                    continue; // OMEX native — already extracted
-                }
-                let prompt = format!(
-                    r#"You are extracting grammatical structure from a single sentence.
+    /// ONE sentence's grammar extraction, as a spawned task (wave-parallel;
+    /// the first hardware-scaled concurrency in the codebase — CC's design,
+    /// operator sizing 1× cores). Owns an executor clone because tokio tasks
+    /// are 'static. The &self atomics (llm_calls/llm_tokens_used) cannot
+    /// cross the spawn, so this returns the counters and the PARENT applies
+    /// them; C6 capture stays inside, at the exact point llm_execute had it.
+    /// The attempt/confetti/parse logic is moved VERBATIM from the old in-
+    /// loop body (only the llm_execute call became llm_execute_task, which
+    /// replicates llm_execute's capture + A2 inner retry + token read —
+    /// keep the two in sync if either changes).
+    async fn grammar_extraction_task(
+        executor: std::sync::Arc<dyn PipelineExecutor>,
+        node_id: u64,
+        content: String,
+    ) -> (u64, Option<serde_json::Value>, u64, u32, u64) {
+        let mut calls = 0u64;
+        let mut tokens_sum = 0u64;
+    let prompt = format!(
+        r#"You are extracting grammatical structure from a single sentence.
 
 SENTENCE: "{}"
 
@@ -5741,50 +5723,208 @@ Return ONLY valid JSON:
   "sentence_type": "declarative|interrogative|imperative|fragment",
   "edge_type": "Performs|Affects|Implies|Contradicts|Elaborates|Summarizes|Supports|TemporalPrecedes|TemporalFollows|CausedBy|Enables|Prevents|PartOf|HasPart|FunctionalRole|InstanceOf|HasInstance|SimilarTo|DerivedFrom|VersionOf"
 }}"#,
-                    sent.content
+        &content
+    );
+
+    let input = serde_json::json!({
+        "prompt": prompt,
+        "max_tokens": 800,
+        "temperature": 0.05,
+        "system_prompt": "Grammar extraction. Return only valid JSON. No explanation."
+    });
+
+    // Retry on confetti (>1 candidate object) or a parse failure
+    // before giving up on this sentence's grammar extraction.
+    const MAX_GRAMMAR_ATTEMPTS: u32 = 2;
+    let mut grammar_attempt = 0;
+    let parsed_opt: Option<serde_json::Value> = loop {
+        grammar_attempt += 1;
+        let (result, task_calls, task_tokens) =
+            Self::llm_execute_task(executor.clone(), 9, input.clone()).await;
+        calls += task_calls;
+        tokens_sum += task_tokens;
+        let raw = match &result {
+            Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+            Err(_) => break None,
+        };
+        let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
+        if candidates.len() > 1 {
+            if grammar_attempt < MAX_GRAMMAR_ATTEMPTS {
+                eprintln!(
+                    "extract_grammar_from_graphs (sentence grammar): {} conflicting JSON candidates (confetti), retrying (attempt {})",
+                    candidates.len(),
+                    grammar_attempt
                 );
+                continue;
+            }
+            eprintln!("extract_grammar_from_graphs (sentence grammar): still confetti after {} attempts, dropping this sentence's grammar", grammar_attempt);
+            break None;
+        }
+        let json_str = candidates
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
+        match serde_json::from_str::<serde_json::Value>(&json_str) {
+            Ok(p) => break Some(p),
+            Err(_) if grammar_attempt < MAX_GRAMMAR_ATTEMPTS => continue,
+            Err(_) => break None,
+        }
+    };
 
-                let input = serde_json::json!({
-                    "prompt": prompt,
-                    "max_tokens": 800,
-                    "temperature": 0.05,
-                    "system_prompt": "Grammar extraction. Return only valid JSON. No explanation."
-                });
+        (node_id, parsed_opt, calls, grammar_attempt, tokens_sum)
+    }
 
-                // Retry on confetti (>1 candidate object) or a parse failure
-                // before giving up on this sentence's grammar extraction.
-                const MAX_GRAMMAR_ATTEMPTS: u32 = 2;
-                let mut grammar_attempt = 0;
-                let parsed_opt: Option<serde_json::Value> = loop {
-                    grammar_attempt += 1;
-                    let result = self.llm_execute(9, input.clone()).await;
-                    let raw = match &result {
-                        Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
-                        Err(_) => break None,
-                    };
-                    let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
-                    if candidates.len() > 1 {
-                        if grammar_attempt < MAX_GRAMMAR_ATTEMPTS {
-                            eprintln!(
-                                "extract_grammar_from_graphs (sentence grammar): {} conflicting JSON candidates (confetti), retrying (attempt {})",
-                                candidates.len(),
-                                grammar_attempt
-                            );
-                            continue;
-                        }
-                        eprintln!("extract_grammar_from_graphs (sentence grammar): still confetti after {} attempts, dropping this sentence's grammar", grammar_attempt);
-                        break None;
+    /// Task-safe replica of TextModalityPipeline::llm_execute (capture + A2
+    /// inner retry + token read). Returns (result, calls_made, tokens).
+    /// KEEP IN SYNC with llm_execute — if one changes behavior, change both.
+    async fn llm_execute_task(
+        executor: std::sync::Arc<dyn PipelineExecutor>,
+        pipeline_id: u64,
+        input: serde_json::Value,
+    ) -> (Result<serde_json::Value, String>, u64, u64) {
+        let mut calls = 1u64;
+        let prompt_preview = input
+            .get("prompt")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let mut result = executor.execute(pipeline_id, input.clone()).await;
+        capture::capture_zero_shot_call("text", "llm_execute", &prompt_preview, &result);
+        let is_retry_worthy = match &result {
+            Err(_) => true,
+            Ok(v) => v
+                .get("response")
+                .and_then(|r| r.as_str())
+                .map(|s| s.trim().is_empty())
+                .unwrap_or(true),
+        };
+        if is_retry_worthy {
+            eprintln!("llm_execute_task: pipeline {pipeline_id} attempt unusable, retrying once (same call)");
+            calls += 1;
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            result = executor.execute(pipeline_id, input).await;
+            capture::capture_zero_shot_call("text", "llm_execute", &prompt_preview, &result);
+        }
+        let tokens = match &result {
+            Ok(v) => v.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0),
+            Err(_) => 0,
+        };
+        (result, calls, tokens)
+    }
+
+    async fn extract_grammar_from_graphs(
+        &self,
+        mut chunks: Vec<ProcessedChunk>,
+    ) -> (Vec<ProcessedChunk>, u64) {
+        let (t0, _) = self.llm_metrics_snapshot();
+
+        // ── 1. Globally unique sentence ids ──
+        // STABLE across retries of the same chunks: derived from
+        // (chunk_id, chunk_offset), both already set at sentence creation
+        // and unchanged by a retry of the same request. A fresh
+        // Self::generate_id() here (time-based nanos) gave every retry a
+        // new id, so a killed-and-retried invocation wrote duplicate
+        // sentence containers instead of ever recognizing prior work.
+        // chunk_offset is masked to 32 bits (always true for any real
+        // document) so the two fields pack into one u64 with no collision
+        // across chunks or within one.
+        // ── 2. Per-sentence grammar extraction — WAVE-PARALLEL (the first
+        // hardware-scaled concurrency in the codebase; CC's design, operator
+        // sizing 1× cores — conservative first, raise with ledger evidence).
+        // The per-sentence grammar pass has zero cross-sentence dependency
+        // (verified against the real driver code), so sentences are
+        // dispatched in bounded waves of `width` concurrent calls; a wave's
+        // results are applied before the next wave starts, and the
+        // write-back loop below is UNCHANGED (it reads precomputed results
+        // instead of calling llm_execute inline).
+        // CRITICAL ORDERING (fixed 2026-10-08, found live: production was
+        // deployed with this bug): sentences are created with a fresh,
+        // unstable `Self::generate_id()` (time-based). The stabilization
+        // below MUST run before `work`/`grammar_results` are keyed by
+        // `node_id` — it used to run AFTER the wave (right before
+        // `all_sentences`), which meant `work` captured the OLD unstable
+        // ids while the write-back loop looked up the NEW stable ids,
+        // so `grammar_results.remove(&sent.node_id)` always missed and
+        // every wave result was silently discarded: real LLM calls, real
+        // tokens, real time, zero effect. Moved here, before `work` is
+        // built, so both sides of the round-trip use the same stable key.
+        for chunk in chunks.iter_mut() {
+            for sent in chunk.sentence_nodes.iter_mut() {
+                sent.node_id = ((sent.chunk_id as u64) << 32) | (sent.chunk_offset as u64 & 0xFFFF_FFFF);
+            }
+        }
+        let width = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .max(1);
+        let work: Vec<(u64, String)> = chunks
+            .iter()
+            .flat_map(|c| {
+                c.sentence_nodes
+                    .iter()
+                    .filter(|s| {
+                        s.grammar_relationships.is_empty() && s.grammar_nodes.is_empty()
+                    })
+                    .map(|s| (s.node_id, s.content.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        let mut grammar_results: HashMap<u64, Option<serde_json::Value>> = HashMap::new();
+        let mut extra_calls = 0u64;
+        let mut extra_tokens = 0u64;
+        if work.is_empty() {
+            eprintln!(
+                "extract_grammar_from_graphs: all sentences already extracted — nothing to do"
+            );
+        }
+        for wave_slice in work.chunks(width) {
+            eprintln!(
+                "extract_grammar_from_graphs: wave of {} sentence(s), width {width}",
+                wave_slice.len()
+            );
+            let mut handles = Vec::new();
+            for (node_id, content) in wave_slice {
+                handles.push(tokio::spawn(Self::grammar_extraction_task(
+                    self.executor.clone(),
+                    *node_id,
+                    content.clone(),
+                )));
+            }
+            for h in handles {
+                match h.await {
+                    Ok((node_id, parsed, calls, _attempts, tokens)) => {
+                        extra_calls += calls;
+                        extra_tokens += tokens;
+                        grammar_results.insert(node_id, parsed);
                     }
-                    let json_str = candidates
-                        .into_iter()
-                        .next()
-                        .unwrap_or_else(|| Self::extract_json_from_response(&raw, '{', '}'));
-                    match serde_json::from_str::<serde_json::Value>(&json_str) {
-                        Ok(p) => break Some(p),
-                        Err(_) if grammar_attempt < MAX_GRAMMAR_ATTEMPTS => continue,
-                        Err(_) => break None,
+                    Err(e) => {
+                        eprintln!("extract_grammar_from_graphs: wave task join failed: {e}")
                     }
-                };
+                }
+            }
+        }
+        self.llm_calls.fetch_add(extra_calls, Ordering::Relaxed);
+        self.llm_tokens_used
+            .fetch_add(extra_tokens, Ordering::Relaxed);
+        // (node_id stabilization now happens before `work` is built, above —
+        // no need to redo it here; ids are already stable at this point.)
+        let all_sentences: Vec<(u64, String)> = chunks
+            .iter()
+            .flat_map(|c| {
+                c.sentence_nodes
+                    .iter()
+                    .map(|s| (s.node_id, s.content.clone()))
+            })
+            .collect();
+
+        // ── 2. Per-sentence grammar extraction ──
+        for chunk in chunks.iter_mut() {
+            for sent in chunk.sentence_nodes.iter_mut() {
+                if !sent.grammar_relationships.is_empty() || !sent.grammar_nodes.is_empty() {
+                    continue; // OMEX native — already extracted
+                }
+        let parsed_opt: Option<serde_json::Value> =
+            grammar_results.remove(&sent.node_id).flatten();
                 {
                     if let Some(parsed) = parsed_opt {
                         let mut grammar_nodes = Vec::new();

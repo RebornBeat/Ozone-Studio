@@ -111,6 +111,46 @@ Only **5 are ever real**: `Document`(6414), `Section`(6438), `Entity`(6470), `To
 
 ---
 
+## 3b. Image modality (`assets/pipelines/modalities/image/main.rs`) — new section, 2026-10-08
+
+Not previously catalogued in this registry — added after a same-day efficiency
+review surfaced a real gap in exactly this doc's own scope ("real vs
+schema-only, exactly where constructed or isn't").
+
+**`UpdateGraph` dispatch (line 1132) → `update_graph` (line 1679) — fabricated
+success, confirmed live.** The function's own comment (line 1680) states
+"In production, this would load from ZSEI, apply updates, and save." It
+loads (`get_graph`), applies every update (nodes/edges add/update/remove,
+lines 1685-1715) correctly in memory, then returns `Ok(graph)` — **with no
+`fs::write`/persist call anywhere in the function body** (confirmed: grepped
+the full function, zero matches). Compare `CreateGraph`'s handler two lines
+above the `UpdateGraph` arm (line 1126): it correctly calls
+`persist_image_graph(&mut graph).await`. `UpdateGraph` never does. Net
+effect: a caller receives what looks like a successfully updated graph —
+the function didn't error, the returned struct has the right shape — but
+the update was never written to disk. The next `get_graph` for that id
+will not reflect it. This is the same *class* of finding this registry
+exists to catch (a mutation that looks real but isn't), via a different
+mechanism than a schema-only enum variant: an unfinished stub whose own
+comment already admits it, left live in a real dispatch path.
+
+**Fix shape (not applied — this was a read-only review pass)**: add the
+same `persist_image_graph` call `CreateGraph` already uses, after the
+in-memory mutations and before the `Ok(graph)` return.
+
+**Separately, performance-only (tracked in `docs/EFFICIENCY_GUIDE.md`, not
+repeated in full here since it's a speed concern, not a reality-vs-schema
+one)**: image's `update_graph` applies each node/edge update via an O(n)
+linear scan (`graph.nodes.iter_mut().find(...)`, line 1690-1697) — same
+shape as math's `update_graph` (line 3001), which additionally does a full
+graph read + full graph rewrite per update (confirmed: `std::fs::write`s
+the entire serialized graph on every call, not an append or partial
+update). Math and image's `update_graph` are independently-duplicated,
+already-diverged copies of the same pattern (math persists with a full-
+rewrite cost; image never persists at all) — a second real cross-pipeline
+duplication-with-drift-risk pair, distinct from the already-tracked
+`link_related_containers` triplication.
+
 ## 4. Cross-cutting: `RelationType` (`src/types/container.rs:267-311`)
 
 The canonical, host-side relation-type schema. **Important**: the 3 modality pipelines (and file-link pipelines) are separate compiled binaries that talk to the host over HTTP/JSON — they never share this Rust type at compile time. Every real producer writes `relation_type` as a JSON string literal matching a variant name, by convention, not by importing `RelationType::X`. `grep "RelationType::SimilarTo"` therefore finds **zero** hits despite `SimilarTo` being the single most common real edge in the live system.
@@ -194,6 +234,10 @@ Answers "how does context actually connect to the graph" — some sources are gr
 
 Ordered by how close each is to real (mechanical wiring of already-real data first, new builds last):
 
+0. **Image**: `update_graph` (§3b) never persists — a one-line add of the
+   `persist_image_graph` call `CreateGraph` already uses. Confirmed live,
+   confirmed simple — ranked first because it's the cheapest real fix on
+   this list, not because it's the most consequential architecturally.
 1. **Math**: make `Assumption`/introduced-`Variable`/discharged-`Assumption` edges real — graph-construction code already works, purely gated on `analyze_proof` never populating source data. (§2)
 2. **Code**: `Method` nodes — mechanical extension of the exact pattern already used for `Function`. (§1)
 3. **Cross-cutting**: dedicated `RelationType::JurisdictionScope` — a rename/retype at existing real call sites, not new discovery logic. (§4)

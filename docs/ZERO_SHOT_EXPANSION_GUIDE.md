@@ -130,6 +130,28 @@ problem is actually understood.
 
 ### E6: Cross-file call resolution (code modality)
 
+> **CORRECTION FLAGGED (2026-10-08), per the Review-before-judge rule**: a
+> review-first pass checking `docs/STATIC_LOGIC_REGISTRY.md`'s dead-trio
+> finding surfaced that pipeline 18 (`assets/pipelines/general/code_
+> analysis/main.rs`) already has a real, working tree-sitter AST call
+> resolver — registered but orphaned (zero dispatch sites, confirmed by
+> grep). AST-based import/call resolution can often resolve cross-file
+> symbol references **deterministically**, without any model judgment at
+> all. That means this E6 entry, as originally scoped below, may be
+> proposing a new zero-shot call to solve a problem a dormant piece of
+> mechanical analysis already solves better — exactly the pattern the
+> Review-before-judge rule exists to catch, just one level removed (here
+> it's "is there already dead CODE that solves this mechanically," not "is
+> there a wrong field name"). **Not resolved — this needs a real decision,
+> not a unilateral pick**: either revive pipeline 18 and route cross-file
+> (and possibly same-file too, since real AST parsing beats regex there
+> as well) call resolution through it, making E6 unnecessary as written;
+> or keep E6's zero-shot approach for genuinely ambiguous cases AST parsing
+> can't resolve (e.g. dynamic dispatch, reflection-like patterns) and use
+> pipeline 18 only for the deterministic cases — a hybrid, not an either/or.
+> Flagged for the operator; E6's original scoping below is kept as the
+> historical starting point, not as the active plan.
+
 Surfaced by the graph/relationship audit's code-modality fork, right after it fixed the dead `Calls`-edge wiring.
 
 | | |

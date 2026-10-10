@@ -43,6 +43,7 @@ mod stages;
 mod graphs;
 pub mod meta_loop;
 pub mod amt_loop;
+pub mod dispatch;
 pub mod lane_split;
 pub mod actors;
 pub mod i_loop;
@@ -1129,6 +1130,9 @@ pub(crate) struct OrchestrationState {
 
     // PHASE 1: FILE GRAPHS (produced before modality graphs, before classification)
     pub file_graphs: HashMap<String, u64>, // file_path → graph_id
+    /// Memoized per-request file_relationship_summary (Tier 2 #9: three call
+    /// sites read unchanged graph data within one request — compute once).
+    pub file_relationship_summary_cache: Option<String>,
 
     /// REGISTERED CAPABILITY SUMMARY (§11.2, operator-corrected wiring:
     /// blueprints identify tool/MCP needs — the orchestration surfaces the
@@ -1553,11 +1557,20 @@ fn record_vote_attempt(
     log_attributed_failure(cause, model, kind, latency_ms, "strength_n_vote");
 }
 
-/// The HTTP status from a provider error string that begins `HTTP <code>:`.
-/// Anything else (transport errors, timeouts) returns `None`.
+/// The HTTP status from a provider error string containing `HTTP <code>:`
+/// anywhere in it. Anything else (transport errors, timeouts) returns
+/// `None`. Was a strict prefix check (`strip_prefix("HTTP ")`) — found
+/// 2026-10-08, real data: 54 of 55 real `cause=unknown` ledger rows were
+/// genuine HTTP errors (22x403, 19x502, 11x400, 2x429) wrapped as
+/// `{"error":"HTTP <code>: ...","success":false}` by an upstream JSON
+/// serialization, so the literal prefix never matched and every one of
+/// them silently fell through to Unknown instead of Provider/OzoneStudio.
+/// Searching for the substring anywhere is strictly more permissive and
+/// backward compatible — a bare `"HTTP 429: ..."` string (idx 0) parses
+/// identically to before.
 fn http_status_of(error: &str) -> Option<u16> {
-    let digits: String = error
-        .strip_prefix("HTTP ")?
+    let idx = error.find("HTTP ")?;
+    let digits: String = error[idx + 5..]
         .chars()
         .take_while(|c| c.is_ascii_digit())
         .collect();
@@ -1796,6 +1809,7 @@ impl PromptOrchestrator {
             stages: Vec::new(),
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
+            file_relationship_summary_cache: None,
             simulation_result: None,
             model_context_limit,
             tokens_used_so_far: prompt_tokens,

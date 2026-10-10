@@ -299,7 +299,18 @@ impl PromptOrchestrator {
     }
 
     pub(crate) async fn file_relationship_summary(&self, state: &mut OrchestrationState) -> String {
+        // MEMOIZED per request (efficiency sweep Tier 2 #9): the summary is
+        // derived from state.file_graphs + the graph containers, which don't
+        // change between the 3 call sites within one request — but each call
+        // paid a real store round-trip per attached file. First call
+        // computes; the rest read the cache. file_graphs changing mid-request
+        // would be a NEW graph creation, which always re-enters through a
+        // stage that recomputes anyway on its own next call — acceptable.
+        if let Some(cached) = &state.file_relationship_summary_cache {
+            return cached.clone();
+        }
         if state.file_graphs.is_empty() {
+            state.file_relationship_summary_cache = Some(String::new());
             return String::new();
         }
         let mut lines = Vec::new();

@@ -85,15 +85,21 @@ async fn run_one_reflection(
         .rev()
         .take(5)
         .collect();
-    let recent_summary = if recent.is_empty() {
-        "No unhandled findings or re-expansion candidates right now.".to_string()
-    } else {
-        recent
-            .iter()
-            .filter_map(|c| c.get("source").and_then(|s| s.as_str()))
-            .collect::<Vec<_>>()
-            .join("\n- ")
-    };
+    // IDLE SKIP (efficiency sweep Tier 2 #4 — assistant.rs is the native
+    // good-pattern example): with zero unhandled candidates there is nothing
+    // to reflect ON, so a full-price LLM call for a reflection on the
+    // literal string "nothing right now" is guaranteed waste. Skip the call
+    // entirely; the persistence path below also skips (nothing was
+    // reflected, nothing is persisted) — the next tick tries again.
+    if recent.is_empty() {
+        tracing::info!("I-Loop: no unhandled candidates this tick — reflection skipped (idle, zero cost)");
+        return Ok(());
+    }
+    let recent_summary = recent
+        .iter()
+        .filter_map(|c| c.get("source").and_then(|s| s.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n- ");
 
     let prompt = format!(
         r#"This is a periodic self-reflection cycle, not a response to a user request.

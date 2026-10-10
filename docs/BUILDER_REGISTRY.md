@@ -99,12 +99,175 @@ this is the one real requests hit today, not §2's graph-native path.
 | Detail extraction | `amt.rs:1588` | #5 | 700 / 0.3 | Extract concrete details per branch |
 | Cross-ref | `amt.rs:1867` | #6 | 150 / 0.2 | "Are these two branches related to each other?" — pairwise judgment |
 
+> **Cross-ref PARALLELIZED (ZCode, 2026-10-09)** — the `EFFICIENCY_GUIDE.md`
+> §6 Tier-1 #1 win: up to `max_pairs` (real value 50) independent pairwise
+> calls, previously strictly sequential, now dispatched in bounded
+> `tokio::task::JoinSet` waves (`amt.rs:1922-2030`) at 1× cores. Results are
+> keyed by the real pair identity `(i, j)` in a `HashMap`, not by position
+> — a genuinely robust choice: a `HashMap` lookup by the semantic key can
+> never suffer the completion-order-vs-spawn-order mismatch the two Tier-0
+> bugs had, and a panicked pair's key simply never gets inserted, so the
+> lookup at application time correctly falls through to a named
+> `"pair result missing (wave join failed)"` error — not a silent drop, not
+> a misattribution. **Independently verified correct on that specific
+> question** by CC, 2026-10-09.
+>
+> **A real finding found while verifying it, not a correctness bug — a
+> resilience/observability regression, exactly the "efficiency vs.
+> degradation" trade-off this project's doctrine warns about.** The
+> original sequential loop routed each pair's call through
+> `self.metered_execute_resilient(state, input, call_site)`
+> (`src/orchestrator/mod.rs:3087+`), which provides, per call: a bounded
+> same-model retry on an empty/unusable response; a genuine **fallback
+> chain** to a different model if the primary is still unusable after that
+> retry (`try_fallback_chain`, `mod.rs:3296`); and a `capture_zero_shot_
+> call` entry to `zero_shot_calls.jsonl` (the S11 store) recording the
+> outcome, retry count, and whether fallback was used — PLUS a real
+> `model_ledger::record`/`record_with_cap` entry with cause attribution.
+> The new spawned task (`amt.rs:2001-2018`) only calls bare
+> `executor.execute(9, input)` wrapped in the same per-attempt watchdog
+> timeout `metered_execute` itself uses — **no retry, no fallback chain, no
+> ledger entry, no S11 capture**. `metered_execute_resilient` needs `&mut
+> OrchestrationState` (confirmed: specifically for `state.tokens_used_so_
+> far` accounting inside `metered_execute`'s retry loop, not for the
+> ledger/capture calls themselves, which take owned values or `&
+> OrchestrationState` — a narrower blocker than "the whole wrapper needs
+> `&mut state`"), which is why it can't run inside a concurrent spawn
+> as-is — a real, correctly-identified blocker, just one that was worked
+> around by dropping the guarantees rather than narrowing them. Net effect
+> going forward: a cross-reference pair that would previously have had two
+> real chances (same-model retry + a different-model fallback) to produce
+> a usable relatedness judgment now gets exactly one attempt, and neither
+> successes nor failures at this call site are visible to the model ledger
+> or the S11 capture store anymore — this call site effectively disappears
+> from this session's own "providers almost never the cause" style
+> analysis and from the catalog's historical-success ranking input, purely
+> because of how it's now invoked, not because it stopped mattering.
+> **Not fixed — flagged for a decision**, same discipline as every other
+> judgment-requiring item this session. **Fix shape, CORRECTED 2026-10-09
+> (a parallel spec pass on intent extraction found something better than
+> the original recommendation below)**: don't build a new `&mut`-free
+> helper — `Self::walk_fallback_chain_standalone` (`mod.rs:4029`) already
+> exists, confirmed genuinely `&mut`-free (no `self`, no `state` anywhere
+> in its signature), and already provides same-model-retry + a real
+> fallback-chain walk + real `model_ledger::record_with_text` coverage (it
+> calls `run_one_candidate` internally, confirmed by reading — the same
+> function the AMT lanes fix already uses). It's already proven safe under
+> concurrent dispatch by that same lanes fix. The one honest gap: it does
+> NOT call `capture_zero_shot_call` (S11 capture is specific to `metered_
+> execute_resilient`'s own wrapper) — so this fix restores retry/fallback/
+> ledger but not S11 visibility specifically; worth deciding if that's an
+> acceptable residual gap or needs its own small addition. Simplest real
+> fix: swap the cross-reference wave's bare `executor.execute(9, input)`
+> call for `Self::walk_fallback_chain_standalone(...)`, reusing the exact
+> pattern the lanes fix already uses — not new code, a known-good call
+> already one function away. (Original recommendation — inline a new
+> `&mut`-free resilient-call helper — kept below, struck through in spirit,
+> superseded by the simpler reuse: ~~defer `state.tokens_used_so_far`
+> accounting to the existing serial-application loop... and inline a
+> `&mut`-free version of the retry + `try_fallback_chain` + `capture_
+> zero_shot_call`/`model_ledger::record` sequence inside each spawned
+> task~~.)
+
 **Context it receives**: same `jurisdiction_summary`/`file_relationship_
 summary` pair as §2, computed once at `amt.rs:1152-1153`, but — confirmed by
 direct read, not assumed from symmetry with §2 — **only reaches the branch-
 generation sub-stage** (`amt.rs:1379-1380`). Intent extraction, detail
 extraction, and cross-ref do not receive it. Same rationale as §2: only the
 "what work should exist" decision point was in scope for tonight's fix.
+
+> **FIXED AND INDEPENDENTLY VERIFIED, 2026-10-09** (ZCode built the fix,
+> CC verified it directly against source before trusting it — see below).
+> Kept in full as the historical record per this doc's additive convention.
+
+> **CRITICAL, FOUND 2026-10-08**: `methodology_branch_discovery_parallel`
+> (`amt.rs:2514`, called from both `build_amt_from_graphs` at `amt.rs:1126`
+> AND this builder at `amt.rs:1536` — live on both AMT-building routes, not
+> one) dispatches each methodology batch as a parallel "lane" via
+> `tokio::task::JoinSet` (spawn loop at `amt.rs:2674`, in `lanes`' own
+> order), then collects with `while let Some(res) = set.join_next().await
+> { results.push(r) }` (`amt.rs:2703-2708`). **`JoinSet::join_next()`
+> returns results in COMPLETION order, not spawn order** — standard,
+> documented tokio behavior, confirmed by reading the actual collection
+> loop, not assumed. But `results[i]` is then treated as corresponding to
+> `lanes[i]` in THREE places: the retry-trigger zip (`amt.rs:2735-2748`),
+> the retry-replacement index (`amt.rs:2766-2777`), and — most
+> consequentially — the **final, state-mutating application**
+> (`amt.rs:2784`, `for ((ids, prompt, _, batch_members, _), result) in
+> lanes.iter().zip(results.into_iter())`). Since each lane independently
+> walks its own full fallback chain (`walk_fallback_chain_standalone`,
+> different models, different latencies, different retry depths per lane —
+> confirmed by reading the spawn body), out-of-order completion is the
+> REALISTIC COMMON CASE, not a rare edge case. Net effect: branches parsed
+> from one methodology batch's response can be silently attributed to a
+> DIFFERENT batch's `ids`/`parent_intent` context whenever lanes finish out
+> of spawn order; "UNCOVERED" warnings can blame the wrong methodologies;
+> the retry logic can retry a lane that actually succeeded while leaving a
+> genuinely-failed one unretried. This is pre-existing (not introduced by
+> today's text-pipeline wave refactor) — the exact same ordering-bug CLASS,
+> independently discovered in a different, already-live mechanism. **Not
+> fixed this pass** (read-only review) — fix shape: carry each lane's own
+> index through the spawn (`set.spawn(async move { (lane_idx, inner.await)
+> })`), then write results into a `Vec` pre-sized to `lanes.len()` at the
+> carried index instead of pushing in completion order.
+>
+> **FIX APPLIED (ZCode, 2026-10-08) AND INDEPENDENTLY VERIFIED (CC,
+> 2026-10-09) — correct and complete.** Both the main lane `JoinSet`
+> (`amt.rs:2673-2740`) and the retry `JoinSet` (`amt.rs:2784-2827` — ZCode
+> found and fixed the IDENTICAL bug a second time here: `retried` was
+> pushed in completion order but consumed by a submission-order `ri`
+> counter) now carry each lane's own index through the spawn and write
+> into a `Vec<Option<_>>` pre-sized to `lanes.len()`, keyed by that index —
+> not pushed in completion order. **The panic case was verified
+> specifically**, since a panicked task's `JoinError` carries no index (it
+> never produced its return value, carried index included — there is no
+> way to extract "which lane" from a bare panic). The fix handles this
+> correctly by elimination, not by guessing: every slot starts `None`;
+> every successfully-completing lane fills ONLY its own slot via its
+> carried index; after the full drain, any slot still `None` is, by
+> construction, exactly the lane(s) that panicked — no other lane could
+> have left it unfilled. This is a genuinely correct solution to the
+> "a panicking task can't self-report its identity" problem, not a partial
+> fix. The downstream code (the retry-trigger zip, the final state-
+> mutating application at `amt.rs:2831`) was left completely unchanged —
+> it now simply receives a `results` Vec that is genuinely lane-ordered,
+> which was the whole point of a minimal-diff fix. Verified via
+> `cargo check --release` (clean) independently of ZCode's own 121/121 test
+> pass. **Also swept the entire codebase for any other instance of this
+> bug class**: grepped every `JoinSet`/`FuturesUnordered`/`join_all` usage
+> in `src/` and `assets/pipelines/` — exactly one other `JoinSet` exists
+> (`src/orchestrator/mod.rs:4294`, the User-tier parallel-candidate batch
+> dispatch), independently re-verified as NOT the same bug class: it's a
+> "race for the first usable result" design that never attributes a
+> result back to a predetermined index (the carried `profile.identifier`
+> is only ever used standalone — logging, and a `batched_ids` set built
+> *before* spawning, unaffected by completion order or panics), so a
+> panic there just means one fewer racer, not a misattribution. No other
+> concurrent-collection primitive exists anywhere in the codebase — this
+> bug class is now fully closed, not just patched at the two sites it was
+> first found.
+>
+> **SEPARATE REAL GAP FOUND, 2026-10-09 (correctness was verified above;
+> bounding was not — a different question, checked on a second pass).**
+> Each lane calls `walk_fallback_chain_standalone`, which can walk a FULL
+> fallback chain per lane (`amt.rs:2766-2769`'s own comment: "each lane
+> walks the health-reordered fallback chain"), but the spawn body
+> (`amt.rs:2770-2786`) wraps it in **no timeout at all** — unlike the
+> sequential path (`metered_execute_resilient`, `mod.rs:3100-3119`), which
+> deliberately sizes its own outer bound proportionally to chain length
+> (`per_attempt_secs * (1 + walk_candidates + pool_extra)`) specifically
+> because a multi-candidate walk can legitimately need several attempts'
+> worth of time. A single lane whose primary fails and walks several slow
+> fallback candidates can occupy a concurrency slot for a correspondingly
+> large, unbounded-in-practice multiple of a single attempt's cost, with
+> no explicit ceiling matching the sequential path's own. Not a
+> correctness bug (the ordering/panic-safety verified above is unaffected)
+> — a missing defensive bound, same severity class as "don't let fast
+> mean unboundedly slow on one straggler." **Not fixed — flagged for a
+> decision.** Fix shape: wrap each lane's `walk_fallback_chain_standalone`
+> call in `tokio::time::timeout` sized by the same proportional formula,
+> using THIS lane's real candidate count (`models`/`order`, already in
+> scope at the spawn site) rather than a flat per-attempt value.
 
 **K-Algorithm presets used**: `convergence` (`amt.rs:1126`, `max_outer_
 passes`) — and its own comment records a real prior bug: the outer-pass cap

@@ -1350,6 +1350,7 @@ Return ONLY valid JSON with a single one-word answer:
             // an owned clone so borrows don't conflict. Chunks are not mutated
             // in this loop; iteration semantics identical.
             let chunks_snapshot = state.processed_chunks.clone();
+        let mut intent_calls: Vec<(u32, serde_json::Value)> = Vec::new();
             for chunk in &chunks_snapshot {
                 // The chunk is what the model analyzes: whole, sized against the
                 // window; any trim is recorded.
@@ -1394,112 +1395,197 @@ Return ONLY valid JSON with a single one-word answer:
                     "system_prompt": "Extract new intents not already listed. Return only valid JSON. No explanation."
                 });
 
-                let intent_input_result = self.metered_execute_resilient(state, intent_input, "amt_intent_extraction").await;
-                if let Err(e) = &intent_input_result {
-                    tracing::warn!(site = "amt_intent_extraction", error = %e, "AMT sub-call failed loudly — no silent skips");
-                    record_intent_event(
-                        state,
-                        "intent_call_failed",
-                        serde_json::json!({ "chunk": chunk.index, "error": e.to_string() }),
-                    );
+            intent_calls.push((chunk.index, intent_input));
                 }
-                if let Ok(result) = intent_input_result {
-                    self.record_thinking(state, "Build AMT — intent extraction", &result);
-                    let response = result
-                        .get("response")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
-                    let json_str = Self::extract_json_from_response(response, '{', '}');
-                    let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            // Was a silent unwrap_or_else to zero intents.
+
+        // ── WAVE DISPATCH (Tier 1 #2, efficiency sweep): the per-chunk calls
+        // are independent (known_intents_json is snapshotted once, BEFORE the
+        // loop — every chunk's prompt saw the same pre-loop list), so they
+        // dispatch in bounded waves through the resilient walk. The dedup/
+        // merge/push below runs SERIALLY in chunk order against the growing
+        // state — identical merge semantics to the sequential loop, only the
+        // network waits ran concurrently.
+        let per_attempt_secs =
+            crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let walk_models = state.request.available_models.clone();
+        let walk_order = state.request.fallback_order.clone();
+        let walk_free_only = state.request.fallback_free_only;
+        let walk_primary_default = state.request.primary_default_model.clone();
+        let walk_executor = self.executor.clone();
+        let intent_results = crate::orchestrator::dispatch::dispatch_bounded(
+            intent_calls,
+            crate::orchestrator::dispatch::default_width(),
+            move |(chunk_index, input)| {
+                // Clone per call: the closure must stay Fn (dispatch_bounded
+                // calls it once per item), and the chain inputs are cheap
+                // clones of the request-owned snapshots.
+                let walk_models = walk_models.clone();
+                let walk_order = walk_order.clone();
+                let walk_primary_default = walk_primary_default.clone();
+                let walk_executor = walk_executor.clone();
+                async move {
+                let primary_model = crate::orchestrator::primary_model_identity(
+                    &input,
+                    walk_primary_default.as_deref(),
+                );
+                let bound = if per_attempt_secs == u64::MAX {
+                    u64::MAX
+                } else {
+                    per_attempt_secs
+                        .saturating_mul(1 + walk_order.len() as u64)
+                        .saturating_add(30)
+                };
+                let walked = crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
+                    &walk_executor,
+                    9,
+                    input,
+                    "intent extraction starting".to_string(),
+                    &walk_models,
+                    &walk_order,
+                    walk_free_only,
+                    false,
+                    primary_model,
+                );
+                let r = if bound == u64::MAX {
+                    walked.await
+                } else {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(bound),
+                        walked,
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => Err(format!(
+                            "intent-extraction walk exceeded its scaled bound ({}s: {} chain entries + margin)",
+                            bound,
+                            walk_order.len() + 1
+                        )),
+                    }
+                };
+                Ok((chunk_index, r))
+                }
+            },
+        )
+        .await;
+
+        // ── APPLY IN CHUNK ORDER (identical dedup/merge semantics to the
+        // sequential loop: the growing state.intent_captures is consulted in
+        // the same order the sequential loop produced) ──
+        for intent_result in &intent_results {
+            let (chunk_index, intent_input_result) = match intent_result {
+                Ok(pair) => pair,
+                Err(e) => {
+                    tracing::warn!(error = %e, "intent wave task join failure — chunk skipped loudly");
+                    continue;
+                }
+            };
+            let intent_input_result = intent_input_result.clone();
+                        if let Err(e) = &intent_input_result {
+                            tracing::warn!(site = "amt_intent_extraction", error = %e, "AMT sub-call failed loudly — no silent skips");
                             record_intent_event(
                                 state,
-                                "intent_parse_failed",
-                                serde_json::json!({
-                                    "chunk": chunk.index,
-                                    "response_chars": response.chars().count(),
-                                    "error": e.to_string(),
-                                }),
+                                "intent_call_failed",
+                                serde_json::json!({ "chunk": *chunk_index, "error": e.to_string() }),
                             );
-                            serde_json::json!({"new_intents": []})
                         }
-                    };
-
-                    if let Some(new_intents) = parsed.get("new_intents").and_then(|n| n.as_array())
-                    {
-                        for intent_val in new_intents {
-                            let intent_str = intent_val
-                                .get("intent")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let is_parallel = intent_val
-                                .get("is_parallel")
-                                .and_then(|p| p.as_bool())
-                                .unwrap_or(false);
-                            let source_sentence = intent_val
-                                .get("source_sentence")
-                                .and_then(|s| s.as_str())
-                                .unwrap_or("")
-                                .to_string();
-
-                            if intent_str.is_empty() {
-                                continue;
-                            }
-
-                            // Duplicate check: normalised equality (was two-way
-                            // substring, which absorbed short intents silently).
-                            let already_known = state
-                                .intent_captures
-                                .iter()
-                                .any(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str));
-
-                            if !already_known {
-                                state.intent_captures.push(IntentCapture {
-                                    intent: intent_str,
-                                    is_parallel,
-                                    source_chunk_indices: vec![chunk.index],
-                                    source_sentences: if source_sentence.is_empty() {
-                                        vec![]
-                                    } else {
-                                        vec![source_sentence]
-                                    },
-                                    node_id: node_id_counter,
-                                });
-                                node_id_counter += 1;
-                                new_insights_this_pass = true;
-                            } else {
-                                // Aggregate: add this chunk as an additional source
-                                // on the normalised-equal intent (recorded merge).
-                                let merged_into = state
-                                    .intent_captures
-                                    .iter_mut()
-                                    .find(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str))
-                                    .map(|existing| {
-                                        if !existing.source_chunk_indices.contains(&chunk.index) {
-                                            existing.source_chunk_indices.push(chunk.index);
-                                            if !source_sentence.is_empty() {
-                                                existing.source_sentences.push(source_sentence.clone());
-                                            }
-                                        }
-                                        existing.intent.clone()
-                                    });
+                    if let Ok(result) = intent_input_result {
+                        self.record_thinking(state, "Build AMT — intent extraction", &result);
+                        let response = result
+                            .get("response")
+                            .and_then(|r| r.as_str())
+                            .unwrap_or("{}");
+                        let json_str = Self::extract_json_from_response(response, '{', '}');
+                        let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                // Was a silent unwrap_or_else to zero intents.
                                 record_intent_event(
                                     state,
-                                    "intent_merged",
+                                    "intent_parse_failed",
                                     serde_json::json!({
-                                        "merged": intent_str,
-                                        "into": merged_into,
-                                        "path": "chunk_extraction",
+                                        "chunk": *chunk_index,
+                                        "response_chars": response.chars().count(),
+                                        "error": e.to_string(),
                                     }),
                                 );
+                                serde_json::json!({"new_intents": []})
+                            }
+                        };
+
+                        if let Some(new_intents) = parsed.get("new_intents").and_then(|n| n.as_array())
+                        {
+                            for intent_val in new_intents {
+                                let intent_str = intent_val
+                                    .get("intent")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let is_parallel = intent_val
+                                    .get("is_parallel")
+                                    .and_then(|p| p.as_bool())
+                                    .unwrap_or(false);
+                                let source_sentence = intent_val
+                                    .get("source_sentence")
+                                    .and_then(|s| s.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+
+                                if intent_str.is_empty() {
+                                    continue;
+                                }
+
+                                // Duplicate check: normalised equality (was two-way
+                                // substring, which absorbed short intents silently).
+                                let already_known = state
+                                    .intent_captures
+                                    .iter()
+                                    .any(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str));
+
+                                if !already_known {
+                                    state.intent_captures.push(IntentCapture {
+                                        intent: intent_str,
+                                        is_parallel,
+                                        source_chunk_indices: vec![*chunk_index],
+                                        source_sentences: if source_sentence.is_empty() {
+                                            vec![]
+                                        } else {
+                                            vec![source_sentence]
+                                        },
+                                        node_id: node_id_counter,
+                                    });
+                                    node_id_counter += 1;
+                                    new_insights_this_pass = true;
+                                } else {
+                                    // Aggregate: add this chunk as an additional source
+                                    // on the normalised-equal intent (recorded merge).
+                                    let merged_into = state
+                                        .intent_captures
+                                        .iter_mut()
+                                        .find(|ic| norm_intent_key(&ic.intent) == norm_intent_key(&intent_str))
+                                        .map(|existing| {
+                                            if !existing.source_chunk_indices.contains(&*chunk_index) {
+                                                existing.source_chunk_indices.push(*chunk_index);
+                                                if !source_sentence.is_empty() {
+                                                    existing.source_sentences.push(source_sentence.clone());
+                                                }
+                                            }
+                                            existing.intent.clone()
+                                        });
+                                    record_intent_event(
+                                        state,
+                                        "intent_merged",
+                                        serde_json::json!({
+                                            "merged": intent_str,
+                                            "into": merged_into,
+                                            "path": "chunk_extraction",
+                                        }),
+                                    );
+                                }
                             }
                         }
                     }
                 }
-            }
 
             // No intents found at all: the request itself is the intent
             // (was the generic "Process user request"). Recorded.
@@ -1919,22 +2005,48 @@ Return ONLY valid JSON with a single one-word answer:
             .default_preset()
             .clone();
         let max_pairs = pairwise.max_pairs;
-        let mut pair_count = 0;
-        'pairs: for i in 0..branch_list.len() {
-            for j in (i + 1)..branch_list.len() {
-                if pair_count >= max_pairs {
-                    break 'pairs;
-                }
-                pair_count += 1;
+        // ── PHASE 3: Cross-reference linking — WAVE-PARALLEL (Tier 1 of the
+        // efficiency sweep, 2026-10-08: each pair's relatedness judgment is
+        // fully independent — up to max_pairs real pipeline-9 calls that used
+        // to run strictly sequentially). Inputs are collected first with the
+        // IDENTICAL bounds as the old loop (same-intent skip + max_pairs),
+        // dispatched in bounded waves at 1× cores under the same per-attempt
+        // watchdog the metered wrapper used, then applied IN ORDER below —
+        // record_thinking, token metering, and the cross_refs pushes stay
+        // serial on &mut state; only the network waits ran concurrently.
+        let branch_list: Vec<(String, String)> = state
+            .branch_captures
+            .iter()
+            .map(|bc| (bc.branch.clone(), bc.parent_intent.clone()))
+            .collect();
 
+        // Pairwise pass discipline from the K-ALGORITHM registry.
+        let pairwise = crate::k_registry::KAlgorithms::global()
+            .pairwise
+            .read()
+            .expect("K-ALGORITHM pairwise lock poisoned")
+            .default_preset()
+            .clone();
+        let max_pairs = pairwise.max_pairs;
+        let per_attempt_secs =
+            crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let width = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(2)
+            .max(1);
+        let mut pair_inputs: Vec<(usize, usize, serde_json::Value)> = Vec::new();
+        'collect: for i in 0..branch_list.len() {
+            for j in (i + 1)..branch_list.len() {
+                if pair_inputs.len() >= max_pairs {
+                    break 'collect;
+                }
                 let (branch_a, intent_a) = &branch_list[i];
                 let (branch_b, intent_b) = &branch_list[j];
-
-                // Skip if same intent (same-intent relationships are handled by hierarchy)
+                // Skip if same intent (same-intent relationships are handled
+                // by hierarchy)
                 if intent_a == intent_b {
                     continue;
                 }
-
                 let crossref_prompt = format!(
                     r#"Are these two branches related to each other?
 
@@ -1952,63 +2064,149 @@ Return ONLY valid JSON with a single one-word answer:
         If not related: {{"related": false}}"#,
                     intent_a, branch_a, intent_b, branch_b
                 );
-
                 let crossref_input = serde_json::json!({
                     "prompt": crossref_prompt,
                     "max_tokens": 150,
                     "temperature": 0.2,
                     "system_prompt": "Identify cross-branch relationships. Return only valid JSON."
                 });
+                pair_inputs.push((i, j, crossref_input));
+            }
+        }
 
-                let crossref_input_result = self.metered_execute_resilient(state, crossref_input, "amt_cross_ref").await;
-                if let Err(e) = &crossref_input_result {
-                    tracing::warn!(site = "amt_cross_ref", error = %e, "AMT sub-call failed loudly — no silent skips");
-                }
-                if let Ok(result) = crossref_input_result {
-                    self.record_thinking(state, "Build AMT — cross-reference", &result);
-                    let response = result
-                        .get("response")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
-                    let json_str = Self::extract_json_from_response(response, '{', '}');
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
-                        if parsed
-                            .get("related")
-                            .and_then(|r| r.as_bool())
-                            .unwrap_or(false)
+        let executor = self.executor.clone();
+        // RESILIENT WALK INPUTS (restores what the parallelization dropped —
+        // the sequential original routed every pair through
+        // metered_execute_resilient: same-model retry + fallback chain +
+        // ledger; the bare-execute parallel version silently lost all three).
+        let pair_models = state.request.available_models.clone();
+        let pair_order = state.request.fallback_order.clone();
+        let pair_free_only = state.request.fallback_free_only;
+        let pair_primary_default = state.request.primary_default_model.clone();
+        let pair_per_attempt =
+            crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let mut pair_results: std::collections::HashMap<
+            (usize, usize),
+            Result<serde_json::Value, String>,
+        > = std::collections::HashMap::new();
+        for wave_slice in pair_inputs.chunks(width) {
+            let mut handles = Vec::new();
+            for &(i, j, ref input) in wave_slice {
+                let executor = executor.clone();
+                let input = input.clone();
+                let models = pair_models.clone();
+                let order = pair_order.clone();
+                let primary_model = crate::orchestrator::primary_model_identity(
+                    &input,
+                    pair_primary_default.as_deref(),
+                );
+                // RESILIENT WALK (restores same-model retry + fallback chain +
+                // ledger via run_one_candidate), bounded by a timeout SCALED
+                // TO THE WALK (per-attempt × chain entries + margin), not the
+                // flat single-attempt bound.
+                let pair_bound = if pair_per_attempt == u64::MAX {
+                    u64::MAX
+                } else {
+                    pair_per_attempt
+                        .saturating_mul(1 + order.len() as u64)
+                        .saturating_add(30)
+                };
+                handles.push(tokio::spawn(async move {
+                    let walked = crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
+                        &executor,
+                        9,
+                        input,
+                        "pair starting".to_string(),
+                        &models,
+                        &order,
+                        pair_free_only,
+                        false,
+                        primary_model,
+                    );
+                    let r = if pair_bound == u64::MAX {
+                        walked.await
+                    } else {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(pair_bound),
+                            walked,
+                        )
+                        .await
                         {
-                            let rel_type_str = parsed
-                                .get("relationship_type")
-                                .and_then(|rt| rt.as_str())
-                                .unwrap_or("relates_to");
-                            let description = parsed
-                                .get("description")
-                                .and_then(|d| d.as_str())
-                                .unwrap_or("")
-                                .to_string();
-
-                            let relation_type = match rel_type_str {
-                                "depends_on" => AMTRelationType::DependsOn,
-                                "requires" => AMTRelationType::Requires,
-                                "contradicts" => AMTRelationType::Contradicts,
-                                "shared_context" => AMTRelationType::SharedContext,
-                                _ => AMTRelationType::RelatesTo,
-                            };
-
-                            state.cross_refs.push(CrossRef {
-                                from_branch: branch_a.clone(),
-                                to_branch: branch_b.clone(),
-                                from_intent: intent_a.clone(),
-                                to_intent: intent_b.clone(),
-                                relation_type,
-                                description,
-                            });
+                            Ok(r) => r,
+                            Err(_) => Err(format!(
+                                "pair walk exceeded its scaled bound ({}s: {} chain entries + margin)",
+                                pair_bound,
+                                order.len() + 1
+                            )),
                         }
+                    };
+                    ((i, j), r)
+                }));
+            }
+            for h in handles {
+                match h.await {
+                    Ok((key, r)) => {
+                        pair_results.insert(key, r);
+                    }
+                    Err(e) => {
+                        eprintln!("amt_cross_ref: wave task join failed: {e}")
                     }
                 }
             }
         }
+        for (i, j, _input) in &pair_inputs {
+            let (branch_a, intent_a) = &branch_list[*i];
+            let (branch_b, intent_b) = &branch_list[*j];
+            let crossref_input_result = match pair_results.get(&(*i, *j)) {
+                Some(r) => r.clone(),
+                None => Err("pair result missing (wave join failed)".to_string()),
+            };
+            if let Err(e) = &crossref_input_result {
+                tracing::warn!(site = "amt_cross_ref", error = %e, "AMT sub-call failed loudly — nothing dropped silently");
+            }
+            if let Ok(result) = crossref_input_result {
+                self.record_thinking(state, "Build AMT — cross-reference", &result);
+                let response = result
+                    .get("response")
+                    .and_then(|r| r.as_str())
+                    .unwrap_or("{}");
+                let json_str = Self::extract_json_from_response(response, '{', '}');
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                    if parsed
+                        .get("related")
+                        .and_then(|r| r.as_bool())
+                        .unwrap_or(false)
+                    {
+                        let rel_type_str = parsed
+                            .get("relationship_type")
+                            .and_then(|rt| rt.as_str())
+                            .unwrap_or("relates_to");
+                        let description = parsed
+                            .get("description")
+                            .and_then(|d| d.as_str())
+                            .unwrap_or("")
+                            .to_string();
 
+                        let relation_type = match rel_type_str {
+                            "depends_on" => AMTRelationType::DependsOn,
+                            "requires" => AMTRelationType::Requires,
+                            "contradicts" => AMTRelationType::Contradicts,
+                            "shared_context" => AMTRelationType::SharedContext,
+                            _ => AMTRelationType::RelatesTo,
+                        };
+
+                        state.cross_refs.push(CrossRef {
+                            from_branch: branch_a.clone(),
+                            to_branch: branch_b.clone(),
+                            from_intent: intent_a.clone(),
+                            to_intent: intent_b.clone(),
+                            relation_type,
+                            description,
+                        });
+                    }
+                }
+            }
+        }
         // --- BUILD AMT FROM CAPTURES (shared assembler) ---
         let mut counter = node_id_counter;
         let root_node = self.assemble_amt_from_captures(state, &mut counter, &HashMap::new());
@@ -2671,21 +2869,48 @@ Return ONLY valid JSON with a single one-word answer:
             );
         }
         let mut set = tokio::task::JoinSet::new();
-        for (_, _, input, _, spec) in &lanes {
+        // INDEX-CARRYING DISPATCH (critical fix 2026-10-08, found by CC's
+        // 6-fork efficiency sweep, live on BOTH AMT-building routes):
+        // JoinSet::join_next() returns results in COMPLETION order, not spawn
+        // order — the old code pushed them into `results` and later zipped
+        // that Vec against `lanes` as if the orders still matched, so when
+        // lanes finished out of spawn order (the realistic common case: each
+        // lane walks its own fallback chain with different models, latencies,
+        // and retry depths), branch results were silently attributed to the
+        // WRONG methodology batch, retries could hit already-successful lanes
+        // while genuinely-failed ones went unretried, and UNCOVERED warnings
+        // could blame the wrong methodologies. Each task now carries its own
+        // lane index and writes into a pre-sized slot.
+        for (lane_idx, (_, _, input, _, spec)) in lanes.iter().enumerate() {
             let executor = self.executor.clone();
             let input = input.clone();
             let spec = spec.clone();
             let models = available_models.to_vec();
             let order = fallback_order.to_vec();
             let free_only = fallback_free_only;
+            let li = lane_idx;
             // FULL CHAIN per lane (operator: "never skipping"): each lane
             // walks the health-reordered fallback chain — an empty response
             // from one free model moves the lane to the next model instead
             // of ending it. BitNet remains the final chain entry only.
+            // WALL-CLOCK BOUND (efficiency-sweep gap: the lane's full walk had
+            // NO bound — a lane walking several slow candidates could hold its
+            // concurrency slot for an unbounded multiple of one attempt's
+            // cost). Sized the same way the sequential path sizes its
+            // per-attempt budget: attempt cost × chain entries + margin.
+            let per_attempt_secs =
+                crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+            let lane_bound = if per_attempt_secs == u64::MAX {
+                u64::MAX
+            } else {
+                per_attempt_secs
+                    .saturating_mul(1 + order.len() as u64)
+                    .saturating_add(30)
+            };
             set.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, crate::orchestrator::lane_split::LANE_SPEC.scope(spec, async move {
                 let last_error = "lane starting".to_string();
                 let primary_model = crate::orchestrator::primary_model_identity(&input, None);
-                crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
+                let walked = crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
                     &executor,
                     9,
                     input,
@@ -2695,17 +2920,52 @@ Return ONLY valid JSON with a single one-word answer:
                     free_only,
                     true,
                     primary_model,
-                )
-                .await
+                );
+                let r = if lane_bound == u64::MAX {
+                    walked.await
+                } else {
+                    match tokio::time::timeout(
+                        std::time::Duration::from_secs(lane_bound),
+                        walked,
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => Err(format!(
+                            "lane walk exceeded its scaled wall-clock bound ({}s: {} chain entries + margin) — recorded, not dropped silently",
+                            lane_bound,
+                            order.len() + 1
+                        )),
+                    }
+                };
+                (li, r)
             })));
         }
-        let mut results: Vec<Result<serde_json::Value, String>> = Vec::new();
+        let mut slots: Vec<Option<Result<serde_json::Value, String>>> = vec![None; lanes.len()];
         while let Some(res) = set.join_next().await {
             match res {
-                Ok(r) => results.push(r),
-                Err(e) => results.push(Err(format!("lane join error: {e}"))),
+                Ok((li, r)) => {
+                    if li < slots.len() {
+                        slots[li] = Some(r);
+                    }
+                }
+                // A panicked lane task has no index to place — its slot stays
+                // None and is filled as a lane failure below, loudly.
+                Err(join_err) => {
+                    tracing::warn!(call_site, error = %join_err, "lane task panicked — recording its slot as a lane failure");
+                }
             }
         }
+        let mut results: Vec<Result<serde_json::Value, String>> = slots
+            .into_iter()
+            .enumerate()
+            .map(|(li, slot)| {
+                slot.unwrap_or_else(|| {
+                    tracing::warn!(call_site, lane = li, "lane produced no result — recorded as a lane failure");
+                    Err(format!("lane {li} task failed (panic or lost result)"))
+                })
+            })
+            .collect();
         for (li, r) in results.iter().enumerate() {
             let (model, tokens, ok, empty) = match r {
                 Ok(v) => (
@@ -2750,30 +3010,45 @@ Return ONLY valid JSON with a single one-word answer:
         if retry_count > 0 {
             tracing::info!(call_site, retry_count, "LANE RETRY: re-executing failed/empty lanes once");
             let mut set2 = tokio::task::JoinSet::new();
-            for input in retry_inputs.iter().flatten() {
-                let executor = self.executor.clone();
-                let input = input.clone();
-                set2.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, async move { executor.execute(9, input).await }));
-            }
-            let mut retried: Vec<Result<serde_json::Value, String>> = Vec::new();
-            while let Some(res) = set2.join_next().await {
-                match res {
-                    Ok(r) => retried.push(r),
-                    Err(e) => retried.push(Err(format!("lane retry join error: {e}"))),
+            // The retry set carries the ORIGINAL lane index too (same
+            // completion-order hazard as the main set: `retried` used to be
+            // pushed in completion order but consumed by retry-submission
+            // order via an `ri` counter — identical misattribution class).
+            for (li, input_opt) in retry_inputs.iter().enumerate() {
+                if let Some(input) = input_opt {
+                    let executor = self.executor.clone();
+                    let input = input.clone();
+                    set2.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, async move {
+                        let r = executor.execute(9, input).await;
+                        (li, r)
+                    }));
                 }
             }
-            let mut ri = 0usize;
+            let mut retried: Vec<Option<Result<serde_json::Value, String>>> = vec![None; lanes.len()];
+            while let Some(res) = set2.join_next().await {
+                match res {
+                    Ok((li, r)) => {
+                        if li < retried.len() {
+                            retried[li] = Some(r);
+                        }
+                    }
+                    Err(join_err) => {
+                        tracing::warn!(call_site, error = %join_err, "lane retry task panicked — its slot stays unrecovered");
+                    }
+                }
+            }
             for (li, needs) in retry_inputs.iter().enumerate() {
                 if needs.is_some() {
-                    let r = &retried[ri];
-                    ri += 1;
+                    let r = retried[li].as_ref();
                     let recovered = match r {
-                        Ok(v) => v.get("response").and_then(|x| x.as_str()).map(|x| !x.trim().is_empty()).unwrap_or(false),
-                        Err(_) => false,
+                        Some(Ok(v)) => v.get("response").and_then(|x| x.as_str()).map(|x| !x.trim().is_empty()).unwrap_or(false),
+                        _ => false,
                     };
                     tracing::info!(call_site, lane = li, recovered, "LANE retry result");
-                    if recovered {
-                        results[li] = r.clone();
+                    if let Some(Ok(v)) = r {
+                        if recovered {
+                            results[li] = Ok(v.clone());
+                        }
                     }
                 }
             }
@@ -3612,6 +3887,7 @@ mod tests {
             stages: Vec::new(),
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
+            file_relationship_summary_cache: None,
             simulation_result: None,
             model_context_limit: 200_000,
             tokens_used_so_far: 0,

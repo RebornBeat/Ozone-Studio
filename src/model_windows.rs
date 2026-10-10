@@ -165,19 +165,14 @@ pub fn catalog_pool(
         .filter(|e| !free_only || e.is_free)
         .cloned()
         .collect();
-    picked.sort_by(|a, b| {
-        b.context_length
-            .cmp(&a.context_length)
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    picked.truncate(size);
-    // LEDGER-AWARE ORDER (found by walk #3's attempt trail: the pool tried
-    // google/lyria-3 — a MUSIC model with a 1M window — for text generation,
-    // burning attempts on errors/empties). Window size alone is not
-    // suitability; the ledger's historical success rate is. Ledger rank
-    // first (known-good surfaces, known-bad sinks, unknowns neutral), window
-    // keeps its role as the pre-ranking so big-window models get the chance
-    // to build history.
+    // RANK-BEFORE-TRUNCATE (the fix for the window-first order found by
+    // walk #3's attempt trail: google/lyria-3 — a MUSIC model with a 1M
+    // window — occupied a pool slot on window size alone even after ledger
+    // re-ordering, because the cut happened before the rank. Now the
+    // ledger's historical success rate ranks the FULL candidate set FIRST
+    // (known-good surfaces, known-bad sinks, unknowns neutral), and only
+    // then is the pool cut to size — a bad-but-huge-window model can no
+    // longer occupy a slot that a proven model deserves.
     let ranked = crate::model_ledger::rank(&picked.iter().map(|e| e.id.clone()).collect::<Vec<_>>());
     let mut order: HashMap<String, usize> = HashMap::new();
     for (i, id) in ranked.into_iter().enumerate() {
@@ -186,8 +181,9 @@ pub fn catalog_pool(
     picked.sort_by(|a, b| {
         let ra = order.get(&a.id).copied().unwrap_or(usize::MAX);
         let rb = order.get(&b.id).copied().unwrap_or(usize::MAX);
-        ra.cmp(&rb).then_with(|| a.id.cmp(&b.id))
+        ra.cmp(&rb).then_with(|| b.context_length.cmp(&a.context_length).then_with(|| a.id.cmp(&b.id)))
     });
+    picked.truncate(size);
     picked
 }
 
