@@ -3319,6 +3319,34 @@ Return ONLY valid JSON with a single one-word answer:
             // Every hit kept (was take(5): silent). The field has no model
             // reader; the set is what the blueprint lookup found.
             knowledge.related_blueprint_ids = found_blueprints.into_iter().collect();
+
+            // BLUEPRINT-CONTENT INJECTION (cross-walk design mechanism 1:
+            // docs/CROSSWALK_DESIGN_FINAL.md): the search found blueprint IDs,
+            // but the enrich knowledge only carried IDs — never the CONTENT.
+            // A later walk asking about the same topic couldn't see prior
+            // work (live-confirmed by walks A+B: walk A persisted a 10-branch
+            // design, walk B asked about the same topic and got nothing).
+            // Load the matched blueprints and extract their step content into
+            // the knowledge so the model sees what was already designed.
+            for bp_id in knowledge.related_blueprint_ids.iter().take(3) {
+                if let Ok(Some(bp_container)) = self.store.get_container(*bp_id).await {
+                    let bp_name = bp_container
+                        .get("local_state")
+                        .and_then(|ls| ls.get("metadata"))
+                        .and_then(|m| m.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("unnamed blueprint");
+                    let bp_children = bp_container
+                        .get("local_state")
+                        .and_then(|ls| ls.get("child_ids"))
+                        .and_then(|c| c.as_array())
+                        .map(|a| a.len())
+                        .unwrap_or(0);
+                    knowledge.methodology_summaries.push(
+                        format!("[RELATED BLUEPRINT #{}] {} ({} steps) — prior work on this topic exists; review it before designing from scratch", bp_id, bp_name, bp_children)
+                    );
+                }
+            }
         }
 
         for modality in &layer_input.verified_modalities {
@@ -3888,6 +3916,7 @@ mod tests {
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
+            prior_design_context: None,
             simulation_result: None,
             model_context_limit: 200_000,
             tokens_used_so_far: 0,

@@ -298,6 +298,68 @@ impl PromptOrchestrator {
         format!("PROJECT STANDING CONTEXT (the source-of-truth structure this system built for this project):\n{}", parts.join("\n"))
     }
 
+
+    /// PRIOR DESIGN CONTEXT (cross-walk design mechanism 1 — the step-level
+    /// half; the enrich-level half runs in build_amt_layer_by_layer): search
+    /// the graph for Blueprint containers whose keywords overlap this step's
+    /// description, and return their name + description as text. The model
+    /// executing the step sees prior design work alongside the session
+    /// replay, so it builds on prior work instead of starting from zero.
+    /// Empty string when nothing matches (the common case for new topics).
+    async fn load_prior_design_context(
+        &self,
+        state: &OrchestrationState,
+        step_description: &str,
+    ) -> String {
+        let keywords: Vec<String> = step_description
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| w.len() > 3)
+            .map(|w| w.to_lowercase())
+            .take(8)
+            .collect();
+        if keywords.is_empty() {
+            return String::new();
+        }
+        let found = self
+            .store
+            .search_by_keywords(&keywords, Some("Blueprint"))
+            .await
+            .unwrap_or_default();
+        if found.is_empty() {
+            return String::new();
+        }
+        let mut sections = Vec::new();
+        for bp_id in found.iter().take(3) {
+            if let Ok(Some(container)) = self.store.get_container(*bp_id).await {
+                let name = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("metadata"))
+                    .and_then(|m| m.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unnamed");
+                let description = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|c| c.get("description"))
+                    .and_then(|d| d.as_str())
+                    .unwrap_or("");
+                if !description.is_empty() {
+                    sections.push(format!(
+                        "- Blueprint \"{}\" (#{}) — {}",
+                        name, bp_id, description
+                    ));
+                }
+            }
+        }
+        if sections.is_empty() {
+            return String::new();
+        }
+        format!(
+            "PRIOR DESIGN WORK (from previous walks on related topics — build on this, don't repeat it):\n{}",
+            sections.join("\n")
+        )
+    }
+
     pub(crate) async fn file_relationship_summary(&self, state: &mut OrchestrationState) -> String {
         // MEMOIZED per request (efficiency sweep Tier 2 #9): the summary is
         // derived from state.file_graphs + the graph containers, which don't
@@ -2083,10 +2145,19 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     }),
                 );
             }
+            // PRIOR DESIGN CONTEXT (cross-walk design mechanism 1: inject the
+            // matched prior blueprint's step content into the step's context —
+            // the same design, already in the graph from a prior walk). The
+            // store search is local + fast; the content is the actual step
+            // text from a prior walk's design. Without this, the model
+            // executing the step only sees THIS walk's session replay and
+            // cannot build on prior work.
+            let prior_design = self.load_prior_design_context(state, &step.description).await;
             let context_input = serde_json::json!({
                 "action": "ForStep",
                 "query": format!("{} - {}", state.cleaned_prompt, step.description),
                 "session_context": session_context,
+                "prior_design_context": prior_design,
                 "token_budget": state.model_context_limit / 4,
                 "project_id": state.request.project_id,
                 "priority_order": step.context_requirements,

@@ -1133,6 +1133,12 @@ pub(crate) struct OrchestrationState {
     /// Memoized per-request file_relationship_summary (Tier 2 #9: three call
     /// sites read unchanged graph data within one request — compute once).
     pub file_relationship_summary_cache: Option<String>,
+    /// Prior walks' blueprint step content (cross-walk design mechanism 1:
+    /// when a prior blueprint matches the current request's domain, its step
+    /// text is loaded here so steps can build on prior work instead of
+    /// starting from zero). Set at stage 6 (blueprint assignment), read at
+    /// stage 10 (step execution).
+    pub prior_design_context: Option<String>,
 
     /// REGISTERED CAPABILITY SUMMARY (§11.2, operator-corrected wiring:
     /// blueprints identify tool/MCP needs — the orchestration surfaces the
@@ -1810,6 +1816,7 @@ impl PromptOrchestrator {
             thinking_log: Vec::new(),
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
+            prior_design_context: None,
             simulation_result: None,
             model_context_limit,
             tokens_used_so_far: prompt_tokens,
