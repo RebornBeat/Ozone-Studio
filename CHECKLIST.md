@@ -4063,3 +4063,53 @@ This is the complete picture as of this entry — nothing identified across this
 **B9/B10 VERIFIED PERSISTED through the PC death** (B9 marker grep + B10 re-append confirmed post-reboot). **B10's tests re-appended after the torn-write truncation** (the heredoc was interrupted mid-write; 2853 NUL bytes truncated from model_ledger.rs's tail).
 
 **ONE BUILD+TEST+DEPLOY for the fully-wired wave** (B9 + B10 + B7 + B4 + jurisdiction + dispatch helper + everything prior): in progress — results next entry.
+
+## 2026-10-10 (zc) — WALK #6 verified the deployment (15/15, honest-degradation behavior confirmed, stderr streaming live with 72 [pipeline] lines); 231-purge wired env-gated; pipeline-18 REVIVED (decision); keep-warm confirmed OPTIONAL (operator)
+
+**WALK #6** (status-of-system prompt, the abstract-prompt edge case): success, 15/15 stages, ~11 min, delivered by nemotron-3-nano-omni:free. The response HONESTLY REFUSED to fabricate: "I cannot provide the system status report... the necessary input is missing" — for an abstract prompt with no text to chunk, the AMT had placeholders, and the model said so instead of hallucinating. That is the no-fabrication doctrine working end-to-end. Walks #3-5 (text-grounded prompts) produced substantive answers; the abstract-prompt class is a known AMT limitation (chunker needs text), not a regression. **stderr streaming VERIFIED LIVE: 72 `[pipeline]` lines in the host log** — the observability fix works exactly as designed.
+
+**231 PURGE — WIRED, ships next build**: `purge_orphan_globals` (zsei/storage.rs) — env-gated OZONE_PURGE_ORPHAN_GLOBALS=1, runs once after load_index at boot, tombstones orphan global records (delete() zeroing + index removal) so boot scans skip them permanently. Without the env var: no-op. The operator invokes it by setting the env on the next host start — the purge executes and the boot warnings end.
+
+**PIPELINE-18 — REVIVED (decision recorded in STATIC_LOGIC_REGISTRY.md)**: the dormant tree-sitter AST extract_function_calls is the deterministic answer to E6's cross-file-call problem — REVIVE over building E6's judgment call. Wiring (route code modality's cross-file-call lookups to pipeline 18) is queued as a work item.
+
+**KEEP-WARM — CONFIRMED OPTIONAL (operator direction)**: D3 downgraded from "default-ON subsystem" to "optional path". The shipped single-flight gate on local-model calls is THE contention fix; the reach-only llama-server code stays for operators who want it, nothing defaults it on. BitNet's ~25-40s cold-spawn is accepted as the optional configuration's price.
+
+**HYGIENE state**: __pycache__ clean (0 found); the 9 stale worktrees + tools/bridges + 686 tracked zsei_data files remain documented for a bulk pass; ILoop + task_recommendation index entries documented binary-less.
+
+## 2026-10-10 (zc) — CONTEXT FLOW STUDY complete (read-only, no edits/builds/tests): the full per-stage map, cross-walk reachability verified keyword-gated, replay mechanism verified, model-switch transferability verified; findings in docs/CONTEXT_FLOW_FINDINGS_2026-10-10.md
+
+Full findings doc written (172 lines, every claim verified against current source). Headlines:
+- **In-walk flow**: rich and now fully captured — per-stage IN/OUT table verified against code; capture surfaces enumerated (ContextRecords 699 rows, attempt_trail, ledger with full text, 6+ event families, [pipeline] streaming live with 72 lines in walk #6).
+- **Cross-walk flow**: the graph IS the persistent memory (all walks+loops persist containers) and reachability is KEYWORD-GATED — enrich_with_zsei_knowledge searches ≤12 request-derived keywords+topics; SemanticSearch has NO embedding producer (wire-only, grep-verified). Walk #6 finding nothing from walk #5 was correct behavior, not a bug.
+- **Loops**: i_loop reads amt_candidates DIRECTLY (not keyword-gated); amt_loop deepens prior walks' AMTs in place (the strongest cross-walk context mechanism); all four persist to the graph.
+- **Replay**: in-walk replay EXISTS (reconstruct_session_context — branch-scoped, window/8, trims as events, recursive fallback); cross-walk replay does not exist.
+- **Model-switch transferability**: verified end-to-end (budget re-derivation per candidate, window provenance, chunk model-independence, single-flight); checkpoints would add resumability (deferred by decision).
+- **Grounding verdict**: text-grounded = fully grounded both directions of the honesty doctrine (walk #4 answered, walk #6 refused to fabricate); cross-walk = keyword-gated by design; loop-grounded = direct for the loops themselves.
+- **Left to test**: two-walk chained experiment, wave markers with real content, served_window_exceeded exercise, the 8 cap sites at scale, SemanticSearch build-vs-remove.
+- **Recommended (needs an edit pass, NOT done — no edits per scope)**: per-stage context-size markers; cross-walk-hit markers when enrich surfaces prior-walk containers.
+
+## 2026-10-11 (zc) — TWO-WALK CHAINED EXPERIMENT COMPLETE (live): cross-walk content transfer CONFIRMED NOT WORKING (the study's central finding, now with live proof); adapter backstop fix VERIFIED (walk B retry survived past 300s); walk #6's honest-refusal repeated
+
+**THE EXPERIMENT** (the left-to-test list's #1):
+- Walk A: koi pond filtration design (long multi-section prompt). Success, 17 min, 10 branches, substantive design persisted (blueprint + branches in the graph).
+- Walk B: "Review our koi pond filtration plan and identify the single weakest component in the biological filtration stage." — references walk A's topic by vocabulary.
+
+**RESULT**: Walk B's AMT built **0 branches** — the root carried only the request text. The enrich phase did NOT surface walk A's blueprint/methodologies into the context (or surfaced only names without content). The final response asked for clarification: "Please provide the koi pond filtration plan (text) to review." **Cross-walk content transfer FAILED live** — exactly what the study predicted (keyword-gated reachability; the graph holds everything, retrieval delivers nothing when the gate doesn't open).
+
+**ADAPTER BACKSTOP FIX VERIFIED in the same pair**: walk B's FIRST attempt (pre-fix binary) died at exactly 300008ms — the flat 300s watchdog killing Stage 2. The retry on the fixed binary: Stage 2 ran to completion (the same legitimately-long extraction), all 15 stages ok. The backstop (max(registry, 1800s)) replaced the flat bound and the walk survived.
+
+**Also verified live**: `wave of N sentences, width W` markers NOW VISIBLE (5 occurrences — stderr streaming working; wave parallelization observable). success=False with needs-clarification is the CORRECT classification for walk B (the system detected it lacked input rather than fabricating a review — honesty doctrine holding under cross-walk ungrounding).
+
+**WHAT THE PAIR PROVES (the study's §2 verdict, now with live evidence)**:
+1. The graph persists everything (walk A's blueprint + 10 branches are IN the graph).
+2. Retrieval delivers nothing across walks unless keywords open the gate AND the matched containers' CONTENT reaches the prompt (name-only matches don't carry content).
+3. The model honestly asks for the missing input instead of fabricating (third live confirmation of the honesty doctrine).
+4. **The gap is RETRIEVAL-INTO-PROMPT, not storage.** Fix paths are design decisions: recency feed, embedding-backed search, tag-based crosswalk links, or blueprint-content injection when keywords match. All are retrieval designs; none touch storage.
+
+**Left-to-test list after this pair**: served_window_exceeded exercise; the 8 cap sites at scale; SemanticSearch build-vs-remove decision (now informed by this result: keyword search is the only retrieval, and it didn't deliver content-level transfer).
+
+## 2026-10-11 (zc) — WALK A2 on the scaled build: 15/15 success, ~20 min, 6 branches, substantive 3-section response; the two 300s watchdog layers both rescaled and VERIFIED (no premature kills); context-flow campaign summary
+
+**Walk A2** (same koi prompt, scaled build): success, 15/15, ~20 min, delivered by nemotron-3-nano-omni:free. Response is a real 3-section filtration design ("Step 1 of 3: Mechanical Filtration Stages & Media Choices..."). Two WATCHDOG errors in the log at 01:23/01:47 — those are legitimate firings on slow calls within the walk window, not premature kills (the walk completed through them via the retry economy).
+
+**The campaign's verified context-flow map is complete** — see docs/CONTEXT_FLOW_FINDINGS_2026-10-10.md + the entries above. Every layer of the two-watchdog bug class is now rescaled or backed by a ceiling; the honesty doctrine held on all three prompt classes tested (text-grounded=answered, abstract=honest refusal, cross-walk-ungrounded=clarification request); cross-walk content transfer = confirmed broken at retrieval-into-prompt (the one design gap needing an operator decision on fix path).

@@ -293,8 +293,10 @@ impl ContainerStorage {
             storage.init_plain_file()?;
         }
         
-        // Load existing data
+        // Load existing data, then the operator-invoked orphan purge (no-op
+        // without OZONE_PURGE_ORPHAN_GLOBALS=1).
         storage.load_index()?;
+        storage.purge_orphan_globals();
         storage.rebuild_child_ids_cache()?;
         storage.load_local_cache()?;
         storage.report_missing_local_state();
@@ -848,6 +850,44 @@ impl ContainerStorage {
     /// the deleted container on the next restart even without a crash. Reuses
     /// the scanner's existing "container_id == 0 means skip" convention
     /// (see `load_index`) instead of adding a new tombstone format.
+
+    /// ENV-GATED ORPHAN PURGE (OZONE_PURGE_ORPHAN_GLOBALS=1, run once at
+    /// boot after load_index): removes global records whose local-state file
+    /// never landed (torn writes from PC power loss — 231 of them as of
+    /// 2026-10-08). These records are EMPTY shells: metadata lives in
+    /// local_state, so a missing local file means no name, no type, no
+    /// content — the F4 fix refuses them on load and they re-error at every
+    /// boot. This pass tombstones their global records (container_id = 0,
+    /// the same convention load_index's scanner skips) so they are gone for
+    /// good. WITHOUT the env var this fn is a no-op — the purge is
+    /// explicitly operator-invoked, never automatic.
+    fn purge_orphan_globals(&mut self) -> usize {
+        if std::env::var("OZONE_PURGE_ORPHAN_GLOBALS").as_deref() != Ok("1") {
+            return 0;
+        }
+        let orphans: Vec<ContainerID> = self
+            .index
+            .keys()
+            .copied()
+            .filter(|id| !self.local_path.join(format!("{}.json", id)).exists())
+            .collect();
+        let count = orphans.len();
+        for id in orphans {
+            // Tombstone through delete: removes the index entry AND zeroes
+            // the global record so future boot scans skip it. The local file
+            // does not exist (that is the orphan definition), so the Remove
+            // op is a no-op on disk.
+            let _ = self.delete(id);
+        }
+        if count > 0 {
+            tracing::warn!(
+                purged = count,
+                "OZONE_PURGE_ORPHAN_GLOBALS: tombstoned orphan global records (torn-write shells with no local state — no name, type, or content existed to lose)"
+            );
+        }
+        count
+    }
+
     pub fn delete(&mut self, id: ContainerID) -> OzoneResult<()> {
         if id == 0 {
             return Err(OzoneError::StorageError("Cannot delete root container".into()));

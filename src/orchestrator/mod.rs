@@ -2580,6 +2580,17 @@ impl PromptOrchestrator {
         input: serde_json::Value,
     ) -> Result<serde_json::Value, String> {
         let secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        // PER-PIPELINE SCALING (found live 2026-10-11, walk A Stage 4: the
+        // flat 300s killed a legitimate multi-call graph-creation at exactly
+        // 300s — same class as the walk-B Stage-2 kill). Multi-call
+        // pipelines (text 100, settings_tab 8, text_analysis 103 — the same
+        // set the executor's child bound scales) get 3× the attempt budget;
+        // single-call pipelines keep the flat value.
+        let secs = if matches!(pipeline_id, 100 | 8 | 103) {
+            secs.saturating_mul(3)
+        } else {
+            secs
+        };
         let result = if secs == u64::MAX {
             self.executor.execute(pipeline_id, input).await?
         } else {

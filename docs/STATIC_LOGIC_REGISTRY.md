@@ -198,3 +198,26 @@ Applied `ZERO_SHOT_EXPANSION_GUIDE.md` §1's new rule to the 4 headline findings
 - `src/model_ledger.rs` — `is_local_model_id`, `cause_of_with_cap`
 - `src/orchestrator/jurisdiction.rs` — `categorize_jurisdiction_matches`
 - `src/orchestrator/amt.rs`, `src/orchestrator/amt_loop.rs` — branch attribution, retry-gate classifier
+
+## Decision recorded 2026-10-09 (operator, via ZCode): pipeline 18 — REVIVE
+
+The dormant `extract_function_calls` AST implementation in pipeline 18
+(`assets/pipelines/modalities/code_analysis/main.rs`, tree-sitter-based) is
+the deterministic answer to E6's cross-file-call problem — strictly better
+than live pipeline 101's same-file regex version, and it avoids building
+E6's originally-proposed zero-shot judgment call for a decision regex
+handles by construction. **The call is REVIVE**: wire pipeline 18's dispatch
+(the registry entry exists; the binary just needs the analysis plumbed to a
+real dispatch site — code modality's cross-file-call lookups route to it
+instead of regex). Same review-before-judge lesson as E2/E8, one level
+removed: the deterministic tool existed all along.
+
+## Decisions recorded 2026-10-09 (operator, via ZCode): keep-warm OPTIONAL
+
+D3 (keep-warm default-ON) is downgraded by operator direction: keep-warm
+with llama-server is an OPTIONAL path, not a subsystem to build. The
+shipped single-flight gate on local-model calls is the fix for the
+confirmed contention bug; keep-warm remains available for operators who
+want it (the reach-only code path exists) but nothing defaults it on and
+nothing will. Local-model cold-spawn cost (~25-40s) is accepted as the
+price of the optional configuration.

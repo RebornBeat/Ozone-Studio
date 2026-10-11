@@ -92,13 +92,23 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
 
         let pipeline_input = PipelineInput { data, context };
 
-        // WATCHDOG (K `watchdog` family, `model-300` default): bound EVERY
-        // pipeline invocation at the adapter — the one seam every caller
-        // shares. Found live: a Stage-4b pipeline invocation hung 15-21+
-        // minutes in-process (no subprocess alive, no timeout anywhere),
-        // freezing whole orchestration walks. A hung call now fails LOUDLY
-        // after its budget (doctrine #35: no invisible work either).
-        let watchdog_secs = crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        // ADAPTER BACKSTOP (rescaled 2026-10-10 after walk B died at exactly
+        // 300s in Stage 2): this watchdog predates the subprocess refactor —
+        // its original target was an IN-PROCESS hang (15-21 min, no
+        // subprocess alive, no other timeout). Every builtin pipeline now
+        // runs as a subprocess that self-bounds at its own ABS_CEILING
+        // (1800s) with per-call inner bounds, so this seam must BACKSTOP
+        // that ceiling, not compete with legitimate multi-call extractions
+        // (a 3-section prompt's Stage 2 legitimately exceeds 300s). The
+        // registry value is respected when the operator tunes it UPWARD;
+        // the child's own 1800s ceiling is the floor here.
+        let registry_secs =
+            crate::k_registry::KAlgorithms::global().current_watchdog_secs();
+        let watchdog_secs = if registry_secs == u64::MAX {
+            u64::MAX
+        } else {
+            registry_secs.max(1800)
+        };
         let output = if watchdog_secs == u64::MAX {
             self.registry
                 .read()
