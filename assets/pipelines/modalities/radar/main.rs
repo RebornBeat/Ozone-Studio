@@ -31,6 +31,9 @@ mod semantic_relations;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -996,16 +999,18 @@ impl PipelineExecutor {
             "system_context": "Radar signal analysis. Return only valid JSON."
         });
 
-        let output = std::process::Command::new(&self.prompt_pipeline_path)
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
             .arg("--input")
             .arg(input.to_string())
             .output()
-            .map_err(|e| format!("LLM call failed: {}", e))?;
+            .map_err(|e| format!("LLM call failed: {}", e))
+            .and_then(|output| {
+                serde_json::from_slice(&output.stdout)
+                    .map_err(|e| format!("LLM parse failed: {}", e))
+            });
+        capture::capture_zero_shot_call("radar", "llm_zero_shot", prompt, &result);
 
-        let result: serde_json::Value = serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("LLM parse failed: {}", e))?;
-
-        Ok(result["response"].as_str().unwrap_or("{}").to_string())
+        result.map(|r| r["response"].as_str().unwrap_or("{}").to_string())
     }
 
     fn save_graph(&self, graph: &RadarGraph) -> Result<(), String> {
@@ -1166,26 +1171,38 @@ Return ONLY valid JSON array:
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
                 let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"], "to": v["to_node_id"],
+                    "relation": v["relation"], "evidence": v["evidence"],
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected stays in zero_shot_rejected, not an edge.
+                let accepted = Self::accepted_edge_keys(&validated);
                 let legacy: Vec<(u64, u64, RadarEdgeType, String)> = items
                     .iter()
                     .filter_map(|v| {
                         let from = v["from_node_id"].as_u64()?;
                         let to = v["to_node_id"].as_u64()?;
+                        let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                        if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
                         let edge_str = v["edge_type"].as_str().unwrap_or("Affects");
                         let reason = v["reason"].as_str().unwrap_or("").to_string();
                         let edge = map_edge_type_str(edge_str);
                         Some((from, to, edge, reason))
                     })
                     .collect();
-                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
-                    "from": v["from_node_id"], "to": v["to_node_id"],
-                    "relation": v["relation"], "evidence": v["evidence"],
-                })).collect::<Vec<_>>()});
-                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
-                (legacy, semantic_relations::validate_structural(&proposal, &ids))
+                (legacy, validated)
             }
             Err(_) => (vec![], semantic_relations::Validated::default()),
         }
+    }
+
+    /// (from, to, raw label) for each validated accepted relation. The raw label
+    /// is the domain label when one was mapped, else the ZSEI relation name.
+    fn accepted_edge_keys(v: &semantic_relations::Validated) -> std::collections::HashSet<(String, String, String)> {
+        v.accepted.iter().map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone()))).collect()
     }
 
     /// Zero-shot: infer material identities from radar signatures

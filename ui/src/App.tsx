@@ -97,8 +97,12 @@ export interface SystemStats {
   // p2p_enabled/peer_count fields (NetworkManager::get_status). The
   // contribution/ZSEI counters below are still placeholders: no backend
   // field or endpoint tracks them yet (a real collective-stats system is
-  // separate, larger work) — kept in the UI as the intended future surface,
-  // not deleted, and always render as 0 until that lands.
+  // separate, larger work, but a planned one) — kept in the UI as the
+  // intended future surface, not deleted, and always render as 0 until
+  // that lands. Each field here is independently sourced (never derived
+  // from another via arbitrary ratios) so that when the real endpoint
+  // lands, each one gets wired to its own real value, not a fabricated
+  // split of a single number.
   p2pEnabled: boolean;
   peerCount: number;
   totalContributions: number;
@@ -106,6 +110,9 @@ export interface SystemStats {
   methodologiesShared: number;
   blueprintsShared: number;
   findingsShared: number;
+  myMethodologiesShared: number;
+  myBlueprintsShared: number;
+  myFindingsShared: number;
   zseiContainers: number;
   zseiDepth: number;
   consciousnessEnabled: boolean;
@@ -164,6 +171,7 @@ function App() {
 
       return true;
     } catch (err) {
+      console.error("tryConnect failed:", err);
       return false;
     }
   };

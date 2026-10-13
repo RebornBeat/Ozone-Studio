@@ -32,6 +32,7 @@ pub mod config;
 pub mod consciousness;
 pub mod context_budget;
 pub mod context_needs;
+pub mod cross_modal_index;
 pub mod model_windows;
 pub mod openrouter_quota;
 pub mod model_ledger;

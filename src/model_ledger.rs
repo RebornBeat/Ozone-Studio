@@ -637,6 +637,42 @@ pub fn stats(model: &str) -> Option<ModelStats> {
     })
 }
 
+/// Per-model aggregate history for every model the ledger has ever seen,
+/// busiest first. Read from the in-memory table, which is replayed from the
+/// persisted jsonl on first use, so the totals survive a restart. This is
+/// what GET /model-ledger-summary serves; ordering (attempts desc, then id
+/// asc) is deterministic so the UI does not reshuffle between polls.
+pub fn full_summary() -> Vec<(String, ModelStats)> {
+    let t = table().read().unwrap_or_else(|e| e.into_inner());
+    let mut out: Vec<(String, ModelStats)> = t
+        .entries
+        .iter()
+        .filter(|(_, e)| e.attempts > 0)
+        .map(|(model, e)| {
+            (
+                model.clone(),
+                ModelStats {
+                    attempts: e.attempts,
+                    successes: e.successes,
+                    empties: e.empties,
+                    http_errors: e.http_errors,
+                    timeouts: e.timeouts,
+                    other_errors: e.other_errors,
+                    median_latency_ms: e.median(),
+                    last_outcome: e.last_outcome.clone(),
+                    last_seen_ms: e.last_seen_ms,
+                },
+            )
+        })
+        .collect();
+    out.sort_by(|a, b| {
+        b.1.attempts
+            .cmp(&a.1.attempts)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    out
+}
+
 /// Classify a chat-completions body that arrived with a 2xx status.
 pub fn classify_response(body: &serde_json::Value) -> Outcome {
     let choice = &body["choices"][0];

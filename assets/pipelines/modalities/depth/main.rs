@@ -32,6 +32,9 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -828,8 +831,13 @@ impl PipelineExecutor {
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({ "action": "Prompt", "prompt": prompt, "max_tokens": max_tokens, "temperature": 0.05, "system_context": "Depth/LiDAR analysis. Return only valid JSON." });
-        let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = (|| {
+            let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
+            let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+            Ok(r)
+        })();
+        capture::capture_zero_shot_call("depth", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
 
@@ -1145,6 +1153,113 @@ fn map_depth_edge_str(s: &str) -> DepthEdgeType {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ZSEI CONTAINER PERSISTENCE (added 2026-10-12 — depth previously never
+// created a real Container at all: save_graph/load_graph only wrote a raw
+// local JSON sidecar, invisible to global.mmap, structural traversal, and
+// every search path. This wires depth through CreateContainer/UpdateContainer
+// following the proven thermal/haptic revival pattern.
+//
+// NOTE: depth's Cargo.toml has no `reqwest` dependency (unlike thermal/math),
+// so zsei_query here uses a hand-rolled HTTP/1.1 request over std::net —
+// consistent with the raw-TcpStream pattern already used by
+// shared/ozone_serve.rs's register_with_host, run on a blocking task since
+// std::net is sync and this function is async.
+// ─────────────────────────────────────────────────────────────────────────────
+
+async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
+    let host = std::env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
+    let bare = host.trim_start_matches("http://").trim_start_matches("https://").trim_end_matches('/').to_string();
+    let body = serde_json::json!({"query": query, "session_token": ""}).to_string();
+    let request = format!(
+        "POST /zsei/query HTTP/1.1\r\nHost: {bare}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(), body
+    );
+    tokio::task::spawn_blocking(move || -> Result<serde_json::Value, String> {
+        use std::io::{Read, Write};
+        use std::net::TcpStream;
+        let mut stream = TcpStream::connect(&bare).map_err(|e| format!("ZSEI unreachable: {e}"))?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 8192];
+        loop {
+            match stream.read(&mut chunk) {
+                Ok(0) => break,
+                Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                Err(e) => return Err(format!("read failed: {e}")),
+            }
+        }
+        let text = String::from_utf8_lossy(&buf);
+        let body_start = text.find("\r\n\r\n").map(|i| i + 4)
+            .ok_or_else(|| "malformed HTTP response: no header/body separator".to_string())?;
+        let json_body = &text[body_start..];
+        let v: serde_json::Value = serde_json::from_str(json_body)
+            .map_err(|e| format!("response parse failed: {e}; body={json_body}"))?;
+        if v.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            Ok(v.get("result").cloned().unwrap_or(serde_json::Value::Null))
+        } else {
+            Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
+        }
+    }).await.map_err(|e| format!("blocking task join error: {e}"))?
+}
+
+/// Persist the built graph as a real ModalityGraph container (parent =
+/// project) + node/edge payload file — the proven revival pattern (ported
+/// from thermal/haptic's persist_<modality>_graph).
+async fn persist_depth_graph(graph: &mut DepthGraph) -> Result<(), String> {
+    let keywords: Vec<String> = {
+        let mut k: Vec<String> = graph.nodes.iter()
+            .flat_map(|n| n.keywords.iter().cloned())
+            .collect();
+        k.sort(); k.dedup();
+        if k.is_empty() { k.push("depth".to_string()); }
+        k.truncate(12);
+        k
+    };
+    let name = format!("Depth graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let container = serde_json::json!({
+        "global_state": {"container_id": 0, "parent_id": graph.project_id, "child_ids": [], "child_count": 0, "version": 1},
+        "local_state": {
+            "metadata": {"container_type": "ModalityGraph", "modality": "Unknown", "created_at": now,
+                "updated_at": now, "provenance": "depth-pipeline", "permissions": 0, "owner_id": 0,
+                "name": name, "materialized_path": null},
+            "context": {"categories": [], "methodologies": [], "keywords": keywords,
+                "topics": ["depth"], "relationships": [], "learned_associations": [], "embedding": null},
+            "storage": {"db_shard_id": null, "vector_index_ref": null,
+                "object_store_path": "graphs/depth_placeholder.json", "compression_type": "None"},
+            "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
+            "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
+            "file_context": null, "code_context": null, "text_context": null, "external_ref": null
+        }
+    });
+    let result = zsei_query(serde_json::json!({
+        "CreateContainer": { "parent_id": graph.project_id, "container": container }
+    })).await?;
+    let new_id = result.get("ContainerID").and_then(|c| c.as_u64())
+        .ok_or("CreateContainer returned no ContainerID")?;
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/depth_{}.json", new_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    if let Some(parent) = abs.parent() { let _ = std::fs::create_dir_all(parent); }
+    std::fs::write(&abs, serde_json::to_string_pretty(&serde_json::json!({
+        "graph_id": new_id, "nodes": graph.nodes, "edges": graph.edges, "zero_shot_relations": graph.zero_shot_relations, "zero_shot_rejected": graph.zero_shot_rejected
+    })).map_err(|e| e.to_string())?).map_err(|e| format!("graph content write failed: {e}"))?;
+    let _ = zsei_query(serde_json::json!({
+        "UpdateContainer": { "container_id": new_id, "updates": { "storage": {
+            "db_shard_id": null, "vector_index_ref": null, "object_store_path": rel,
+            "compression_type": "None" }, "metadata": null, "context": null, "hints": null } }
+    })).await;
+    graph.graph_id = new_id;
+    Ok(())
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // GRAPH CREATION
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1433,12 +1548,16 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
     let max_deg = deg.values().copied().max().unwrap_or(1) as f32;
     for n in &mut nodes { if let Some(&d) = deg.get(&n.node_id) { n.hotness_score = (n.hotness_score + (d as f32 / max_deg) * 0.15).min(1.0); } }
 
-    let final_graph = DepthGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }], zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected };
+    let mut final_graph = DepthGraph { graph_id, project_id, source_description: analysis.source_description, nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched, state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }], created_at: now.clone(), updated_at: now.clone(), version: 1, version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }], zero_shot_relations: zs_accepted, zero_shot_rejected: zs_rejected };
     if let Err(e) = executor.save_graph(&final_graph) {
         eprintln!("depth save_graph failed: file=assets/pipelines/modalities/depth/main.rs container={graph_id} stage=enriched error={e}");
         save_errors.push(format!("enriched: {e}"));
     }
-    DepthModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
+    if let Err(e) = persist_depth_graph(&mut final_graph).await {
+        eprintln!("depth persist: graph built but ZSEI Container persistence failed (depth previously bypassed this entirely — see 2026-10-12 audit): {e}");
+        save_errors.push(format!("zsei persist: {e}"));
+    }
+    DepthModalityOutput { success: true, graph_id: Some(final_graph.graph_id), graph: Some(final_graph), save_error: (!save_errors.is_empty()).then(|| save_errors.join("; ")), ..Default::default() }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

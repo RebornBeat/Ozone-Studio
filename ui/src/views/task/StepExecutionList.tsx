@@ -68,9 +68,25 @@ function formatDuration(startedAt?: number | null, completedAt?: number | null):
   return `${m}m ${s}s`;
 }
 
+// No per-step "running" status is persisted by the backend today — only
+// "pending" then "completed"/"failed" (confirmed against src/task/mod.rs).
+// While the task itself is "running", the first still-pending step is the
+// closest honest inference of "executing right now"; used only to apply a
+// live-pulse style, never to invent a status string the backend never sent.
+function statusStyle(status: string, isActive: boolean): React.CSSProperties {
+  const s = status.toLowerCase();
+  const color =
+    s === "completed" ? "#4ade80" : s === "failed" ? "#f87171" : isActive ? "#93c5fd" : "var(--color-text-secondary)";
+  return { color, transition: "color 0.4s ease, opacity 0.4s ease" };
+}
+
 export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
   const steps: RealTaskStep[] = task?.steps ?? [];
   const thinking: RealThinkingEntry[] = task?.thinking_log ?? [];
+  const taskRunning = normalizeStatus(task?.status).toLowerCase() === "running";
+  const firstPendingIndex = taskRunning
+    ? steps.findIndex((s) => normalizeStatus(s.status) !== "completed" && normalizeStatus(s.status) !== "failed")
+    : -1;
 
   if (steps.length === 0) {
     return <div style={{ fontSize: 12, color: "var(--color-text-muted)" }}>No steps recorded yet.</div>;
@@ -95,11 +111,30 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
             </tr>
           </thead>
           <tbody>
-            {steps.map((s) => (
-              <tr key={s.step_index} style={{ borderTop: "1px solid var(--color-border-faint)" }}>
+            {steps.map((s, i) => {
+              const isActive = i === firstPendingIndex;
+              return (
+              <tr
+                key={s.step_index}
+                style={{ borderTop: "1px solid var(--color-border-faint)", transition: "opacity 0.4s ease" }}
+              >
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.step_index}</td>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.pipeline_id}</td>
-                <td style={{ padding: "3px 8px" }}>{normalizeStatus(s.status) || "—"}</td>
+                <td style={{ padding: "3px 8px", ...statusStyle(normalizeStatus(s.status), isActive) }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      display: "inline-block",
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "currentColor",
+                      marginRight: 5,
+                      animation: isActive ? "pulse 1.2s ease-in-out infinite" : "none",
+                    }}
+                  />
+                  {normalizeStatus(s.status) || "—"}
+                </td>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.model_used ?? "—"}</td>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>{s.tokens_used}</td>
                 <td style={{ padding: "3px 8px", fontFamily: "monospace" }}>
@@ -109,7 +144,8 @@ export const StepExecutionList: React.FC<{ task: any }> = ({ task }) => {
                   {s.current_stage ?? (s.stages_completed?.length ? "done" : "—")}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </div>

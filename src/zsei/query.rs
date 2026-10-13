@@ -218,6 +218,7 @@ impl QueryProcessor {
                 | ZSEIQuery::SearchContainersByKeywords { .. }
                 | ZSEIQuery::Traverse(_)
                 | ZSEIQuery::GetVersionHistory { .. }
+                | ZSEIQuery::GetCrossModalPairs { .. }
         )
     }
 
@@ -261,6 +262,28 @@ impl QueryProcessor {
             ZSEIQuery::GetUserWorkspaces { user_id } => {
                 let ids = self.find_user_workspaces(storage, user_id)?;
                 Ok(ZSEIQueryResult::Containers(ids))
+            }
+
+            ZSEIQuery::GetCrossModalPairs { src, dst } => {
+                // Derived read-model: built fresh from the read guard's
+                // storage each call — no cache, no invalidation, no second
+                // writer (src/cross_modal_index.rs header records the
+                // decision). Returned as Content JSON (container_id 0 =
+                // "not about one container"; the shape is the pairs array).
+                let pairs =
+                    crate::cross_modal_index::build(storage, src.as_deref(), dst.as_deref());
+                let json = serde_json::json!({
+                    "pairs": pairs,
+                    "count": pairs.len(),
+                    "src": src,
+                    "dst": dst,
+                    "derived_from": "context.relationships (per-request rebuild — always fresh)",
+                });
+                Ok(ZSEIQueryResult::Content {
+                    container_id: 0,
+                    json: Some(json),
+                    raw: None,
+                })
             }
 
             ZSEIQuery::GetProjects { workspace_id } => {

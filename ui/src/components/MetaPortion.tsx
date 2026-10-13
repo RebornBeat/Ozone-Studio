@@ -111,6 +111,77 @@ function modelStyle(model?: string): { color: string; icon: string } {
   return key ? MODEL_STYLES[key] : DEFAULT_MODEL_STYLE;
 }
 
+// Client-side summary over one run's attempt_trail lines. The line grammar
+// is the backend's own (src/orchestrator/mod.rs note_attempt):
+//   "{model} {kind}[ [{cause}]] {latency}ms -> {step}"
+// with kinds success|empty|http_error|timeout|other_error|skipped and cause
+// tags ozone-studio|provider|model|local-runtime|unknown. Only strings the
+// backend actually emits are recognized — anything unparsable still shows in
+// the raw trail below, it just is not counted, and `unparsable` says so.
+export interface TrailSummary {
+  attempts: number;
+  succeeded: number;
+  failed: number;
+  skipped: number;
+  causes: Record<string, number>;
+  sameModelRetries: number;
+  windowCapped: number;
+  timeouts: number;
+  /** A success line that came after at least one failure: the fallback walk
+   * recovered the call. */
+  recoveredByWalk: boolean;
+  unparsable: number;
+}
+
+export function summarizeTrail(lines: string[]): TrailSummary {
+  const s: TrailSummary = {
+    attempts: 0,
+    succeeded: 0,
+    failed: 0,
+    skipped: 0,
+    causes: {},
+    sameModelRetries: 0,
+    windowCapped: 0,
+    timeouts: 0,
+    recoveredByWalk: false,
+    unparsable: 0,
+  };
+  let seenFailure = false;
+  for (const line of lines) {
+    const kindMatch = line.match(
+      /\b(success|empty|http_error|timeout|other_error|skipped)\b/,
+    );
+    if (!kindMatch) {
+      s.unparsable += 1;
+      continue;
+    }
+    s.attempts += 1;
+    const kind = kindMatch[1];
+    const causeMatch = line.match(
+      /\[(ozone-studio|provider|model|local-runtime|unknown)\]/,
+    );
+    if (causeMatch) {
+      s.causes[causeMatch[1]] = (s.causes[causeMatch[1]] ?? 0) + 1;
+    }
+    const step = line.includes(' -> ') ? line.split(' -> ')[1] ?? '' : '';
+    if (kind === 'success') {
+      s.succeeded += 1;
+      if (seenFailure) s.recoveredByWalk = true;
+    } else if (kind === 'skipped') {
+      s.skipped += 1;
+    } else {
+      s.failed += 1;
+      seenFailure = true;
+      if (kind === 'timeout') s.timeouts += 1;
+      if (step === 'one same-model retry') s.sameModelRetries += 1;
+      if (step.startsWith('our max_tokens was exhausted by reasoning')) {
+        s.windowCapped += 1;
+      }
+    }
+  }
+  return s;
+}
+
 export function MetaPortion({ width }: MetaPortionProps) {
   const {
     consciousnessEnabled,
@@ -590,7 +661,12 @@ export function MetaPortion({ width }: MetaPortionProps) {
       timestamp: Date.now()
     };
     setTranscript(prev => [...prev, userEntry]);
-    
+
+    // Declared outside the try block (not inside it) so the catch block
+    // below can still see it — tracks the primary path's in-transcript
+    // "⏳ Thinking..." placeholder id, set only once that branch pushes it.
+    let primaryProcessingId: number | null = null;
+
     // Use the orchestrator for full 14-stage flow
     try {
       setIsSpeaking(true);
@@ -628,6 +704,25 @@ export function MetaPortion({ width }: MetaPortionProps) {
             ? { model_identifier: selectedModel }
             : undefined,
         });
+
+        // In-transcript "thinking" placeholder. OrchestrationStatusPanel/
+        // DiscoveryEffects/McpActivityIndicator (near the input, driven by
+        // real orchestration_stage/pipeline_progress WS frames) already show
+        // live stage detail — this does NOT duplicate that; it just gives
+        // the scrollable transcript itself a visible in-flight marker, since
+        // /orchestrate blocks until the whole run finishes and nothing in
+        // the transcript previously indicated a run was happening. Mirrors
+        // the deprecated fallback branch's own "⏳ Processing..." placeholder
+        // below; replaced in place once the real result (or an honest
+        // empty/error message) is known.
+        primaryProcessingId = Date.now() + 1;
+        setTranscript(prev => [...prev, {
+          id: primaryProcessingId!,
+          role: 'assistant',
+          content: '⏳ Thinking...',
+          timestamp: Date.now(),
+          emotion: emotionState.primary,
+        }]);
 
         // Find the task this request creates so Stop + step progress work
         // while /orchestrate is still blocking on the response.
@@ -682,31 +777,33 @@ export function MetaPortion({ width }: MetaPortionProps) {
         // "response":null,...,"attempt_trail":[],"refusals":[]}) — the old
         // condition dropped that case entirely, so a failure with real trail/
         // refusal content produced no transcript entry and nothing to expand.
-        const hasAttemptTrail = Array.isArray(result.attempt_trail) && result.attempt_trail.length > 0;
-        const hasRefusals = Array.isArray(result.refusals) && result.refusals.length > 0;
-        if (result.response || result.error || hasAttemptTrail || hasRefusals) {
-          setTranscript(prev => [...prev, {
-            id: Date.now(),
-            role: 'assistant',
-            content: result.response || result.error || 'No response generated',
-            timestamp: Date.now(),
-            emotion: emotionState.primary,
-            modelUsed: result.model_used,
-            stageCount: Array.isArray(result.stages_completed)
-              ? result.stages_completed.length
-              : undefined,
-            thinkingLog: Array.isArray(result.thinking_log)
-              ? result.thinking_log
-              : undefined,
-            amtSummary: result.amt_summary ?? undefined,
-            attemptTrail: Array.isArray(result.attempt_trail) ? result.attempt_trail : undefined,
-            refusals: Array.isArray(result.refusals) ? result.refusals : undefined,
-          }]);
+        // Replace the "⏳ Thinking..." placeholder in place with the real
+        // result — honest "No response generated" fallback if the run
+        // produced none of response/error/attempt_trail/refusals, same text
+        // already used elsewhere in this file for that exact case, rather
+        // than leaving the placeholder bubble stuck forever.
+        setTranscript(prev => prev.map(entry =>
+          entry.id === primaryProcessingId
+            ? {
+                ...entry,
+                content: result.response || result.error || 'No response generated',
+                modelUsed: result.model_used,
+                stageCount: Array.isArray(result.stages_completed)
+                  ? result.stages_completed.length
+                  : undefined,
+                thinkingLog: Array.isArray(result.thinking_log)
+                  ? result.thinking_log
+                  : undefined,
+                amtSummary: result.amt_summary ?? undefined,
+                attemptTrail: Array.isArray(result.attempt_trail) ? result.attempt_trail : undefined,
+                refusals: Array.isArray(result.refusals) ? result.refusals : undefined,
+              }
+            : entry
+        ));
 
-          // Speak the response if voice output is enabled
-          if (consciousnessEnabled && result.response) {
-            await speakResponse(result.response);
-          }
+        // Speak the response if voice output is enabled
+        if (consciousnessEnabled && result.response) {
+          await speakResponse(result.response);
         }
         
         // Update emotion if consciousness provided gate result
@@ -802,13 +899,29 @@ export function MetaPortion({ width }: MetaPortionProps) {
       }
     } catch (err) {
       console.error('Prompt orchestration failed:', err);
-      setTranscript(prev => [...prev, {
-        id: Date.now(),
-        role: 'assistant',
-        content: `Error: ${err instanceof Error ? err.message : 'Unknown error'}`,
-        timestamp: Date.now(),
-        emotion: 'concerned'
-      }]);
+      const errorContent = `Error: ${err instanceof Error ? err.message : 'Unknown error'}`;
+      // If the primary path's own "⏳ Thinking..." placeholder is still
+      // present (orchestratePromise itself rejected before the result-
+      // handling block above could replace it), update it in place instead
+      // of appending a second entry alongside a permanently-stuck bubble.
+      setTranscript(prev => {
+        const hasPlaceholder = primaryProcessingId !== null
+          && prev.some(entry => entry.id === primaryProcessingId);
+        if (hasPlaceholder) {
+          return prev.map(entry =>
+            entry.id === primaryProcessingId
+              ? { ...entry, content: errorContent, emotion: 'concerned' }
+              : entry
+          );
+        }
+        return [...prev, {
+          id: Date.now(),
+          role: 'assistant',
+          content: errorContent,
+          timestamp: Date.now(),
+          emotion: 'concerned'
+        }];
+      });
       
       // Trigger negative emotional update
       if (consciousnessEnabled) {
@@ -1243,6 +1356,37 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                 <div style={{ opacity: 0.7, marginBottom: 4, fontSize: 11 }}>
                                   Attempt trail ({entry.attemptTrail.length})
                                 </div>
+                                {(() => {
+                                  const trail = entry.attemptTrail ?? [];
+                                  const ts = summarizeTrail(trail);
+                                  const causeText = Object.entries(ts.causes)
+                                    .map(([c, n]) => `${c} ${n}`)
+                                    .join(', ');
+                                  const bits: string[] = [];
+                                  if (ts.succeeded > 0) bits.push(`${ts.succeeded} answered`);
+                                  if (ts.failed > 0) bits.push(`${ts.failed} failed`);
+                                  if (ts.skipped > 0) bits.push(`${ts.skipped} skipped (quota)`);
+                                  if (ts.sameModelRetries > 0) bits.push(`${ts.sameModelRetries} same-model retr${ts.sameModelRetries === 1 ? 'y' : 'ies'}`);
+                                  if (ts.windowCapped > 0) bits.push(`${ts.windowCapped} window-capped`);
+                                  if (ts.timeouts > 0) bits.push(`${ts.timeouts} timed out`);
+                                  if (ts.recoveredByWalk) bits.push('recovered by fallback walk');
+                                  return (
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        opacity: 0.75,
+                                        marginBottom: 6,
+                                        paddingBottom: 6,
+                                        borderBottom: '1px solid #223046',
+                                      }}
+                                      title="Computed from the trail lines below — counts only what the backend wrote"
+                                    >
+                                      {bits.length > 0 ? bits.join(' · ') : `${ts.attempts} attempt${ts.attempts === 1 ? '' : 's'}`}
+                                      {causeText && ` — causes: ${causeText}`}
+                                      {ts.unparsable > 0 && ` · ${ts.unparsable} line${ts.unparsable === 1 ? '' : 's'} not summarized (shown raw)`}
+                                    </div>
+                                  );
+                                })()}
                                 {entry.attemptTrail.map((line, i) => (
                                   <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
                                     {line}
@@ -1276,6 +1420,35 @@ export function MetaPortion({ width }: MetaPortionProps) {
                   );
                 });
               })()}
+              {/* In-transcript live indicator — the thread itself now shows
+                  the run is alive, not just the panels above the input. Every
+                  value here is real: elapsedSeconds ticks from submit time,
+                  and currentStepInfo comes from the /task/list poll once a
+                  real task record exists (stage 7+). Before that record
+                  exists we say exactly that instead of inventing a stage. */}
+              {isRunning && (
+                <div
+                  className="orchestration-thinking-row"
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    margin: '6px 0',
+                    fontSize: 12,
+                    opacity: 0.75,
+                  }}
+                >
+                  <span className="orchestration-thinking-dot" />
+                  <span>
+                    Thinking… {elapsedSeconds}s
+                    {currentStepInfo
+                      ? ` · step ${currentStepInfo.completed}/${currentStepInfo.total}${
+                          currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''
+                        }`
+                      : ' · working — no task record yet (early stages)'}
+                  </span>
+                </div>
+              )}
               <ChatNotificationStream />
             </div>
           )}

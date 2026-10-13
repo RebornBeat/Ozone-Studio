@@ -270,7 +270,13 @@ impl TraversalEngine {
         Ok((containers, paths))
     }
     
-    /// Semantic traversal - follow embeddings and associations
+    /// Keyword/topic similarity scan — NOT embedding-based, despite the name.
+    /// Scores every other container by shared lowercased keyword/topic overlap
+    /// with the start container; touches no embedding field and no
+    /// `context.relationships` edge. Stops once `max_results` is hit, so it is
+    /// not an unconditional full-store scan, but it degrades toward O(store)
+    /// whenever matches are sparse (`storage.all_node_ids()` below is walked
+    /// until enough hits accumulate or the store is exhausted).
     async fn semantic_traversal<S: NodeSource + ?Sized>(
         &self,
         storage: &S,
@@ -279,8 +285,7 @@ impl TraversalEngine {
         let mut containers = Vec::new();
         let mut paths = Vec::new();
         let mut visited = HashSet::new();
-        
-        // Semantic traversal uses keyword/topic similarity instead of structure
+
         // Get starting container's keywords and topics
         let start_container = match storage.load_node(request.start_container).await? {
             Some(c) => c,

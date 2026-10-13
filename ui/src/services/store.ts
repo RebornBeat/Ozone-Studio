@@ -25,6 +25,28 @@ export interface QuotaStatus {
   tier?: "unfunded" | "funded";
 }
 
+// GET /model-ledger-summary's real shape (src/grpc/mod.rs
+// get_model_ledger_summary, 2026-10-11). `models` is every model the ledger
+// has recorded, busiest first; `causes_today` counts attributed failures for
+// the UTC day with the ledger's own `cause=<tag>` tag strings.
+export interface LedgerModelStats {
+  model: string;
+  attempts: number;
+  successes: number;
+  empties: number;
+  http_errors: number;
+  timeouts: number;
+  other_errors: number;
+  median_latency_ms: number | null;
+  last_outcome: string;
+  last_seen_ms: number;
+}
+
+export interface LedgerSummary {
+  models: LedgerModelStats[];
+  causes_today: Array<{ tag: string; count: number }>;
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -79,6 +101,11 @@ interface UIState {
   // OpenRouter free-model quota (GET /quota). null until the first fetch
   // resolves; { known: false, ... } if the host has no reading yet.
   quotaStatus: QuotaStatus | null;
+
+  // Per-model outcome ledger (GET /model-ledger-summary). null until the
+  // first fetch resolves; stays at the last good reading on a network
+  // failure, never fabricated.
+  ledgerSummary: LedgerSummary | null;
 }
 
 interface UIActions {
@@ -121,6 +148,10 @@ interface UIActions {
   // Fetches GET /quota and stores the result. Best-effort: a network
   // failure leaves quotaStatus as whatever it already was, never guessed.
   fetchQuota: () => Promise<void>;
+
+  // Fetches GET /model-ledger-summary and stores the result. Best-effort
+  // the same way: a failure leaves ledgerSummary as whatever it was.
+  fetchLedgerSummary: () => Promise<void>;
 }
 
 // Default system stats - ALL ZEROS (no mock data!)
@@ -133,6 +164,9 @@ const defaultSystemStats: SystemStats = {
   methodologiesShared: 0,
   blueprintsShared: 0,
   findingsShared: 0,
+  myMethodologiesShared: 0,
+  myBlueprintsShared: 0,
+  myFindingsShared: 0,
   zseiContainers: 0,
   zseiDepth: 0,
   consciousnessEnabled: false,
@@ -169,6 +203,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   availableModels: [],
   lastTaskId: null,
   quotaStatus: null,
+  ledgerSummary: null,
 
   // Actions
   initializeApp: async (config: any) => {
@@ -460,6 +495,17 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
     } catch {
       // Best-effort: leave quotaStatus as whatever it already was, never
       // fabricate a reading on a network failure.
+    }
+  },
+
+  fetchLedgerSummary: async () => {
+    try {
+      const res = await fetch(`${OZONE_HOST}/model-ledger-summary`);
+      const data: LedgerSummary = await res.json();
+      set({ ledgerSummary: data });
+    } catch {
+      // Best-effort: keep the last good reading; a network failure never
+      // invents rows.
     }
   },
 

@@ -7454,7 +7454,61 @@ RESPOND ONLY WITH JSON."#,
     // CROSS-MODALITY
     // ========================================================================
 
-    /// Link to another modality graph
+    /// Append one real ZSEI relation (RelatedTo, discovered_via Manual — this
+    /// is an explicit LinkToModality call, not something inferred) to a
+    /// container's existing context.relationships, following the same
+    /// GetContainer/pointer/UpdateContainer convention link_related_containers
+    /// already uses in this file. Idempotent: skips the write if a RelatedTo
+    /// edge to target_id already exists.
+    async fn add_cross_modal_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+        let existing = zsei_query(serde_json::json!({
+            "GetContainer": { "container_id": container_id }
+        }))
+        .await?;
+        let container_json = existing.get("Container").cloned().unwrap_or(existing);
+        let context = container_json
+            .pointer("/local_state/context")
+            .cloned()
+            .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+        let mut relationships: Vec<serde_json::Value> = context
+            .get("relationships")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let already_linked = relationships.iter().any(|r| {
+            r.get("target_id").and_then(|v| v.as_u64()) == Some(target_id)
+                && r.get("relation_type").and_then(|v| v.as_str()) == Some("RelatedTo")
+        });
+        if already_linked {
+            return Ok(());
+        }
+
+        relationships.push(serde_json::json!({
+            "target_id": target_id,
+            "relation_type": "RelatedTo",
+            "confidence": 1.0,
+            "discovered_via": "Manual"
+        }));
+        let mut context_updated = context.clone();
+        context_updated["relationships"] = serde_json::Value::Array(relationships);
+
+        zsei_query(serde_json::json!({
+            "UpdateContainer": {
+                "container_id": container_id,
+                "updates": { "metadata": null, "context": context_updated, "storage": null, "hints": null }
+            }
+        }))
+        .await?;
+        Ok(())
+    }
+
+    /// Link to another modality graph — real, bidirectional ZSEI relationship.
+    /// Both containers must actually exist; an honest error here (e.g. a
+    /// target_graph_id that was never persisted) is correct behavior, not a
+    /// regression. Previously this unconditionally fabricated a "success"
+    /// LinkResult with no zsei_query call at all behind it.
     async fn link_to_modality(
         &self,
         source_graph_id: u64,
@@ -7462,6 +7516,27 @@ RESPOND ONLY WITH JSON."#,
         _target_modality: &str,
         relationship: CrossModalityRelation,
     ) -> TextModalityOutput {
+        if let Err(e) = Self::add_cross_modal_relationship(source_graph_id, target_graph_id).await {
+            return TextModalityOutput {
+                success: false,
+                error: Some(format!(
+                    "link_to_modality: failed to write source->target relationship: {}",
+                    e
+                )),
+                ..Default::default()
+            };
+        }
+        if let Err(e) = Self::add_cross_modal_relationship(target_graph_id, source_graph_id).await {
+            return TextModalityOutput {
+                success: false,
+                error: Some(format!(
+                    "link_to_modality: failed to write target->source relationship: {}",
+                    e
+                )),
+                ..Default::default()
+            };
+        }
+
         let link_id = Self::generate_id();
         let now = chrono::Utc::now().to_rfc3339();
 

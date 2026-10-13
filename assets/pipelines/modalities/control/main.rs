@@ -25,6 +25,9 @@
 //!
 //! STORAGE: ZSEI containers under /Modalities/ControlSystems/
 
+#[path = "../../shared/semantic_relations.rs"]
+mod semantic_relations;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -1161,25 +1164,45 @@ Identify semantic relationships between these control system graph nodes.
 Nodes:
 {}
 
-Available types: Controls, Stabilizes, FeedbackFrom, MeasuredBy, ActuatedBy,
+Available edge_type values: Controls, Stabilizes, FeedbackFrom, MeasuredBy, ActuatedBy,
 DisturbedBy, ClosedLoopWith, Affects, CausedBy, Enables, DerivedFrom,
 FunctionalRole, TemporalPrecedes, SimilarTo
 
+Also give each item "relation" (one of: {}) and "evidence" (a short reason naming what the two nodes share).
+
 Return ONLY valid JSON array:
-[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief"}}]"#,
-            serde_json::to_string_pretty(&node_list).unwrap_or_default());
+[{{"from_node_id": N, "to_node_id": M, "edge_type": "TypeName", "reason": "brief", "relation": "RelationName", "evidence": "short reason"}}]"#,
+            serde_json::to_string_pretty(&node_list).unwrap_or_default(),
+            semantic_relations::ZSEI_RELATIONS.join(", "));
 
         match self.llm_zero_shot(&prompt, 600).await {
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
-                serde_json::from_str::<Vec<serde_json::Value>>(&json_str).unwrap_or_default().into_iter()
-                    .filter_map(|v| {
-                        let from = v["from_node_id"].as_u64()?;
-                        let to = v["to_node_id"].as_u64()?;
-                        let etype = map_ctrl_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
-                        let reason = v["reason"].as_str().unwrap_or("").to_string();
-                        Some((from, to, etype, reason))
-                    }).collect()
+                let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected does not become an edge — endpoint
+                // existence alone (the old gate) is not evidence the relation
+                // itself is real.
+                let accepted: std::collections::HashSet<(String, String, String)> = validated.accepted.iter()
+                    .map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone())))
+                    .collect();
+                items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
+                    let etype = map_ctrl_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect()
             }
             Err(_) => vec![],
         }

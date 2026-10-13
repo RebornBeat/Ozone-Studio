@@ -1687,25 +1687,108 @@ async fn query_graph(graph_id: u64, query: DNAQuery) -> Result<QueryResult, Stri
     })
 }
 
+/// Loads the real persisted graph for `graph_id`: real `nodes`/`edges` from the
+/// sidecar file `persist_dna_graph` wrote (`graphs/dna_<id>.json`), plus real
+/// `name`/`created_at`/`updated_at`/`project_id` from the container itself via
+/// `GetContainer`. `SequenceInfo` is NOT recoverable — `persist_dna_graph` never
+/// persisted it anywhere — so it's left as an honest unknown/zero placeholder
+/// rather than fabricating specific-looking values (the previous bug's exact
+/// failure mode: this function used to ignore `graph_id` entirely and return
+/// hardcoded fake nodes/edges/sequence info regardless of what was asked for).
 async fn get_graph(graph_id: u64) -> Result<DNAGraph, String> {
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = std::path::Path::new(&dir).join(format!("graphs/dna_{}.json", graph_id));
+    let raw = std::fs::read_to_string(&path)
+        .map_err(|e| format!("no persisted graph at {}: {}", path.display(), e))?;
+    let sidecar: serde_json::Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("corrupt graph sidecar {}: {}", path.display(), e))?;
+    let nodes: Vec<DNAGraphNode> = serde_json::from_value(sidecar.get("nodes").cloned().unwrap_or_default())
+        .map_err(|e| format!("bad nodes in sidecar: {}", e))?;
+    let edges: Vec<DNAGraphEdge> = serde_json::from_value(sidecar.get("edges").cloned().unwrap_or_default())
+        .map_err(|e| format!("bad edges in sidecar: {}", e))?;
+
+    let container = zsei_query(serde_json::json!({ "GetContainer": { "container_id": graph_id } }))
+        .await
+        .ok();
+    let local = container.as_ref().and_then(|c| c.get("Container")).and_then(|c| c.get("local_state"));
+    let name = local.and_then(|l| l.get("metadata")).and_then(|m| m.get("name")).and_then(|n| n.as_str())
+        .map(String::from).unwrap_or_else(|| format!("DNA graph {}", graph_id));
+    let created_at = local.and_then(|l| l.get("metadata")).and_then(|m| m.get("created_at"))
+        .and_then(|v| v.as_u64()).map(|t| t.to_string()).unwrap_or_default();
+    let updated_at = local.and_then(|l| l.get("metadata")).and_then(|m| m.get("updated_at"))
+        .and_then(|v| v.as_u64()).map(|t| t.to_string()).unwrap_or_default();
+    let project_id = container.as_ref().and_then(|c| c.get("Container")).and_then(|c| c.get("global_state"))
+        .and_then(|g| g.get("parent_id")).and_then(|v| v.as_u64()).unwrap_or(0);
+
     Ok(DNAGraph {
         graph_id,
-        name: format!("DNA Graph {}", graph_id),
+        name,
         modality: MODALITY.to_string(),
-        project_id: 1,
+        project_id,
         sequence_info: SequenceInfo {
-            sequence_id: "seq_1".to_string(),
-            length: 1000,
+            sequence_id: "unknown".to_string(),
+            length: 0,
             sequence_type: SequenceType::DNA,
             organism: None,
             assembly: None,
         },
-        nodes: vec![],
-        edges: vec![],
+        nodes,
+        edges,
         metadata: GraphMetadata::default(),
-        created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
+        created_at,
+        updated_at,
     })
+}
+
+/// Append one real ZSEI Relation (RelatedTo, discovered_via Manual — this is
+/// an explicit LinkToModality call, not something inferred) to a container's
+/// existing `context.relationships`, preserving every other context field
+/// exactly (ContainerUpdate.context is a full replace, not a merge, so the
+/// current context has to be read back first). Idempotent: skips the write
+/// if an identical relation to target_id already exists (unlike math's
+/// equivalent, which lacks this check and produces duplicate edges on
+/// repeated calls).
+async fn add_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+    let existing = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+    let mut context = existing
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("context"))
+        .cloned()
+        .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+    let relationships = context
+        .get_mut("relationships")
+        .and_then(|r| r.as_array_mut())
+        .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+    let already_linked = relationships.iter().any(|r| {
+        r.get("target_id").and_then(|v| v.as_u64()) == Some(target_id)
+            && r.get("relation_type").and_then(|v| v.as_str()) == Some("RelatedTo")
+            && r.get("discovered_via").and_then(|v| v.as_str()) == Some("Manual")
+    });
+    if already_linked {
+        return Ok(());
+    }
+
+    relationships.push(serde_json::json!({
+        "target_id": target_id,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "Manual"
+    }));
+
+    zsei_query(serde_json::json!({
+        "UpdateContainer": {
+            "container_id": container_id,
+            "updates": { "context": context }
+        }
+    }))
+    .await?;
+    Ok(())
 }
 
 async fn link_to_modality(
@@ -1714,10 +1797,16 @@ async fn link_to_modality(
     _target_modality: &str,
     relationship: CrossModalityRelation,
 ) -> Result<LinkResult, String> {
-    let link_id = generate_graph_id();
+    // Real, bidirectional ZSEI relationship — both containers must actually
+    // exist; this used to unconditionally fabricate a "success" LinkResult
+    // for any graph_id, real or not, with nothing behind it (2026-10-12
+    // audit finding). An honest error here (e.g. a target_graph_id that was
+    // never persisted) is correct behavior, not a regression.
+    add_relationship(dna_graph_id, target_graph_id).await?;
+    add_relationship(target_graph_id, dna_graph_id).await?;
 
     Ok(LinkResult {
-        link_id,
+        link_id: generate_graph_id(),
         source_graph_id: dna_graph_id,
         target_graph_id,
         relationship: format!("{:?}", relationship),
@@ -1732,12 +1821,17 @@ async fn trigger_semantic_hook(
 ) -> Result<HookResult, String> {
     let start_time = std::time::Instant::now();
 
+    // Honest zero — no real hook-processing logic exists yet for this
+    // modality (2026-10-12 audit finding: previously returned hardcoded
+    // non-zero fake metrics — 12/6/18 — regardless of input). Full semantic
+    // enrichment is a separate, larger task; this fixes the immediate
+    // honesty problem without pretending enrichment exists.
     Ok(HookResult {
         hook_type,
         success: true,
-        nodes_processed: 12,
-        edges_added: 6,
-        annotations_added: 18,
+        nodes_processed: 0,
+        edges_added: 0,
+        annotations_added: 0,
         processing_time_ms: start_time.elapsed().as_millis() as u64,
         errors: vec![],
     })

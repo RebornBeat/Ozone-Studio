@@ -145,6 +145,13 @@ pub enum ZSEIQuery {
     GetContainerContent { container_id: ContainerID },
     GetFileReferences { project_id: ContainerID },
     GetExternalReferences { project_id: ContainerID },
+    /// The CrossModalIndex derived read-model (2026-10-13, operator decision:
+    /// "best of both worlds"). Built per request FROM context.relationships —
+    /// the only written truth — so there is no second writer and nothing to
+    /// invalidate. `src`/`dst` are case-insensitive modality labels
+    /// (e.g. "Text", "Code"); omit either for all pairs. Same-modality edges
+    /// and dangling targets are excluded by construction (src/cross_modal_index.rs).
+    GetCrossModalPairs { src: Option<String>, dst: Option<String> },
     
     // Category/Methodology
     GetCategories { modality: Modality, parent_category: Option<ContainerID> },

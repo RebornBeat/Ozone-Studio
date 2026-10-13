@@ -7,14 +7,21 @@
  *
  * peerCount/p2pEnabled are real (GET /health → NetworkManager::get_status).
  * totalContributions/methodologiesShared/blueprintsShared/findingsShared/
- * zseiContainers/zseiDepth are still placeholders awaiting a real backend
- * collective-stats system/endpoint — kept here intentionally as the
- * intended future surface, always 0 until that lands.
+ * myMethodologiesShared/myBlueprintsShared/myFindingsShared/zseiContainers/
+ * zseiDepth are still placeholders awaiting a real backend collective-stats
+ * system/endpoint — kept here intentionally as the intended future surface,
+ * always 0 until that lands.
  *
- * Layout:
- * ┌─────────────────────────────────────────────────────────────────────────┐
- * │ [●] Online │ 👥 42 Peers │ ✨ 12,345 Contributions │ 🔍 ZSEI: 3 │ 💾 │
- * └─────────────────────────────────────────────────────────────────────────┘
+ * 2026-10-13: these blocks were briefly removed, then restored, because the
+ * real backend tracking is planned future work, not an abandoned feature —
+ * the placeholder surface is meant to stay visible. What WAS wrong, and is
+ * fixed now: the "My Contributions" breakdown used to derive its three
+ * sub-values via `Math.floor(myContributions * 0.4/0.35/0.25)` — an
+ * arbitrary ratio of one placeholder presented as three distinct tracked
+ * numbers. Every value here is now independently sourced (its own field,
+ * never derived from another), matching the pattern the "Collective
+ * Contributions" block above it already used correctly. When the real
+ * endpoint lands, each field gets wired to its own real value.
  */
 
 import React, { useEffect, useState } from 'react';
@@ -28,18 +35,25 @@ export function StatusBar() {
     consciousnessEnabled,
     quotaStatus,
     fetchQuota,
+    ledgerSummary,
+    fetchLedgerSummary,
   } = useOzoneStore();
 
-  // OpenRouter free-model quota (GET /quota). No existing generic polling
-  // utility was found in this file or store.ts, so this is a self-contained
-  // poll — note for whoever next touches this: if a shared polling hook
-  // exists elsewhere (e.g. App.tsx/main.js), this should be merged into it
-  // rather than duplicated further.
+  // OpenRouter free-model quota (GET /quota) + per-model outcome ledger
+  // (GET /model-ledger-summary). No existing generic polling utility was
+  // found in this file or store.ts, so this is a self-contained poll — note
+  // for whoever next touches this: if a shared polling hook exists elsewhere
+  // (e.g. App.tsx/main.js), this should be merged into it rather than
+  // duplicated further.
   useEffect(() => {
     fetchQuota();
-    const id = setInterval(fetchQuota, 60_000);
+    fetchLedgerSummary();
+    const id = setInterval(() => {
+      fetchQuota();
+      fetchLedgerSummary();
+    }, 60_000);
     return () => clearInterval(id);
-  }, [fetchQuota]);
+  }, [fetchQuota, fetchLedgerSummary]);
 
   // Format large numbers with commas
   const formatNumber = (num: number): string => {
@@ -155,25 +169,96 @@ export function StatusBar() {
         <span className="status-value">{formatNumber(systemStats.myContributions)}</span>
         <span className="status-label">My Contributions</span>
 
-        {/* My contribution breakdown on hover */}
+        {/* My contribution breakdown on hover — each value independently
+            sourced (own placeholder field), never derived from myContributions
+            via an arbitrary ratio. See the file header for why. */}
         <div className="contribution-breakdown">
           <div className="breakdown-title">Your Contributions</div>
           <div className="breakdown-item">
             <span className="breakdown-icon">📚</span>
-            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.4))}</span>
+            <span className="breakdown-value">{formatNumber(systemStats.myMethodologiesShared)}</span>
             <span className="breakdown-label">Methodologies</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">📋</span>
-            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.35))}</span>
+            <span className="breakdown-value">{formatNumber(systemStats.myBlueprintsShared)}</span>
             <span className="breakdown-label">Blueprints</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">💡</span>
-            <span className="breakdown-value">{formatNumber(Math.floor(systemStats.myContributions * 0.25))}</span>
+            <span className="breakdown-value">{formatNumber(systemStats.myFindingsShared)}</span>
             <span className="breakdown-label">Findings</span>
           </div>
         </div>
+      </div>
+
+      {/* Divider */}
+      <div className="status-divider" />
+
+      {/* Per-model outcome ledger (GET /model-ledger-summary) — real
+          captured outcomes only: shows "—" until the host answers, and the
+          hover breakdown lists each model's counts plus today's attributed
+          failure causes. Never a fabricated success rate. */}
+      <div
+        className="status-item status-ledger"
+        title={
+          ledgerSummary
+            ? "Per-model outcome ledger (all history) — hover for the breakdown"
+            : "Model ledger not read yet"
+        }
+      >
+        <span className="status-icon">📓</span>
+        <span className="status-value">
+          {ledgerSummary
+            ? (() => {
+                const ok = ledgerSummary.models.reduce((n, m) => n + m.successes, 0);
+                const total = ledgerSummary.models.reduce((n, m) => n + m.attempts, 0);
+                return `${formatNumber(ok)}/${formatNumber(total)}`;
+              })()
+            : "—"}
+        </span>
+        <span className="status-label">Ledger</span>
+
+        {ledgerSummary && (
+          <div className="contribution-breakdown">
+            <div className="breakdown-title">Model ledger (all history)</div>
+            {ledgerSummary.models.map((m) => (
+              <div
+                className="breakdown-item"
+                key={m.model}
+                title={`${m.successes} succeeded · ${m.empties} empty · ${m.http_errors} http · ${m.timeouts} timeout · ${m.other_errors} other${
+                  m.median_latency_ms != null ? ` · median ${formatNumber(m.median_latency_ms)}ms` : ""
+                } · last: ${m.last_outcome}`}
+              >
+                <span className="breakdown-icon" style={{ fontSize: 9 }}>
+                  {m.successes > 0 ? "✓" : "✗"}
+                </span>
+                <span className="breakdown-label" style={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {m.model}
+                </span>
+                <span className="breakdown-value">
+                  {m.successes}/{m.attempts}
+                </span>
+              </div>
+            ))}
+            {ledgerSummary.causes_today.length > 0 && (
+              <>
+                <div className="breakdown-title" style={{ marginTop: 4 }}>
+                  Attributed failures today (UTC)
+                </div>
+                {ledgerSummary.causes_today
+                  .filter((c) => !c.tag.includes(" "))
+                  .map((c) => (
+                    <div className="breakdown-item" key={c.tag}>
+                      <span className="breakdown-icon" style={{ fontSize: 9 }}>⚑</span>
+                      <span className="breakdown-label">{c.tag}</span>
+                      <span className="breakdown-value">{formatNumber(c.count)}</span>
+                    </div>
+                  ))}
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Divider */}

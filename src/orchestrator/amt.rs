@@ -2089,21 +2089,27 @@ Return ONLY valid JSON with a single one-word answer:
             (usize, usize),
             Result<serde_json::Value, String>,
         > = std::collections::HashMap::new();
-        for wave_slice in pair_inputs.chunks(width) {
-            let mut handles = Vec::new();
-            for &(i, j, ref input) in wave_slice {
+        // CONTINUOUS DISPATCH RETROFIT (2026-10-13): this loop was the last
+        // hand-rolled wave-barrier (`for wave_slice in pair_inputs.chunks(width)`)
+        // — a straggler in one wave delayed the next wave's start even for
+        // pairs unrelated to it (flagged 2026-10-09, still live as of the
+        // 2026-10-12 review). Now routes through the same shared
+        // dispatch_bounded primitive intent-extraction uses: semaphore-gated
+        // continuous admission at `width`, results land in input order, and a
+        // panicked pair task becomes a LOUD Err slot instead of a lost join.
+        // The per-pair resilient walk (same-model retry + fallback chain +
+        // ledger, timeout scaled to the real chain length) is unchanged.
+        let dispatched_pairs = crate::orchestrator::dispatch::dispatch_bounded(
+            pair_inputs.clone(),
+            width,
+            move |(i, j, input): (usize, usize, serde_json::Value)| {
                 let executor = executor.clone();
-                let input = input.clone();
                 let models = pair_models.clone();
                 let order = pair_order.clone();
                 let primary_model = crate::orchestrator::primary_model_identity(
                     &input,
                     pair_primary_default.as_deref(),
                 );
-                // RESILIENT WALK (restores same-model retry + fallback chain +
-                // ledger via run_one_candidate), bounded by a timeout SCALED
-                // TO THE WALK (per-attempt × chain entries + margin), not the
-                // flat single-attempt bound.
                 let pair_bound = if pair_per_attempt == u64::MAX {
                     u64::MAX
                 } else {
@@ -2111,7 +2117,7 @@ Return ONLY valid JSON with a single one-word answer:
                         .saturating_mul(1 + order.len() as u64)
                         .saturating_add(30)
                 };
-                handles.push(tokio::spawn(async move {
+                async move {
                     let walked = crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
                         &executor,
                         9,
@@ -2140,17 +2146,18 @@ Return ONLY valid JSON with a single one-word answer:
                             )),
                         }
                     };
-                    ((i, j), r)
-                }));
-            }
-            for h in handles {
-                match h.await {
-                    Ok((key, r)) => {
-                        pair_results.insert(key, r);
-                    }
-                    Err(e) => {
-                        eprintln!("amt_cross_ref: wave task join failed: {e}")
-                    }
+                    Ok(((i, j), r))
+                }
+            },
+        )
+        .await;
+        for slot in dispatched_pairs {
+            match slot {
+                Ok((key, r)) => {
+                    pair_results.insert(key, r);
+                }
+                Err(e) => {
+                    eprintln!("amt_cross_ref: dispatch slot failed loudly: {e}")
                 }
             }
         }
@@ -3361,6 +3368,154 @@ Return ONLY valid JSON with a single one-word answer:
                     knowledge.new_methodology_ids.push(method_id);
                 }
             }
+        }
+
+        // SEED→HOP GRAPH EXPANSION (2026-10-13 — the cross-walk closer):
+        // the keyword matching above finds SEEDS; the typed edges those seeds
+        // carry (context.relationships: SimilarTo links from the graph-first
+        // linkers, cross-modal RelatedTo, AMT ForkOf/ContinuedBy lineage)
+        // reach content sharing ZERO keywords with this request — the exact
+        // two-walk failure shape (walk B found nothing from walk A: no
+        // lexical overlap, and nothing ever walked the edges). One bounded
+        // structural hop per seed, via the same traverse machinery the text
+        // pipeline's own graph-first linker runs in production. Every
+        // neighbor is injected with honest provenance ("reached via a graph
+        // edge from seed X, NOT a keyword match") so generation can weigh
+        // graph-derived context differently from direct matches, and a
+        // thinking-log reader sees exactly how each item was found. Bounds:
+        // depth 1, ≤6 results per seed, ≤12 total neighbors (every cut is
+        // logged with real counts — tuning comes from measured numbers).
+        let mut hop_seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+        let mut seed_ids: Vec<u64> = knowledge
+            .new_methodology_ids
+            .iter()
+            .chain(knowledge.related_blueprint_ids.iter())
+            .copied()
+            .collect();
+        // EDGE-RICH SEEDS (v1.1, found live on the first acceptance walk):
+        // Methodology/Blueprint containers are built with
+        // `relationships: vec![]` — they are edge-less by construction, so
+        // seeding hops only from them yields real zeros (3 seeds → 3 hops →
+        // 0 neighbors, logged 2026-10-13). The typed edges live on the
+        // CONTENT containers (modality graphs, text analyses — the
+        // graph-first linkers' output). An UNTYPED keyword search joins
+        // those as additional hop seeds: still keyword-gated entry, but the
+        // expansion itself is edge-driven, reaching zero-keyword content.
+        match self
+            .store
+            .search_by_keywords(&search_keywords, None)
+            .await
+        {
+            Ok(hits) => {
+                let before = seed_ids.len();
+                for id in hits.into_iter().take(6) {
+                    if !seed_ids.contains(&id) {
+                        seed_ids.push(id);
+                    }
+                }
+                if seed_ids.len() > before {
+                    tracing::info!(
+                        stage = "5.enrich",
+                        edge_rich_seeds = seed_ids.len() - before,
+                        "untyped keyword hits joined the hop seed pool (edge-rich content containers)"
+                    );
+                }
+            }
+            Err(e) => {
+                tracing::warn!(stage = "5.enrich", error = %e, "untyped seed search failed (hop continues with typed seeds only)");
+            }
+        }
+        let mut hops_run = 0usize;
+        let mut hop_candidates = 0usize;
+        let mut neighbors_injected = 0usize;
+        for seed_id in seed_ids.iter().take(12) {
+            hops_run += 1;
+            let Ok(tr) = self
+                .store
+                .traverse(serde_json::json!({
+                    "start_container": seed_id,
+                    "mode": "Structural",
+                    "filters": [],
+                    "max_depth": 1,
+                    "max_results": 6,
+                    "budget": { "max_hops": 1, "max_containers": 6, "max_latency_ms": 5_000 },
+                    "use_ml": false,
+                    "include_methodologies": true,
+                    "include_external_refs": false,
+                }))
+                .await
+            else {
+                continue;
+            };
+            let Some(containers) = tr.get("containers").and_then(|c| c.as_array()) else {
+                continue;
+            };
+            let seed_label = match self.store.get_container(*seed_id).await {
+                Ok(Some(c)) => c
+                    .get("local_state")
+                    .and_then(|ls| ls.get("metadata"))
+                    .and_then(|m| m.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("unnamed")
+                    .to_string(),
+                _ => format!("#{}", seed_id),
+            };
+            for nid in containers.iter().filter_map(|v| v.as_u64()) {
+                hop_candidates += 1;
+                if nid == *seed_id
+                    || seed_ids.contains(&nid)
+                    || state.methodologies.contains(&nid)
+                    || knowledge.related_blueprint_ids.contains(&nid)
+                    || !hop_seen.insert(nid)
+                    || neighbors_injected >= 12
+                {
+                    continue;
+                }
+                let Ok(Some(container)) = self.store.get_container(nid).await else {
+                    continue;
+                };
+                let name = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("metadata"))
+                    .and_then(|m| m.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("Unknown")
+                    .to_string();
+                let keywords_str = container
+                    .get("local_state")
+                    .and_then(|ls| ls.get("context"))
+                    .and_then(|ctx| ctx.get("keywords"))
+                    .and_then(|k| k.as_array())
+                    .map(|arr| {
+                        arr.iter().filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                neighbors_injected += 1;
+                knowledge.methodology_summaries.push(format!(
+                    "[GRAPH NEIGHBOR of \"{}\" #{}] {} covers: {} — reached via one graph edge from a directly-matched seed (1 hop), NOT a keyword match; treat as related context",
+                    seed_label, seed_id, name, keywords_str
+                ));
+            }
+        }
+        tracing::info!(
+            stage = "5.enrich",
+            seeds = seed_ids.len(),
+            hops_run,
+            hop_candidates,
+            neighbors_injected,
+            "seed→hop graph expansion complete (all counts real)"
+        );
+        if neighbors_injected > 0 {
+            self.emit_marker(
+                state,
+                "[5.enrich]",
+                &format!(
+                    "seed→hop: {} graph neighbors surfaced from {} hops (zero-keyword reach)",
+                    neighbors_injected, hops_run
+                ),
+            );
         }
 
         self.emit_marker(state, "[5.enrich]", "done");

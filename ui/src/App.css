@@ -5951,12 +5951,18 @@ ui/component.js files
 .ochip {
   display: inline-block; font-size: 11px; padding: 2px 10px; border-radius: 999px;
   border: 1px solid; margin-right: 4px; font-weight: 500;
+  transition: opacity 0.4s ease, color 0.4s ease, background 0.4s ease, border-color 0.4s ease;
 }
 .ochip.agent { color: #4ade80; border-color: rgba(74, 222, 128, 0.4); background: rgba(74, 222, 128, 0.07); }
 .ochip.model { color: #c084fc; border-color: rgba(192, 132, 252, 0.4); background: rgba(192, 132, 252, 0.07); }
 .ochip.observer { color: #6ec3ff; border-color: rgba(110, 195, 255, 0.4); background: rgba(110, 195, 255, 0.07); }
 .ochip.cat { color: #9aa8bc; border-color: #2a3a52; background: rgba(42, 58, 82, 0.25); }
 .ochip.ui { color: #fbbf24; border-color: rgba(251, 191, 36, 0.4); }
+/* Pulses the chip for a step the backend reports no distinct "running" status
+   for (see TaskDetailPanel.tsx/StepExecutionList.tsx) — applied to the first
+   non-terminal step while the task itself is "running", inferred client-side
+   since no per-step in-progress status is persisted today. */
+.ochip.active { animation: pulse 1.2s ease-in-out infinite; }
 .oinput {
   background: #0b1120; border: 1px solid #223046; border-radius: 8px;
   color: #dfe7f2; padding: 9px 13px; font-size: 13px; width: 100%; max-width: 420px;
@@ -6662,4 +6668,33 @@ ui/component.js files
 .dynamic-pipeline-ui-container .task-error {
     color: var(--color-error);
     font-size: 0.85rem;
+}
+
+/* In-transcript orchestration thinking row (MetaPortion) — a small real-data
+   indicator: elapsed seconds + real polled step info. The dot reuses the
+   global pulse keyframe; no fabricated motion beyond a gentle opacity pulse. */
+.orchestration-thinking-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--color-accent, #6ec3ff);
+    animation: pulse 1.6s ease-in-out infinite;
+    flex-shrink: 0;
+}
+
+/* Failed step chip — error red, not the blue "observer" class it used to
+   borrow (2026-10-13: failed steps read as neutral-blue, which hid them). */
+.ochip-failed {
+    color: var(--color-error);
+    border-color: rgba(248, 113, 113, 0.4);
+    background: rgba(248, 113, 113, 0.07);
+}
+
+/* Live feed rows (OrderPanel, MonitoringPanel) — status changes and new rows
+   ease instead of snapping (2026-10-13 U3; these two genuinely live-update). */
+.ofeed-row {
+    transition: opacity 0.4s ease, background-color 0.4s ease;
+}
+.ofeed-row {
+    animation: fadeIn 0.35s ease;
 }

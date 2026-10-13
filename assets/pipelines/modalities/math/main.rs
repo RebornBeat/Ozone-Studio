@@ -3290,6 +3290,21 @@ async fn add_relationship(container_id: u64, target_id: u64) -> Result<(), Strin
         .get_mut("relationships")
         .and_then(|r| r.as_array_mut())
         .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+    // Idempotency guard: a repeated walk must not keep appending the same
+    // edge. Identity is (target_id, relation_type, discovered_via) — the
+    // exact triple this function always writes — so a genuinely different
+    // relation to the same target (a different relation_type/discovered_via)
+    // is still free to coexist.
+    let already_present = relationships.iter().any(|r| {
+        r.get("target_id").and_then(|v| v.as_u64()) == Some(target_id)
+            && r.get("relation_type").and_then(|v| v.as_str()) == Some("RelatedTo")
+            && r.get("discovered_via").and_then(|v| v.as_str()) == Some("Manual")
+    });
+    if already_present {
+        return Ok(());
+    }
+
     relationships.push(serde_json::json!({
         "target_id": target_id,
         "relation_type": "RelatedTo",

@@ -44,16 +44,28 @@ export const PairingPanel: React.FC = () => {
     setError("");
     try {
       const session = await startPairing("Desktop / Web UI");
-      const url = QRCode.toDataURL(session.approve_url, {
-        width: 220,
-        margin: 1,
-        color: { dark: "#0b0e14", light: "#ffffff" },
-      }).catch(() => "");
       pairingIdRef.current = session.pairing_id;
       setCode(session.code);
-      setQrDataUrl(await url);
       setApproveUrl(session.approve_url);
       setExpiresAt(session.expires_at);
+      // QR generation failure must be LOUD: a missing QR with no message
+      // looks like a hung panel (this used to swallow the error into an
+      // empty data-URL and proceed silently).
+      let url = "";
+      try {
+        url = await QRCode.toDataURL(session.approve_url, {
+          width: 220,
+          margin: 1,
+          color: { dark: "#0b0e14", light: "#ffffff" },
+        });
+      } catch (qrErr: any) {
+        setPhase("error");
+        setError(
+          `QR generation failed: ${qrErr?.message ?? "unknown QRCode error"} — approve manually at ${session.approve_url}`,
+        );
+        return;
+      }
+      setQrDataUrl(url);
       setPhase("waiting");
 
       if (pollRef.current) clearInterval(pollRef.current);

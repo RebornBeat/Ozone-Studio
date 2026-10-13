@@ -1330,6 +1330,72 @@ async fn get_quota() -> Json<serde_json::Value> {
     }
 }
 
+/// GET /model-ledger-summary — per-model outcome counts from the ledger
+/// (src/model_ledger.rs `full_summary`, all history: the in-memory table is
+/// replayed from model_calls/model_ledger.jsonl on first use) plus today's
+/// attributed-cause breakdown (`cause_summary_today`). Read-only, serves the
+/// UI's ledger panel, and spends nothing: it never calls OpenRouter.
+async fn get_model_ledger_summary() -> Json<serde_json::Value> {
+    let models: Vec<serde_json::Value> = crate::model_ledger::full_summary()
+        .into_iter()
+        .map(|(model, s)| {
+            serde_json::json!({
+                "model": model,
+                "attempts": s.attempts,
+                "successes": s.successes,
+                "empties": s.empties,
+                "http_errors": s.http_errors,
+                "timeouts": s.timeouts,
+                "other_errors": s.other_errors,
+                "median_latency_ms": s.median_latency_ms,
+                "last_outcome": s.last_outcome,
+                "last_seen_ms": s.last_seen_ms,
+            })
+        })
+        .collect();
+    let causes_today: Vec<serde_json::Value> = crate::model_ledger::cause_summary_today()
+        .into_iter()
+        .map(|(tag, count)| serde_json::json!({ "tag": tag, "count": count }))
+        .collect();
+    Json(serde_json::json!({
+        "models": models,
+        "causes_today": causes_today,
+    }))
+}
+
+/// GET /cross-modal-pairs — the CrossModalIndex derived read-model (2026-10-13):
+/// per-request rebuild FROM context.relationships (the only written truth),
+/// so the answer is always fresh and there is no second writer. Optional
+/// `src`/`dst` query params filter by case-insensitive modality label
+/// (e.g. ?src=Text&dst=Code). Read-only, spends nothing.
+#[derive(serde::Deserialize)]
+struct CrossModalPairsQuery {
+    src: Option<String>,
+    dst: Option<String>,
+}
+
+async fn get_cross_modal_pairs(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Query(q): axum::extract::Query<CrossModalPairsQuery>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let outcome = runtime
+        .query_zsei(crate::types::zsei::ZSEIQuery::GetCrossModalPairs {
+            src: q.src,
+            dst: q.dst,
+        })
+        .await;
+    let json = match outcome {
+        Ok(crate::types::zsei::ZSEIQueryResult::Content { json: Some(j), .. }) => j,
+        Ok(other) => serde_json::json!({
+            "error": "unexpected result variant",
+            "variant": format!("{:?}", std::mem::discriminant(&other)),
+        }),
+        Err(e) => serde_json::json!({ "error": e.to_string() }),
+    };
+    Json(json)
+}
+
 /// GET /capture/decision-reviews — B4.
 async fn get_decision_reviews(
     State(state): State<Arc<AppState>>,
@@ -2604,6 +2670,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/zsei/query", post(query_zsei))
         // OpenRouter quota status, read-only, spends nothing (2026-10-07).
         .route("/quota", get(get_quota))
+        .route("/model-ledger-summary", get(get_model_ledger_summary))
+        .route("/cross-modal-pairs", get(get_cross_modal_pairs))
         // CAPTURE STORES — decision-review / zero-shot-call JSONL reads,
         // outside the ZSEI container system (Batch B: B4/B5).
         .route("/capture/decision-reviews", get(get_decision_reviews))

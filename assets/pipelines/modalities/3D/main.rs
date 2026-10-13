@@ -44,6 +44,9 @@ fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
 #[path = "../../shared/semantic_relations.rs"]
 mod semantic_relations;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -1396,12 +1399,77 @@ impl PipelineExecutor {
         Ok(cid)
     }
 
+    /// Real, bidirectional ZSEI relationship between this graph's container
+    /// and another modality's container — the container-level counterpart to
+    /// LinkToModality's existing in-graph CrossModalRef node (which stays:
+    /// real and useful at the domain-graph level, this adds the missing
+    /// context.relationships layer on top). Mirrors math's add_relationship
+    /// (math/main.rs:3277) exactly, using 3D's own direct-reqwest zsei
+    /// convention (persist_zsei, above) since 3D has no shared zsei_query
+    /// helper. An honest error on a nonexistent container is correct
+    /// behavior, not a regression.
+    async fn add_cross_modal_relationship(&self, container_id: u64, target_id: u64) -> Result<(), String> {
+        let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+        let client = reqwest::Client::new();
+        let resp = client.post(format!("{host}/zsei/query"))
+            .json(&serde_json::json!({"query": {"GetContainer": {"container_id": container_id}}, "session_token": ""}))
+            .timeout(std::time::Duration::from_secs(30))
+            .send().await.map_err(|e| e.to_string())?;
+        let body: serde_json::Value = resp.json().await.map_err(|e| e.to_string())?;
+        if !body.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            return Err(body.get("error").and_then(|e| e.as_str()).unwrap_or("zsei get failed").to_string());
+        }
+        let mut context = body
+            .get("result")
+            .and_then(|r| r.get("Container"))
+            .and_then(|c| c.get("local_state"))
+            .and_then(|l| l.get("context"))
+            .cloned()
+            .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+        let relationships = context
+            .get_mut("relationships")
+            .and_then(|r| r.as_array_mut())
+            .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+        // Idempotency guard: a repeated walk must not keep appending the same
+        // edge (same triple math's version checks).
+        let already_present = relationships.iter().any(|r| {
+            r.get("target_id").and_then(|v| v.as_u64()) == Some(target_id)
+                && r.get("relation_type").and_then(|v| v.as_str()) == Some("RelatedTo")
+                && r.get("discovered_via").and_then(|v| v.as_str()) == Some("Manual")
+        });
+        if already_present {
+            return Ok(());
+        }
+
+        relationships.push(serde_json::json!({
+            "target_id": target_id,
+            "relation_type": "RelatedTo",
+            "confidence": 1.0,
+            "discovered_via": "Manual"
+        }));
+
+        let update_resp = client.post(format!("{host}/zsei/query"))
+            .json(&serde_json::json!({"query": {"UpdateContainer": {"container_id": container_id, "updates": {"context": context}}}, "session_token": ""}))
+            .timeout(std::time::Duration::from_secs(30))
+            .send().await.map_err(|e| e.to_string())?;
+        let update_body: serde_json::Value = update_resp.json().await.map_err(|e| e.to_string())?;
+        if !update_body.get("success").and_then(|s| s.as_bool()).unwrap_or(false) {
+            return Err(update_body.get("error").and_then(|e| e.as_str()).unwrap_or("zsei update failed").to_string());
+        }
+        Ok(())
+    }
+
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"3D scene analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path)
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
             .arg("--input").arg(input.to_string())
-            .output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+            .output()
+            .map_err(|e| e.to_string())
+            .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).map_err(|e| e.to_string()));
+        capture::capture_zero_shot_call("3d", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
 
@@ -2490,6 +2558,14 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
             graph.version += 1; graph.updated_at = now.clone();
             graph.version_notes.push(VersionNote { version: graph.version, note: format!("Linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
             executor.save_graph(&graph)?;
+            // Container-level bidirectional write, in addition to the
+            // in-graph CrossModalRef node above — matches the pattern
+            // applied to text/image/audio/video/dna/eeg/chemistry/math this
+            // session. graph_id/target_graph_id are used directly as
+            // container ids here, matching math's established convention
+            // for LinkToModality (math/main.rs:3325-3346).
+            executor.add_cross_modal_relationship(graph_id, target_graph_id).await?;
+            executor.add_cross_modal_relationship(target_graph_id, graph_id).await?;
             Ok(ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
         }
 

@@ -15,6 +15,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 reqwest = { version = "0.11", features = ["json"] }
 tokio = { version = "1.35", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
 
 # Own workspace root: independent unit — builds anywhere, connects over the wire.
 [workspace]

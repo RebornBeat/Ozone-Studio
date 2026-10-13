@@ -626,7 +626,19 @@ impl PipelineExecutor {
         // folder, crate target builds, sibling of the host binary. NEVER
         // execute main.rs — that was an EACCES trap (source isn't runnable).
         let name = pipeline_name.as_str();
+        // SHARED TARGET FIRST (2026-10-13): the per-pipeline local targets
+        // (pipeline_dir/target/{release,debug}) were searched BEFORE the
+        // shared build dir — so any per-crate build outside
+        // scripts/build-pipelines.sh (which every fork/edit wave tends to
+        // spawn) left a stale binary that shadowed the fresh shared one, and
+        // 20+ duplicated local target dirs ate ~15GB of disk. The shared dir
+        // is now the FIRST candidate; the local targets remain as fallbacks
+        // for a deliberate in-place dev build, never as stale shadows.
+        let shared_release = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target/pipelines/release")
+            .join(name);
         let mut candidates = vec![
+            shared_release,
             pipeline_dir.join(name),
             pipeline_dir.join("target/release").join(name),
             pipeline_dir.join("target/debug").join(name),
@@ -636,7 +648,7 @@ impl PipelineExecutor {
         // CARGO_MANIFEST_DIR so this resolves regardless of the host's CWD at launch.
         candidates.push(
             std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("target/pipelines/release")
+                .join("target/pipelines/debug")
                 .join(name),
         );
         if let Ok(exe_dir) = std::env::current_exe() {

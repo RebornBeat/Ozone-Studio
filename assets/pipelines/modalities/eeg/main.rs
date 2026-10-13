@@ -1753,16 +1753,67 @@ async fn get_graph(graph_id: u64) -> Result<EEGGraph, String> {
     })
 }
 
+/// Append one real ZSEI Relation (RelatedTo, discovered_via Manual) to a
+/// container's existing `context.relationships`, preserving every other
+/// context field exactly (ContainerUpdate.context is a full replace, not a
+/// merge). Idempotent: skips the write if an edge to target_id already
+/// exists, since this is called from both directions by link_to_modality.
+async fn add_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+    let existing = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+    let mut context = existing
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("context"))
+        .cloned()
+        .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+    let relationships = context
+        .get_mut("relationships")
+        .and_then(|r| r.as_array_mut())
+        .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+    let already_linked = relationships.iter().any(|r| {
+        r.get("target_id").and_then(|t| t.as_u64()) == Some(target_id)
+    });
+    if already_linked {
+        return Ok(());
+    }
+
+    relationships.push(serde_json::json!({
+        "target_id": target_id,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "Manual"
+    }));
+
+    zsei_query(serde_json::json!({
+        "UpdateContainer": {
+            "container_id": container_id,
+            "updates": { "context": context }
+        }
+    }))
+    .await?;
+    Ok(())
+}
+
 async fn link_to_modality(
     eeg_graph_id: u64,
     target_graph_id: u64,
     _target_modality: &str,
     relationship: CrossModalityRelation,
 ) -> Result<LinkResult, String> {
-    let link_id = generate_graph_id();
+    // Real, bidirectional, idempotent ZSEI relationship — both containers
+    // must actually exist; this used to unconditionally fabricate a
+    // "success" LinkResult for any graph_id, real or not, with nothing
+    // behind it. An honest error here is correct behavior, not a regression.
+    add_relationship(eeg_graph_id, target_graph_id).await?;
+    add_relationship(target_graph_id, eeg_graph_id).await?;
 
     Ok(LinkResult {
-        link_id,
+        link_id: generate_graph_id(),
         source_graph_id: eeg_graph_id,
         target_graph_id,
         relationship: format!("{:?}", relationship),
@@ -1770,19 +1821,27 @@ async fn link_to_modality(
     })
 }
 
+/// Real counts from the actual persisted graph — this previously returned
+/// hardcoded `nodes_processed: 15, edges_added: 8, annotations_added: 22`
+/// unconditionally. Full semantic enrichment (real cross-node annotation
+/// generation) is a separate, larger task — this fixes the immediate
+/// honesty problem without pretending enrichment exists: annotations_added
+/// stays a real, honest 0.
 async fn trigger_semantic_hook(
-    _graph_id: u64,
+    graph_id: u64,
     hook_type: ZSEIHookType,
     _options: HookOptions,
 ) -> Result<HookResult, String> {
     let start_time = std::time::Instant::now();
 
+    let graph = get_graph(graph_id).await?;
+
     Ok(HookResult {
         hook_type,
         success: true,
-        nodes_processed: 15,
-        edges_added: 8,
-        annotations_added: 22,
+        nodes_processed: graph.nodes.len(),
+        edges_added: graph.edges.len(),
+        annotations_added: 0,
         processing_time_ms: start_time.elapsed().as_millis() as u64,
         errors: vec![],
     })

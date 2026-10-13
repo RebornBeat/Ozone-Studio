@@ -248,9 +248,22 @@ export const TaskDetailPanel: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
-                {(task.steps ?? []).map((s) => {
+                {(() => {
+                  // No per-step "running"/"in-progress" status is persisted
+                  // by the backend today (steps only ever carry "pending",
+                  // then "completed"/"failed") — the first still-pending
+                  // step while the task itself is "running" is the closest
+                  // honest inference of "this one is executing right now",
+                  // used only to pulse its chip, not to invent a status
+                  // string the backend never sent.
+                  const taskRunning = normalizeStatus(task.status).toLowerCase() === "running";
+                  const firstPendingIndex = taskRunning
+                    ? (task.steps ?? []).findIndex((s) => s.status !== "completed" && s.status !== "failed")
+                    : -1;
+                  return (task.steps ?? []).map((s, i) => {
                   const prevModel = task.steps.find((p) => p.step_index === s.step_index - 1)?.model_used;
                   const switched = s.model_used && prevModel && s.model_used !== prevModel;
+                  const isActive = i === firstPendingIndex;
                   return (
                     <React.Fragment key={s.step_index}>
                       {switched && (
@@ -260,12 +273,12 @@ export const TaskDetailPanel: React.FC = () => {
                           </td>
                         </tr>
                       )}
-                      <tr>
+                      <tr style={{ transition: "opacity 0.4s ease" }}>
                         <td className="omono">{s.step_index}</td>
                         <td style={{ color: "#e8eef6" }}>{s.action}</td>
                         <td className="omono">{s.pipeline_id}</td>
                         <td>
-                          <span className={`ochip ${s.status === "completed" ? "agent" : s.status === "failed" ? "observer" : "cat"}`}>
+                          <span className={`ochip ${s.status === "completed" ? "agent" : s.status === "failed" ? "ochip-failed" : "cat"}${isActive ? " active" : ""}`}>
                             {s.status}
                           </span>
                         </td>
@@ -343,7 +356,8 @@ export const TaskDetailPanel: React.FC = () => {
                       )}
                     </React.Fragment>
                   );
-                })}
+                  });
+                })()}
               </tbody>
             </table>
           )}

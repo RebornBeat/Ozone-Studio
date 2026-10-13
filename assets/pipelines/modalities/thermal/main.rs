@@ -36,6 +36,9 @@ mod semantic_relations;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -827,10 +830,14 @@ impl PipelineExecutor {
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"Thermal imaging analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path)
-            .arg("--input").arg(input.to_string())
-            .output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = (|| {
+            let out = std::process::Command::new(&self.prompt_pipeline_path)
+                .arg("--input").arg(input.to_string())
+                .output().map_err(|e| e.to_string())?;
+            serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+        })();
+        capture::capture_zero_shot_call("thermal", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
 
@@ -937,6 +944,12 @@ Return ONLY valid JSON array:
         self.infer_semantic_relationships_validated(nodes).await.0
     }
 
+    /// (from, to, raw label) for each validated accepted relation. The raw label
+    /// is the domain label when one was mapped, else the ZSEI relation name.
+    fn accepted_edge_keys(v: &semantic_relations::Validated) -> std::collections::HashSet<(String, String, String)> {
+        v.accepted.iter().map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone()))).collect()
+    }
+
     async fn infer_semantic_relationships_validated(&self, nodes: &[ThermalGraphNode]) -> (Vec<(u64, u64, ThermalEdgeType, String)>, semantic_relations::Validated) {
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
         let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
@@ -964,19 +977,27 @@ Return ONLY valid JSON array:
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
                 let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
+                    "from": v["from_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "to": v["to_node_id"].as_u64().map(|x| x.to_string()).unwrap_or_default(),
+                    "relation": v["relation"].as_str().unwrap_or(""),
+                    "evidence": v["evidence"].as_str().unwrap_or(""),
+                })).collect::<Vec<_>>()});
+                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected stays in zero_shot_rejected, not an edge.
+                let accepted = Self::accepted_edge_keys(&validated);
                 let legacy: Vec<(u64, u64, ThermalEdgeType, String)> = items.iter().filter_map(|v| {
                     let from = v["from_node_id"].as_u64()?;
                     let to = v["to_node_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
                     let etype = map_thermal_edge_str(v["edge_type"].as_str().unwrap_or("Affects"));
                     let reason = v["reason"].as_str().unwrap_or("").to_string();
                     Some((from, to, etype, reason))
                 }).collect();
-                let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
-                    "from": v["from_node_id"], "to": v["to_node_id"],
-                    "relation": v["relation"], "evidence": v["evidence"],
-                })).collect::<Vec<_>>()});
-                let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
-                (legacy, semantic_relations::validate_structural(&proposal, &ids))
+                (legacy, validated)
             }
             Err(_) => (vec![], semantic_relations::Validated::default()),
         }

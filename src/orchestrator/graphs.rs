@@ -4,6 +4,22 @@
 
 use super::*;
 
+/// Modalities with a real `LinkToModality` action handler today — including
+/// fabricated stubs and one-sided local-only implementations, since those
+/// still deserialize and execute without error, just without doing real
+/// cross-container work. PASS 3's cross-modal reference pass skips
+/// dispatching to any modality NOT on this list: the action variant doesn't
+/// exist in that modality's enum, so the call is guaranteed to fail
+/// deserialization and be silently swallowed by `if let Ok(result) = ...`
+/// downstream — a wasted subprocess spawn with zero possible benefit, on
+/// every single pass. Update this list as more modalities gain a real
+/// handler; see docs/SEMANTIC_GRAPH_REALITY_GUIDE.md for the full per-modality
+/// cross-modal-link taxonomy (verified 2026-10-12).
+const MODALITIES_WITH_LINK_HANDLER: &[&str] = &[
+    "text", "image", "audio", "video", "chemistry", "dna", "eeg", "math", "3d",
+    "parametric_cad", "kinematics",
+];
+
 impl PromptOrchestrator {
 
     /// Aggregate modality detections from all processed chunk graphs into the root modality list.
@@ -367,8 +383,9 @@ impl PromptOrchestrator {
         // Phase B: All → text back-references (pass 2+)
         if pass_number >= 2 {
             if let Some(text_gid) = text_graph_id {
-                for (source_modality, source_gid) in all_graphs.iter().filter(|(k, _)| k != "text")
-                {
+                for (source_modality, source_gid) in all_graphs.iter().filter(|(k, _)| {
+                    k != "text" && MODALITIES_WITH_LINK_HANDLER.contains(&k.as_str())
+                }) {
                     let source_pipeline = self.modality_name_to_pipeline_id(source_modality);
                     let link_input = serde_json::json!({
                         "action": {
@@ -395,6 +412,12 @@ impl PromptOrchestrator {
                     let (a_mod, a_gid) = &all_graphs[i];
                     let (b_mod, b_gid) = &all_graphs[j];
                     if a_mod == "text" || b_mod == "text" {
+                        continue;
+                    }
+                    if !MODALITIES_WITH_LINK_HANDLER.contains(&a_mod.as_str()) {
+                        // a_mod is the executing pipeline for this call; if it
+                        // has no LinkToModality handler, the call can never
+                        // succeed — skip the wasted spawn entirely.
                         continue;
                     }
 

@@ -23,6 +23,9 @@
 //!
 //! STORAGE: ZSEI containers under /Modalities/Kinematics/
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -1018,9 +1021,12 @@ impl PipelineExecutor {
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"Kinematics and robotics analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
-        Ok(r["response"].as_str().unwrap_or("{}").to_string())
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
+            .arg("--input").arg(input.to_string()).output()
+            .map_err(|e| e.to_string())
+            .and_then(|out| serde_json::from_slice(&out.stdout).map_err(|e| e.to_string()));
+        capture::capture_zero_shot_call("kinematics", "llm_zero_shot", prompt, &result);
+        result.map(|r| r["response"].as_str().unwrap_or("{}").to_string())
     }
 
     fn save_graph(&self, g: &KinematicsGraph) -> Result<(), String> {
@@ -1266,6 +1272,56 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     } else {
         Err(v.get("error").and_then(|e| e.as_str()).unwrap_or("zsei query failed").to_string())
     }
+}
+
+/// Real, bidirectional ZSEI relationship at the container level — same
+/// idempotent pattern as math/CAD/text/image/audio/video/dna/eeg/chemistry's
+/// `add_relationship`/`add_cross_modal_relationship`. Kinematics'
+/// `LinkToModality` handler used to only add a `CrossModalRef` node to its
+/// own internal graph, referencing the target by id but never writing
+/// anything the target container (or anything outside this one graph)
+/// could see.
+async fn add_cross_modal_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+    let existing = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+    let mut context = existing
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("context"))
+        .cloned()
+        .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+    let relationships = context
+        .get_mut("relationships")
+        .and_then(|r| r.as_array_mut())
+        .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+    let already_present = relationships.iter().any(|r| {
+        r.get("target_id").and_then(|v| v.as_u64()) == Some(target_id)
+            && r.get("relation_type").and_then(|v| v.as_str()) == Some("RelatedTo")
+            && r.get("discovered_via").and_then(|v| v.as_str()) == Some("Manual")
+    });
+    if already_present {
+        return Ok(());
+    }
+
+    relationships.push(serde_json::json!({
+        "target_id": target_id,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "Manual"
+    }));
+
+    zsei_query(serde_json::json!({
+        "UpdateContainer": {
+            "container_id": container_id,
+            "updates": { "context": context }
+        }
+    }))
+    .await?;
+    Ok(())
 }
 
 /// Persist the built graph as a real ModalityGraph container (parent =
@@ -2587,6 +2643,11 @@ pub async fn execute(input: KinematicsModalityAction) -> Result<KinematicsModali
             graph.version += 1; graph.updated_at = now.clone();
             graph.version_notes.push(VersionNote { version: graph.version, note: format!("Linked to {} (graph {})", target_modality, target_graph_id), step_index: None, timestamp: now, change_type: ChangeType::CrossLinked });
             executor.save_graph(&graph)?;
+            // Real, bidirectional container-level relationship — in addition
+            // to the internal-graph CrossModalRef annotation above, which
+            // only this graph could ever see.
+            add_cross_modal_relationship(graph_id, target_graph_id).await?;
+            add_cross_modal_relationship(target_graph_id, graph_id).await?;
             Ok(KinematicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
         }
 

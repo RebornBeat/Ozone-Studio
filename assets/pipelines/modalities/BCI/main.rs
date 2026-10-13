@@ -32,6 +32,9 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -998,9 +1001,11 @@ impl PipelineExecutor {
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"BCI neural signal analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path)
-            .arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
+            .arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())
+            .and_then(|out| serde_json::from_slice(&out.stdout).map_err(|e| e.to_string()));
+        capture::capture_zero_shot_call("bci", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
 

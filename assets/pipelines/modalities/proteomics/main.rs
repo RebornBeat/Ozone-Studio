@@ -34,6 +34,9 @@ mod semantic_relations;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1217,8 +1220,12 @@ impl PipelineExecutor {
     }
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"Proteomics analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = (|| {
+            let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
+            serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())
+        })();
+        capture::capture_zero_shot_call("proteomics", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
     fn save_graph(&self, g: &ProteomicsGraph) -> Result<(), String> {
@@ -1349,19 +1356,27 @@ Return ONLY valid JSON array:
             Ok(raw) => {
                 let json_str = Self::extract_json_array(&raw);
                 let items: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
-                let legacy: Vec<(u64, u64, ProteomicsEdgeType, String)> = items.iter().filter_map(|v| {
-                    let from = v["from_node_id"].as_u64()?;
-                    let to = v["to_node_id"].as_u64()?;
-                    let etype = map_prot_edge_str(v["edge_type"].as_str().unwrap_or("InteractsWith"));
-                    let reason = v["reason"].as_str().unwrap_or("").to_string();
-                    Some((from, to, etype, reason))
-                }).collect();
                 let proposal = serde_json::json!({"relations": items.iter().map(|v| serde_json::json!({
                     "from": v["from_node_id"], "to": v["to_node_id"],
                     "relation": v["relation"], "evidence": v["evidence"],
                 })).collect::<Vec<_>>()});
                 let ids: Vec<String> = nodes.iter().map(|n| n.node_id.to_string()).collect();
-                (legacy, semantic_relations::validate_structural(&proposal, &ids))
+                let validated = semantic_relations::validate_structural(&proposal, &ids);
+                // Edges come only from the validated accepted set. A raw proposal
+                // the validator rejected stays in zero_shot_rejected, not an edge.
+                let accepted: std::collections::HashSet<(String, String, String)> = validated.accepted.iter()
+                    .map(|a| (a.from.clone(), a.to.clone(), a.domain_relation.clone().unwrap_or_else(|| a.relation.clone())))
+                    .collect();
+                let legacy: Vec<(u64, u64, ProteomicsEdgeType, String)> = items.iter().filter_map(|v| {
+                    let from = v["from_node_id"].as_u64()?;
+                    let to = v["to_node_id"].as_u64()?;
+                    let label = v["relation"].as_str().unwrap_or("").trim().to_string();
+                    if !accepted.contains(&(from.to_string(), to.to_string(), label)) { return None; }
+                    let etype = map_prot_edge_str(v["edge_type"].as_str().unwrap_or("InteractsWith"));
+                    let reason = v["reason"].as_str().unwrap_or("").to_string();
+                    Some((from, to, etype, reason))
+                }).collect();
+                (legacy, validated)
             }
             Err(_) => (vec![], semantic_relations::Validated::default()),
         }
@@ -2138,59 +2153,25 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
             Ok(ProteomicsModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
         }
 
-        ProteomicsModalityAction::PredictStructure { sequence, method, include_confidence } => {
-            let (mw, _pI) = PipelineExecutor::compute_sequence_properties(&sequence);
-            // In production: call AlphaFold2 / ESMFold API or local model
-            let plddt_mean = if include_confidence { Some(0.87f32) } else { None }; // placeholder
+        ProteomicsModalityAction::PredictStructure { sequence, method: _, include_confidence: _ } => {
+            let _ = PipelineExecutor::compute_sequence_properties(&sequence);
+            // Real structure prediction requires AlphaFold2/RoseTTAFold/ESMFold
+            // integration (API or local model) — not yet implemented. Returning
+            // an honest failure rather than fabricated plddt/structure values.
             Ok(ProteomicsModalityOutput {
-                success: true,
-                predicted_structure: Some(ProteinStructure {
-                    structure_id: executor.generate_id(),
-                    protein_id: 0,
-                    pdb_id: None,
-                    structure_method: match method {
-                        StructurePredictionMethod::AlphaFold2   => StructureDeterminationMethod::AlphaFold2,
-                        StructurePredictionMethod::RoseTTAFold  => StructureDeterminationMethod::RoseTTAFold,
-                        StructurePredictionMethod::ESMFold      => StructureDeterminationMethod::ESMFold,
-                        _                                       => StructureDeterminationMethod::AlphaFold2,
-                    },
-                    resolution_angstrom: None,
-                    chain_id: "A".into(),
-                    residue_count: sequence.len() as u32,
-                    coverage_start: 1,
-                    coverage_end: sequence.len() as u32,
-                    file_path: None,
-                    tm_score: None,
-                    plddt_mean,
-                    secondary_structure_summary: SecondaryStructureSummary { helix_fraction: 0.30, sheet_fraction: 0.25, coil_fraction: 0.35, turn_fraction: 0.10 },
-                    oligomerization_state: OligomerizationState::Unknown,
-                }),
+                success: false,
+                error: Some("real structure prediction requires AlphaFold2/RoseTTAFold/ESMFold integration, not yet implemented".into()),
                 ..Default::default()
             })
         }
 
-        ProteomicsModalityAction::DockLigand { protein_graph_id, protein_node_id, ligand_smiles, binding_site_residues, method } => {
-            // In production: call AutoDock Vina / GNINA / Glide backend
-            let docking_score = -8.5f64; // kcal/mol placeholder
+        ProteomicsModalityAction::DockLigand { protein_graph_id: _, protein_node_id: _, ligand_smiles: _, binding_site_residues: _, method: _ } => {
+            // Real docking requires an AutoDock Vina/GNINA/Glide backend — not
+            // yet implemented. Returning an honest failure rather than a
+            // fabricated docking score/binding affinity.
             Ok(ProteomicsModalityOutput {
-                success: true,
-                docking_result: Some(ProteinLigandInteraction {
-                    interaction_id: executor.generate_id(),
-                    protein_id: protein_node_id,
-                    ligand_name: "Ligand".into(),
-                    ligand_smiles: Some(ligand_smiles.clone()),
-                    binding_site_id: None,
-                    binding_affinity: Some(BindingAffinity {
-                        kd_nm: Some(50.0),
-                        delta_g_kcal_mol: Some(docking_score),
-                        ..Default::default()
-                    }),
-                    interaction_type: LigandInteractionType::Competitive,
-                    docking_score: Some(docking_score),
-                    hydrogen_bonds: Some(vec![]),
-                    hydrophobic_contacts: vec![],
-                    ..Default::default()
-                }),
+                success: false,
+                error: Some("real docking requires AutoDock Vina/GNINA/Glide integration, not yet implemented".into()),
                 ..Default::default()
             })
         }

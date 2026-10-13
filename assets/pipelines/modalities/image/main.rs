@@ -1845,27 +1845,103 @@ async fn query_graph(graph_id: u64, query: ImageQuery) -> Result<QueryResult, St
     })
 }
 
+/// Loads the REAL persisted graph from the sidecar file `persist_image_graph`
+/// writes (graphs/image_<id>.json) — previously this ignored `graph_id`
+/// entirely and returned hardcoded fake nodes/edges regardless of what was
+/// actually stored. name/project_id aren't in the sidecar (only
+/// graph_id/nodes/edges/source/metadata are), so those two fields are
+/// honest best-effort placeholders, not fabricated data about the graph's
+/// actual content.
 async fn get_graph(graph_id: u64) -> Result<ImageGraph, String> {
-    // In production, this would load from ZSEI
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel = format!("graphs/image_{}.json", graph_id);
+    let abs = std::path::Path::new(&dir).join(&rel);
+    let raw = std::fs::read_to_string(&abs)
+        .map_err(|e| format!("no persisted graph found for image graph {}: {}", graph_id, e))?;
+    let sidecar: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("graph content parse failed: {e}"))?;
+    let nodes: Vec<ImageGraphNode> = serde_json::from_value(
+        sidecar.get("nodes").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+    )
+    .map_err(|e| format!("graph nodes parse failed: {e}"))?;
+    let edges: Vec<ImageGraphEdge> = serde_json::from_value(
+        sidecar.get("edges").cloned().unwrap_or(serde_json::Value::Array(vec![])),
+    )
+    .map_err(|e| format!("graph edges parse failed: {e}"))?;
+    let source: ImageSource = sidecar
+        .get("source")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or(ImageSource {
+            path: None,
+            url: None,
+            hash: String::new(),
+            width: 0,
+            height: 0,
+            format: String::new(),
+        });
+    let metadata: GraphMetadata = sidecar
+        .get("metadata")
+        .cloned()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
     Ok(ImageGraph {
         graph_id,
         name: format!("Image Graph {}", graph_id),
         modality: MODALITY.to_string(),
-        project_id: 1,
-        source: ImageSource {
-            path: None,
-            url: None,
-            hash: format!("hash_{}", graph_id),
-            width: 800,
-            height: 600,
-            format: "PNG".to_string(),
-        },
-        nodes: vec![],
-        edges: vec![],
-        metadata: GraphMetadata::default(),
+        project_id: 0,
+        source,
+        nodes,
+        edges,
+        metadata,
         created_at: chrono::Utc::now().to_rfc3339(),
         updated_at: chrono::Utc::now().to_rfc3339(),
     })
+}
+
+/// Real ZSEI relationship write, idempotent (checks for an existing edge to
+/// the same target before pushing). Mirrors math/main.rs's add_relationship,
+/// with the existing-edge check math's own version still lacks.
+async fn add_relationship(container_id: u64, target_id: u64) -> Result<(), String> {
+    let existing = zsei_query(serde_json::json!({
+        "GetContainer": { "container_id": container_id }
+    }))
+    .await?;
+    let mut context = existing
+        .get("Container")
+        .and_then(|c| c.get("local_state"))
+        .and_then(|l| l.get("context"))
+        .cloned()
+        .ok_or_else(|| format!("Container {} has no local_state.context", container_id))?;
+
+    let relationships = context
+        .get_mut("relationships")
+        .and_then(|r| r.as_array_mut())
+        .ok_or_else(|| format!("Container {} context.relationships is not an array", container_id))?;
+
+    let already_linked = relationships.iter().any(|r| {
+        r.get("target_id").and_then(|t| t.as_u64()) == Some(target_id)
+            && r.get("relation_type").and_then(|t| t.as_str()) == Some("RelatedTo")
+    });
+    if already_linked {
+        return Ok(());
+    }
+
+    relationships.push(serde_json::json!({
+        "target_id": target_id,
+        "relation_type": "RelatedTo",
+        "confidence": 1.0,
+        "discovered_via": "CrossModalLink"
+    }));
+
+    zsei_query(serde_json::json!({
+        "UpdateContainer": {
+            "container_id": container_id,
+            "updates": { "context": context }
+        }
+    }))
+    .await?;
+    Ok(())
 }
 
 async fn link_to_modality(
@@ -1875,10 +1951,17 @@ async fn link_to_modality(
     relationship: CrossModalityRelation,
     _bidirectional: bool,
 ) -> Result<LinkResult, String> {
-    let link_id = generate_graph_id();
+    // Real, bidirectional ZSEI relationship — both containers must actually
+    // exist; this used to unconditionally fabricate a "success" LinkResult
+    // for any graph_id, real or not, with nothing behind it (2026-10-12
+    // audit finding). An honest error here (e.g. a target_graph_id that was
+    // never persisted) is correct behavior, not a regression. Pattern
+    // matches math/main.rs's already-fixed link_to_modality.
+    add_relationship(image_graph_id, target_graph_id).await?;
+    add_relationship(target_graph_id, image_graph_id).await?;
 
     Ok(LinkResult {
-        link_id,
+        link_id: generate_graph_id(),
         source_graph_id: image_graph_id,
         target_graph_id,
         relationship: format!("{:?}", relationship),
@@ -1893,15 +1976,17 @@ async fn trigger_semantic_hook(
 ) -> Result<HookResult, String> {
     let start_time = std::time::Instant::now();
 
-    // In production, this would call the ZSEI hook processor
-    // which would use LLM to add semantic annotations
+    // Honest zero — no real hook-processing logic exists yet for this
+    // modality (2026-10-12 audit finding: previously hardcoded non-zero
+    // 10/5/15 regardless of input/graph_id). Full semantic enrichment is a
+    // separate, larger task; this fixes the fabricated-metrics problem.
 
     Ok(HookResult {
         hook_type,
         success: true,
-        nodes_processed: 10,
-        edges_added: 5,
-        annotations_added: 15,
+        nodes_processed: 0,
+        edges_added: 0,
+        annotations_added: 0,
         processing_time_ms: start_time.elapsed().as_millis() as u64,
         errors: vec![],
     })
@@ -1910,45 +1995,32 @@ async fn trigger_semantic_hook(
 async fn compare_images(
     _image1: &ImageData,
     _image2: &ImageData,
-    comparison_type: ComparisonType,
+    _comparison_type: ComparisonType,
 ) -> Result<ComparisonResult, String> {
-    // In production, this would actually compare the images
-
-    Ok(ComparisonResult {
-        overall_similarity: 0.75,
-        visual_similarity: match comparison_type {
-            ComparisonType::Visual | ComparisonType::Comprehensive => Some(0.80),
-            _ => None,
-        },
-        structural_similarity: match comparison_type {
-            ComparisonType::Structural | ComparisonType::Comprehensive => Some(0.70),
-            _ => None,
-        },
-        color_similarity: match comparison_type {
-            ComparisonType::ColorPalette | ComparisonType::Comprehensive => Some(0.85),
-            _ => None,
-        },
-        composition_similarity: match comparison_type {
-            ComparisonType::Composition | ComparisonType::Comprehensive => Some(0.65),
-            _ => None,
-        },
-        differences: vec![],
-        common_elements: vec!["background".to_string(), "foreground_object".to_string()],
-    })
+    // Real image similarity comparison (perceptual hashing / structural
+    // comparison) is not yet implemented. Previously this returned fixed
+    // fabricated scores (0.75/0.80/0.70/0.85) regardless of the actual
+    // images compared — honest failure instead.
+    Err("real image similarity comparison not yet implemented".to_string())
 }
 
 async fn extract_region(
-    image_data: &ImageData,
-    bounding_box: &BoundingBox,
+    _image_data: &ImageData,
+    _bounding_box: &BoundingBox,
 ) -> Result<RegionResult, String> {
-    // In production, this would actually extract the region
-
-    Ok(RegionResult {
-        image_data: image_data.clone(),
-        original_box: bounding_box.clone(),
-        width: bounding_box.width as u32,
-        height: bounding_box.height as u32,
-    })
+    // DE-FABRICATED (2026-10-13): this used to return the WHOLE image labeled
+    // as the extracted region — the caller asked for a crop and silently got
+    // the unclipped original with the bounding box's dimensions claimed on
+    // top. Real cropping needs an image decoder this crate doesn't carry
+    // (ImageData is Base64/FilePath/Url/Bytes — no pixels, no dimensions),
+    // so until one is added, region extraction fails HONESTLY with the exact
+    // missing capability named, proteomics-PredictStructure-style.
+    Err(
+        "region extraction is not implemented: cropping requires an image \
+         decoder (PNG/JPEG -> raw pixels) which this pipeline does not yet \
+         depend on; no cropped image was produced"
+            .to_string(),
+    )
 }
 
 fn generate_graph_id() -> u64 {

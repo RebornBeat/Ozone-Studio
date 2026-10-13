@@ -282,7 +282,10 @@ export function SetupWizard({ onComplete }: Props) {
   };
 
   // Complete setup wizard
+  const [savingSetup, setSavingSetup] = useState(false);
   const completeSetup = async () => {
+    if (savingSetup) return; // double-click guard — save is not instant
+    setSavingSetup(true);
     try {
       const configUpdates = {
         setup_complete: true,
@@ -372,6 +375,8 @@ export function SetupWizard({ onComplete }: Props) {
     } catch (err) {
       console.error("Setup completion failed:", err);
       setSetupErrors(["Failed to save configuration. Please try again."]);
+    } finally {
+      setSavingSetup(false);
     }
   };
 
@@ -1039,8 +1044,8 @@ export function SetupWizard({ onComplete }: Props) {
                 <button className="setup-back" onClick={handleSetupBack}>
                   ← Back
                 </button>
-                <button className="setup-complete" onClick={completeSetup}>
-                  Start Using OZONE STUDIO →
+                <button className="setup-complete" onClick={completeSetup} disabled={savingSetup}>
+                  {savingSetup ? "Saving…" : "Start Using OZONE STUDIO →"}
                 </button>
               </div>
             </div>
