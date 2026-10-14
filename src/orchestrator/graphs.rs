@@ -806,4 +806,210 @@ impl PromptOrchestrator {
             _ => 0,
         }
     }
+
+    /// EDGE SUPPLY — the orchestrator-level post-walk linking pass (2026-10-13,
+    /// option (b) of the recorded edge-supply design decision). The acceptance
+    /// walk found the binding constraint: walk-created content (modality
+    /// graphs, blueprints) is edge-less because the SimilarTo linking runs
+    /// only inside the text pipeline's create_graph, so seed→hop had nothing
+    /// to traverse for walk content. This pass wires RelatedTo edges between
+    /// the containers THIS walk created/touched, using the same proven
+    /// contract as the pipeline linkers: keyword-overlap scoring with a
+    /// conservative floor (2 shared terms), idempotent bidirectional writes
+    /// (skip a direction when that target already exists on that side),
+    /// discovered_via=Traversal (the orchestrator's own relationship work).
+    /// Cross-walk payoff: the NEXT walk's seed→hop can traverse these edges
+    /// into zero-keyword-reach content.
+    ///
+    /// Best-effort by design: any failure logs loudly and delivery proceeds —
+    /// linking must never break a response.
+    pub(crate) async fn link_walk_content(&self, state: &mut OrchestrationState) {
+        let mut ids: Vec<u64> = state.modality_graphs.values().copied().collect();
+        if let Some(bp) = state.blueprint_id {
+            ids.push(bp);
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        // PRIOR-CONTENT PARTNERS (v3, found live on walk A'' — modern direct-
+        // answer walks have blueprint_assigned=false and often a single
+        // modality graph, so same-walk pairing alone never reaches the 2-
+        // container floor). The cross-walk point is linking this walk's
+        // durable containers to the PRIOR content they are keyword-adjacent
+        // to: derive terms from the cleaned prompt, take ≤6 untyped keyword
+        // hits as additional partners, and let the shared-terms floor do the
+        // gating. Idempotent + floor-checked exactly like the same-walk pairs.
+        let prompt_terms: Vec<String> = state
+            .cleaned_prompt
+            .split_whitespace()
+            .map(|w| {
+                w.chars()
+                    .filter(|c| c.is_alphanumeric())
+                    .collect::<String>()
+                    .to_lowercase()
+            })
+            .filter(|w| w.len() > 3)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .take(12)
+            .collect();
+        if !prompt_terms.is_empty() {
+            match self.store.search_by_keywords(&prompt_terms, None).await {
+                Ok(hits) => {
+                    let before = ids.len();
+                    for id in hits.into_iter().take(6) {
+                        if !ids.contains(&id) {
+                            ids.push(id);
+                        }
+                    }
+                    if ids.len() > before {
+                        tracing::info!(
+                            stage = "13.link",
+                            prior_partners = ids.len() - before,
+                            "prior-content containers joined the link pass (cross-walk pairing)"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(stage = "13.link", error = %e, "prior-content partner search failed loudly (same-walk pairing continues)");
+                }
+            }
+        }
+        if ids.len() < 2 {
+            // SILENT-EARLY-RETURN FIX (2026-10-13, found on walk A'): a
+            // direct-answer walk (blueprint=None, single modality graph)
+            // returned with NO log line at all — an honesty gap in this very
+            // pass. The empty case is now recorded with real counts like
+            // every other outcome.
+            tracing::info!(
+                stage = "13.link",
+                containers = ids.len(),
+                blueprint_assigned = state.blueprint_id.is_some(),
+                "walk-content link pass: fewer than 2 durable containers — nothing to link (real counts)"
+            );
+            return;
+        }
+
+        // Load once: id → (terms set, container JSON, existing target ids).
+        let mut loaded: Vec<(u64, std::collections::HashSet<String>, serde_json::Value, Vec<u64>)> =
+            Vec::with_capacity(ids.len());
+        for id in &ids {
+            match self.store.get_container(*id).await {
+                Ok(Some(container)) => {
+                    let terms: std::collections::HashSet<String> = container
+                        .pointer("/local_state/context/keywords")
+                        .and_then(|k| k.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|v| v.as_str())
+                                .map(|s| s.to_lowercase())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let existing: Vec<u64> = container
+                        .pointer("/local_state/context/relationships")
+                        .and_then(|r| r.as_array())
+                        .map(|a| {
+                            a.iter()
+                                .filter_map(|r| r.get("target_id"))
+                                .filter_map(|t| t.as_u64())
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    loaded.push((*id, terms, container, existing));
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(stage = "13.link", id, error = %e, "walk-content link pass: container load failed (skipped loudly)");
+                }
+            }
+        }
+
+        let floor = 2usize;
+        let mut wired = 0usize;
+        let mut already_linked = 0usize;
+        for a in 0..loaded.len() {
+            for b in (a + 1)..loaded.len() {
+                let shared = loaded[a].1.intersection(&loaded[b].1).count();
+                if shared < floor {
+                    continue;
+                }
+                let mut wrote_this_pair = false;
+                for src in [loaded[a].0, loaded[b].0] {
+                    let dst = if src == loaded[a].0 { loaded[b].0 } else { loaded[a].0 };
+                    let existing_ok = loaded
+                        .iter()
+                        .find(|(id, _, _, _)| *id == src)
+                        .map(|(_, _, _, ex)| ex.contains(&dst))
+                        .unwrap_or(true);
+                    if existing_ok {
+                        already_linked += 1;
+                        continue;
+                    }
+                    let Some(entry) = loaded.iter_mut().find(|(id, _, _, _)| *id == src) else {
+                        continue;
+                    };
+                    let container = entry.2.clone();
+                    let Some(ctx) = container
+                        .get("local_state")
+                        .and_then(|l| l.get("context"))
+                        .and_then(|c| c.as_object())
+                        .cloned()
+                    else {
+                        continue;
+                    };
+                    let mut ctx = ctx;
+                    let rels = ctx
+                        .entry("relationships".to_string())
+                        .or_insert_with(|| serde_json::Value::Array(vec![]));
+                    if let Some(arr) = rels.as_array_mut() {
+                        arr.push(serde_json::json!({
+                            "target_id": dst,
+                            "relation_type": "RelatedTo",
+                            "confidence": 0.5,
+                            "discovered_via": "Traversal",
+                            "shared_terms": shared,
+                        }));
+                        if let Err(e) = self
+                            .store
+                            .update_container(src, serde_json::json!({ "context": ctx }))
+                            .await
+                        {
+                            tracing::warn!(stage = "13.link", source = src, target = dst, error = %e, "walk-content edge write failed loudly");
+                        } else {
+                            wired += 1;
+                            wrote_this_pair = true;
+                            entry.3.push(dst);
+                        }
+                    }
+                }
+                if wrote_this_pair {
+                    tracing::info!(
+                        stage = "13.link",
+                        a = loaded[a].0,
+                        b = loaded[b].0,
+                        shared,
+                        "walk-content pair linked (bidirectional, idempotent)"
+                    );
+                }
+            }
+        }
+        tracing::info!(
+            stage = "13.link",
+            containers = loaded.len(),
+            edges_wired = wired,
+            already_linked,
+            "walk-content link pass complete (all counts real)"
+        );
+        if wired > 0 {
+            self.emit_marker(
+                state,
+                "[13.link]",
+                &format!(
+                    "edge supply: {} walk-content edges wired across {} containers",
+                    wired,
+                    loaded.len()
+                ),
+            );
+        }
+    }
 }

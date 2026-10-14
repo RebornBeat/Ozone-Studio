@@ -121,6 +121,11 @@ impl PromptOrchestrator {
         // STAGE 13: Response Delivery
         tracing::info!(stage = 13, "Stage 13 (Response Delivery) starting");
         tracing::info!(stage = 13, "[13.0] delivery context: blueprint steps executed = {}, gate decision = {:?}", state.blueprint_steps.len(), state.gate_result.as_ref().map(|g| &g.decision));
+        // EDGE SUPPLY (2026-10-13): wire RelatedTo edges between the
+        // containers this walk created BEFORE delivering — the next walk's
+        // seed→hop traverses them. Best-effort internally (failures logged
+        // loudly); never fails delivery.
+        self.link_walk_content(state).await;
         self.stage_11_response_delivery(state).await?;
 
         tracing::info!("Orchestration complete: all 14 stages finished");
