@@ -1140,6 +1140,13 @@ pub(crate) struct OrchestrationState {
     /// stage 10 (step execution).
     pub prior_design_context: Option<String>,
 
+    /// The enrich stage's derived search keywords (layers' keywords/topics,
+    /// ≤12) — retained so [13.link]'s edge-supply pass can pair walk content
+    /// using the SAME refined vocabulary enrich used, instead of raw prompt
+    /// terms (recorded refinement from the 2026-10-13 live run: raw prompt
+    /// terms narrowed new↔old pairing). Empty until enrich runs.
+    pub last_enrich_keywords: Vec<String>,
+
     /// REGISTERED CAPABILITY SUMMARY (§11.2, operator-corrected wiring:
     /// blueprints identify tool/MCP needs — the orchestration surfaces the
     /// capability registry so they CAN). Built once at the orchestrate seam
@@ -1817,6 +1824,7 @@ impl PromptOrchestrator {
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
             prior_design_context: None,
+            last_enrich_keywords: Vec::new(),
             simulation_result: None,
             model_context_limit,
             tokens_used_so_far: prompt_tokens,

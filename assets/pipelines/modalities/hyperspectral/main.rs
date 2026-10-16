@@ -38,7 +38,7 @@ mod capture;
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "action")]
+#[serde(tag = "type")]
 pub enum HyperspectralModalityAction {
     /// Analyze a hyperspectral/multispectral image
     Analyze {
@@ -2397,6 +2397,20 @@ impl PipelineExecutor {
                 eprintln!("Usage: hyperspectral_imaging --input '<json>'");
                 std::process::exit(1);
             }
+    // CONTRACT UNIFICATION (2026-10-14): the host serializes the
+    // PipelineInput envelope {"data": {...}, "context": {...}} — unwrap
+    // `data` when present (the text/math contract), else parse the payload
+    // as-is. Every pipeline now speaks ONE dispatch contract.
+    let input_json = {
+        let probe: serde_json::Value = match serde_json::from_str(&input_json) {
+            Ok(v) => v,
+            Err(_) => serde_json::Value::Null,
+        };
+        match probe.get("data") {
+            Some(inner) if probe.get("context").is_some() => inner.to_string(),
+            _ => input_json,
+        }
+    };
             let input: HyperspectralModalityAction = match serde_json::from_str(&input_json) {
                 Ok(v) => v,
                 Err(e) => {

@@ -11,7 +11,12 @@ for dir in "$ROOT"/assets/pipelines/*/*/; do
   dir="${dir%/}"
   name="$(basename "$dir")"
   [ -f "$dir/Cargo.toml" ] || continue
-  [ -f "$dir/target/release/$name" ] || continue
+  # SHARED-BINARY GATE (2026-10-14): previously gated on the per-pipeline
+  # LOCAL target binary — which the storage cleanup deleted (15GB of
+  # duplicated local targets), making this script skip every pipeline. The
+  # canonical artifact location is the shared target dir (the executor's
+  # first search candidate); gate on that.
+  [ -f "$CARGO_TARGET_DIR/release/$name" ] || continue
   if cargo build --release --manifest-path "$dir/Cargo.toml"; then
     ok=$((ok + 1))
     echo "OK   $name"

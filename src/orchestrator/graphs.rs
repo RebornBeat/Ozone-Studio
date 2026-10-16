@@ -838,20 +838,29 @@ impl PromptOrchestrator {
         // to: derive terms from the cleaned prompt, take ≤6 untyped keyword
         // hits as additional partners, and let the shared-terms floor do the
         // gating. Idempotent + floor-checked exactly like the same-walk pairs.
-        let prompt_terms: Vec<String> = state
-            .cleaned_prompt
-            .split_whitespace()
-            .map(|w| {
-                w.chars()
-                    .filter(|c| c.is_alphanumeric())
-                    .collect::<String>()
-                    .to_lowercase()
-            })
-            .filter(|w| w.len() > 3)
-            .collect::<std::collections::HashSet<_>>()
-            .into_iter()
-            .take(12)
-            .collect();
+        // REFINEMENT (2026-10-14): prefer enrich's retained layer keywords
+        // (state.last_enrich_keywords) — the SAME refined vocabulary enrich
+        // searched with — and fall back to raw prompt terms only when enrich
+        // never ran (empty). Live run showed raw prompt terms narrowed
+        // new↔old pairing.
+        let prompt_terms: Vec<String> = if !state.last_enrich_keywords.is_empty() {
+            state.last_enrich_keywords.clone()
+        } else {
+            state
+                .cleaned_prompt
+                .split_whitespace()
+                .map(|w| {
+                    w.chars()
+                        .filter(|c| c.is_alphanumeric())
+                        .collect::<String>()
+                        .to_lowercase()
+                })
+                .filter(|w| w.len() > 3)
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .take(12)
+                .collect()
+        };
         if !prompt_terms.is_empty() {
             match self.store.search_by_keywords(&prompt_terms, None).await {
                 Ok(hits) => {

@@ -3225,6 +3225,10 @@ Return ONLY valid JSON with a single one-word answer:
             .take(12)
             .cloned()
             .collect();
+        // Retain for [13.link]'s edge-supply pass (see the field doc): the
+        // stage-13 pairing should use the SAME refined vocabulary enrich
+        // used, not raw prompt terms.
+        state.last_enrich_keywords = search_keywords.clone();
 
         if !search_keywords.is_empty() {
             let found_methods = self.store
@@ -4072,6 +4076,7 @@ mod tests {
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
             prior_design_context: None,
+            last_enrich_keywords: Vec::new(),
             simulation_result: None,
             model_context_limit: 200_000,
             tokens_used_so_far: 0,
