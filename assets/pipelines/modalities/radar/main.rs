@@ -2789,6 +2789,24 @@ fn main() {
             _ => input_json,
         }
     };
+    // RAW-DATA DESIGN LADDER (2026-10-16): `data: RadarDataSource` is a
+    // required, non-Option field with no "no data" variant, so a text-only
+    // mention of radar (no real attached data file) would otherwise fail
+    // the strongly-typed parse below with a raw, low-level serde error
+    // ("missing field `data`") — technically honest, never fabricates
+    // success, but an accidental side effect rather than a deliberate
+    // response. Refuse cleanly instead, before the generic parse runs.
+    if let Ok(probe) = serde_json::from_str::<serde_json::Value>(&input_json) {
+        let is_analyze = probe.get("type").and_then(|t| t.as_str()) == Some("Analyze");
+        let has_data = probe.get("data").map(|d| !d.is_null()).unwrap_or(false);
+        if is_analyze && !has_data {
+            println!(
+                "{}",
+                serde_json::json!({"success": false, "error": "No raw radar data provided — this call appears to be a text-only mention with no attached data file; real radar analysis requires an actual data file"})
+            );
+            std::process::exit(1);
+        }
+    }
     let input: RadarModalityAction = match serde_json::from_str(&input_json) {
         Ok(v) => v,
         Err(e) => {

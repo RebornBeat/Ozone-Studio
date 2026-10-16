@@ -182,6 +182,156 @@ export function summarizeTrail(lines: string[]): TrailSummary {
   return s;
 }
 
+// Minimal local markdown-to-React renderer for assistant responses. This
+// project's established pattern (see MathViewer.tsx's own local
+// ASCII→Unicode converter) is a small local converter over adding an npm
+// dependency — no markdown library exists in package.json. Handles the
+// real patterns backend responses actually produce: #/##/### headers,
+// **bold**, `inline code`, pipe tables, "-"/"*" unordered list items, and
+// blank-line-separated paragraphs. Previously `entry.content` was rendered
+// as a bare string with zero parsing and no `white-space` CSS, so markdown
+// syntax showed literally and paragraph breaks collapsed into one run-on
+// block — this replaces that for assistant messages only (user-typed text
+// is left as plain text, so e.g. a user typing "- item" isn't silently
+// turned into a list).
+function renderInlineMarkdown(text: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    const token = m[0];
+    if (token.startsWith('**')) {
+      nodes.push(<strong key={key++}>{token.slice(2, -2)}</strong>);
+    } else {
+      nodes.push(
+        <code
+          key={key++}
+          style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 4, fontSize: '0.9em' }}
+        >
+          {token.slice(1, -1)}
+        </code>,
+      );
+    }
+    last = m.index + token.length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function renderMarkdown(text: string): React.ReactNode {
+  const lines = text.split('\n');
+  const blocks: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  let paragraph: string[] = [];
+  const wrap: React.CSSProperties = { overflowWrap: 'break-word', wordBreak: 'break-word' };
+
+  const flushParagraph = () => {
+    if (paragraph.length > 0) {
+      blocks.push(
+        <p key={key++} style={{ margin: '0 0 8px 0', ...wrap }}>
+          {renderInlineMarkdown(paragraph.join(' '))}
+        </p>,
+      );
+      paragraph = [];
+    }
+  };
+
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+
+    if (trimmed === '') {
+      flushParagraph();
+      i++;
+      continue;
+    }
+
+    const headerMatch = trimmed.match(/^(#{1,6})\s+(.*)$/);
+    if (headerMatch) {
+      flushParagraph();
+      const level = headerMatch[1].length;
+      const Tag = (`h${Math.min(level + 2, 6)}`) as keyof JSX.IntrinsicElements;
+      blocks.push(
+        <Tag key={key++} style={{ margin: '10px 0 6px 0', fontSize: level <= 2 ? '1.1em' : '1em', ...wrap }}>
+          {renderInlineMarkdown(headerMatch[2])}
+        </Tag>,
+      );
+      i++;
+      continue;
+    }
+
+    // Pipe table: a row containing '|' immediately followed by a
+    // ---/:---/| separator row.
+    if (trimmed.includes('|') && /^\|?[\s:|-]+\|?[\s:|-]*$/.test(lines[i + 1]?.trim() ?? '') && (lines[i + 1] ?? '').includes('-')) {
+      flushParagraph();
+      const parseRow = (l: string) => l.trim().replace(/^\||\|$/g, '').split('|').map((c) => c.trim());
+      const header = parseRow(line);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && lines[i].trim().includes('|')) {
+        rows.push(parseRow(lines[i]));
+        i++;
+      }
+      blocks.push(
+        <div key={key++} style={{ overflowX: 'auto', margin: '6px 0' }}>
+          <table style={{ borderCollapse: 'collapse', fontSize: '0.92em' }}>
+            <thead>
+              <tr>
+                {header.map((h, hi) => (
+                  <th key={hi} style={{ border: '1px solid #223046', padding: '4px 8px', textAlign: 'left' }}>
+                    {renderInlineMarkdown(h)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, ri) => (
+                <tr key={ri}>
+                  {r.map((c, ci) => (
+                    <td key={ci} style={{ border: '1px solid #223046', padding: '4px 8px', ...wrap }}>
+                      {renderInlineMarkdown(c)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+
+    // Unordered list — consume consecutive "-"/"*" items.
+    if (/^[-*]\s+/.test(trimmed)) {
+      flushParagraph();
+      const items: string[] = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i].trim())) {
+        items.push(lines[i].trim().replace(/^[-*]\s+/, ''));
+        i++;
+      }
+      blocks.push(
+        <ul key={key++} style={{ margin: '4px 0 8px 0', paddingLeft: 20, ...wrap }}>
+          {items.map((it, ii) => (
+            <li key={ii} style={{ marginBottom: 2 }}>
+              {renderInlineMarkdown(it)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    }
+
+    paragraph.push(line);
+    i++;
+  }
+  flushParagraph();
+  return <>{blocks}</>;
+}
+
 export function MetaPortion({ width }: MetaPortionProps) {
   const {
     consciousnessEnabled,
@@ -661,6 +811,11 @@ export function MetaPortion({ width }: MetaPortionProps) {
       timestamp: Date.now()
     };
     setTranscript(prev => [...prev, userEntry]);
+    // Clear the input immediately on send, not after the response arrives —
+    // the primary path built its own request directly instead of going
+    // through the store's submitPrompt (which already clears promptInput),
+    // so this call was missing here.
+    setPromptInput('');
 
     // Declared outside the try block (not inside it) so the catch block
     // below can still see it — tracks the primary path's in-transcript
@@ -1170,13 +1325,15 @@ export function MetaPortion({ width }: MetaPortionProps) {
                         </div>
                         <div
                           className="message-content"
-                          style={
-                            entry.role === 'assistant' && entry.modelUsed
+                          style={{
+                            overflowWrap: 'break-word',
+                            wordBreak: 'break-word',
+                            ...(entry.role === 'assistant' && entry.modelUsed
                               ? { borderLeft: `2px solid ${ms.color}88`, paddingLeft: 10 }
-                              : undefined
-                          }
+                              : {}),
+                          }}
                         >
-                          {entry.content}
+                          {entry.role === 'assistant' ? renderMarkdown(entry.content) : entry.content}
                         </div>
                         {entry.role === 'assistant' && (
                           entry.modelUsed || entry.stageCount ||
@@ -1324,7 +1481,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                       : ''}
                                   </span>
                                 </div>
-                                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                   {t.raw_response}
                                 </div>
                               </div>
@@ -1388,7 +1545,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                   );
                                 })()}
                                 {entry.attemptTrail.map((line, i) => (
-                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                     {line}
                                   </div>
                                 ))}
@@ -1407,7 +1564,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                                   ⛔ Refused ({entry.refusals.length})
                                 </div>
                                 {entry.refusals.map((line, i) => (
-                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85 }}>
+                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
                                     {line}
                                   </div>
                                 ))}
@@ -1440,7 +1597,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                 >
                   <span className="orchestration-thinking-dot" />
                   <span>
-                    Thinking… {elapsedSeconds}s
+                    Thinking… {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}
                     {currentStepInfo
                       ? ` · step ${currentStepInfo.completed}/${currentStepInfo.total}${
                           currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''
@@ -1471,7 +1628,10 @@ export function MetaPortion({ width }: MetaPortionProps) {
             </div>
             <div className="iloop-reflection">
               <span className="reflection-label">Current reflection:</span>
-              <span className="reflection-text">
+              <span
+                className="reflection-text"
+                title={iLoopState.currentQuestion || 'Waiting for next reflection cycle...'}
+              >
                 "{iLoopState.currentQuestion || 'Waiting for next reflection cycle...'}"
               </span>
             </div>

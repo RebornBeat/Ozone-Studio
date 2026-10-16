@@ -40,6 +40,93 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
     Ok(body.get("result").cloned().unwrap_or(serde_json::Value::Null))
 }
 
+/// Dispatch a file to its real detected-modality pipeline for analysis, via
+/// the host's own generic `POST /pipeline/execute` route (the same route
+/// `window.ozone`/the UI's `executePipeline()` already calls) — NOT by
+/// shelling out to the sibling pipeline binary directly. file_link is its
+/// own independent process (confirmed this session: pipeline crates share no
+/// library with `src/pipeline/executor.rs`), so letting the host's real
+/// `PipelineExecutor` do the actual subprocess spawn/path-resolution/gate
+/// logic avoids duplicating all of that here — same pattern `zsei_query`
+/// above already established for ZSEI calls, just a different host route.
+/// Returns the real pipeline's output `data` map on success.
+async fn invoke_modality_pipeline(
+    pipeline_id: u64,
+    action_data: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let client = reqwest::Client::new();
+    let input = serde_json::json!({
+        "data": action_data,
+        "context": {
+            "user_id": 0,
+            "device_id": 0,
+            "workspace_id": null,
+            "project_id": null,
+            "task_context_id": null,
+            "metadata": {}
+        }
+    });
+    let resp = client
+        .post(format!("{}/pipeline/execute", ozone_host()))
+        .json(&serde_json::json!({
+            "pipeline_id": pipeline_id,
+            "input": input,
+            "session_token": ""
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("pipeline execute request failed: {}", e))?;
+    let body: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("pipeline execute response parse failed: {}", e))?;
+    if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+        return Err(body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("pipeline execution failed")
+            .to_string());
+    }
+    Ok(body.get("output").cloned().unwrap_or(serde_json::Value::Null))
+}
+
+/// Real pipeline ids for the modalities wired to a real dispatch below —
+/// confirmed against `src/orchestrator/graphs.rs`'s own modality→id map and
+/// `src/bootstrap.rs`'s registered pipeline entries, not guessed.
+fn modality_pipeline_id(modality: &str) -> Option<u64> {
+    match modality {
+        "Image" => Some(102),
+        "Audio" => Some(103),
+        "Video" => Some(104),
+        _ => None,
+    }
+}
+
+/// The `{"type": "Analyze", ...}` payload for each wired modality's real
+/// `Analyze` action, keyed on its own real `*Data`/`*_data` field name and
+/// `FilePath` variant (confirmed directly against each pipeline's own enum
+/// this session — image/audio/video all already use `#[serde(tag = "type")]`
+/// and a `FilePath(String)` data-source variant, so no envelope/tag fix was
+/// needed here unlike the 18 modalities the contract-unification pass
+/// covered).
+fn analyze_action_payload(modality: &str, file_path: &str) -> Option<serde_json::Value> {
+    match modality {
+        "Image" => Some(serde_json::json!({
+            "type": "Analyze",
+            "image_data": {"FilePath": file_path}
+        })),
+        "Audio" => Some(serde_json::json!({
+            "type": "Analyze",
+            "audio_data": {"FilePath": file_path}
+        })),
+        "Video" => Some(serde_json::json!({
+            "type": "Analyze",
+            "video_data": {"FilePath": file_path}
+        })),
+        _ => None,
+    }
+}
+
 /// Real ZSEI graph wiring for a resource link (task 64) — previously
 /// file/url/package links were entirely flat-JSON, invisible to any real
 /// graph traversal or relationship. Creates a real `container_type`
@@ -199,6 +286,15 @@ pub struct FileRefInfo {
     /// before this field existed still deserialize (as None).
     #[serde(default)]
     pub zsei_container_id: Option<u64>,
+    /// The real modality-graph container id produced by actually dispatching
+    /// this file to its detected modality's pipeline (e.g. image/audio/video
+    /// pipeline #102/103/104's real `Analyze` action) via `POST
+    /// /pipeline/execute` on the host. `None` when the modality isn't wired
+    /// to a real dispatch yet (falls back to honest metadata-only) or the
+    /// real dispatch failed. `#[serde(default)]` so pre-existing records
+    /// still deserialize.
+    #[serde(default)]
+    pub analysis_graph_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -367,17 +463,41 @@ fn create_file_ref(project_id: u64, file_path: &str, analyze: bool) -> FileRefIn
         // Wired to the real graph at link time (task 64); None here is
         // legitimate — link_reference_to_graph fills it in afterwards.
         zsei_container_id: None,
+        analysis_graph_id: None,
     }
 }
 
 /// Analyze a file using CodeAnalysis or TextAnalysis based on modality
-fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, String> {
-    // Read file content
-    let content =
-        fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+async fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, String> {
+    // Real dispatch first, for the modalities actually wired to one — these
+    // are binary-safe (never read as text) and get a real graph from the
+    // real pipeline, not metadata-only guessing.
+    if let Some(pipeline_id) = modality_pipeline_id(modality) {
+        let payload = analyze_action_payload(modality, file_path)
+            .ok_or_else(|| format!("no analyze payload builder for wired modality {}", modality))?;
+        let output = invoke_modality_pipeline(pipeline_id, payload).await?;
+        let graph_id = output.get("graph_id").and_then(|g| g.as_u64());
+        return Ok(serde_json::json!({
+            "analysis_type": "real_pipeline_dispatch",
+            "modality": modality,
+            "pipeline_id": pipeline_id,
+            "graph_id": graph_id,
+            "pipeline_output": output
+        }));
+    }
 
+    // Everything below here is the honest fallback for modalities NOT yet
+    // wired to a real dispatch (confirmed this session: this covers the
+    // other ~24 modalities — chemistry/DNA/EEG/math/etc. — which all have
+    // real CreateContainer-based graph creation by now but aren't wired
+    // into this file yet; adding each is the same shape as Image/Audio/
+    // Video above, left for a follow-up pass rather than guessing their
+    // exact Analyze/DataSource field names without checking each one).
     match modality {
         "Code" | "Script" | "Web" => {
+            // Read file content — text-safe for these 3 modalities only.
+            let content =
+                fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
             // Call CodeAnalysis pipeline (#18) via subprocess
             // In real implementation, this would call the pipeline executor
             let input = serde_json::json!({
@@ -417,6 +537,9 @@ fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, St
             }))
         }
         "Documentation" | "Data" => {
+            // Read file content — text-safe for these 2 modalities only.
+            let content =
+                fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
             // Call TextAnalysis pipeline (#20) via subprocess
             let words: Vec<&str> = content.split_whitespace().collect();
             let sentences = content
@@ -437,11 +560,16 @@ fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, St
             }))
         }
         _ => {
-            // Binary or unknown - basic metadata only
+            // Binary or unknown, and not yet wired to a real pipeline above
+            // — honest metadata only. `fs::metadata` (not `read_to_string`)
+            // so this never fails on real binary content (the bug this
+            // whole fix addresses: the old code read every file as text
+            // unconditionally, before even reaching this arm).
+            let size_bytes = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
             Ok(serde_json::json!({
                 "analysis_type": "metadata",
                 "modality": modality,
-                "size_bytes": content.len()
+                "size_bytes": size_bytes
             }))
         }
     }
@@ -491,8 +619,10 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
             // Perform analysis if requested and file exists
             if analyze && file_ref.exists {
-                match analyze_file(&file_path, &file_ref.modality) {
+                match analyze_file(&file_path, &file_ref.modality).await {
                     Ok(analysis) => {
+                        file_ref.analysis_graph_id =
+                            analysis.get("graph_id").and_then(|g| g.as_u64());
                         // Store analysis in ZSEI
                         if store_analysis(project_id, file_ref.id, &analysis).is_ok() {
                             file_ref.analyzed = true;
@@ -550,7 +680,9 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
                 // Perform analysis if requested and file exists
                 if analyze && file_ref.exists {
-                    if let Ok(analysis) = analyze_file(&file_path, &file_ref.modality) {
+                    if let Ok(analysis) = analyze_file(&file_path, &file_ref.modality).await {
+                        file_ref.analysis_graph_id =
+                            analysis.get("graph_id").and_then(|g| g.as_u64());
                         if store_analysis(project_id, file_ref.id, &analysis).is_ok() {
                             file_ref.analyzed = true;
                         }

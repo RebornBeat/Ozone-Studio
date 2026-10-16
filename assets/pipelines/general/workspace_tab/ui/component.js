@@ -425,12 +425,24 @@ module.exports = {
           });
 
           if (result?.output?.file_ref?.modality) {
-            const modality = result.output.file_ref.modality.toLowerCase();
+            const fileRef = result.output.file_ref;
+            const modality = fileRef.modality.toLowerCase();
+            // file_link's Link action runs analysis synchronously (if
+            // requested) and returns before this call resolves — there is
+            // no pending/async step after this point, so the message must
+            // not imply future work. `analyzed` reports the REAL outcome:
+            // true only for the modalities file_link's own analyze_file()
+            // actually handles (Code/Script/Web, Documentation/Data) —
+            // every other modality (image included) currently falls through
+            // to a generic metadata-only path that typically can't even
+            // read a binary file as text, so `analyzed` is honestly false
+            // for those today. Never claim a pipeline will process the file
+            // when no such dispatch exists in this code path.
             if (window.__ozoneThemeArea?.addNotification) {
-              window.__ozoneThemeArea.addNotification(
-                `File detected as: ${modality} — will be processed by the ${modality} pipeline`,
-                "info",
-              );
+              const message = fileRef.analyzed
+                ? `File linked as ${modality} — analysis complete`
+                : `File linked as ${modality} — no analysis pipeline wired for this file type yet`;
+              window.__ozoneThemeArea.addNotification(message, fileRef.analyzed ? "info" : "warning");
             }
           }
 

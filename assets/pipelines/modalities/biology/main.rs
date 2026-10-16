@@ -2419,6 +2419,22 @@ fn main() {
             _ => input_json,
         }
     };
+    // NO-RAW-DATA HONEST REFUSAL (2026-10-16, design-ladder closure): an
+    // Analyze* call with no real data source (e.g. the orchestrator only
+    // detected a text MENTION of this modality, no attached data file) used
+    // to fall through to the generic deserialize below and surface a raw
+    // "missing field `data`" parse error — technically honest but accidental,
+    // not a deliberate response. Catch it explicitly and refuse cleanly.
+    if let Ok(action_probe) = serde_json::from_str::<serde_json::Value>(&input_json) {
+        let action_type = action_probe.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if action_type.starts_with("Analyze") && action_probe.get("data").map_or(true, |d| d.is_null()) {
+            println!("{}", serde_json::json!({
+                "success": false,
+                "error": format!("No raw biology data provided for action '{}' — this call appears to be a text-only mention with no attached data file; real biology analysis requires an actual data file", action_type)
+            }));
+            std::process::exit(1);
+        }
+    }
     let input: BiologyModalityAction = match serde_json::from_str(&input_json) {
         Ok(v) => v,
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":format!("Parse error: {}",e)})); std::process::exit(1); }

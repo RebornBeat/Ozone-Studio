@@ -2229,7 +2229,7 @@ body {
 
 /* I-Loop Section */
 .iloop-section {
-    padding: var(--space-md);
+    padding: var(--space-xs) var(--space-md);
     background: linear-gradient(
         135deg,
         rgba(139, 92, 246, 0.1),
@@ -2242,7 +2242,7 @@ body {
     display: flex;
     align-items: center;
     gap: var(--space-xs);
-    margin-bottom: var(--space-xs);
+    margin-bottom: 2px;
 }
 
 .iloop-dot {
@@ -2271,18 +2271,25 @@ body {
 }
 
 .iloop-reflection {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
 }
 
 .reflection-label {
     color: var(--color-text-muted);
-    display: block;
-    margin-bottom: 2px;
+    flex-shrink: 0;
 }
 
 .reflection-text {
     color: var(--color-text-secondary);
     font-style: italic;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
 }
 
 /* Consciousness Overlay */

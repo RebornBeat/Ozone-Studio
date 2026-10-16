@@ -893,6 +893,27 @@ pub struct HookResult {
 pub async fn execute(input: Value) -> Result<Value, String> {
     let start_time = std::time::Instant::now();
 
+    // Honest refusal for a text-only "mention" with no real raw sequence
+    // data attached, BEFORE the strict typed deserialization below would
+    // reject it with an accidental, low-level parse error. Only the one
+    // action that requires raw data (AnalyzeSequence) is checked.
+    if input.get("action").and_then(|a| a.get("type")).and_then(|t| t.as_str()) == Some("AnalyzeSequence")
+        && input.get("action").and_then(|a| a.get("sequence")).map(|d| d.is_null()).unwrap_or(true)
+    {
+        return Ok(serde_json::json!({
+            "success": false,
+            "action": "AnalyzeSequence",
+            "result": null,
+            "error": "No raw sequence data provided — this call appears to be a text-only mention with no attached data file; real DNA/RNA/protein analysis requires an actual sequence",
+            "metadata": {
+                "pipeline_id": PIPELINE_ID,
+                "pipeline_version": PIPELINE_VERSION,
+                "processing_time_ms": start_time.elapsed().as_millis(),
+                "timestamp": chrono::Utc::now().to_rfc3339()
+            }
+        }));
+    }
+
     let input: DNAModalityInput =
         serde_json::from_value(input).map_err(|e| format!("Failed to parse input: {}", e))?;
 

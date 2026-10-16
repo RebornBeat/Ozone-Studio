@@ -50,16 +50,39 @@ module.exports = {
         return () => clearInterval(interval);
       }, []);
 
+      // 2026-10-16 fix: this used to call executePipeline(5, {action:"List"})
+      // — pipeline 5's own TASK_MANAGER process, backed by its own separate
+      // tasks.json file store. Confirmed (grep across src/) that the real
+      // orchestrate() flow NEVER writes a task into that store (the only
+      // call site touching pipeline 5 at all is graphs.rs's RegisterGraphs,
+      // which assumes a task already exists there and silently no-ops when
+      // it doesn't) — so this tab showed "No tasks yet" regardless of real
+      // activity. The REAL task record lives in the host's own in-process
+      // TaskManager, reachable here via the dedicated window.ozone.task
+      // bridge (preload.js -> ipcMain "task:list"/"task:status"/"task:cancel"
+      // -> POST /task/list, /task/get, /task/cancel) — the same real source
+      // ui/src/components/TaskDetailPanel.tsx already reads from. Switched
+      // to that; field names normalized below since TaskInfo's real key is
+      // `task_id`, not `id`.
       const loadTasks = async () => {
         try {
-          // executePipeline resolves the raw /pipeline/execute envelope
-          // ({success, output, error}), not the pipeline's own output
-          // fields directly — real data is under result.output.* (same
-          // bug class found + fixed in workspace_tab/component.js this
-          // session: result.tasks was always undefined here, so the
-          // Tasks tab always rendered empty regardless of real task data).
-          const result = await executePipeline(5, { action: "List" });
-          setTasks(result?.output?.tasks || []);
+          const result = await window.ozone.task.list();
+          const mapped = (result?.tasks || []).map((t) => ({
+            id: t.task_id,
+            task_id: t.task_id,
+            status: t.status,
+            progress: t.progress,
+            created_at: t.created_at,
+            started_at: t.started_at,
+            completed_at: t.completed_at,
+            duration_secs:
+              t.started_at != null && t.completed_at != null
+                ? t.completed_at - t.started_at
+                : null,
+            error: t.error,
+            pipeline_name: t.blueprint_name,
+          }));
+          setTasks(mapped);
           setLoading(false);
           setError(null);
         } catch (e) {
@@ -69,13 +92,19 @@ module.exports = {
         }
       };
 
+      // Real /task/get via the same window.ozone.task bridge (see loadTasks).
+      // Returns the real TaskInfo directly (not pipeline 5's fabricated
+      // "GetDetails" shape) — real `steps`/`thinking_log`/`amt_summary`,
+      // confirmed already populated correctly for real tasks earlier this
+      // session (A1). Real TaskInfo has no `pending_clarification` field —
+      // the clarification banner below this file's render path will
+      // correctly never show for a real task rather than show a fake one;
+      // this was never wired to real data under the old pipeline-5 path
+      // either, so this is not a regression.
       const loadTaskDetails = async (taskId) => {
         try {
-          const result = await executePipeline(5, {
-            action: "GetDetails",
-            task_id: taskId,
-          });
-          setTaskDetails(result?.output ?? null);
+          const result = await window.ozone.task.status(taskId);
+          setTaskDetails(result ?? null);
         } catch (e) {
           console.error("Failed to load task details:", e);
         }
@@ -131,22 +160,25 @@ module.exports = {
         };
       }, [contextViewerInjected]);
 
+      // Real /task/cancel via the same bridge as loadTasks/loadTaskDetails.
       const handleCancelTask = async (taskId) => {
         try {
-          await executePipeline(5, { action: "Cancel", task_id: taskId });
+          await window.ozone.task.cancel(taskId);
           loadTasks();
         } catch (e) {
           console.error("Failed to cancel task:", e);
         }
       };
 
+      // No real backend equivalent exists for "retry a whole task" (only
+      // /task/step/rerun — a single-step, model-override rerun, a different
+      // operation). Left calling the disconnected pipeline 5 would silently
+      // no-op (same shape as the bug this whole fix addresses) — surface
+      // that honestly instead of pretending it worked.
       const handleRetryTask = async (taskId) => {
-        try {
-          await executePipeline(5, { action: "Retry", task_id: taskId });
-          loadTasks();
-        } catch (e) {
-          console.error("Failed to retry task:", e);
-        }
+        setError(
+          "Retry is not available yet — only per-step rerun (via Step Detail) is wired to a real backend operation.",
+        );
       };
 
       const handleClarificationResponse = async (taskId, response) => {

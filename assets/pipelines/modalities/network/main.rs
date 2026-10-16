@@ -2683,6 +2683,20 @@ fn main() {
             _ => input_json,
         }
     };
+    // RAW-DATA DESIGN LADDER (2026-10-16): see radar/main.rs for the full
+    // rationale — refuse a text-only network mention (no real data source)
+    // cleanly, before the generic parse produces a raw serde error.
+    if let Ok(probe) = serde_json::from_str::<serde_json::Value>(&input_json) {
+        let is_analyze = probe.get("type").and_then(|t| t.as_str()) == Some("Analyze");
+        let has_data = probe.get("data").map(|d| !d.is_null()).unwrap_or(false);
+        if is_analyze && !has_data {
+            println!(
+                "{}",
+                serde_json::json!({"success": false, "error": "No raw network data provided — this call appears to be a text-only mention with no attached data file; real network analysis requires an actual data file"})
+            );
+            std::process::exit(1);
+        }
+    }
     let input: NetworkModalityAction = match serde_json::from_str(&input_json) {
         Ok(v) => v,
         Err(e) => {

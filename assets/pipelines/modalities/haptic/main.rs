@@ -2296,6 +2296,20 @@ fn main() {
             _ => input_json,
         }
     };
+    // RAW-DATA DESIGN LADDER (2026-10-16): an `Analyze` call with no `data`
+    // field at all is a text-only mention with nothing real to analyze (the
+    // orchestrator detected this modality in prompt text, no attached data
+    // file) — a deliberate honest refusal here, not an accidental
+    // type-mismatch parse error. A call that DOES include `data` but with a
+    // malformed/unrecognized shape still falls through to the normal parse
+    // error below, since that's a real, reportable input problem, not "no
+    // data provided."
+    if let Ok(probe) = serde_json::from_str::<serde_json::Value>(&input_json) {
+        if probe.get("type").and_then(|t| t.as_str()) == Some("Analyze") && probe.get("data").is_none() {
+            println!("{}", serde_json::json!({"success":false,"error":"No raw haptic data provided — this call appears to be a text-only mention with no attached data file; real haptic analysis requires an actual data file"}));
+            std::process::exit(1);
+        }
+    }
     let input: HapticModalityAction = match serde_json::from_str(&input_json) {
         Ok(v) => v,
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":format!("Parse error: {}",e)})); std::process::exit(1); }

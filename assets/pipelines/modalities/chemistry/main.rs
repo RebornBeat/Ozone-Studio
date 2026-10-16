@@ -924,6 +924,40 @@ pub struct HookResult {
 pub async fn execute(input: Value) -> Result<Value, String> {
     let start_time = std::time::Instant::now();
 
+    // Honest refusal for a text-only "mention" with no real raw molecule/
+    // reaction data attached, BEFORE the strict typed deserialization below
+    // would reject it with an accidental, low-level parse error. Only the
+    // two actions that require raw data (AnalyzeMolecule/AnalyzeReaction)
+    // are checked.
+    if let Some(action_type) = input.get("action").and_then(|a| a.get("type")).and_then(|t| t.as_str()) {
+        let required: Option<(&str, &str)> = match action_type {
+            "AnalyzeMolecule" => Some(("molecule", "molecular structure")),
+            "AnalyzeReaction" => Some(("reaction", "chemical reaction")),
+            _ => None,
+        };
+        if let Some((field, label)) = required {
+            let missing = input
+                .get("action")
+                .and_then(|a| a.get(field))
+                .map(|d| d.is_null())
+                .unwrap_or(true);
+            if missing {
+                return Ok(serde_json::json!({
+                    "success": false,
+                    "action": action_type,
+                    "result": null,
+                    "error": format!("No raw {} data provided — this call appears to be a text-only mention with no attached data file; real chemistry analysis requires an actual {} data source", label, label),
+                    "metadata": {
+                        "pipeline_id": PIPELINE_ID,
+                        "pipeline_version": PIPELINE_VERSION,
+                        "processing_time_ms": start_time.elapsed().as_millis(),
+                        "timestamp": chrono::Utc::now().to_rfc3339()
+                    }
+                }));
+            }
+        }
+    }
+
     let input: ChemistryModalityInput =
         serde_json::from_value(input).map_err(|e| format!("Failed to parse input: {}", e))?;
 
