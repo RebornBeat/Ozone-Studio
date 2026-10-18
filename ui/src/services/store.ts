@@ -398,8 +398,10 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
     // Check if orchestrator is available
     if (window.ozone.orchestrate) {
-      // Get user_id from auth session if available, fallback to device ID
-      const userId = window.ozone.auth?.getCurrentUserId?.() ?? 1;
+      // No real multi-user auth exists yet — every container in the backend
+      // is created with owner_id: 0 (grep-confirmed across src/), so 0 is the
+      // only fallback that ever actually matches real data, not 1.
+      const userId = window.ozone.auth?.getCurrentUserId?.() ?? 0;
       const deviceId = window.ozone.system?.getDeviceId?.() ?? 1;
 
       // Use the orchestrator endpoint

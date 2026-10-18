@@ -39,6 +39,7 @@ import React, { useEffect, useState } from "react";
 import { zseiQuery } from "../../ozoneClient";
 import { useSelectedFile } from "../../fileSelection";
 import { readFileContent, FileContentUnavailable, type FileContentResult } from "../../data/fileContent";
+import { navigateTo } from "../../navigation";
 
 const C_TEXT = "var(--color-text)";
 const C_BODY = "var(--color-text-secondary)";
@@ -127,6 +128,16 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
 );
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ ...wrap, fontSize: 11.5, color: C_MUTED, fontStyle: "italic" }}>{children}</div>
+);
+/** A container id/label that opens that container in Graph View. */
+const ContainerLink: React.FC<{ id: number; children: React.ReactNode }> = ({ id, children }) => (
+  <button
+    onClick={() => navigateTo({ kind: "container", containerId: id })}
+    title="Open this container in Graph View"
+    style={{ all: "unset", cursor: "pointer", color: "inherit", textDecoration: "underline" }}
+  >
+    {children}
+  </button>
 );
 
 /** Resolves relation target ids to a short label (real container name/type), best-effort. */
@@ -278,7 +289,10 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
         {selected.name || meta.name || `Container #${container.global_state.container_id}`}
       </div>
 
-      <Row label="Kind">{meta.container_type} (container #{container.global_state.container_id})</Row>
+      <Row label="Kind">
+        {meta.container_type} (container #
+        <ContainerLink id={container.global_state.container_id}>{container.global_state.container_id}</ContainerLink>)
+      </Row>
       {meta.provenance && <Row label="Linked via">{meta.provenance}</Row>}
       {created && <Row label="Created">{created}</Row>}
       {updated && updated !== created && <Row label="Updated">{updated}</Row>}
@@ -325,7 +339,7 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
       ) : (
         relations.map((r, i) => (
           <Row key={i} label={r.relation_type}>
-            {relationLabels[r.target_id] ?? `container #${r.target_id}`}
+            <ContainerLink id={r.target_id}>{relationLabels[r.target_id] ?? `container #${r.target_id}`}</ContainerLink>
             {typeof r.confidence === "number" && ` (confidence ${r.confidence.toFixed(2)})`}
             {r.discovered_via && <span style={{ color: C_MUTED }}> — {r.discovered_via}</span>}
           </Row>

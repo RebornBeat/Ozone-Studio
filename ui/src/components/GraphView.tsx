@@ -55,8 +55,10 @@ interface ProjectOption {
 }
 
 function currentUserId(): number {
-  // Same real fallback pattern already used in services/store.ts.
-  return (window as any).ozone?.auth?.getCurrentUserId?.() ?? 1;
+  // No real multi-user auth exists yet — every container in the backend is
+  // created with owner_id: 0 (grep-confirmed across src/), so 0 is the only
+  // fallback that ever actually matches real data, not 1.
+  return (window as any).ozone?.auth?.getCurrentUserId?.() ?? 0;
 }
 
 async function loadProjectOptions(): Promise<ProjectOption[]> {
@@ -191,7 +193,15 @@ export const GraphView: React.FC = () => {
       .then((opts) => {
         if (cancelled) return;
         setProjects(opts);
-        if (opts.length > 0) setSelectedProjectId(opts[0].id);
+        if (opts.length > 0) {
+          setSelectedProjectId(opts[0].id);
+        } else {
+          // Zero real projects — nothing will ever call loadGraphData (the
+          // only thing that moves `status` off its initial "loading" value),
+          // so without this the canvas is stuck on "Loading graph…" forever
+          // instead of honestly reflecting that there's nothing to select.
+          setStatus({ kind: "empty" });
+        }
       })
       .catch((err) => {
         if (!cancelled) setProjectsError(err instanceof Error ? err.message : String(err));
@@ -437,7 +447,12 @@ export const GraphView: React.FC = () => {
           {status.kind === "error" && (
             <div style={{ padding: 24, color: "#ff8a8a" }}>Error: {status.message}</div>
           )}
-          {status.kind === "empty" && (
+          {status.kind === "empty" && selectedProjectId === null && (
+            <div style={{ padding: 24, color: "var(--color-text-muted)" }}>
+              No workspaces or projects to graph yet — select or create one above.
+            </div>
+          )}
+          {status.kind === "empty" && selectedProjectId !== null && (
             <div style={{ padding: 24, color: "var(--color-text-muted)" }}>
               No modality graphs exist for this project yet — nothing fabricated to show in their place.
             </div>

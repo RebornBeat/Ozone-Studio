@@ -22,6 +22,7 @@
  */
 import React, { useState } from "react";
 import type { ContainerRelation, GraphViewNode } from "../graphViewTypes";
+import { navigateTo } from "../navigation";
 
 export interface NodeDetailPanelProps {
   node: GraphViewNode | null;
@@ -119,6 +120,29 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
   </div>
 );
 
+/** A container id shown as real node data — click navigates Graph View itself to that container's owning project (same proven pattern as cross-tab links). */
+const ContainerLink: React.FC<{ label: string; containerId: number }> = ({ label, containerId }) => (
+  <div style={{ ...wrap, marginBottom: 2 }}>
+    <span style={{ color: C_MUTED }}>{label}: </span>
+    <button
+      type="button"
+      onClick={() => navigateTo({ kind: "container", containerId })}
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        color: "var(--color-accent, #6aa6ff)",
+        cursor: "pointer",
+        textDecoration: "underline",
+        fontSize: "inherit",
+        fontFamily: "inherit",
+      }}
+    >
+      {containerId}
+    </button>
+  </div>
+);
+
 interface Annotation {
   annotation_type?: unknown;
   value?: unknown;
@@ -186,7 +210,7 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
       <Row label="Label">{node.label}</Row>
       {typeof raw.node_id === "number" && <Row label="Node id">{raw.node_id}</Row>}
       {typeof node.confidence === "number" && <Row label="Confidence">{node.confidence.toFixed(2)}</Row>}
-      <Row label="Source container">{node.sourceContainerId}</Row>
+      <ContainerLink label="Source container" containerId={node.sourceContainerId} />
 
       {node.contentPreview && (
         <>
@@ -229,8 +253,16 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
           {typeof raw.hotness_score === "number" && <Row label="Hotness">{raw.hotness_score.toFixed(2)}</Row>}
           {position && <Row label="Position">{position}</Row>}
           {isPresent(raw.version) && <Row label="Version">{formatScalar(raw.version)}</Row>}
-          {isPresent(raw.source_file_id) && <Row label="Source file id">{formatScalar(raw.source_file_id)}</Row>}
-          {isPresent(raw.source_chunk_id) && <Row label="Source chunk id">{formatScalar(raw.source_chunk_id)}</Row>}
+          {typeof raw.source_file_id === "number" ? (
+            <ContainerLink label="Source file id" containerId={raw.source_file_id} />
+          ) : (
+            isPresent(raw.source_file_id) && <Row label="Source file id">{formatScalar(raw.source_file_id)}</Row>
+          )}
+          {typeof raw.source_chunk_id === "number" ? (
+            <ContainerLink label="Source chunk id" containerId={raw.source_chunk_id} />
+          ) : (
+            isPresent(raw.source_chunk_id) && <Row label="Source chunk id">{formatScalar(raw.source_chunk_id)}</Row>
+          )}
           {isPresent(raw.source_chunk_index) && <Row label="Source chunk index">{formatScalar(raw.source_chunk_index)}</Row>}
           {isPresent(raw.source_start_char) && (
             <Row label="Source chars">
@@ -298,7 +330,23 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
             style={{ ...wrap, border: `1px solid ${C_BORDER}`, borderRadius: 6, padding: "4px 8px", marginBottom: 4 }}
           >
             <div style={{ color: C_TEXT }}>
-              <b>{r.relation_type}</b> → #{r.target_id}
+              <b>{r.relation_type}</b> →{" "}
+              <button
+                type="button"
+                onClick={() => navigateTo({ kind: "container", containerId: r.target_id })}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--color-accent, #6aa6ff)",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  fontSize: "inherit",
+                  fontFamily: "inherit",
+                }}
+              >
+                #{r.target_id}
+              </button>
             </div>
             <div style={{ color: C_MUTED, fontSize: 11 }}>
               {typeof r.confidence === "number" && `confidence ${r.confidence.toFixed(2)} · `}

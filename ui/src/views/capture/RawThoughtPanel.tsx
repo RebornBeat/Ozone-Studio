@@ -29,6 +29,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { fetchZeroShotCalls, ZeroShotCallRow, ZeroShotFilters } from "../../data/captureData";
 import { getJson } from "../../data/http";
 import { CaptureStatusBadge, classifyZeroShotCall } from "./captureStatus";
+import { navigateTo } from "../../navigation";
 
 export type RawThoughtPanelProps = { projectId: number | null };
 
@@ -160,6 +161,22 @@ function idOrNone(v: number | null): React.ReactNode {
   );
 }
 
+/** Same as idOrNone, but a non-null id navigates to that container in Graph View. */
+function idOrNoneLinked(v: number | null): React.ReactNode {
+  if (v === null) {
+    return <span style={{ color: C_MUTED, fontStyle: "italic" }}>none recorded</span>;
+  }
+  return (
+    <button
+      onClick={() => navigateTo({ kind: "container", containerId: v })}
+      title="Open this container in Graph View"
+      style={{ all: "unset", cursor: "pointer", color: "inherit", textDecoration: "underline" }}
+    >
+      {v}
+    </button>
+  );
+}
+
 const CallRow: React.FC<{ item: LoadedRow; open: boolean; onToggle: () => void }> = ({ item, open, onToggle }) => {
   const r = item.row;
   const failed = !r.success;
@@ -245,10 +262,10 @@ const CallRow: React.FC<{ item: LoadedRow; open: boolean; onToggle: () => void }
             <KV k="success">{String(r.success)}</KV>
             <KV k="project_id" title="The project this orchestration request belonged to.">{idOrNone(r.project_id)}</KV>
             <KV k="amt_container_id" title="The AMT container persisted for this request. Null when the call happened before an AMT existed (e.g. intent extraction) or the AMT never persisted.">
-              {idOrNone(r.amt_container_id)}
+              {idOrNoneLinked(r.amt_container_id)}
             </KV>
             <KV k="blueprint_id" title="The blueprint assigned to this request. Null when the call happened before blueprint assignment or it never completed.">
-              {idOrNone(r.blueprint_id)}
+              {idOrNoneLinked(r.blueprint_id)}
             </KV>
           </div>
           <div>

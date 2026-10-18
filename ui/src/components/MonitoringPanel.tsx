@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityEvent, AgentInfo, fetchMonitorSummary } from "../ozoneClient";
 import TaskDetailPanel from "./TaskDetailPanel";
+import { navigateTo } from "../navigation";
 
 interface MonitorSummary {
   agents: AgentInfo[];
@@ -184,7 +185,17 @@ export const MonitoringPanel: React.FC<{ pollMs?: number }> = ({
       ) : (
         <div className="ofeed opanel-scroll">
           {activity.map((e) => (
-            <div key={e.id} className={`ofeed-row ${e.level}`}>
+            <div
+              key={e.id}
+              className={`ofeed-row ${e.level}`}
+              onClick={
+                e.task_id != null
+                  ? () => navigateTo({ kind: "task", taskId: e.task_id! })
+                  : undefined
+              }
+              style={e.task_id != null ? { cursor: "pointer" } : undefined}
+              title={e.task_id != null ? `Open task ${e.task_id}` : undefined}
+            >
               <span>{KIND_ICONS[e.kind] ?? "•"}</span>
               <span className="ofeed-src">{e.source}</span>
               <span>{e.message}</span>

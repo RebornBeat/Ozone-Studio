@@ -425,7 +425,10 @@ export const FabricView: React.FC<FabricViewProps> = ({ projectId }) => {
             </>
           )}
           <button
-            onClick={() => navigateTo({ kind: "tab", tabId: "graph-view" })}
+            onClick={() => {
+              if (projectId !== null) navigateTo({ kind: "container", containerId: projectId });
+              else navigateTo({ kind: "tab", tabId: "graph-view" });
+            }}
             style={{
               marginTop: 6,
               background: "transparent",

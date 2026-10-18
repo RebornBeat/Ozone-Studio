@@ -30,7 +30,10 @@ const C_MUTED = "var(--color-text-muted)";
 const C_BORDER = "var(--color-border-faint)";
 
 function currentUserId(): number {
-  return (window as any).ozone?.auth?.getCurrentUserId?.() ?? 1;
+  // No real multi-user auth exists yet — every container in the backend is
+  // created with owner_id: 0 (grep-confirmed across src/), so 0 is the only
+  // fallback that ever actually matches real data, not 1.
+  return (window as any).ozone?.auth?.getCurrentUserId?.() ?? 0;
 }
 
 const KIND_LABEL: Record<FileRef["kind"], string> = { file: "Files", url: "URLs", package: "Packages" };

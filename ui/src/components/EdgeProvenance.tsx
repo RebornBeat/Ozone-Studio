@@ -32,6 +32,7 @@
  */
 import React from "react";
 import type { ContainerRelation, GraphViewEdge, Modality } from "../graphViewTypes";
+import { navigateTo } from "../navigation";
 
 export interface EdgeProvenanceProps {
   edge: GraphViewEdge | null;
@@ -102,6 +103,29 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
   </div>
 );
 
+/** Same proven pattern as NodeDetailPanel's ContainerLink — clicking navigates Graph View itself to that container's owning project. */
+const ContainerLink: React.FC<{ label: string; containerId: number }> = ({ label, containerId }) => (
+  <div style={{ ...wrap, marginBottom: 2 }}>
+    <span style={{ color: C_MUTED }}>{label}: </span>
+    <button
+      type="button"
+      onClick={() => navigateTo({ kind: "container", containerId })}
+      style={{
+        background: "none",
+        border: "none",
+        padding: 0,
+        color: "var(--color-accent, #6aa6ff)",
+        cursor: "pointer",
+        textDecoration: "underline",
+        fontSize: "inherit",
+        fontFamily: "inherit",
+      }}
+    >
+      {containerId}
+    </button>
+  </div>
+);
+
 const Note: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ ...wrap, fontSize: 11, color: C_MUTED, margin: "2px 0 4px", lineHeight: 1.45 }}>{children}</div>
 );
@@ -135,7 +159,11 @@ const ContainerRelationBody: React.FC<{ edge: GraphViewEdge; rel: ContainerRelat
     <>
       <Row label="Relation">{formatScalar(rel.relation_type)}</Row>
       <Row label="Class">{edge.edgeClass}</Row>
-      <Row label="Target container">{formatScalar(rel.target_id)}</Row>
+      {typeof rel.target_id === "number" ? (
+        <ContainerLink label="Target container" containerId={rel.target_id} />
+      ) : (
+        <Row label="Target container">{formatScalar(rel.target_id)}</Row>
+      )}
 
       <SectionTitle>Recorded on the relation</SectionTitle>
       {typeof rel.confidence === "number" ? (

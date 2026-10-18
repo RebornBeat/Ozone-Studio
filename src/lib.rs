@@ -57,6 +57,12 @@ pub mod k_registry;
 /// MCP TOOL registry — external tool connection surface.
 pub mod mcp;
 
+/// MCP TOOL-SERVER process supervisor — real start/stop/crash-restart of
+/// registered tools' backing Node processes, gated by the operator's
+/// per-tool `auto_start` choice and each tool's real device/credential
+/// requirement. See src/mcp_supervisor.rs.
+pub mod mcp_supervisor;
+
 /// Shared-context mirroring — coordination state as real ZSEI containers
 /// under the /SharedContext root (notes, decisions, handoffs, file claims).
 pub mod context_mirror;

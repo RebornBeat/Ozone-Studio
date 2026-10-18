@@ -47,6 +47,11 @@ pub struct ActivityEvent {
     pub message: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<serde_json::Value>,
+    /// Promoted out of `detail` when a real task id is present there (only
+    /// the pipeline-executor dispatch/completion events include one) — kept
+    /// `None` for every other event kind rather than guessed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<u64>,
 }
 
 #[derive(Default)]
@@ -69,6 +74,10 @@ impl ActivityHub {
         message: impl Into<String>,
         detail: Option<serde_json::Value>,
     ) -> ActivityEvent {
+        let task_id = detail
+            .as_ref()
+            .and_then(|d| d.get("task_id"))
+            .and_then(|v| v.as_u64());
         let event = ActivityEvent {
             id: self.next_id.fetch_add(1, Ordering::Relaxed),
             timestamp: now_secs(),
@@ -77,6 +86,7 @@ impl ActivityHub {
             source: source.to_string(),
             message: message.into(),
             detail,
+            task_id,
         };
 
         let mut events = self.events.lock().unwrap();

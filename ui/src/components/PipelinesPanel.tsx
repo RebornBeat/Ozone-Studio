@@ -126,7 +126,22 @@ export const PipelinesPanel: React.FC = () => {
                   <td>
                     <span className="ochip cat">{p.category}</span>
                   </td>
-                  <td>{p.has_ui ? <span className="ochip ui">UI</span> : "—"}</td>
+                  <td>
+                    {p.has_ui ? (
+                      <button
+                        onClick={() =>
+                          (window as any).__ozoneThemeArea?.injectTab(p.pipeline_id, { makeActive: true })
+                        }
+                        title={`Open pipeline ${p.pipeline_id}'s UI in a new tab`}
+                        className="ochip ui"
+                        style={{ all: "unset", cursor: "pointer" }}
+                      >
+                        <span className="ochip ui">UI</span>
+                      </button>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>

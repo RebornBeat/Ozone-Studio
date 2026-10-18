@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 
 /// Transport a tool speaks over. `stdio` tools are child processes on the
 /// host; `http`/`sse` tools live at a URL.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, std::hash::Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum McpTransport {
     Stdio,
@@ -59,6 +59,19 @@ pub struct McpTool {
     pub capabilities: Vec<String>,
     pub server_version: Option<String>,
     pub registered_at: u64,
+    /// OPERATOR-CONTROLLED (2026-10-18): whether this tool's backing
+    /// process should be started automatically at host boot and kept
+    /// alive by the crash-supervisor (`src/mcp_supervisor.rs`). Default
+    /// `false` for every tool, including the 134 already persisted —
+    /// this is an opt-in the operator makes per tool via the UI, never
+    /// guessed or pre-decided here. One OS process can back many
+    /// registered capability names (confirmed live: `bridges` alone
+    /// backs 67 entries sharing one `(transport, endpoint)` pair) —
+    /// toggling this on any one entry in that group sets it for the
+    /// whole group via `McpRegistry::set_auto_start`, so the group can
+    /// never desync into a half-on state.
+    #[serde(default)]
+    pub auto_start: bool,
 }
 
 fn now_secs() -> u64 {
@@ -199,6 +212,48 @@ impl McpRegistry {
         let mut tools: Vec<McpTool> = self.tools.read().await.values().cloned().collect();
         tools.sort_by(|a, b| a.name.cmp(&b.name));
         tools
+    }
+
+    /// Toggle `auto_start` for every entry sharing `name`'s (transport,
+    /// endpoint) pair — the real process-identity unit (see the doc
+    /// comment on `McpTool::auto_start`). Returns the names actually
+    /// affected, or `None` if `name` isn't registered at all.
+    pub async fn set_auto_start(&self, name: &str, enabled: bool) -> Option<Vec<String>> {
+        let mut tools = self.tools.write().await;
+        let key = {
+            let t = tools.get(name)?;
+            (t.transport.clone(), t.endpoint.clone())
+        };
+        let mut affected = Vec::new();
+        for t in tools.values_mut() {
+            if t.transport == key.0 && t.endpoint == key.1 {
+                t.auto_start = enabled;
+                affected.push(t.name.clone());
+            }
+        }
+        drop(tools);
+        self.persist().await;
+        Some(affected)
+    }
+
+    /// Distinct `(transport, endpoint)` groups with `auto_start == true` —
+    /// the real unit the supervisor starts/stops/watches, since one OS
+    /// process can back many registered capability names.
+    pub async fn auto_start_groups(&self) -> Vec<(McpTransport, String, Vec<String>)> {
+        let tools = self.tools.read().await;
+        let mut groups: HashMap<(McpTransport, String), Vec<String>> = HashMap::new();
+        for t in tools.values() {
+            if t.auto_start {
+                groups
+                    .entry((t.transport.clone(), t.endpoint.clone()))
+                    .or_default()
+                    .push(t.name.clone());
+            }
+        }
+        groups
+            .into_iter()
+            .map(|((transport, endpoint), names)| (transport, endpoint, names))
+            .collect()
     }
 }
 
@@ -575,6 +630,7 @@ mod tests {
                 capabilities: vec![],
                 server_version: None,
                 registered_at: 0,
+                auto_start: false,
             })
             .await;
         let usage = UsageLedger::with_limit(0);
@@ -643,6 +699,7 @@ mod global_tests {
                 capabilities: vec![],
                 server_version: None,
                 registered_at: 0,
+                auto_start: false,
             })
             .await;
 

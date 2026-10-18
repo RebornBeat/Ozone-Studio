@@ -27,6 +27,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { zseiQuery } from "../../ozoneClient";
+import { navigateTo } from "../../navigation";
 
 const COORDINATION_ROOT_ID = 8;
 
@@ -199,6 +200,13 @@ export const ForkDispatchPanel: React.FC<{ projectId: number | null }> = () => {
                 )}
                 <span style={{ color: "var(--color-text-muted)", fontSize: 10.5, textTransform: "uppercase" }}>{it.kind}</span>
                 <span style={{ color: "var(--color-text-muted)", fontSize: 10.5 }}>{it.agent}</span>
+                <button
+                  onClick={() => navigateTo({ kind: "container", containerId: it.containerId })}
+                  title={`Open container #${it.containerId} in Graph View`}
+                  style={{ all: "unset", cursor: "pointer", color: "var(--color-text-muted)", fontSize: 10.5, marginLeft: "auto" }}
+                >
+                  ↗
+                </button>
               </div>
               <div style={{ marginTop: 2, whiteSpace: "pre-wrap" }}>{it.title}</div>
               {it.file && <div style={{ marginTop: 2, color: "var(--color-text-muted)", fontSize: 11 }}>{it.file}</div>}

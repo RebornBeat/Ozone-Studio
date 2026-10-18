@@ -120,10 +120,10 @@ impl QueryProcessor {
             }
             
             ZSEIQuery::GetMethodologiesByKeywords { keywords } => {
-                let ids = self.find_methodologies_by_keywords(storage, &keywords)?;
+                let ids = self.find_methodologies_by_keywords(storage, traversal, &keywords).await?;
                 Ok(ZSEIQueryResult::Containers(ids))
             }
-            
+
             ZSEIQuery::SearchBlueprints { task_signature } => {
                 let ids = self.search_blueprints(storage, task_signature)?;
                 Ok(ZSEIQueryResult::Containers(ids))
@@ -329,7 +329,7 @@ impl QueryProcessor {
             }
 
             ZSEIQuery::GetMethodologiesByKeywords { keywords } => {
-                let ids = self.find_methodologies_by_keywords(storage, &keywords)?;
+                let ids = self.find_methodologies_by_keywords(storage, traversal, &keywords).await?;
                 Ok(ZSEIQueryResult::Containers(ids))
             }
 
@@ -608,9 +608,24 @@ impl QueryProcessor {
     /// a single specific term the query also asked for — a single very
     /// specific match is real signal; a single generic one like "code" is
     /// not, hence requiring >1 rather than trusting any lone match).
-    fn find_methodologies_by_keywords(
+    ///
+    /// SEED→HOP EXPANSION (2026-10-17 — closes O2's known scope gap):
+    /// `amt.rs`'s `enrich_with_zsei_knowledge` got a bounded single-hop
+    /// structural expansion on 2026-10-13 (direct keyword matches seed one
+    /// graph hop to reach zero-keyword-overlap neighbors); this direct
+    /// query path never did. The fit here is actually cleaner than
+    /// `amt.rs`'s own version: `ContainerStorage` implements `NodeSource`
+    /// directly, so `TraversalEngine::traverse` is a native in-process call
+    /// — no JSON/async-bridge indirection needed. Direct matches are
+    /// returned first (unchanged scoring/order); each is then used as a hop
+    /// seed, one bounded structural traversal (depth 1, ≤6 results/seed),
+    /// filtered to Methodology containers and deduplicated against the
+    /// direct set, appended after (lower-confidence than a real keyword
+    /// match, same ordering convention as amt.rs's hop neighbors).
+    async fn find_methodologies_by_keywords(
         &self,
         storage: &ContainerStorage,
+        traversal: &TraversalEngine,
         keywords: &[String],
     ) -> OzoneResult<Vec<ContainerID>> {
         let mut scored: Vec<(ContainerID, usize)> = Vec::new();
@@ -631,7 +646,49 @@ impl QueryProcessor {
         }
 
         scored.sort_by(|a, b| b.1.cmp(&a.1));
-        Ok(scored.into_iter().map(|(id, _)| id).collect())
+        let direct: Vec<ContainerID> = scored.into_iter().map(|(id, _)| id).collect();
+
+        let mut seen: std::collections::HashSet<ContainerID> = direct.iter().copied().collect();
+        let mut hop_ids: Vec<ContainerID> = Vec::new();
+        let mut neighbors_injected = 0usize;
+        for seed_id in direct.iter().take(12) {
+            if neighbors_injected >= 12 {
+                break;
+            }
+            let request = crate::types::zsei::TraversalRequest {
+                start_container: *seed_id,
+                mode: crate::types::zsei::TraversalMode::Structural,
+                max_depth: 1,
+                max_results: 6,
+                include_external_refs: false,
+                ..Default::default()
+            };
+            let Ok(result) = traversal.traverse(storage, request).await else {
+                continue;
+            };
+            for nid in result.containers {
+                if neighbors_injected >= 12 || !seen.insert(nid) {
+                    continue;
+                }
+                let Ok(Some(container)) = storage.load(nid) else {
+                    continue;
+                };
+                if container.local_state.metadata.container_type != ContainerType::Methodology {
+                    continue;
+                }
+                hop_ids.push(nid);
+                neighbors_injected += 1;
+            }
+        }
+        if neighbors_injected > 0 {
+            tracing::info!(
+                direct = direct.len(),
+                neighbors_injected,
+                "find_methodologies_by_keywords: seed→hop expansion surfaced zero-keyword methodologies"
+            );
+        }
+
+        Ok(direct.into_iter().chain(hop_ids).collect())
     }
     
     /// Search blueprints by task signature with proper matching

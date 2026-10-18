@@ -34,6 +34,7 @@
  */
 import React, { useState } from "react";
 import { zseiQuery } from "../../ozoneClient";
+import { navigateTo } from "../../navigation";
 
 export type ConsciousnessReviewProps = { projectId: number | null };
 
@@ -223,7 +224,13 @@ export const ConsciousnessReview: React.FC<ConsciousnessReviewProps> = () => {
               >
                 <div>
                   <b>{ins.kind}</b>{" "}
-                  <span style={{ color: C_MUTED }}>(container {ins.containerId})</span>
+                  <button
+                    onClick={() => navigateTo({ kind: "container", containerId: ins.containerId })}
+                    title="Open this container in Graph View"
+                    style={{ all: "unset", cursor: "pointer", color: C_MUTED, textDecoration: "underline" }}
+                  >
+                    (container {ins.containerId})
+                  </button>
                 </div>
                 {ins.error ? (
                   <div style={{ color: "#ff8a8a" }}>{ins.error}</div>

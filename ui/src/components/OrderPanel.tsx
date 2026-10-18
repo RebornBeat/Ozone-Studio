@@ -14,6 +14,7 @@
  */
 import React, { useEffect, useState, useCallback } from "react";
 import CreationActivity from "./CreationActivity";
+import { navigateTo } from "../navigation";
 import {
   fetchGlobalOrder,
   createOrderItem,
@@ -242,7 +243,12 @@ export const OrderPanel: React.FC = () => {
             </thead>
             <tbody>
               {activeItems.map((it) => (
-                <tr key={it.task_id}>
+                <tr
+                  key={it.task_id}
+                  onClick={() => navigateTo({ kind: "task", taskId: it.task_id })}
+                  title="Open this task"
+                  style={{ cursor: "pointer" }}
+                >
                   <td>{KIND_ICONS[it.kind] ?? "•"}</td>
                   <td style={{ color: "#e8eef6" }}>{it.name}</td>
                   <td><span className={`ochip ${it.status}`}>{it.status}</span></td>
@@ -265,11 +271,25 @@ export const OrderPanel: React.FC = () => {
           ) : (
             <div className="ofeed">
               {buckets[bucket].map((it) => (
-                <div key={it.task_id} className="ofeed-row">
+                <div
+                  key={it.task_id}
+                  className="ofeed-row"
+                  onClick={() => navigateTo({ kind: "task", taskId: it.task_id })}
+                  title="Open this task"
+                  style={{ cursor: "pointer" }}
+                >
                   <span>{KIND_ICONS[it.kind] ?? "•"}</span>
                   <span className="ofeed-src">{it.name}</span>
                   {it.meeting_url && (
-                    <a href={it.meeting_url} target="_blank" rel="noreferrer" style={{ color: "#7aa2f7" }}>join</a>
+                    <a
+                      href={it.meeting_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ color: "#7aa2f7" }}
+                    >
+                      join
+                    </a>
                   )}
                   <span className="ofeed-time">{dueLabel(it.due_at)}</span>
                 </div>

@@ -21,6 +21,7 @@ import {
   walkLineage,
 } from "../../data/amtLineage";
 import { getGraphEventClient } from "../../graphEventClient";
+import { navigateTo } from "../../navigation";
 
 export interface ForkLineageViewProps {
   projectId: number | null;
@@ -187,7 +188,15 @@ const DetailPanel: React.FC<{ g: AmtGeneration | null; all: AmtGeneration[] }> =
   const inferredOnly = g.continuedBy.filter((c) => !(g.continuedByEdgeIds ?? []).includes(c));
   return (
     <div style={{ fontSize: 12, lineHeight: 1.55 }}>
-      <Row label="Container">#{g.containerId}</Row>
+      <Row label="Container">
+        <button
+          onClick={() => navigateTo({ kind: "container", containerId: g.containerId })}
+          title="Open this container in Graph View"
+          style={{ all: "unset", cursor: "pointer", color: "inherit", textDecoration: "underline" }}
+        >
+          #{g.containerId}
+        </button>
+      </Row>
       <Row label="Role">{g.isMain ? "main (amt-main)" : "fork"}</Row>
       <Row label="Parent container">#{g.projectId}</Row>
       <Row label="Forked from">{g.forkOf === null ? "— (no parent link)" : `#${g.forkOf}${g.danglingParent ? " (not among scanned generations)" : ""}`}</Row>

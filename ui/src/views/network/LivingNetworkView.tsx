@@ -42,6 +42,7 @@ import { GraphViewStatus, Modality } from "../../graphViewTypes";
 import { MODALITY_COLOR } from "../../graphRenderers/defaults";
 import { loadAmtGenerations, AmtGeneration } from "../../data/amtLineage";
 import { getGraphEventClient, GraphEventFrame } from "../../graphEventClient";
+import { navigateTo } from "../../navigation";
 
 const C_TEXT = "var(--color-text)";
 const C_BODY = "var(--color-text-secondary)";
@@ -110,6 +111,7 @@ const RingCluster: React.FC<{
 
 const AmtBadge: React.FC<{ gen: AmtGeneration; pulsing: boolean }> = ({ gen, pulsing }) => (
   <div
+    onClick={() => navigateTo({ kind: "container", containerId: gen.containerId })}
     style={{
       display: "flex",
       alignItems: "center",
@@ -120,9 +122,10 @@ const AmtBadge: React.FC<{ gen: AmtGeneration; pulsing: boolean }> = ({ gen, pul
       background: pulsing ? "rgba(232,193,79,0.15)" : "transparent",
       fontSize: 11.5,
       color: C_BODY,
+      cursor: "pointer",
       transition: "background 0.4s ease",
     }}
-    title={`container ${gen.containerId} — lineage: ${gen.lineageSource}`}
+    title={`container ${gen.containerId} — lineage: ${gen.lineageSource} — click to open in Graph View`}
   >
     <span style={{ fontWeight: 700, color: gen.isMain ? "#8fe38f" : "#ffb95f" }}>
       {gen.isMain ? "main" : "fork"}

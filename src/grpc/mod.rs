@@ -34,6 +34,14 @@ pub struct AppState {
     pub mcp: Arc<crate::mcp::McpRegistry>,
     /// MCP call metering per agent/day — the MCP usage budget (src/mcp.rs).
     pub mcp_usage: Arc<crate::mcp::UsageLedger>,
+    /// Real process start/stop/crash-restart for registered MCP tools
+    /// (see src/mcp_supervisor.rs) — registration alone never started
+    /// anything; this is the part that actually does.
+    pub mcp_supervisor: Arc<crate::mcp_supervisor::McpProcessSupervisor>,
+    /// Real ZSEI data dir, passed to tool processes that need it
+    /// (git-mcp's `OZONE_ZSEI_DATA_DIR`) — same value used for the MCP
+    /// registry's own persistence path.
+    pub zsei_data_dir: String,
 }
 
 /// Recursively convert a `serde_json::Value` into `crate::types::Value`,
@@ -2606,6 +2614,22 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     // crate::mcp::call_global without needing AppState threaded through.
     crate::mcp::install_global(mcp_registry.clone(), mcp_usage.clone());
 
+    // MCP TOOL-SERVER SUPERVISOR (2026-10-18): registration survives
+    // restarts, but nothing ever started the backing processes — the
+    // boot-time autostart pass + 30s crash-restart loop lives here,
+    // gated entirely on the operator's own per-tool `auto_start` choice
+    // (default false for all 134 persisted entries; never flipped by
+    // this code). See src/mcp_supervisor.rs's module doc for the real
+    // device/credential requirements this pass honors.
+    let zsei_data_dir = {
+        let r = runtime.read().await;
+        r.config.general.data_dir.clone()
+    };
+    let mcp_supervisor = crate::mcp_supervisor::spawn_autostart_supervisor(
+        mcp_registry.clone(),
+        zsei_data_dir.clone(),
+    );
+
     let state = Arc::new(AppState {
         runtime,
         start_time: std::time::Instant::now(),
@@ -2613,6 +2637,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         pairing: Arc::new(crate::pairing::PairingHub::new()),
         mcp: mcp_registry,
         mcp_usage,
+        mcp_supervisor,
+        zsei_data_dir,
     });
 
     // GRAPH RIPPLE → monitor feed: graph writes surface in the same feed
@@ -2706,6 +2732,11 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/mcp/tools", get(mcp_list_tools))
         .route("/mcp/tools/register", post(mcp_register_tool))
         .route("/mcp/tools/unregister", post(mcp_unregister_tool))
+        // AUTO-START CONFIG + process control (2026-10-18) — operator
+        // opt-in per tool, real start/stop against the real supervisor.
+        .route("/mcp/tools/:name/autostart", post(mcp_set_autostart))
+        .route("/mcp/tools/:name/start", post(mcp_start_tool))
+        .route("/mcp/tools/:name/stop", post(mcp_stop_tool))
         // MCP USAGE — the per-agent daily budget, enforced host-side.
         .route("/mcp/usage", get(mcp_usage_snapshot))
         .route("/mcp/usage", post(mcp_usage_record))
@@ -3319,20 +3350,105 @@ pub struct McpToolRegisterRequest {
 
 async fn mcp_list_tools(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     let tools = state.mcp.list().await;
-    let tools: Vec<serde_json::Value> = tools
-        .iter()
-        .map(|t| {
-            serde_json::json!({
-                "name": t.name,
-                "transport": t.transport.as_str(),
-                "endpoint": t.endpoint,
-                "capabilities": t.capabilities,
-                "server_version": t.server_version,
-                "registered_at": t.registered_at,
-            })
-        })
-        .collect();
-    Json(serde_json::json!({ "tools": tools }))
+    let mut out: Vec<serde_json::Value> = Vec::with_capacity(tools.len());
+    for t in &tools {
+        // real, computed facts (not persisted) — see mcp_supervisor's
+        // doc comment for why only android/gcal/zoom have either.
+        let device_requirement = crate::mcp_supervisor::device_requirement_for(&state.mcp, &t.name).await;
+        let credential_requirement = crate::mcp_supervisor::credential_requirement_for(&state.mcp, &t.name).await;
+        let running = match crate::mcp_supervisor::extract_port(&t.endpoint) {
+            Some(port) => state.mcp_supervisor.is_running(port).await,
+            None => false,
+        };
+        out.push(serde_json::json!({
+            "name": t.name,
+            "transport": t.transport.as_str(),
+            "endpoint": t.endpoint,
+            "capabilities": t.capabilities,
+            "server_version": t.server_version,
+            "registered_at": t.registered_at,
+            "auto_start": t.auto_start,
+            "device_requirement": device_requirement,
+            "credential_requirement": credential_requirement,
+            "running": running,
+        }));
+    }
+    Json(serde_json::json!({ "tools": out }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct McpAutoStartRequest {
+    pub enabled: bool,
+}
+
+/// Toggle `auto_start` for the (transport, endpoint) GROUP `name`
+/// belongs to — real persisted config, honored by the boot-time/30s
+/// supervisor loop, never actioned synchronously by this route itself
+/// (it only flips the flag; the next supervisor tick does the work).
+async fn mcp_set_autostart(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+    Json(req): Json<McpAutoStartRequest>,
+) -> Json<serde_json::Value> {
+    match state.mcp.set_auto_start(&name, req.enabled).await {
+        Some(affected) => Json(serde_json::json!({
+            "success": true,
+            "enabled": req.enabled,
+            "affected": affected,
+        })),
+        None => Json(serde_json::json!({
+            "success": false,
+            "error": format!("tool '{}' not registered", name),
+        })),
+    }
+}
+
+/// Start the process backing `name`'s port right now, bypassing the
+/// supervisor's auto_start gate — an explicit operator action (e.g. a
+/// "Start now" UI button), still honoring the same real device/
+/// credential requirement check so this can't be used to route around
+/// an honestly-unmet requirement.
+async fn mcp_start_tool(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let Some(tool) = state.mcp.get(&name).await else {
+        return Json(serde_json::json!({ "success": false, "error": format!("tool '{}' not registered", name) }));
+    };
+    let Some(port) = crate::mcp_supervisor::extract_port(&tool.endpoint) else {
+        return Json(serde_json::json!({ "success": false, "error": "not an http tool — no port to start" }));
+    };
+    let Some(facts) = crate::mcp_supervisor::facts_for_port(port) else {
+        return Json(serde_json::json!({ "success": false, "error": format!("no known process facts for port {}", port) }));
+    };
+    if let Some(req) = facts.device_requirement {
+        if !crate::mcp_supervisor::device_available(req) {
+            return Json(serde_json::json!({ "success": false, "error": format!("device requirement '{}' not met", req) }));
+        }
+    }
+    if let Some(req) = facts.credential_requirement {
+        if !crate::mcp_supervisor::credential_available(req) {
+            return Json(serde_json::json!({ "success": false, "error": format!("credential requirement '{}' not met", req) }));
+        }
+    }
+    match state.mcp_supervisor.start_port(port, &state.zsei_data_dir).await {
+        Ok(started) => Json(serde_json::json!({ "success": true, "started": started })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
+    }
+}
+
+async fn mcp_stop_tool(
+    State(state): State<Arc<AppState>>,
+    axum::extract::Path(name): axum::extract::Path<String>,
+) -> Json<serde_json::Value> {
+    let Some(tool) = state.mcp.get(&name).await else {
+        return Json(serde_json::json!({ "success": false, "error": format!("tool '{}' not registered", name) }));
+    };
+    let Some(port) = crate::mcp_supervisor::extract_port(&tool.endpoint) else {
+        return Json(serde_json::json!({ "success": false, "error": "not an http tool — nothing to stop" }));
+    };
+    let stopped = state.mcp_supervisor.stop_port(port).await;
+    Json(serde_json::json!({ "success": true, "stopped": stopped }))
 }
 
 async fn mcp_register_tool(
@@ -3361,6 +3477,10 @@ async fn mcp_register_tool(
             capabilities: req.capabilities.unwrap_or_default(),
             server_version: req.server_version,
             registered_at: now,
+            // CONTRACT UNIFICATION (2026-10-18): new tools default to
+            // auto_start=false — operator opt-in via /mcp/tools/:name/autostart,
+            // never pre-decided by a registration call.
+            auto_start: false,
         })
         .await;
 

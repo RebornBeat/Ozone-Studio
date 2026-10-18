@@ -12,6 +12,7 @@ import {
   loadCoordinationEventBody,
   loadCoordinationEvents,
 } from "../../data/coordinationEvents";
+import { navigateTo } from "../../navigation";
 
 export type CoordinationFeedProps = { projectId: number | null };
 
@@ -103,6 +104,16 @@ const EventRow: React.FC<{ event: CoordinationEvent }> = ({ event }) => {
         <span style={{ fontSize: 10.5, color: C_MUTED, flexShrink: 0 }}>
           {event.mirroredAt ? new Date(event.mirroredAt).toLocaleString() : "unknown time"}
         </span>
+        <button
+          onClick={(ev) => {
+            ev.stopPropagation();
+            navigateTo({ kind: "container", containerId: event.containerId });
+          }}
+          title={`Open container #${event.containerId} in Graph View`}
+          style={{ all: "unset", cursor: "pointer", color: C_MUTED, flexShrink: 0, fontSize: 11 }}
+        >
+          ↗
+        </button>
       </div>
       {expanded && (
         <div style={{ marginTop: 6, marginLeft: 4, fontSize: 11.5, color: C_BODY }}>

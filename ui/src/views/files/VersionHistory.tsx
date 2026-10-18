@@ -34,9 +34,28 @@
  * `steps[].version_notes`) — that data is task-scoped, not file/container-
  * scoped, and belongs to the separate H3 fork ("Version notes display — real
  * per-step version history"), not this file-selection-driven view.
+ *
+ * 3. File beacon change history (2026-10-17) — a THIRD, separate real
+ *    mechanism, added alongside (not replacing) the two above: every
+ *    `FileReference` container is polled every 45s by `src/file_beacon.rs`
+ *    (boot-spawned), which writes a real JSONL history row + capped
+ *    snapshot on every detected mtime/size change to
+ *    `zsei_data/file_history/<container_id>.jsonl` — confirmed real data
+ *    spanning months on disk. Reached via the registered MCP tool
+ *    `file_history` (`tools/git-mcp/server.mjs`, port 3235), dispatched
+ *    through the real `POST /mcp/call` route — NOT a new host endpoint,
+ *    the existing generic MCP dispatch. Unlike sources 1-2, this one
+ *    actually has real content (full read/modified/size per change) — but
+ *    its backing Node process may not be running at any given moment, in
+ *    which case the call honestly fails with "tool unreachable" rather
+ *    than faking a result. This section was added instead of replacing
+ *    the two above because they serve genuinely different scopes (1 is
+ *    cross-modality rollback-hash records, 2 is text-only human-written
+ *    change notes, 3 is a universal raw change log) — removing either
+ *    existing one would lose real capability, not just empty states.
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { zseiQuery } from "../../ozoneClient";
+import { zseiQuery, callMcpTool } from "../../ozoneClient";
 import { loadGraphData } from "../../graphViewData";
 import type { GraphViewStatus } from "../../graphViewTypes";
 import { useSelectedFile } from "../../fileSelection";
@@ -110,6 +129,49 @@ function findTextNodeNotes(
   return { found: false, notes: [] };
 }
 
+// ── File beacon change history (source 3) ───────────────────────────────
+
+interface BeaconChange {
+  ts: number;
+  modified: number;
+  size: number;
+  path: string;
+  snapshot_dir: string;
+}
+
+type BeaconHistoryState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  | { kind: "ready"; changes: BeaconChange[] };
+
+function useBeaconHistory(containerId: number | null): BeaconHistoryState {
+  const [state, setState] = useState<BeaconHistoryState>({ kind: "loading" });
+  useEffect(() => {
+    if (containerId === null) return;
+    let cancelled = false;
+    setState({ kind: "loading" });
+    callMcpTool<{ container_id: string; changes: number; history: BeaconChange[] }>(
+      "file_history",
+      { container_id: containerId },
+    )
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.success) {
+          setState({ kind: "error", message: result.error ?? "file_history call failed" });
+          return;
+        }
+        setState({ kind: "ready", changes: result.output?.history ?? [] });
+      })
+      .catch((err) => {
+        if (!cancelled) setState({ kind: "error", message: err instanceof Error ? err.message : String(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [containerId]);
+  return state;
+}
+
 // ── Presentation ──────────────────────────────────────────────────────────
 
 const C_TEXT = "var(--color-text)";
@@ -138,6 +200,7 @@ const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
 export const VersionHistory: React.FC<{ projectId: number | null }> = ({ projectId }) => {
   const [selectedFile] = useSelectedFile();
   const containerState = useContainerVersionHistory(selectedFile?.containerId ?? null);
+  const beaconState = useBeaconHistory(selectedFile?.containerId ?? null);
 
   const [graphStatus, setGraphStatus] = useState<GraphViewStatus>({ kind: "loading" });
   useEffect(() => {
@@ -232,6 +295,36 @@ export const VersionHistory: React.FC<{ projectId: number | null }> = ({ project
                 {n.step_index !== null && n.step_index !== undefined && (
                   <div style={{ color: C_MUTED, fontSize: 11, marginTop: 2 }}>from step {n.step_index}</div>
                 )}
+              </div>
+            ))}
+        </div>
+      )}
+
+      <SectionTitle>File beacon change history (native git tool)</SectionTitle>
+      {beaconState.kind === "loading" && <Empty>Loading…</Empty>}
+      {beaconState.kind === "error" && (
+        <Empty>
+          Tool unreachable: {beaconState.message}. This reads the real `file_history` MCP tool
+          (`tools/git-mcp/server.mjs`, registered, but its backing process may not currently be running) — an
+          honest failure, not faked data.
+        </Empty>
+      )}
+      {beaconState.kind === "ready" && beaconState.changes.length === 0 && (
+        <Empty>No changes recorded yet for this container by the file beacon.</Empty>
+      )}
+      {beaconState.kind === "ready" && beaconState.changes.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {[...beaconState.changes]
+            .sort((a, b) => b.ts - a.ts)
+            .map((c, i) => (
+              <div key={`${c.ts}-${i}`} style={{ border: `1px solid ${C_BORDER}`, borderRadius: 6, padding: "6px 8px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", color: C_TEXT }}>
+                  <span>{c.path}</span>
+                  <span style={{ color: C_MUTED }}>{formatTs(c.ts)}</span>
+                </div>
+                <div style={{ color: C_MUTED, fontSize: 11, marginTop: 2 }}>
+                  {c.size} bytes · modified {formatTs(c.modified)}
+                </div>
               </div>
             ))}
         </div>

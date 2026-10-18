@@ -44,7 +44,10 @@ let optionsPromise: Promise<ProjectOption[]> | null = null;
 export function loadProjectOptions(force = false): Promise<ProjectOption[]> {
   if (force || !optionsPromise) {
     optionsPromise = (async () => {
-      const userId = (window as any).ozone?.auth?.getCurrentUserId?.() ?? 1;
+      // No real multi-user auth exists yet — every container in the backend
+      // is created with owner_id: 0 (grep-confirmed across src/), so 0 is the
+      // only fallback that ever actually matches real data, not 1.
+      const userId = (window as any).ozone?.auth?.getCurrentUserId?.() ?? 0;
       const ws = await zseiQuery<any>({ GetUserWorkspaces: { user_id: userId } });
       const out: ProjectOption[] = [];
       for (const wsId of ws?.Containers ?? []) {

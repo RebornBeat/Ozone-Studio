@@ -34,6 +34,8 @@ export interface ActivityEvent {
   source: string;
   message: string;
   detail?: unknown;
+  /** Only present for pipeline dispatch/completion events — real task id, never fabricated. */
+  task_id?: number;
 }
 
 export interface DeviceInfo {
@@ -145,6 +147,18 @@ export function listDevices(): Promise<{ devices: DeviceInfo[] }> {
 
 export function fetchMcpTools(): Promise<{ tools: McpToolInfo[] }> {
   return bridgeOrHttp("mcpTools", "/mcp/tools");
+}
+
+/** Generic dispatch to any registered MCP tool (POST /mcp/call, real route,
+ * src/grpc/mod.rs:3437 — meters + jurisdiction-gates + forwards to the
+ * tool's registered HTTP endpoint). `success:false` with a "tool
+ * unreachable: ..." error is the honest, expected result when a registered
+ * tool's backing process isn't currently running — never faked. */
+export function callMcpTool<T = unknown>(
+  tool: string,
+  input: unknown,
+): Promise<{ success: boolean; output?: T; error?: string }> {
+  return postHttp("/mcp/call", { tool, agent: "ui", input, context: null, session_token: "" });
 }
 
 // ── Pipeline registry (the host's loaded pipelines) ──────────────────────

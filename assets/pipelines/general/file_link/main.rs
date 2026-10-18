@@ -98,6 +98,36 @@ fn modality_pipeline_id(modality: &str) -> Option<u64> {
         "Image" => Some(102),
         "Audio" => Some(103),
         "Video" => Some(104),
+        // Text/Code confirmed against `src/orchestrator/graphs.rs`'s real
+        // `modality_name_to_pipeline_id` map (100/101) — previously these
+        // fell into the fallback match below, which did crude inline
+        // line/word counting and NEVER actually called the real pipeline
+        // despite comments claiming otherwise ("In real implementation,
+        // this would call the pipeline executor"). Wired for real now,
+        // same dispatch path as Image/Audio/Video.
+        "Text" => Some(100),
+        "Code" => Some(101),
+        // Group-A wiring (2026-10-17): real pipeline ids confirmed against
+        // `src/orchestrator/graphs.rs`'s own modality->id map (100-126).
+        // DNA/EEG/Math/Chemistry are wired below for ALL of their existing
+        // `detect_modality` extensions; 3D/CAD/Kinematics get NEW
+        // `detect_modality` buckets added below (previously undetectable —
+        // this function could never have returned those strings); Control
+        // is deliberately narrow (only ".slx", see `detect_modality`) since
+        // every other `ControlDataSource` variant needs a required field
+        // (e.g. `model_name`, `sample_rate_hz`) this file has no honest way
+        // to supply. Biology/Proteomics/Depth/Electromagnetic are NOT
+        // wired — investigated and skipped, see the long comment on
+        // `analyze_action_payload` below for why each is genuinely
+        // infeasible without fabricating required domain metadata.
+        "DNA" => Some(107),
+        "EEG" => Some(108),
+        "Math" => Some(105),
+        "Chemistry" => Some(106),
+        "3D" => Some(109),
+        "CAD" => Some(120),
+        "Kinematics" => Some(121),
+        "Control" => Some(122),
         _ => None,
     }
 }
@@ -123,6 +153,244 @@ fn analyze_action_payload(modality: &str, file_path: &str) -> Option<serde_json:
             "type": "Analyze",
             "video_data": {"FilePath": file_path}
         })),
+        // Text/Code's real `Analyze` actions take inline content fields
+        // (`text`/`code`), not a `FilePath` data-source variant like
+        // image/audio/video — confirmed directly against
+        // `assets/pipelines/modalities/{text,code}/main.rs`'s own
+        // `*ModalityAction::Analyze` enum. So these two read the file's
+        // real content here (text-safe: both modalities are only ever
+        // detected for text-based extensions). A read failure returns
+        // `None`, same honest "no payload" path as an unwired modality.
+        "Text" => {
+            let text = fs::read_to_string(file_path).ok()?;
+            Some(serde_json::json!({
+                "type": "Analyze",
+                "text": text
+            }))
+        }
+        "Code" => {
+            let code = fs::read_to_string(file_path).ok()?;
+            Some(serde_json::json!({
+                "type": "Analyze",
+                "code": code,
+                "language": null,
+                "file_path": file_path
+            }))
+        }
+        // DNA: `SequenceData::FilePath(String)` (confirmed in
+        // `assets/pipelines/modalities/dna/main.rs`) accepts a bare path for
+        // ANY of this file's DNA extensions — the real pipeline does its own
+        // format sniffing (FASTA/GenBank/FASTQ/etc.) from there, same as
+        // image/audio/video's FilePath variant above.
+        "DNA" => Some(serde_json::json!({
+            "type": "AnalyzeSequence",
+            "sequence": {"FilePath": file_path}
+        })),
+        // EEG: `EEGData::FilePath(String)`, same reasoning as DNA. The other
+        // 3 `Analyze` fields (`depth`/`detect_events`/`extract_bands`) all
+        // carry `#[serde(default)]` in the real enum, confirmed — safe to
+        // omit entirely rather than guess a non-default value.
+        "EEG" => Some(serde_json::json!({
+            "type": "Analyze",
+            "eeg_data": {"FilePath": file_path}
+        })),
+        // Chemistry: `MoleculeData` has NO generic FilePath/content variant
+        // covering every chemistry extension — only PDB(String) and
+        // MolFile(String) (both take real file CONTENT, confirmed against
+        // `assets/pipelines/modalities/chemistry/main.rs`) map honestly onto
+        // an extension this file already detects. xyz/cif/cml/cdx/cdxml/rxn
+        // (also bucketed under "Chemistry" by `detect_modality`) have no
+        // matching variant — `MoleculeData::Formula` means a textual
+        // molecular formula like "C6H12O6", not raw file content, so using
+        // it here would mislabel the data; `AnalyzeReaction`'s `ReactionData`
+        // needs pre-parsed `Vec<MoleculeData>` reactant/product lists this
+        // file cannot honestly produce from bytes alone. Returns `None` for
+        // those extensions — falls through to the honest generic fallback
+        // below, not an error (see the `analyze_file` dispatch-gate fix).
+        "Chemistry" => {
+            let ext = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let content = fs::read_to_string(file_path).ok()?;
+            match ext.as_str() {
+                "pdb" => Some(serde_json::json!({
+                    "type": "AnalyzeMolecule",
+                    "molecule": {"PDB": content}
+                })),
+                "mol" | "sdf" | "mol2" => Some(serde_json::json!({
+                    "type": "AnalyzeMolecule",
+                    "molecule": {"MolFile": content}
+                })),
+                _ => None,
+            }
+        }
+        // Math: `AnalyzeProof` takes `proof: String` (real file content, not
+        // a path — confirmed against `assets/pipelines/modalities/math/
+        // main.rs`) plus a `format: MathFormat` hint; `verify`/
+        // `check_completeness` both carry `#[serde(default)]`, omitted. Format
+        // is a best-effort, non-fabricated mapping from real extension to the
+        // real `MathFormat` enum's variants — `tex`/`latex`/`rmd`/`qmd` really
+        // are LaTeX-flavored; `nb`/`mw` really are Mathematica notebooks;
+        // `mpl`/`maple` really are Maple. `sage`/`wxm`/`wxmx`/`ipynb` have no
+        // matching `MathFormat` variant (Sage/wxMaxima/Jupyter aren't LaTeX,
+        // Mathematica, or Maple) — `Plain` is the honest "no dedicated parser
+        // for this format" choice, not a guess at which of the 3 it resembles.
+        "Math" => {
+            let content = fs::read_to_string(file_path).ok()?;
+            let ext = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let format = match ext.as_str() {
+                "tex" | "latex" | "rmd" | "qmd" => "LaTeX",
+                "nb" | "mw" => "Mathematica",
+                "mpl" | "maple" => "Maple",
+                _ => "Plain", // sage/wxm/wxmx/ipynb: no dedicated real variant
+            };
+            Some(serde_json::json!({
+                "type": "AnalyzeProof",
+                "proof": content,
+                "format": format
+            }))
+        }
+        // 3D: no `detect_modality` bucket existed for this at all before
+        // this pass (confirmed — only Code/Text/Data/Config/Web/Document/
+        // Image/Audio/Video/Math/Chemistry/DNA/EEG/Archive were detected;
+        // 3D/CAD/Kinematics files were all silently falling into
+        // "Unknown"). `MeshDataSource::FromFile{file_path, object_name:
+        // None}` (confirmed in `assets/pipelines/modalities/3D/main.rs`) is
+        // genuinely generic across every mesh sub-format, unlike
+        // `SceneDataSource` which is extension-tagged per format (GLTF/OBJ/
+        // FBX/...) — using the generic one avoids guessing a specific
+        // sub-format tag wrong. `compute_normals`/`compute_uv`/
+        // `compute_topology` have no `#[serde(default)]` (confirmed) — set
+        // `true` for all 3 as a reasonable "extract everything available"
+        // request parameter, not a factual claim about the file's content.
+        "3D" => Some(serde_json::json!({
+            "type": "AnalyzeMesh",
+            "data": {"FromFile": {"file_path": file_path, "object_name": null}},
+            "compute_normals": true,
+            "compute_uv": true,
+            "compute_topology": true
+        })),
+        // CAD: new `detect_modality` bucket (see below); `CADDataSource` is
+        // purely extension-tagged (STEP/IGES/BREP/OCC/F3D/FCStd/SLDPRT/
+        // SLDASM, each `{file_path: String}` only, confirmed in
+        // `assets/pipelines/modalities/CAD/main.rs`) — extension maps 1:1 to
+        // variant, no guessing. `extract_features`/`extract_assembly`/
+        // `extract_tolerances` have no default — `true` for all 3, same
+        // "extract everything" reasoning as 3D above.
+        "CAD" => {
+            let ext = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let variant = match ext.as_str() {
+                "step" | "stp" => "STEP",
+                "iges" | "igs" => "IGES",
+                "brep" => "BREP",
+                "occ" => "OCC",
+                "f3d" => "F3D",
+                "fcstd" => "FCStd",
+                "sldprt" => "SLDPRT",
+                "sldasm" => "SLDASM",
+                _ => return None,
+            };
+            // `variant` is a runtime &str, not a literal — `json!({variant:
+            // ...})` would NOT substitute its value as the key (the macro
+            // needs a literal token there), so the tagged inner object is
+            // built explicitly via `serde_json::Map` instead.
+            let mut data_obj = serde_json::Map::new();
+            data_obj.insert(
+                variant.to_string(),
+                serde_json::json!({"file_path": file_path}),
+            );
+            Some(serde_json::json!({
+                "type": "AnalyzeFile",
+                "data": serde_json::Value::Object(data_obj),
+                "extract_features": true,
+                "extract_assembly": true,
+                "extract_tolerances": true
+            }))
+        }
+        // Kinematics: new `detect_modality` bucket (see below);
+        // `KinematicsDataSource`'s file-based variants (URDF/MJCF/SDF/BVH/
+        // C3D/OSIM, each `{file_path: String}` only, confirmed in
+        // `assets/pipelines/modalities/kinematics/main.rs`) map 1:1 to
+        // extension, same reasoning as CAD. `compute_workspace`/
+        // `detect_singularities` have no default — `true` for both.
+        "Kinematics" => {
+            let ext = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let variant = match ext.as_str() {
+                "urdf" => "URDF",
+                "mjcf" => "MJCF",
+                "sdf" => "SDF",
+                "bvh" => "BVH",
+                "c3d" => "C3D",
+                "osim" => "OSIM",
+                _ => return None,
+            };
+            // Same dynamic-key fix as CAD above — `variant` is a runtime
+            // &str, built explicitly via `serde_json::Map` rather than
+            // inside the `json!` macro's literal-key object syntax.
+            let mut data_obj = serde_json::Map::new();
+            data_obj.insert(
+                variant.to_string(),
+                serde_json::json!({"file_path": file_path}),
+            );
+            Some(serde_json::json!({
+                "type": "AnalyzeChain",
+                "data": serde_json::Value::Object(data_obj),
+                "compute_workspace": true,
+                "detect_singularities": true
+            }))
+        }
+        // Control: deliberately narrow — of `ControlDataSource`'s variants,
+        // only `MatlabFile{file_path, system_variable: Option}` and
+        // `Simulink{file_path, subsystem_path: Option}` have no OTHER
+        // required field this file would have to fabricate (every other
+        // variant needs something real-but-unknowable: `model_name`,
+        // `sample_rate_hz`, 4 separate matrix files, etc. — confirmed in
+        // `assets/pipelines/modalities/control/main.rs`). `.m` is already
+        // claimed by "Math" in `detect_modality` (Mathematica scripts) so
+        // MatlabFile is unreachable without a real conflict; only Simulink's
+        // `.slx` is wired, via a new, non-conflicting `detect_modality`
+        // bucket below.
+        "Control" => Some(serde_json::json!({
+            "type": "Analyze",
+            "data": {"Simulink": {"file_path": file_path, "subsystem_path": null}},
+            "analyze_stability": true,
+            "analyze_performance": true,
+            "analyze_robustness": true,
+            "identify_system": true
+        })),
+        // Biology/Proteomics/Depth/Electromagnetic: investigated, NOT
+        // wired — genuinely infeasible without fabricating required data:
+        // - Biology: every `BiologyDataSource` variant needs a required
+        //   `format`-type enum AND `organism: String` with no honest
+        //   default derivable from a bare file.
+        // - Proteomics: every real extension (fasta/fa, pdb, cif) is
+        //   ALREADY claimed by "DNA" or "Chemistry" in `detect_modality` —
+        //   a genuine extension conflict, not a missing-feature gap; there
+        //   is no unclaimed real proteomics file extension to route on.
+        // - Depth: `LiDARFile` needs `format`/`coordinate_system` enums and
+        //   3 required bools (`has_intensity`/`has_rgb`/`has_classification`)
+        //   that are real facts about the capture, not guessable from the
+        //   file alone.
+        // - Electromagnetic: `IQFile` needs `sample_rate_hz`/
+        //   `center_freq_hz`/`gain_db` — real capture parameters intrinsic
+        //   to the recording hardware, impossible to know from the file.
+        // Fabricating any of the above would be exactly the kind of false
+        // "analyzed" claim this session's no-fabrication doctrine forbids —
+        // these 4 correctly fall through to the honest generic fallback.
         _ => None,
     }
 }
@@ -417,6 +685,28 @@ fn detect_modality(path: &str) -> String {
         // Archive
         "zip" | "tar" | "gz" | "rar" | "7z" | "bz2" | "xz" => "Archive",
 
+        // 3D (new 2026-10-17 — these extensions previously fell to
+        // "Unknown"; none conflict with any bucket above)
+        "gltf" | "glb" | "obj" | "fbx" | "stl" | "usd" | "usda" | "usdc" | "usdz" | "3ds"
+        | "ply" | "dae" | "blend" => "3D",
+
+        // CAD (new 2026-10-17 — no conflicts with any bucket above)
+        "step" | "stp" | "iges" | "igs" | "brep" | "occ" | "f3d" | "fcstd" | "sldprt"
+        | "sldasm" => "CAD",
+
+        // Kinematics (new 2026-10-17 — no conflicts with any bucket above)
+        "urdf" | "mjcf" | "bvh" | "c3d" | "osim" => "Kinematics",
+        // NOTE: "sdf" is Kinematics' SDF (Simulation Description Format) in
+        // its own enum, but this extension is ALSO used by chemistry's SDF
+        // (structure-data file) — already claimed by "Chemistry" above.
+        // Real, pre-existing ambiguity; left with chemistry's prior claim
+        // rather than silently reassigning it.
+
+        // Control (new 2026-10-17, deliberately narrow — see
+        // `analyze_action_payload`'s long comment on why only Simulink's
+        // `.slx` is wired; no conflict with any bucket above)
+        "slx" => "Control",
+
         // Default
         _ => "Unknown",
     }
@@ -471,10 +761,19 @@ fn create_file_ref(project_id: u64, file_path: &str, analyze: bool) -> FileRefIn
 async fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Value, String> {
     // Real dispatch first, for the modalities actually wired to one — these
     // are binary-safe (never read as text) and get a real graph from the
-    // real pipeline, not metadata-only guessing.
-    if let Some(pipeline_id) = modality_pipeline_id(modality) {
-        let payload = analyze_action_payload(modality, file_path)
-            .ok_or_else(|| format!("no analyze payload builder for wired modality {}", modality))?;
+    // real pipeline, not metadata-only guessing. Checked as a `(Some,
+    // Some)` pair (not `?`-propagated on a lone `ok_or_else`, fixed
+    // 2026-10-17): some wired modalities (Chemistry/CAD/Kinematics) only
+    // cover a SUBSET of their own `detect_modality` extensions — e.g.
+    // Chemistry's `.xyz`/`.cif` legitimately have no payload builder. Those
+    // must fall through to the honest generic fallback below, not error out
+    // — a hard `?` here would turn "no real parser for this sub-format"
+    // into a failed link for files that used to at least get an honest
+    // metadata-only result.
+    if let (Some(pipeline_id), Some(payload)) = (
+        modality_pipeline_id(modality),
+        analyze_action_payload(modality, file_path),
+    ) {
         let output = invoke_modality_pipeline(pipeline_id, payload).await?;
         let graph_id = output.get("graph_id").and_then(|g| g.as_u64());
         return Ok(serde_json::json!({
@@ -487,27 +786,27 @@ async fn analyze_file(file_path: &str, modality: &str) -> Result<serde_json::Val
     }
 
     // Everything below here is the honest fallback for modalities NOT yet
-    // wired to a real dispatch (confirmed this session: this covers the
-    // other ~24 modalities — chemistry/DNA/EEG/math/etc. — which all have
-    // real CreateContainer-based graph creation by now but aren't wired
-    // into this file yet; adding each is the same shape as Image/Audio/
-    // Video above, left for a follow-up pass rather than guessing their
-    // exact Analyze/DataSource field names without checking each one).
+    // wired to a real dispatch (confirmed this session: Image/Audio/Video/
+    // Text/Code are wired above; the remaining modalities — math/chemistry/
+    // dna/eeg/etc. — have real CreateContainer-based graph creation by now
+    // but aren't wired into this file yet; adding each is the same shape as
+    // above, left for a follow-up pass. "Script"/"Web" below have no real
+    // modality pipeline to dispatch to at all — not a gap, there's nothing
+    // to wire them to).
     match modality {
-        "Code" | "Script" | "Web" => {
-            // Read file content — text-safe for these 3 modalities only.
+        // "Code" is no longer handled here — it's intercepted above by the
+        // real `modality_pipeline_id`/`analyze_action_payload` dispatch to
+        // pipeline 101. "Script"/"Web" have no real modality pipeline in
+        // `src/orchestrator/graphs.rs`'s id map (100-126) and remain here,
+        // honestly approximate, not a fabricated full-fidelity result.
+        "Script" | "Web" => {
+            // Read file content — text-safe for these 2 modalities only.
             let content =
                 fs::read_to_string(file_path).map_err(|e| format!("Failed to read file: {}", e))?;
-            // Call CodeAnalysis pipeline (#18) via subprocess
-            // In real implementation, this would call the pipeline executor
-            let input = serde_json::json!({
-                "action": "Analyze",
-                "code": content,
-                "file_path": file_path,
-                "use_llm": false // Structural analysis only
-            });
 
-            // For now, perform basic structural analysis inline
+            // No real pipeline exists for these two — local structural
+            // approximation only, honestly labeled below, not claiming to
+            // be the real CodeAnalysis/TextAnalysis result.
             let lines: Vec<&str> = content.lines().collect();
             let functions = lines
                 .iter()

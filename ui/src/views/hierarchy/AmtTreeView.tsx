@@ -30,6 +30,7 @@ import {
 import { AmtNodeRaw, FlatAmtNode, flattenAmtTree, loadAmtTree } from "../../data/amtTree";
 import { loadGraphData } from "../../graphViewData";
 import type { GraphViewNode, GraphViewStatus } from "../../graphViewTypes";
+import { navigateTo } from "../../navigation";
 
 export type AmtTreeViewProps = { projectId: number | null };
 
@@ -281,7 +282,16 @@ export const AmtTreeView: React.FC<AmtTreeViewProps> = ({ projectId }) => {
           {/* Tree */}
           <div style={{ flex: "1 1 380px", minWidth: 280, border: `1px solid ${C_BORDER}`, borderRadius: 10, padding: 10 }}>
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700, color: C_TEXT }}>AMT tree · container #{selectedGen}</span>
+              <span style={{ fontWeight: 700, color: C_TEXT }}>
+                AMT tree · container{" "}
+                <button
+                  onClick={() => navigateTo({ kind: "container", containerId: selectedGen })}
+                  title="Open this container in Graph View"
+                  style={{ all: "unset", cursor: "pointer", color: "inherit", fontWeight: 700, textDecoration: "underline" }}
+                >
+                  #{selectedGen}
+                </button>
+              </span>
               {stats && (
                 <span style={{ color: C_MUTED, fontSize: 11.5 }}>
                   {stats.nodes} node(s) · depth {stats.maxDepth} · {stats.verified} verified ·{" "}
