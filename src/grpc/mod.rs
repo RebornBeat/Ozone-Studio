@@ -2340,8 +2340,18 @@ async fn get_pipeline_ui_component(
 
     // Try to load component.js from the pipeline's ui folder. The index's
     // category names don't always match on-disk asset folders ("core" vs
-    // "general"), so search every known category dir; the data-dir copy
-    // (where bootstrap places it) comes first.
+    // "general"), so search every known category dir.
+    //
+    // SOURCE-FIRST (2026-10-18, found live): the data-dir copy
+    // ({data_dir}/pipelines/... — where bootstrap places a component.js at
+    // first boot) used to come FIRST in this search, so the Workspace and
+    // Tasks tabs were served a FROZEN bootstrap-era copy of component.js
+    // while every fix landed in assets/pipelines (the source of truth) and
+    // never reached the UI no matter how many times anything was rebuilt.
+    // The CARGO_MANIFEST_DIR-anchored assets dir is now the FIRST candidate
+    // (same convention as the executor's binary search); the data-dir copy
+    // remains a fallback for deployments without the source tree.
+    let source_pipelines = format!("{}/assets/pipelines", env!("CARGO_MANIFEST_DIR"));
     let pipelines_path =
         std::env::var("OZONE_PIPELINES_PATH").unwrap_or_else(|_| "./pipelines".to_string());
     let data_pipelines = {
@@ -2350,7 +2360,12 @@ async fn get_pipeline_ui_component(
     };
 
     let category_variants = [category, "general", "consciousness", "modalities", "shared"];
-    let bases = [data_pipelines, pipelines_path, "./pipelines".to_string()];
+    let bases = [
+        source_pipelines,
+        data_pipelines,
+        pipelines_path,
+        "./pipelines".to_string(),
+    ];
     let mut tried: Vec<String> = Vec::new();
     for base in &bases {
         for cat in category_variants {
