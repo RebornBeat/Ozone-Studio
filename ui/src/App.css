@@ -563,6 +563,12 @@ body {
 /* Prompt Input */
 .meta-prompt {
     margin-top: auto;
+    /* DiscoveryEffects renders a position:absolute toast (bottom:64/
+       right:12) as a child of this box, meant to float just above the
+       input — without this, there was no positioned ancestor until the
+       document root, so it resolved against the whole page instead and
+       could land anywhere up to mid-screen. Found live, 2026-10-18. */
+    position: relative;
 }
 
 .meta-prompt textarea {
@@ -3682,6 +3688,36 @@ body {
     color: var(--color-text-muted);
 }
 
+/* Compact prompt banner — a top-aligned row for "nothing selected/linked
+   yet" prompts that sit alongside other real content and shouldn't claim
+   the whole remaining height the way .empty-state-centered does. */
+.compact-prompt-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
+    background: rgba(148, 163, 184, 0.08);
+    border-bottom: 1px solid var(--color-border);
+    color: var(--color-text-secondary);
+    font-size: 0.9rem;
+}
+
+.compact-prompt-banner .empty-icon {
+    font-size: 1.1rem;
+    opacity: 0.6;
+    flex-shrink: 0;
+}
+
+.compact-prompt-banner p {
+    margin: 0;
+}
+
+.compact-prompt-banner .empty-hint {
+    font-size: 0.85rem;
+    color: var(--color-text-muted);
+    margin-left: var(--space-xs);
+}
+
 .empty-action-btn {
     margin-top: var(--space-lg);
     padding: var(--space-sm) var(--space-lg);
@@ -6086,6 +6122,132 @@ ui/component.js files
   height: 100%;
   box-sizing: border-box;
 }
+
+/* Project-scoped layout (2026-10-18, revised 2026-10-18) — only active for
+   the Workspace tab while a project is selected (see pipeline-ui.tsx's
+   DynamicPipelineUI). Three stacked sections, not a flat two: the legacy
+   container (toolbar + stats + link-management list) shrinks to its own
+   content height on top, the real interactive Files/Fabric/Hierarchy
+   viewer (ProjectWorkspaceViewer) takes the dominant middle space, and
+   the project chat docks as a fixed bar along the bottom. */
+.dynamic-pipeline-ui-with-chat {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+.dynamic-pipeline-ui-container-top {
+  flex: 0 0 auto;
+  max-height: 220px;
+  width: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  border-bottom: 1px solid #223046;
+}
+.project-insights-viewer {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-bottom: 1px solid #223046;
+}
+.project-insights-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #223046;
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+.project-insights-tabs button {
+  background: transparent;
+  color: #7fa8cc;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.project-insights-tabs button:hover {
+  background: #16233a;
+}
+.project-insights-tabs button.active {
+  background: #16233a;
+  color: #dfe7f2;
+  border-color: #2a3a52;
+}
+.project-insights-tab-sep {
+  width: 1px;
+  height: 18px;
+  background: #223046;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.project-insights-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.project-chat-panel {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+}
+.project-chat-header {
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #dfe7f2;
+  border-bottom: 1px solid #223046;
+  flex-shrink: 0;
+}
+.project-chat-transcript {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+.project-chat-input {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid #223046;
+  flex-shrink: 0;
+}
+.project-chat-input textarea {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 36px;
+  max-height: 120px;
+  background: #0b1120;
+  border: 1px solid #223046;
+  border-radius: 8px;
+  color: #dfe7f2;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.project-chat-input button {
+  background: #16233a;
+  color: #dfe7f2;
+  border: 1px solid #2a3a52;
+  border-radius: 8px;
+  padding: 0 16px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.project-chat-input button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .dynamic-pipeline-ui-container h1,
 .dynamic-pipeline-ui-container h2,
 .dynamic-pipeline-ui-container h3 {
@@ -6288,6 +6450,21 @@ ui/component.js files
     color: var(--color-text);
 }
 
+/* .workspace-panel is used in exactly one place (the workspace-list +
+   info-banner landing view) and needs its sidebar beside its content, not
+   stacked under it — the generic column rule above (meant for this
+   module's other, single-column views) was winning on specificity and
+   collapsing it to a vertical stack, putting the workspace list above the
+   explanatory banner instead of the intended sidebar-beside-content
+   layout. Scoped to exactly this one case via :has() so no other view
+   using .workspace-panel's base rule is affected (there are none today,
+   but this way a future one wouldn't silently inherit the override). */
+.dynamic-pipeline-ui-container .workspace-panel:has(.workspace-sidebar) {
+    flex-direction: row;
+    overflow-y: hidden;
+    padding: 0;
+}
+
 .dynamic-pipeline-ui-container .panel-toolbar {
     display: flex;
     justify-content: space-between;
@@ -6438,6 +6615,71 @@ ui/component.js files
 
 .dynamic-pipeline-ui-container .file-unlink-btn:hover {
     color: var(--color-error);
+}
+
+/* W7.4 — rename/delete affordances on workspace sidebar items + project
+   cards (CRUD completion: UpdateWorkspace/DeleteWorkspace/UpdateProject/
+   DeleteProject were real on the backend but had zero UI wiring). Small
+   icon buttons, same muted-then-highlight-on-hover convention as
+   .file-unlink-btn above. margin-left:auto pushes the group to the end of
+   a flex-ROW parent (.workspace-item); justify-content:flex-end keeps it
+   right-aligned even when a parent (.item-card) is flex-COLUMN instead,
+   where the stretched-width child has no spare margin for auto to use. */
+.dynamic-pipeline-ui-container .item-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    margin-left: auto;
+    justify-content: flex-end;
+}
+
+.dynamic-pipeline-ui-container .icon-action-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    font-size: 0.85rem;
+    line-height: 1;
+    padding: 2px 5px;
+    border-radius: var(--radius-sm, 4px);
+}
+
+.dynamic-pipeline-ui-container .icon-action-btn:hover {
+    color: var(--color-text);
+    background: var(--color-bg-tertiary);
+}
+
+.dynamic-pipeline-ui-container .icon-action-btn.danger:hover {
+    color: var(--color-error);
+}
+
+.dynamic-pipeline-ui-container .ws-name-col {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+    gap: 2px;
+}
+
+/* W7.5 — formatDate was dead code (defined, never called); used now on
+   workspace sidebar items + project cards. */
+.dynamic-pipeline-ui-container .created-date {
+    color: var(--color-text-muted);
+    font-size: 0.72rem;
+}
+
+/* Danger variant for toolbar-level Delete buttons (PROJECT VIEW / PROJECTS
+   VIEW toolbars) — mirrors .toolbar-btn.primary's pattern just below the
+   base .toolbar-btn rule, same specificity class (container + 2 classes)
+   so it reliably wins regardless of source order against the base rule. */
+.dynamic-pipeline-ui-container .toolbar-btn.danger {
+    color: var(--color-error);
+    border-color: var(--color-error);
+}
+
+.dynamic-pipeline-ui-container .toolbar-btn.danger:hover {
+    background: var(--color-error);
+    color: #fff;
 }
 
 /* task_manager/ui/component.js — same systemic gap as workspace_tab above
@@ -6704,4 +6946,16 @@ ui/component.js files
 }
 .ofeed-row {
     animation: fadeIn 0.35s ease;
+}
+
+/* LAYOUT FIX (2026-10-18): the project viewer (Files/Fabric/Hierarchy/Graph
+   sections) owns the dominant middle region of the Workspace project view —
+   it fills the space between the compact legacy toolbar (top) and the
+   project chat bar (bottom) and scrolls internally, instead of taking
+   natural height (blank gap) or overflowing hidden (content stuck below). */
+.project-viewer-region {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
 }

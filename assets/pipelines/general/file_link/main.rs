@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
@@ -525,6 +525,17 @@ pub enum FileLinkInput {
         file_paths: Vec<String>,
         analyze: bool,
     },
+    /// Link a whole folder to a project: creates one DirectoryReference
+    /// container for the folder itself, then links each direct child file
+    /// the same way `Link`/`LinkMultiple` do, plus a Contains/PartOf
+    /// relation between the directory container and each file container.
+    /// Non-recursive (one level deep) for this first pass — subdirectories
+    /// are skipped, not erroring, honestly reflected in `skipped_entries`.
+    LinkFolder {
+        project_id: u64,
+        folder_path: String,
+        analyze: bool,
+    },
     /// Unlink a file from a project
     Unlink { project_id: u64, file_ref_id: u64 },
     /// Refresh file status (check if exists, updated, etc.)
@@ -571,6 +582,15 @@ pub struct FileLinkOutput {
     pub file_ref: Option<FileRefInfo>,
     pub file_refs: Option<Vec<FileRefInfo>>,
     pub error: Option<String>,
+    /// Set only by `LinkFolder` — the new DirectoryReference container's
+    /// real id (`None` if the directory container itself failed to create,
+    /// which doesn't fail the whole op since child files may still link).
+    #[serde(default)]
+    pub directory_ref_id: Option<u64>,
+    /// Set only by `LinkFolder` — subdirectory names skipped this pass
+    /// (non-recursive), reported honestly rather than silently dropped.
+    #[serde(default)]
+    pub skipped_entries: Option<Vec<String>>,
 }
 
 // ============================================================================
@@ -911,6 +931,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     file_ref: None,
                     file_refs: None,
                     error: Some("File already linked to this project".to_string()),
+                    directory_ref_id: None,
+                    skipped_entries: None,
                 });
             }
 
@@ -958,6 +980,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 file_ref: Some(file_ref),
                 file_refs: None,
                 error: None,
+                directory_ref_id: None,
+                skipped_entries: None,
             })
         }
 
@@ -1010,6 +1034,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 file_ref: None,
                 file_refs: Some(new_refs),
                 error: None,
+                directory_ref_id: None,
+                skipped_entries: None,
             })
         }
 
@@ -1038,6 +1064,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     file_ref: None,
                     file_refs: None,
                     error: None,
+                    directory_ref_id: None,
+                    skipped_entries: None,
                 })
             } else {
                 Ok(FileLinkOutput {
@@ -1045,6 +1073,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                     file_ref: None,
                     file_refs: None,
                     error: Some("File reference not found".to_string()),
+                    directory_ref_id: None,
+                    skipped_entries: None,
                 })
             }
         }
@@ -1085,6 +1115,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                                             file_ref: Some(updated),
                                             file_refs: None,
                                             error: None,
+                                            directory_ref_id: None,
+                                            skipped_entries: None,
                                         });
                                     }
                                 }
@@ -1099,6 +1131,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 file_ref: None,
                 file_refs: None,
                 error: Some("File reference not found".to_string()),
+                directory_ref_id: None,
+                skipped_entries: None,
             })
         }
 
@@ -1121,6 +1155,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                                             file_ref: Some(file_ref.clone()),
                                             file_refs: None,
                                             error: None,
+                                            directory_ref_id: None,
+                                            skipped_entries: None,
                                         });
                                     }
                                 }
@@ -1135,6 +1171,8 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 file_ref: None,
                 file_refs: None,
                 error: Some("File reference not found".to_string()),
+                directory_ref_id: None,
+                skipped_entries: None,
             })
         }
 
@@ -1145,6 +1183,129 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 file_ref: None,
                 file_refs: Some(refs),
                 error: None,
+                directory_ref_id: None,
+                skipped_entries: None,
+            })
+        }
+
+        FileLinkInput::LinkFolder {
+            project_id,
+            folder_path,
+            analyze,
+        } => {
+            let folder_meta = fs::metadata(&folder_path);
+            if folder_meta.is_err() || !folder_meta.unwrap().is_dir() {
+                return Ok(FileLinkOutput {
+                    success: false,
+                    file_ref: None,
+                    file_refs: None,
+                    error: Some(format!("Not a real, accessible directory: {}", folder_path)),
+                    directory_ref_id: None,
+                    skipped_entries: None,
+                });
+            }
+
+            let entries = match fs::read_dir(&folder_path) {
+                Ok(e) => e,
+                Err(e) => {
+                    return Ok(FileLinkOutput {
+                        success: false,
+                        file_ref: None,
+                        file_refs: None,
+                        error: Some(format!("Could not read directory {}: {}", folder_path, e)),
+                        directory_ref_id: None,
+                        skipped_entries: None,
+                    });
+                }
+            };
+
+            let mut child_file_paths: Vec<String> = vec![];
+            let mut skipped_entries: Vec<String> = vec![];
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Non-recursive this pass — real subdirectories are
+                    // honestly reported as skipped, not silently dropped.
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        skipped_entries.push(name.to_string());
+                    }
+                    continue;
+                }
+                if let Some(p) = path.to_str() {
+                    child_file_paths.push(p.to_string());
+                }
+            }
+
+            let folder_name = Path::new(&folder_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or(&folder_path)
+                .to_string();
+            let dir_keywords: Vec<String> = vec![folder_name.to_lowercase(), "directory".to_string()];
+            let directory_ref_id = link_reference_to_graph(
+                project_id,
+                76,
+                "DirectoryReference",
+                "file_link_pipeline",
+                format!("Folder: {}", folder_path),
+                dir_keywords,
+            )
+            .await;
+
+            let mut refs = load_file_refs(project_id);
+            let mut new_refs = vec![];
+
+            for file_path in child_file_paths {
+                if refs.iter().any(|r| r.path == file_path) {
+                    continue;
+                }
+
+                let mut file_ref = create_file_ref(project_id, &file_path, analyze);
+
+                if analyze && file_ref.exists {
+                    if let Ok(analysis) = analyze_file(&file_path, &file_ref.modality).await {
+                        file_ref.analysis_graph_id =
+                            analysis.get("graph_id").and_then(|g| g.as_u64());
+                        if store_analysis(project_id, file_ref.id, &analysis).is_ok() {
+                            file_ref.analyzed = true;
+                        }
+                    }
+                }
+
+                let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
+                file_ref.zsei_container_id = link_reference_to_graph(
+                    project_id,
+                    76,
+                    "FileReference",
+                    "file_link_pipeline",
+                    format!("File: {}", file_ref.path),
+                    keywords,
+                )
+                .await;
+
+                // Real Contains/PartOf edge between the directory container
+                // and this file's container, on top of the file<->project
+                // edge link_reference_to_graph already added — best-effort,
+                // same as every other graph-wiring step in this file.
+                if let (Some(dir_id), Some(file_container_id)) =
+                    (directory_ref_id, file_ref.zsei_container_id)
+                {
+                    link_relation_both_ways(dir_id, file_container_id).await;
+                }
+
+                refs.push(file_ref.clone());
+                new_refs.push(file_ref);
+            }
+
+            save_file_refs(project_id, &refs)?;
+
+            Ok(FileLinkOutput {
+                success: true,
+                file_ref: None,
+                file_refs: Some(new_refs),
+                error: None,
+                directory_ref_id,
+                skipped_entries: if skipped_entries.is_empty() { None } else { Some(skipped_entries) },
             })
         }
     }

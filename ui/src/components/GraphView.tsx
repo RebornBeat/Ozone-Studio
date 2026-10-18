@@ -156,11 +156,19 @@ function layoutNodes(nodes: GraphViewNode[]): LayoutNode[] {
   return out;
 }
 
-export const GraphView: React.FC = () => {
+export const GraphView: React.FC<{ projectId?: number | null }> = ({ projectId }) => {
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectsError, setProjectsError] = useState<string | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [status, setStatus] = useState<GraphViewStatus>({ kind: "loading" });
+
+  // Embedding mode (W7.1): an explicit `projectId` prop — even `null` —
+  // means the host component owns project selection. Skip this component's
+  // own workspace/project-fetching effect and dropdown UI entirely, and
+  // drive `selectedProjectId` from the prop instead. When the prop is
+  // omitted (the existing global Graph tab's usage), `controlled` is false
+  // and every original behavior below is unchanged.
+  const controlled = projectId !== undefined;
 
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
@@ -188,6 +196,7 @@ export const GraphView: React.FC = () => {
   const dragState = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
 
   useEffect(() => {
+    if (controlled) return;
     let cancelled = false;
     loadProjectOptions()
       .then((opts) => {
@@ -209,7 +218,15 @@ export const GraphView: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [controlled]);
+
+  // Embedding mode: drive selectedProjectId from the prop whenever it
+  // changes (including on mount), instead of this component's own fetch
+  // above. No-op when `controlled` is false.
+  useEffect(() => {
+    if (!controlled) return;
+    setSelectedProjectId(projectId ?? null);
+  }, [controlled, projectId]);
 
   useEffect(() => {
     if (selectedProjectId === null) return;
@@ -399,28 +416,30 @@ export const GraphView: React.FC = () => {
         visual encoding lands in Batch C's C2-C7 forks.
       </p>
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
-        <label style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>Project:</label>
-        {projectsError && (
-          <span style={{ color: "#ff8a8a", fontSize: 12.5 }}>Error loading projects: {projectsError}</span>
-        )}
-        {!projectsError && projects.length === 0 && (
-          <span style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>No workspaces/projects found yet.</span>
-        )}
-        {projects.length > 0 && (
-          <select
-            value={selectedProjectId ?? undefined}
-            onChange={(e) => setSelectedProjectId(Number(e.target.value))}
-            style={{ background: "#101724", color: "var(--color-text)", border: "1px solid var(--color-border-faint)", borderRadius: 6, padding: "4px 8px" }}
-          >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.workspaceName} / {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+      {!controlled && (
+        <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 12 }}>
+          <label style={{ fontSize: 12.5, color: "var(--color-text-muted)" }}>Project:</label>
+          {projectsError && (
+            <span style={{ color: "#ff8a8a", fontSize: 12.5 }}>Error loading projects: {projectsError}</span>
+          )}
+          {!projectsError && projects.length === 0 && (
+            <span style={{ color: "var(--color-text-muted)", fontSize: 12.5 }}>No workspaces/projects found yet.</span>
+          )}
+          {projects.length > 0 && (
+            <select
+              value={selectedProjectId ?? undefined}
+              onChange={(e) => setSelectedProjectId(Number(e.target.value))}
+              style={{ background: "#101724", color: "var(--color-text)", border: "1px solid var(--color-border-faint)", borderRadius: 6, padding: "4px 8px" }}
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.workspaceName} / {p.name}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap", marginBottom: 12, fontSize: 12 }}>
         <span style={{ color: "var(--color-text-muted)" }}>Overlays:</span>

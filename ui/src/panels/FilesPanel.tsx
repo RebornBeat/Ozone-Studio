@@ -6,12 +6,17 @@ import FileReferenceViewer from "../views/files/FileReferenceViewer";
 import MathViewer from "../views/files/MathViewer";
 import VersionHistory from "../views/files/VersionHistory";
 import WorkspaceBrowser from "../views/files/WorkspaceBrowser";
+import { useRequestedFilesTab } from "../filesPanelTab";
 
-export const FilesPanel: React.FC = () => (
+export const FilesPanel: React.FC = () => {
+  const [requestedTab, setRequestedTab] = useRequestedFilesTab();
+  return (
   <PanelShell
     title="Files & Code"
     subtitle="Graph-native workspace files, code/math viewers, and the editor."
     showProjectPicker={true}
+    activeTab={requestedTab ?? undefined}
+    onActiveTabChange={setRequestedTab}
     tabs={[
     { id: "browser", label: "Browser", render: (projectId) => (<><WorkspaceBrowser projectId={projectId} /></>) },
     { id: "refs", label: "References", render: (projectId) => (<><FileReferenceViewer projectId={projectId} /></>) },
@@ -21,6 +26,7 @@ export const FilesPanel: React.FC = () => (
     { id: "history", label: "History", render: (projectId) => (<><VersionHistory projectId={projectId} /></>) },
     ]}
   />
-);
+  );
+};
 
 export default FilesPanel;

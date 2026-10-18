@@ -45,34 +45,25 @@ inside the other may not be trivial.
 
 ---
 
-## Batch W1 — Quick, well-scoped fixes (low risk, ready now)
+## Batch W1 — Quick, well-scoped fixes (low risk, ready now) — ✅ DONE 2026-10-18
 
-- [ ] **W1.1 — Workspace-list crunched-display bug.** Confirmed real logic
-  bug, not just CSS: `workspace_tab/ui/component.js:990-1018` renders a
-  full-height, centered "Select a workspace to view projects" block
-  UNCONDITIONALLY whenever nothing is selected — it never checks whether
-  real workspaces exist in the sidebar list. `.empty-state-centered`
-  (`App.css:3656`) is `height:100%; justify-content:center`, and
-  `.workspace-content` (`App.css:5031`) is `flex:1`, so this one static
-  block claims all remaining width/height regardless of context. Fix:
-  collapse this into a compact banner/prompt (not a full-height block),
-  freeing the content area — especially once W2 lands and there's a real
-  project-scoped chat that deserves that space instead.
-- [ ] **W1.2 — Project view's "No linked content yet" panel is too tall.**
-  Same shape as W1.1 — a full-height empty state crowding out space that
-  should go to the (post-W2) project-scoped chat. Collapse to a compact
-  top banner.
-- [ ] **W1.3 — Notification positioned in the middle instead of the top.**
-  INCONCLUSIVE from investigation — `.notification-dropdown`
-  (`App.css:5723`) anchors correctly below its bell icon, so that's
-  likely not what the operator saw. The real culprit is probably
-  `ThemeArea.tsx`'s `addNotification` toast system (confirmed real this
-  session for other fixes), but its positioning wasn't checked in this
-  pass — needs its own dedicated look before fixing.
+- [x] **W1.1 — Workspace-list crunched-display bug.** FIXED: collapsed
+  into a new compact `.compact-prompt-banner` class (top-aligned, not
+  full-height centered).
+- [x] **W1.2 — Project view's "No linked content yet" panel is too tall.**
+  FIXED: same `.compact-prompt-banner` treatment.
+- [x] **W1.3 — Notification positioned in the middle instead of the top.**
+  FIXED — real cause was different from the guess above: not
+  `ThemeArea.tsx`'s toast, but `DiscoveryEffects.tsx`'s toast
+  (`position:absolute; bottom:64; right:12`) mounted inside `MetaPortion`'s
+  `.meta-prompt` box, which had no `position:relative` anywhere in
+  `App.css` — the toast resolved its offset against the whole page
+  instead of the small box it was meant to float above. Fixed by adding
+  `position:relative` to `.meta-prompt`.
 
 ---
 
-## Batch W2 — Project-scoped chat (extend `MetaPortion`, do not rebuild)
+## Batch W2 — Project-scoped chat (extend `MetaPortion`, do not rebuild) — ✅ DONE 2026-10-18
 
 **Confirmed this is a small, well-scoped extension, not a rewrite.**
 `MetaPortion.tsx` already has a real `ChatContext` union
@@ -86,29 +77,58 @@ context_scope:"Project"})`) — only the FRONTEND is a from-scratch minimal
 stub with none of `MetaPortion`'s real capability (no thinking indicator,
 no markdown rendering, no attempt trail, no model-accented bubbles).
 
-- [ ] **W2.1** — Add a `'project'` variant to `MetaPortion`'s `ChatContext`
-  union, and an optional `lockedContext` prop to `MetaPortionProps`. When
-  `lockedContext` is set, skip rendering the context-switcher UI and force
-  `chatContext` to that value permanently — everything else (thinking
-  indicator, markdown, attempt trail, model bubbles) comes along for free
-  since it's all downstream of `transcript`/`chatContext`, not duplicated
-  logic.
-- [ ] **W2.2** — Investigate whether `MetaPortion` (a component in the main
-  `ui/src/` React bundle) can actually be mounted FROM a pipeline-UI
-  module like `workspace_tab/component.js` (a separately eval'd module) —
-  this is the same cross-bundle question Batch W3 needs answered for the
-  file viewer. If mountable directly: wire the Project view to render
-  `<MetaPortion lockedContext={{type:'project', id, name}} />` instead of
-  the old thin chat. If NOT directly mountable (likely, given the
-  separate-eval loading mechanism): the real fix is the same as W3's —
-  route the user into the real `ui/src/` surface rather than reimplementing
-  `MetaPortion`'s capability a second time inside the pipeline-UI module.
-- [ ] **W2.3** — Once W2.1/W2.2 land and are verified, retire the old thin
-  chat-rendering code in `workspace_tab/component.js`.
+- [x] **W2.1 — REVISED 2026-10-18, operator-corrected**: the first pass
+  locked `MetaPortion` itself (`'project'` variant + `lockedContext`) —
+  the operator explicitly corrected this: `MetaPortion` must stay fully
+  untouched, always-visible, non-interfering. **Reverted in full**
+  (confirmed via `git diff` against the base commit — byte-identical
+  except for the extraction below). Real fix: extracted `MetaPortion`'s
+  rendering engine (transcript types, markdown, model-accent styling,
+  attempt-trail summary) into shared `ui/src/chatRendering.tsx`, which
+  `MetaPortion` now imports instead of defining locally — a pure
+  extraction, no behavior change to the global sidebar.
+- [x] **W2.2 — BUILT, THEN REMOVED 2026-10-18 (operator correction #2)**:
+  first built a genuinely separate `ProjectChatPanel.tsx` mounted as a
+  React sibling from `pipeline-ui.tsx`'s `DynamicPipelineUI`, scoped to
+  `pipelineId === 6`. After live-testing it, the operator correctly
+  identified it as redundant: `MetaPortion` already has a real, working
+  global/workspace chat-context switcher (`MetaPortion.tsx:88-91,877-897`,
+  pre-existing, untouched) giving a separate transcript per workspace —
+  a second embedded chat surface duplicated that. **Removed in full**:
+  `ProjectChatPanel.tsx`/`useChatSession.ts` deleted, `DynamicPipelineUI`
+  reverted to always rendering the plain container (no sibling, no
+  shared-state subscription for it), dead CSS removed. `chatRendering.tsx`
+  (the W2.1 extraction) stays — `MetaPortion` still imports it; that part
+  was a real simplification independent of the panel that got removed.
+  **Real gap found while fixing the modal copy that claimed projects "have
+  their own chat scope"**: traced the actual context path
+  (`MetaPortion.handleSubmit` → `orchestrate({workspace_id, project_id:
+  undefined})` → `orchestrator/stages.rs` `ForStep` → `context_aggregation`
+  `ForStep` handler) and confirmed `workspace_id`/`project_id` there only
+  scope the `/SharedContext` coordination layer, never a project's linked
+  files — a separate `ForProject` action does real file retrieval but
+  `ForStep` (what chat actually uses) never calls it. So the workspace
+  switcher gives a real separate conversation, but linking files to a
+  project does **not** currently feed them into that conversation as
+  context. Modal copy corrected to stop claiming otherwise; closing the
+  actual gap is new scope, not done here.
+- [x] **W2.3** — DONE: the old `ProjectChat` stub (232 lines) stays
+  deleted; `window.__ozoneMetaPortion` calls (added then reverted) removed
+  entirely — confirmed zero references anywhere via `grep`.
+- [x] **W2.4 — bonus, found while fixing W2.2's copy** (2026-10-18):
+  Create-Project/Create-Workspace modals share `newName`/`newDescription`
+  state; neither backdrop-click nor "Cancel" ever cleared it (only the
+  success path did), so cancelling one modal left stale text pre-filled
+  in the other. Fixed with one shared `closeCreateModals()` wired to all
+  four dismiss points (`workspace_tab/ui/component.js`). Also: the
+  "Link Folder" toolbar button was real all along (W4) but unreadable —
+  three toolbar buttons plus title crammed into the pre-W2.2-fix 300px
+  side column; fixed by W2.2's layout correction (column stack, full
+  width on top) rather than a separate change.
 
 ---
 
-## Batch W3 — File-list unification (show real data, not a rebuild)
+## Batch W3 — File-list unification (show real data, not a rebuild) — ✅ DONE 2026-10-18
 
 **Confirmed**: `FileReferenceViewer.tsx` already shows real path
 (parsed from the real `"File: {path}"` container-name convention),
@@ -120,26 +140,27 @@ path, no provenance, nothing else. **The gap is not "build file
 provenance display," it's "the Project view uses the thin component
 instead of the rich one that already exists."**
 
-- [ ] **W3.1 — THE architectural question, investigate before building
-  anything.** Can a pipeline-UI module (`workspace_tab/component.js`,
-  loaded via a separate eval mechanism) embed/mount real `ui/src/views/
-  files/*` React components directly? If yes: embed `WorkspaceBrowser`/
-  `FileReferenceViewer` into the Project view directly. If no (more
-  likely, given the different bundle/loading mechanism): the correct fix
-  is making project-selection in the Workspace tab **navigate the user
-  into the "Files" tab** with that project pre-selected (reusing
-  `navigation.ts`'s real `onNavigate` mechanism, confirmed working this
-  session for `graph-node`/`container`/`task` targets — a `project`
-  target variant would be a small, analogous addition) — one real file
-  system, two entry points, rather than two maintained file browsers.
-- [ ] **W3.2** — Once W3.1's mechanism is decided, apply the same decision
-  to "Files" tab's own discoverability: consider reordering it closer to
-  the front (e.g. right after Workspace/Order), since it's one of the most
-  complete, real surfaces in the whole app and is currently buried 13th.
+- [x] **W3.1 — ANSWERED and BUILT**: not directly mountable, confirmed
+  (same cross-bundle boundary as W2.2). Extended `window.__ozoneThemeArea`
+  with `navigateTo(target)`/`setSelectedProject(id)` (thin pass-throughs
+  to the real `navigation.ts`/`projectSelection.ts`). Project-view file
+  rows now jump into the real `CodeViewer`/container views via
+  `{kind:"code-file"}`/`{kind:"container"}`. Added a "view call graph →"
+  link from `CodeViewer.tsx` to Engines (shares project-selection state).
+  Bonus bug found+fixed: `workspace_tab/main.rs`'s `FileRef` response
+  struct never declared the `zsei_container_id` field `file_link` was
+  already saving — silently dropped before reaching the UI; added it.
+  Honestly NOT done: a direct file→History sub-tab cross-link —
+  `VersionHistory.tsx`/`CodeViewer.tsx` are `PanelShell`-local sub-tabs
+  with no external hook without changing `PanelShell.tsx` itself (shared
+  by 4 panels) — bigger than a one-liner, flagged not forced.
+- [x] **W3.2 — DONE**: Files tab moved from order 12 (13th) to order 1
+  (right after Workspace) in `ui/src/pipeline-ui.tsx`'s
+  `CORE_TAB_DEFINITIONS`, rest renumbered sequentially.
 
 ---
 
-## Batch W4 — Folder-linking (net-new, but well-scoped)
+## Batch W4 — Folder-linking (net-new, but well-scoped) — ✅ DONE 2026-10-18
 
 **Confirmed feasible, nothing exists yet.** `file_link`'s `execute()`
 (`assets/pipelines/general/file_link/main.rs:599`) is strictly
@@ -150,17 +171,16 @@ directory-picker exists (`ui/electron/main.js`/`preload.js` only have
 `selectFile`, not `selectFolder`/`selectDirectory`). No UI button exists
 for this at all.
 
-- [ ] **W4.1** — Add a `selectFolder` IPC bridge (`showOpenDialog` with
-  `properties: ["openDirectory"]`), mirroring the existing `selectFile`
-  pattern exactly.
-- [ ] **W4.2** — Add a `LinkFolder` action to `file_link` (pipeline #30):
-  walk the directory, create one `DirectoryReference` parent container,
-  call the EXISTING single-file link logic for each child file, linking
-  them as children of the new directory container. Architecturally
-  natural, not a redesign.
-- [ ] **W4.3** — Add a "Link Folder" button next to the existing "Link
-  File"/"Link URL" buttons (wherever the Project view ends up living per
-  Batch W3's decision).
+- [x] **W4.1 — DONE**: real Electron `selectFolder` IPC bridge, mirrors
+  `selectFile` exactly.
+- [x] **W4.2 — DONE**: `FileLinkInput::LinkFolder{project_id, folder_path,
+  analyze}` action added. Walks non-recursively (subdirectories honestly
+  reported in a new `skipped_entries` field, not silently dropped),
+  creates one real `DirectoryReference` (type 51) container, links each
+  child file via the existing `LinkMultiple` logic plus a `Contains`
+  relation to the directory container.
+- [x] **W4.3 — DONE**: "📁 Link Folder" button added next to Link
+  File/Link URL in `workspace_tab/component.js`.
 
 ---
 
@@ -257,3 +277,147 @@ confirmation, git-tool/folder-link search, workspace-list-bug diagnosis,
 file-provenance/chat-scoping check, ZCode comparison study) — every claim
 above has file:line evidence behind it, logged in `CHECKLIST.md`'s
 2026-10-17 entries. Nothing in this plan has been built yet.
+
+---
+
+## Batch W7 — Full immersive revamp: Graph embedding, workspace-level
+## aggregation, CRUD completion, cross-link/consolidation audit (2026-10-18)
+
+Operator's ask, after W1-W6 landed and `ProjectWorkspaceViewer` (Files/
+Fabric/Hierarchy, project-scoped) replaced the bare file area: do a full
+review of the ENTIRE Workspace tab experience — every screen, every
+button, every back-navigation, every cross-link — and capture + build
+whatever's still missing for a genuinely complete, immersive, interactive
+experience. This section is that review's findings plus the build plan.
+Grounded in a full re-read of `workspace_tab/ui/component.js` (997 lines,
+every branch) and `workspace_tab/main.rs`'s real `WorkspaceInput` enum —
+not assumed.
+
+### W7.1 — Embed Graph as a real 4th tab in `ProjectWorkspaceViewer`
+
+**Gap**: `ProjectWorkspaceViewer.tsx` (built this session) has Files/
+Fabric/Hierarchy tabs, each reusing a real component that already takes a
+plain `projectId` prop. `GraphView.tsx` is the one holdout — it manages
+project selection as its OWN internal `useState` (line ~162), driven by
+its own `<select>`, not a prop. Embedding it unmodified would show a
+redundant project picker inside a view that's already project-scoped by
+the tab it's in.
+
+**Plan**: give `GraphView` an optional `projectId` prop. When provided,
+skip its own project-fetch/dropdown entirely and drive `loadGraphData`
+directly from the prop (falling back to today's dropdown-driven behavior
+when the prop is absent, so the GLOBAL Graph tab — which has no fixed
+project — is completely unaffected). Add `{ id: 'graph', label: '🕸 Graph' }`
+to `ProjectWorkspaceViewer`'s `SECTIONS` array, rendering
+`<GraphView projectId={projectId} />`.
+
+### W7.2 — Consolidate the Linked-Content list with the new viewer (remove duplication, keep Unlink)
+
+**Gap**: `component.js`'s PROJECT VIEW (lines 486-590) still renders its
+own compact file list (or "No linked content yet") ABOVE the new
+`ProjectWorkspaceViewer`, which ALSO shows the project's files (via
+`WorkspaceBrowser` in its Files > Browser tab). Two file listings stacked
+on top of each other is not "immersive," it's cluttered — and it happened
+because the old list's Unlink button (line 565-587, a real, working
+`FileLink#30 Unlink` call) has no equivalent in `WorkspaceBrowser`, which
+is a generic, project-agnostic-of-this-context browser also used by the
+GLOBAL Files tab.
+
+**Plan**: give `WorkspaceBrowser.tsx` an optional `onUnlink?: (fileRef) =>
+void` prop (undefined by default — zero behavior change for the global
+Files tab, which never passes it). When present, render a small "Remove
+link" action per row. `ProjectWorkspaceViewer` accepts an optional
+`onUnlinkFile` passthrough to its Browser tab. `component.js` passes its
+real `handleLinkFile`'s sibling unlink logic through
+`props.initialData`/the shared-state bus (same cross-bundle-callback
+pattern already used elsewhere — confirm the exact mechanism available
+before picking one; `executePipeline(30, {action:"Unlink",...})` is
+callable from the MAIN bundle too via `window.ozone.pipeline.execute`, so
+`ProjectWorkspaceViewer` may just call it directly rather than needing a
+callback from `component.js` at all — simpler, prefer this if it works).
+Once Unlink is reachable from the new viewer, delete `component.js`'s own
+file-list rendering (lines 486-590) entirely — keep only the toolbar/
+stats/description above it. Verify no other real capability from that
+block besides Unlink + the cross-tab `openFile()` jump (which
+`WorkspaceBrowser`/`FileReferenceViewer` likely already do their own way —
+confirm, don't assume) would be lost.
+
+### W7.3 — Workspace-level aggregation (replace the grid-only PROJECTS VIEW and the top-level blank landing)
+
+**Gap**: two different "nothing scoped yet" spots:
+1. Top-level landing (no workspace selected) — `component.js` lines
+   897-926 — just an info banner + "Select a workspace" prompt, real blank
+   space the operator flagged.
+2. PROJECTS VIEW (a workspace selected, no project yet) — lines 645-818 —
+   a plain card grid. Functional, but not "immersive": no aggregate view
+   of what's actually IN the workspace across its projects.
+
+**Plan, scoped honestly** (no backend aggregate action exists —
+`WorkspaceInput` has `ListProjects`/`GetProjectFiles` per-project only, no
+`GetWorkspaceContext`-style merge; confirmed via `main.rs`'s real enum).
+Building true graph/fabric/hierarchy aggregation across N projects is a
+separate, larger backend+frontend effort (those views are fundamentally
+single-project graph structures) — do NOT fake it. What's genuinely
+buildable now, client-side, no backend change: a `WorkspaceAggregateView`
+that, given the workspace's already-loaded `projects` array, calls
+`GetProjectFiles` for each (parallel, already a real per-project action)
+and renders a merged, clickable file list plus real aggregate counts
+(total files/URLs/packages summed from the per-project counts already in
+`projects`), replacing the plain info-banner+grid combo with something
+actually useful. Mount it the same sibling way as `ProjectWorkspaceViewer`
+(new `selectedWorkspaceId`-keyed shared-state read in `DynamicPipelineUI`,
+scoped to when a workspace is selected but no project is), or inline
+within `component.js` if it turns out to need only data already in
+scope — pick whichever avoids a new cross-bundle mount if the data
+doesn't require a full React component (e.g. if it's just a richer list,
+it might render fine as plain `React.createElement` calls in `component.js`
+directly, no new mounted component needed at all). Flag Graph/Fabric/
+Hierarchy aggregation as explicitly deferred, not silently dropped.
+
+### W7.4 — CRUD completion: delete + rename, for both workspaces and projects
+
+**Gap**: `main.rs`'s `WorkspaceInput` already has real, working
+`UpdateWorkspace`/`DeleteWorkspace`/`UpdateProject`/`DeleteProject`
+actions (confirmed, lines 29-41) — ZERO of them are wired to any button
+anywhere in `component.js`. Only Create exists in the UI. "All buttons"
+can't be complete without the other half of basic CRUD.
+
+**Plan**: add a small "⋮" menu (or two icon buttons) to each workspace
+sidebar item and each project card, plus to the PROJECT VIEW's and
+PROJECTS VIEW's toolbars, with Rename (reuses the existing create-modal
+pattern, pre-filled) and Delete (real confirmation dialog first — this is
+destructive and does cascade-delete a workspace's projects file,
+confirmed at `main.rs:280-302` — never delete without the operator
+confirming in the dialog, no silent/instant deletes).
+
+### W7.5 — Minor polish found during the full read, bundle in if cheap
+
+- `formatDate` (line 351-353) is defined and never called anywhere —
+  either use it (e.g. "Created {date}" on project cards / workspace
+  items) or remove it as dead code. Prefer using it — real timestamp data
+  the UI currently throws away.
+- No breadcrumb anywhere showing "Workspace > Project" together — the
+  PROJECT VIEW's toolbar shows only the project name. Cheap to add next to
+  the back button.
+- Workspace sidebar items show name only, no project/file count — minor,
+  skip unless trivial once W7.3's aggregate data is already being
+  computed nearby.
+
+### Dispatch
+
+Four independent forks (file-overlap checked: W7.1 touches `GraphView.tsx`
++`ProjectWorkspaceViewer.tsx` only; W7.2 touches `WorkspaceBrowser.tsx`+
+`ProjectWorkspaceViewer.tsx`+`component.js`'s file-list block; W7.3 is a
+new component + `component.js`'s landing/grid blocks +
+possibly `pipeline-ui.tsx`; W7.4 touches `component.js` broadly +
+`App.css` for the new menu/dialog — claim files before editing, per
+protocol, since W7.2 and W7.4 both touch `component.js`):
+
+1. **Fork A — W7.1** (Graph embedding)
+2. **Fork B — W7.2** (consolidate linked-content list)
+3. **Fork C — W7.3** (workspace-level aggregation)
+4. **Fork D — W7.4 + W7.5** (CRUD completion + polish)
+
+No build/test run before dispatch, per standing instruction — forks
+verify their own syntax (`node --check` for `.js`, careful manual review
+for `.tsx` since no build is run) before reporting back.

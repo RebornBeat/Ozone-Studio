@@ -62,6 +62,7 @@ declare global {
         selectFile: (options?: {
           filters?: string[];
         }) => Promise<string | null>;
+        selectFolder: () => Promise<string | null>;
       };
       events: {
         onBackendError: (callback: (data: object) => void) => void;

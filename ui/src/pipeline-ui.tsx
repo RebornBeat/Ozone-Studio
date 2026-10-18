@@ -26,6 +26,8 @@ import FilesPanel from './panels/FilesPanel';
 import EnginesPanel from './panels/EnginesPanel';
 import CoordinationPanel from './panels/CoordinationPanel';
 import LivingNetworkPanel from './panels/LivingNetworkPanel';
+import ProjectChatPanel from './components/ProjectChatPanel';
+import ProjectWorkspaceViewer from './components/ProjectWorkspaceViewer';
 
 // ============================================================================
 // Module Cache
@@ -214,31 +216,38 @@ export function clearModuleCache(pipelineId?: number): void {
 
 export const CORE_TAB_DEFINITIONS = [
   { id: 'workspace', pipelineId: 6,    label: 'Workspace', icon: '📁', order: 0 },
+  // Reordered 2026-10-18 (W3.2): Files was order 12 (13th tab) — the real,
+  // rich file system (WorkspaceBrowser/FileReferenceViewer/CodeViewer/
+  // FileEditor/CodeCallGraph/VersionHistory, all confirmed real and
+  // working) was effectively undiscoverable behind Order/Tasks/Library/
+  // Settings/Monitor/Tools/Devices/Graph View/Fabric/Hierarchy/Raw
+  // Thoughts. Moved to immediately after Workspace, which now also
+  // navigates here directly when a linked file is clicked.
+  { id: 'files-viewer',   pipelineId: 1007, label: 'Files',        icon: '📂', order: 1 },
   // Universal Order (docs/UNIVERSAL_ORDER_GUIDE.md) — "new chats start
-  // inside this order" (§4): placed second, right after Workspace, ahead
+  // inside this order" (§4): placed right after Workspace/Files, ahead
   // of Tasks/Library/Settings. Synthetic id, same convention as Monitor/
   // Tools/Devices below (host-side UI surface, not a dynamically-loaded
   // pipeline UI).
-  { id: 'order',     pipelineId: 1011, label: 'Order',     icon: '🗓️', order: 1 },
-  { id: 'tasks',     pipelineId: 5,    label: 'Tasks',     icon: '📋', order: 2 },
-  { id: 'library',   pipelineId: 7,    label: 'Library',   icon: '📚', order: 3 },
-  { id: 'settings',  pipelineId: 8,    label: 'Settings',  icon: '⚙️', order: 4 },
+  { id: 'order',     pipelineId: 1011, label: 'Order',     icon: '🗓️', order: 2 },
+  { id: 'tasks',     pipelineId: 5,    label: 'Tasks',     icon: '📋', order: 3 },
+  { id: 'library',   pipelineId: 7,    label: 'Library',   icon: '📚', order: 4 },
+  { id: 'settings',  pipelineId: 8,    label: 'Settings',  icon: '⚙️', order: 5 },
   // Promoted out of the old bottom-drawer toggle mechanism — these are
   // host-side UI surfaces, not dynamically-loaded pipeline UIs, so they get
   // synthetic ids in the custom range (index.json's own next_custom_id
   // starts at 1000) rather than colliding with a real pipeline id.
-  { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 5 },
-  { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 6 },
-  { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 7 },
+  { id: 'monitor',   pipelineId: 1000, label: 'Monitor',   icon: '📡', order: 6 },
+  { id: 'tools',     pipelineId: 1001, label: 'Tools',     icon: '🔧', order: 7 },
+  { id: 'devices',   pipelineId: 1002, label: 'Devices',   icon: '📱', order: 8 },
   // Context Viewer: Graph View (Batch C, fork C1) — real per-project
   // modality-graph node/edge rendering. Same synthetic-id convention as
   // monitor/tools/devices above (host-side UI surface, not a pipeline).
-  { id: 'graph-view', pipelineId: 1003, label: 'Graph View', icon: '🕸️', order: 8 },
-  // Context Viewer family + capture/files/engines/coordination surfaces (UI/UX fork plan Batches D-J).
-  { id: 'fabric-view',    pipelineId: 1004, label: 'Fabric',       icon: '🧭', order: 9 },
-  { id: 'hierarchy-view', pipelineId: 1005, label: 'Hierarchy',    icon: '🌳', order: 10 },
-  { id: 'capture-viewer', pipelineId: 1006, label: 'Raw Thoughts', icon: '🧠', order: 11 },
-  { id: 'files-viewer',   pipelineId: 1007, label: 'Files',        icon: '📂', order: 12 },
+  { id: 'graph-view', pipelineId: 1003, label: 'Graph View', icon: '🕸️', order: 9 },
+  // Context Viewer family + capture/engines/coordination surfaces (UI/UX fork plan Batches D-J).
+  { id: 'fabric-view',    pipelineId: 1004, label: 'Fabric',       icon: '🧭', order: 10 },
+  { id: 'hierarchy-view', pipelineId: 1005, label: 'Hierarchy',    icon: '🌳', order: 11 },
+  { id: 'capture-viewer', pipelineId: 1006, label: 'Raw Thoughts', icon: '🧠', order: 12 },
   { id: 'engines',        pipelineId: 1008, label: 'Engines',      icon: '🧩', order: 13 },
   { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 14 },
   { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 15 },
@@ -350,6 +359,50 @@ export function DynamicPipelineUI({
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
 
+  // Project-scoped chat (2026-10-18): the Workspace tab (pipelineId 6) is a
+  // separately-eval'd pipeline-UI module (workspace_tab/ui/component.js)
+  // with no React import access, so it can't mount <ProjectChatPanel/>
+  // itself — it just reports the selected project via the existing shared-
+  // state bus (setSharedState({selectedProjectId, selectedProjectName,
+  // selectedWorkspaceId})), and THIS component, living in the main React
+  // bundle, renders the real panel as a sibling alongside the legacy
+  // container. Deliberately scoped to pipelineId===6 only — no other
+  // dynamic tab gets this treatment.
+  const [projectChatScope, setProjectChatScope] = useState<{
+    projectId: number;
+    workspaceId?: number;
+    projectName: string;
+    // 2026-10-18 (cc-fork-unify-fe) — the real ZSEI graph container id for
+    // this project (separate id space from `projectId` above, which is the
+    // Workspace tab's own flat-store id). Read from the shared-state bus's
+    // `selectedProjectZseiId` key (set by workspace_tab/ui/component.js's
+    // handleSelectProject, straight off the backend's zsei_container_id
+    // field). Can legitimately be null (container creation failed and
+    // hasn't self-healed yet) — graph-native viewers already render a
+    // "nothing selected" state for a null projectId, so this is passed
+    // through as-is, never defaulted to the flat id.
+    zseiProjectId: number | null;
+  } | null>(null);
+
+  useEffect(() => {
+    if (pipelineId !== 6) return;
+    const apply = (state: Record<string, any>) => {
+      const pid = state.selectedProjectId;
+      if (pid == null) {
+        setProjectChatScope(null);
+        return;
+      }
+      setProjectChatScope({
+        projectId: pid,
+        workspaceId: state.selectedWorkspaceId ?? undefined,
+        projectName: state.selectedProjectName ?? `Project ${pid}`,
+        zseiProjectId: state.selectedProjectZseiId ?? null,
+      });
+    };
+    apply(getSharedState());
+    return subscribeToState(apply);
+  }, [pipelineId]);
+
   const executePipeline = useCallback(async (pid: number, input: any) => {
     if (window.ozone?.pipeline?.execute) {
       return await window.ozone.pipeline.execute(pid, input);
@@ -435,6 +488,36 @@ export function DynamicPipelineUI({
       <div className="ui-error"><span>⚠️</span><span>{error}</span></div>
     </div>
   );
+
+  if (projectChatScope) {
+    // Stacked layout only while a project is selected in the Workspace tab:
+    // the legacy container (toolbar/stats/link-management list) shrinks to
+    // its natural height on top, the real project-scoped Files/Fabric/
+    // Hierarchy viewer takes the dominant middle space, and the
+    // independent project chat docks as a bar along the bottom.
+    return (
+      <div className="dynamic-pipeline-ui-with-chat">
+        <div ref={containerRef} className="dynamic-pipeline-ui-container dynamic-pipeline-ui-container-top" />
+        {/* LAYOUT FIX (2026-10-18, operator-reported): this region is the
+            DOMINANT middle area — Files/Fabric/Hierarchy/Graph content must
+            fill and scroll HERE, above the chat bar, not flow below it.
+            Without an explicit flex sizing the viewer took natural height
+            (short content = blank gap, long content = overflow-hidden
+            cutoff). */}
+        <div className="project-viewer-region">
+          <ProjectWorkspaceViewer
+            projectId={projectChatScope.projectId}
+            zseiProjectId={projectChatScope.zseiProjectId}
+          />
+        </div>
+        <ProjectChatPanel
+          projectId={projectChatScope.projectId}
+          workspaceId={projectChatScope.workspaceId}
+          projectName={projectChatScope.projectName}
+        />
+      </div>
+    );
+  }
 
   return <div ref={containerRef} className="dynamic-pipeline-ui-container" />;
 }

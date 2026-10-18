@@ -8,15 +8,28 @@ export interface PanelTab {
   render: (projectId: number | null) => React.ReactNode;
 }
 
-/** Common frame for the Context-Viewer-family panels: title, shared project picker, sub-tabs. Scaffold-owned. */
-export const PanelShell: React.FC<{ title: string; subtitle?: string; showProjectPicker?: boolean; tabs: PanelTab[] }> = ({
-  title,
-  subtitle,
-  showProjectPicker = true,
-  tabs,
-}) => {
+/** Common frame for the Context-Viewer-family panels: title, shared project picker, sub-tabs. Scaffold-owned.
+ *
+ * `activeTab`/`onActiveTabChange` are optional and uncontrolled by default — omit
+ * both (as Engines/Fabric/Hierarchy do) and this behaves exactly as before, owning
+ * its own tab state. Pass both (as Files does, via `filesPanelTab.ts`) to let an
+ * external same-panel link (e.g. a "view history →" link from the Code sub-tab)
+ * nudge the active sub-tab from outside. */
+export const PanelShell: React.FC<{
+  title: string;
+  subtitle?: string;
+  showProjectPicker?: boolean;
+  tabs: PanelTab[];
+  activeTab?: string;
+  onActiveTabChange?: (id: string) => void;
+}> = ({ title, subtitle, showProjectPicker = true, tabs, activeTab, onActiveTabChange }) => {
   const [projectId] = useSelectedProject();
-  const [active, setActive] = useState(tabs[0]?.id);
+  const [internalActive, setInternalActive] = useState(tabs[0]?.id);
+  const active = activeTab ?? internalActive;
+  const setActive = (id: string) => {
+    setInternalActive(id);
+    onActiveTabChange?.(id);
+  };
   const current = tabs.find((t) => t.id === active) ?? tabs[0];
   return (
     <div className="opanel">

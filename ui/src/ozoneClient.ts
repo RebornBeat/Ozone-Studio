@@ -54,6 +54,22 @@ export interface McpToolInfo {
   capabilities: string[];
   server_version?: string | null;
   registered_at: number;
+  /** Operator-controlled (2026-10-18, src/mcp.rs): persisted, default false
+   * for every tool. Toggling this on ANY tool sharing the same (transport,
+   * endpoint) flips the whole group — see `affected` on setMcpAutoStart's
+   * result. */
+  auto_start: boolean;
+  /** Real, computed (not persisted) facts — null unless this specific tool
+   * actually needs one. Only android-mcp has a device_requirement
+   * ("android"); only gcal-mcp/zoom-mcp have a credential_requirement
+   * ("google_oauth"/"zoom_oauth") — confirmed by reading each tool's own
+   * source, never guessed. */
+  device_requirement: string | null;
+  credential_requirement: string | null;
+  /** Live: whether the supervisor currently tracks a running child process
+   * for this tool's port. Never fabricated — false means genuinely not
+   * running, including "registered but nothing ever started it." */
+  running: boolean;
 }
 
 function deviceToken(): string | null {
@@ -147,6 +163,38 @@ export function listDevices(): Promise<{ devices: DeviceInfo[] }> {
 
 export function fetchMcpTools(): Promise<{ tools: McpToolInfo[] }> {
   return bridgeOrHttp("mcpTools", "/mcp/tools");
+}
+
+/** Toggle auto_start for the (transport, endpoint) GROUP `name` belongs to
+ * (real route, src/grpc/mod.rs's mcp_set_autostart) — only flips the
+ * persisted flag; the supervisor's own 30s loop does the actual starting,
+ * honoring each tool's real device/credential requirement. `affected`
+ * lists every tool name the toggle actually touched (may be more than
+ * one — e.g. the 67-tool `bridges` fleet shares one process). */
+export function setMcpAutoStart(
+  name: string,
+  enabled: boolean,
+): Promise<{ success: boolean; enabled?: boolean; affected?: string[]; error?: string }> {
+  return postHttp(`/mcp/tools/${encodeURIComponent(name)}/autostart`, { enabled });
+}
+
+/** Start `name`'s backing process right now, bypassing the auto_start
+ * gate — still honors the same real device/credential check server-side,
+ * so this can't route around an honestly-unmet requirement. The `error`
+ * string on failure is the real reason (device/credential not met, script
+ * missing, spawn failed) — never generalized. */
+export function startMcpTool(
+  name: string,
+): Promise<{ success: boolean; started?: boolean; error?: string }> {
+  return postHttp(`/mcp/tools/${encodeURIComponent(name)}/start`, {});
+}
+
+/** Stop `name`'s backing process. `stopped:false` honestly means nothing
+ * was tracked as running for it. */
+export function stopMcpTool(
+  name: string,
+): Promise<{ success: boolean; stopped?: boolean; error?: string }> {
+  return postHttp(`/mcp/tools/${encodeURIComponent(name)}/stop`, {});
 }
 
 /** Generic dispatch to any registered MCP tool (POST /mcp/call, real route,

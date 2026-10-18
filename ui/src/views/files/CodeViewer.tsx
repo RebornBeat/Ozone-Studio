@@ -24,6 +24,7 @@ import { useSelectedFile, SelectedFile } from "../../fileSelection";
 import { FileContentResult, FileContentUnavailable, readFileContent } from "../../data/fileContent";
 import { navigateTo, onNavigate, takePendingNavigation } from "../../navigation";
 import { CodeNodeLink, useCodeNodeLinks } from "./CodeNodeLinks";
+import { requestFilesTab } from "../../filesPanelTab";
 
 export type CodeViewerProps = { projectId: number | null };
 
@@ -774,7 +775,40 @@ export const CodeViewer: React.FC<CodeViewerProps> = ({ projectId }) => {
             {lang === "plain" ? "plain text" : lang === "js" ? "TypeScript/JavaScript" : lang === "clike" ? "C-family (approximate)" : lang[0].toUpperCase() + lang.slice(1)}
             {" · "}
             {lineCount} line{lineCount === 1 ? "" : "s"} · {formatBytes(load.result.sizeBytes)}
-            {links.length > 0 && ` · ${links.length} graph node${links.length === 1 ? "" : "s"} linked`}
+            {links.length > 0 && (
+              <>
+                {` · ${links.length} graph node${links.length === 1 ? "" : "s"} linked`}
+                {" · "}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    // Engines shares the same project-selection state (projectSelection.ts)
+                    // as Files, so a bare tab switch keeps this exact project in view —
+                    // no id to carry, unlike GraphView's separate project-selection state.
+                    navigateTo({ kind: "tab", tabId: "engines" });
+                  }}
+                  style={{ color: C_TEXT }}
+                  title="Open this project's call graph in the Engines tab"
+                >
+                  view call graph →
+                </a>
+                {" · "}
+                <a
+                  href="#"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    // Same panel, same shared `useSelectedFile()` state — just a
+                    // sub-tab nudge (filesPanelTab.ts), no tab switch needed.
+                    requestFilesTab("history");
+                  }}
+                  style={{ color: C_TEXT }}
+                  title="Open this file's change history"
+                >
+                  view history →
+                </a>
+              </>
+            )}
           </div>
         )}
       </div>

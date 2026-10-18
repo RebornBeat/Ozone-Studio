@@ -22,8 +22,9 @@ import {
   CORE_TAB_DEFINITIONS,
   clearModuleCache,
 } from "../pipeline-ui";
-import { onNavigate, NavTarget } from "../navigation";
+import { navigateTo, onNavigate, NavTarget } from "../navigation";
 import UnifiedSearch from "../views/search/UnifiedSearch";
+import { setSelectedProject } from "../projectSelection";
 
 /** J2: which real tab a cross-view NavTarget lands on. `graph-node` and
  * `container` both resolve inside the Graph View tab itself (GraphView.tsx
@@ -365,6 +366,18 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
       getInjectedTabs: () => injectedTabs,
       notifyTabNeedsAttention,
       addNotification,
+
+      // Thin pass-through to the real cross-view navigation bus (navigation.ts)
+      // for pipeline-UI modules (separately eval'd bundle — no ES import access
+      // to ../navigation directly). Same navigateTo() every React view already
+      // uses; no new routing logic lives here.
+      navigateTo: (target: NavTarget) => navigateTo(target),
+
+      // Same reasoning: pipeline-UI modules can't import projectSelection.ts's
+      // useSelectedProject() hook directly. Exposes the one shared "current
+      // project" so a cross-tab jump (e.g. Workspace -> Files) lands on the
+      // right project, not whatever that tab's picker last had selected.
+      setSelectedProject: (projectId: number | null) => setSelectedProject(projectId),
 
       // Called by TaskManager/Orchestrator when a step has pipeline UI
       onStepActive: async (pipelineId: number, stepData: any) => {

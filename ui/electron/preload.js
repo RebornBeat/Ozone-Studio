@@ -239,6 +239,12 @@ contextBridge.exposeInMainWorld("ozone", {
     selectFile: (options) => ipcRenderer.invoke("system:selectFile", options),
 
     /**
+     * Open folder selection dialog
+     * @returns {Promise<string|null>}
+     */
+    selectFolder: () => ipcRenderer.invoke("system:selectFolder"),
+
+    /**
      * Check which whisper models are installed
      * @returns {Promise<string[]>} - Array of installed model names
      */

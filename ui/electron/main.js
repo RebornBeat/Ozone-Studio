@@ -608,6 +608,19 @@ ipcMain.handle("system:selectFile", async (event, options) => {
   return result.filePaths[0];
 });
 
+// Folder selection dialog (mirrors system:selectFile for directory-linking)
+ipcMain.handle("system:selectFolder", async (event) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+  });
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+
+  return result.filePaths[0];
+});
+
 // Check which whisper models are installed
 ipcMain.handle("system:checkWhisperModels", async () => {
   const whisperDir = path.join(app.getPath("userData"), "whisper");
