@@ -3430,6 +3430,8 @@ impl PromptOrchestrator {
         crate::orchestration_events::emit(
             user_id,
             device_id,
+            state.request.project_id,
+            state.request.workspace_id,
             5,
             &format!("AMT — {name}"),
             true,
@@ -4887,6 +4889,8 @@ impl PromptOrchestrator {
         crate::orchestration_events::emit(
             state.request.user_id,
             state.request.device_id,
+            state.request.project_id,
+            state.request.workspace_id,
             stage,
             name,
             success,
@@ -4925,6 +4929,8 @@ impl PromptOrchestrator {
         crate::orchestration_events::emit(
             state.request.user_id,
             state.request.device_id,
+            state.request.project_id,
+            state.request.workspace_id,
             stage,
             name,
             success,

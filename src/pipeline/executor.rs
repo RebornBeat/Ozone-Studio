@@ -91,6 +91,7 @@ fn run_child_bounded(
     mut cmd: Command,
     cancel: Arc<std::sync::atomic::AtomicBool>,
     exec_id: String,
+    task_id: Option<u64>,
 ) -> std::io::Result<std::process::Output> {
     use std::io::Read;
     use std::process::Stdio;
@@ -120,10 +121,30 @@ fn run_child_bounded(
     // Drain threads: incremental reads (NOT read_to_end, which only returns
     // at EOF and would hide intermediate activity), each read refreshing the
     // activity clock and forwarding bytes for collection.
+    // Structured progress line, e.g.: `[[PROGRESS file=src/foo.rs op=editing]]`
+    // — a deliberately simple, easy-to-emit-from-any-language convention (no
+    // pipeline today actually prints this; see PipelineLocationEvent's own
+    // doc comment for why). Returns None for any ordinary log line, which is
+    // the overwhelming common case and must stay cheap.
+    fn parse_progress_line(line: &str) -> Option<(String, String)> {
+        let inner = line.trim().strip_prefix("[[PROGRESS ")?.strip_suffix("]]")?;
+        let mut file_path = None;
+        let mut operation = None;
+        for part in inner.split_whitespace() {
+            if let Some(v) = part.strip_prefix("file=") {
+                file_path = Some(v.to_string());
+            } else if let Some(v) = part.strip_prefix("op=") {
+                operation = Some(v.to_string());
+            }
+        }
+        Some((file_path?, operation.unwrap_or_else(|| "modifying".to_string())))
+    }
+
     fn drain(
         mut pipe: impl Read + Send + 'static,
         activity: Arc<std::sync::atomic::AtomicU64>,
         stream_lines: Option<String>, // exec_id: forward complete stderr lines to tracing as they arrive
+        task_id: Option<u64>,
     ) -> std::sync::mpsc::Receiver<Vec<u8>> {
         let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
@@ -161,6 +182,21 @@ fn run_child_bounded(
                                         "[pipeline] {}",
                                         line
                                     );
+                                    // LIVE LOCATION TRACKING (2026-10-18,
+                                    // additive): same line, in addition to
+                                    // the tracing forward above, never
+                                    // instead of it. See
+                                    // orchestration_events::PipelineLocationEvent's
+                                    // doc comment — no real producer exists
+                                    // yet, this is ready infrastructure.
+                                    if let Some((file_path, operation)) = parse_progress_line(line) {
+                                        crate::orchestration_events::emit_location(
+                                            exec_id,
+                                            task_id,
+                                            &file_path,
+                                            &operation,
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -193,11 +229,12 @@ fn run_child_bounded(
     // execution id so concurrent children stay attributable. stdout is NOT
     // streamed: it carries the result JSON and is parsed after exit.
     let spawn_time = std::time::Instant::now();
-    let out_rx = drain(child.stdout.take().unwrap(), activity.clone(), None);
+    let out_rx = drain(child.stdout.take().unwrap(), activity.clone(), None, None);
     let err_rx = drain(
         child.stderr.take().unwrap(),
         activity.clone(),
         Some(exec_id.to_string()),
+        task_id,
     );
 
     let status = loop {
@@ -808,7 +845,7 @@ impl PipelineExecutor {
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let output = tokio::task::spawn_blocking(move || {
-            run_child_bounded(cmd, cancel, execution_id.to_string())
+            run_child_bounded(cmd, cancel, execution_id.to_string(), task_id)
         })
         .await
         .map_err(|e| {

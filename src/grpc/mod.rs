@@ -169,6 +169,13 @@ pub struct TaskInfo {
     /// empty on list_tasks.
     #[serde(default)]
     pub amt_summary: Option<serde_json::Value>,
+    /// Which project this task is scoped to, if any — real field on
+    /// TaskData (`project_id: Option<u64>`) that was previously silently
+    /// dropped at every TaskInfo construction site, so the UI never had a
+    /// way to show or navigate to a task's owning project. `#[serde(default)]`
+    /// so older persisted records without this field still deserialize.
+    #[serde(default)]
+    pub project_id: Option<u64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -596,6 +603,7 @@ async fn get_task(
             steps: task.steps,
             thinking_log: task.thinking_log,
             amt_summary: task.amt_summary,
+            project_id: task.project_id,
         })),
         None => Json(None),
     }
@@ -649,6 +657,7 @@ async fn list_tasks(
                     steps: Vec::new(),
                     thinking_log: Vec::new(),
                     amt_summary: None,
+                    project_id: t.project_id,
                 }
             })
             .collect(),
@@ -2469,6 +2478,8 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
                             "action": "orchestration_stage",
                             "user_id": evt.user_id,
                             "device_id": evt.device_id,
+                            "project_id": evt.project_id,
+                            "workspace_id": evt.workspace_id,
                             "stage": evt.stage,
                             "stage_name": evt.stage_name,
                             "success": evt.success,

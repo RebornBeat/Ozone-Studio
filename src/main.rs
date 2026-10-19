@@ -4,14 +4,24 @@
 //! and starts the gRPC server for UI communication.
 
 use ozone_studio::{init_logging_with_level, OzoneConfig, OzoneError, OzoneRuntime};
+mod cli;
 use std::path::PathBuf;
 
 #[tokio::main]
 async fn main() -> Result<(), OzoneError> {
-    // Load configuration first to get log level
-    let config_path = std::env::var("OZONE_CONFIG")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("config.toml"));
+    // CLI DISPATCH (2026-10-18): one binary = host + operator CLI. No args
+    // behaves exactly like the pre-CLI binary (serve with defaults), so
+    // every existing launch path — systemd, scripts, manual — is untouched.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let cmd = cli::parse(&args);
+    if cli::run(cmd).await.unwrap_or(false) {
+        return Ok(());
+    }
+    let (serve_overrides, _) = match cli::parse(&args) {
+        cli::Command::Serve(o) => (o, ()),
+        _ => unreachable!("run() only falls through for Serve"),
+    };
+    let config_path = serve_overrides.config_path.clone();
 
     // Pre-load config to get log level, or use default
     let log_level = if config_path.exists() {
@@ -39,12 +49,25 @@ async fn main() -> Result<(), OzoneError> {
     tracing::info!("╚═══════════════════════════════════════════════════════════════════╝");
 
     // Load configuration (creates default if not exists)
-    let config = OzoneConfig::load(&config_path).await?;
+    let mut config = OzoneConfig::load(&config_path).await?;
 
     if config_path.exists() {
         tracing::info!("Configuration loaded from: {}", config_path.display());
     } else {
         tracing::info!("Created new configuration: {}", config_path.display());
+    }
+
+    // CLI OVERRIDES (2026-10-18): --host/--port/--data-dir win over the
+    // config file (they exist precisely for deployments where editing the
+    // file is the wrong move — containers, systemd envs, quick binds).
+    if let Some(h) = &serve_overrides.host {
+        config.grpc.address = h.clone();
+    }
+    if let Some(p) = serve_overrides.port {
+        config.grpc.port = p;
+    }
+    if let Some(d) = &serve_overrides.data_dir {
+        config.general.data_dir = d.clone();
     }
 
     // Log key settings

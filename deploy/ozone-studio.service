@@ -1,0 +1,27 @@
+# Ozone Studio — systemd unit for headless Ubuntu VPS deployment.
+# Install: sudo cp deploy/ozone-studio.service /etc/systemd/system/
+#          (edit User= and paths to match your layout first)
+#          sudo systemctl daemon-reload
+#          sudo systemctl enable --now ozone-studio
+[Unit]
+Description=Ozone Studio host (Collective AGI Framework)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Run as a dedicated user (create with: sudo useradd -r -s /usr/sbin/nologin ozone)
+User=ozone
+Group=ozone
+WorkingDirectory=/opt/ozone-studio
+ExecStart=/opt/ozone-studio/ozone-studio serve --config /opt/ozone-studio/config.toml
+Restart=always
+RestartSec=5
+# Hardening (real, minimal)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/opt/ozone-studio
+
+[Install]
+WantedBy=multi-user.target
