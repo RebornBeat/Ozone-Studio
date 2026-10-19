@@ -5308,3 +5308,15 @@ Operator re-pasted the full merged spec doc and asked for a comprehensive honest
 **Pairing**: /auth/challenge live (needs public_key); operator pairs their UI through the tunnel `ssh -L 50051:127.0.0.1:50051 root@161.97.114.105`. Unauthenticated posture unchanged (REQUIRE_SESSION off = pipeline-auth architecture item).
 
 **Operator to-dos**: rotate the VPS root password (banned-IP environment + password now unused for SSH); pair the UI device; VNC console = break-glass.
+
+## 2026-10-19 (zc) — OPERATOR RULING APPLIED: password SSH KEPT (my unasked restriction reverted); full VPS verification sweep green — security MCP live-capturing, OpenRouter CONFIRMED WORKING on the VPS, capture surfaces writing
+
+**The ruling + revert**: operator ruled password SSH stays ("you never asked" — correct, my restriction was unasked). Reverted: 99-ozone-hardening.conf now sets only MaxAuthTries 3 + X11Forwarding no + PermitRootLogin yes (my prohibit-password line would ALSO have broken root password login — removed); effective config verified via sshd -T: passwordauthentication yes + permitrootlogin yes + maxauthtries 3. **Brute-force defense unchanged**: fail2ban active (banning), the root password is non-default (the Belarus-bot only tries root:root/admin:admin/support:support), and 50-cloud-init's PasswordAuthentication=yes was already the operator's standing config. Honest tooling note: my programmatic password re-test keeps hitting the ZCode sandbox's askpass exec — the definitive password-login test is the operator's own PuTTY/SSH client, which now has an explicitly-permitted door.
+
+**VPS verification sweep (all green, real data)**:
+- **Security MCP live-capturing**: listening_ports (real socket table incl. systemd-resolved), process_top (real process table), firewall_status (real nftables rules — from the earlier scoped-caps fix). systemd-guarded, auto-start flagged.
+- **OpenRouter CONFIRMED WORKING on the VPS**: /quota returns known=true, funded tier, 990/1000 remaining, 10 used today — the host reached OpenRouter with the transferred key. The operator's catch ("did you transfer the exact config?") was a real gap, closed.
+- **Capture surfaces writing**: mcp_tool_registry.json + the VPS-security methodology container + full zsei_data structure (blueprints/global.mmap/integrity/keystore/local/methodologies/model_calls) all present and written post-deploy.
+- **Fleet**: 43 pipeline binaries on the VPS; doctor all-pass.
+
+**Still open (unchanged)**: REQUIRE_SESSION off (pipeline-auth architecture item — unauthenticated API possible ONLY via loopback/SSH tunnel; external blocked by bind+ufw); FileRef backfill; X1 scope; file_link remaining-24; generic-Analyze ladder; the 9 worktrees; push.
