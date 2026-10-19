@@ -1,0 +1,8 @@
+{"methodology":"VPS Secure Deployment — hardened host baseline (EU)",
+ "steps":[
+  {"step":"SSH key-only","detail":"PasswordAuthentication no, PermitRootLogin prohibit-password, MaxAuthTries 3, fail2ban active — kills the default-combo brute-force bot class (root:root, admin:admin, support:support) at the door"},
+  {"step":"default-deny firewall","detail":"ufw active, deny incoming + allow OpenSSH only; no HTTP ports exposed; Ozone binds 127.0.0.1 (loopback-only, verified not externally reachable)"},
+  {"step":"scoped capabilities","detail":"security monitor runs unprivileged with only CAP_NET_ADMIN/CAP_NET_RAW — never root; systemd Restart=always guard"},
+  {"step":"EU jurisdiction","detail":"[jurisdiction] enabled=true instance_region=EU — server-side data governance follows EU law; Global (U.N.) guardrail layer applies unconditionally; region rulesets load honestly (absence visible, never fabricated)"},
+  {"step":"no default combos","detail":"lesson from the Belarus-bot class: brute-force only tries root:root/admin:admin/support:support — no default credentials exist on this host"}
+ ]}

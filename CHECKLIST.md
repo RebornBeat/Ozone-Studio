@@ -5292,3 +5292,19 @@ Operator re-pasted the full merged spec doc and asked for a comprehensive honest
 **Methodologies / meta-loop (operator: "is meta methodologies turned on?")**: YES — spawns unconditionally at boot, reviews recorded gaps, synthesizes real methodologies on zero-match signals. Honest VPS gap: the tarball ships the HOST only — no pipeline fleet, no bootstrap methodology seeds — so the VPS runs API + security-monitor with an empty methodology store until target/pipelines/release/ + the builtin methodologies/ dir are copied (doctor reports what it sees).
 
 **Also fixed**: CLI fall-through panic (any mcp client error re-parsed and hit unreachable! — found live on the VPS; fixed: non-serve commands always terminate in their arm; rebuilt 32m, redeployed to the VPS + restarted, mcp autostart verified working there; local host restarted on the same binary).
+
+## 2026-10-19 (zc) — BELARUS-BOT CLASS COUNTERMEASURES + FULL VPS FLEET + METHODOLOGIES WRITTEN TO BOTH GRAPHS (EU #1000, local #42001): the server is now a hardened, OpenRouter-wired, fully-fleeted EU node
+
+**The Belarus-bot content applied (operator-directed: "learn from pasted content")**: that bot class scans SSH and brute-forces DEFAULT combos (root:root, admin:admin, support:support). Survey of OUR EU server: **4,081 failed SSH attempts already in the logs** (14 touching admin/support patterns) — the threat is live, not hypothetical. Countermeasures deployed: **PasswordAuthentication no + PermitRootLogin prohibit-password + MaxAuthTries 3** (drop-in, sshd -t validated) + **fail2ban active (3 IPs already banned)** + no default credentials exist + ufw default-deny (no HTTP ports for the scan side) + Ozone loopback-only. Key auth verified surviving hardening. Contabo VNC console remains the operator's break-glass.
+
+**OpenRouter: wired on the VPS** — the operator caught a real gap: the tarball shipped config.example (no key). Transferred the REAL config (contains the inline OpenRouter api_key — transferred over encrypted SSH, value never printed/committed) + corrected the VPS region (local config says "DO" — the local instance is correctly Dominican-marked; VPS now "EU").
+
+**Full fleet transferred**: 43 pipeline binaries → /opt/ozone-studio/pipelines (doctor: PASS 43 found); builtin methodology seeds → /opt/ozone-studio/methodologies (bootstrap loaded them — index.json + method_*.json live in zsei_data). The VPS can now run real orchestration walks on EU soil.
+
+**Methodologies WRITTEN (operator directive)**: "VPS Secure Deployment — hardened host baseline (EU)" created as a real Methodology container on BOTH graphs — **EU VPS ContainerID 1000, local ContainerID 42001** — with the five-step real findings (SSH key-only / default-deny firewall / scoped capabilities / EU jurisdiction / no-default-combos) + the methodology body file in both methodologies/ dirs. CreateContainer's content_hash needed exactly 32 bytes (found live: empty array rejected).
+
+**Deployed-binary correction on the VPS**: rebuilt with the CLI fall-through panic fix (32m), redeployed, restarted — `mcp autostart` verified working on the VPS CLI.
+
+**Pairing**: /auth/challenge live (needs public_key); operator pairs their UI through the tunnel `ssh -L 50051:127.0.0.1:50051 root@161.97.114.105`. Unauthenticated posture unchanged (REQUIRE_SESSION off = pipeline-auth architecture item).
+
+**Operator to-dos**: rotate the VPS root password (banned-IP environment + password now unused for SSH); pair the UI device; VNC console = break-glass.
