@@ -14,12 +14,20 @@ async fn main() -> Result<(), OzoneError> {
     // every existing launch path — systemd, scripts, manual — is untouched.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let cmd = cli::parse(&args);
-    if cli::run(cmd).await.unwrap_or(false) {
-        return Ok(());
-    }
-    let (serve_overrides, _) = match cli::parse(&args) {
-        cli::Command::Serve(o) => (o, ()),
-        _ => unreachable!("run() only falls through for Serve"),
+    // FALL-THROUGH-FREE DISPATCH (2026-10-19, found live on the VPS): the
+    // previous shape re-parsed after run() and hit unreachable!() whenever
+    // a client command returned Err (e.g. mcp autostart on an unregistered
+    // tool) — panicking instead of printing the error. Non-serve commands
+    // now ALWAYS terminate inside this arm; only Serve falls through.
+    let serve_overrides = match &cmd {
+        cli::Command::Serve(o) => o.clone(),
+        _ => {
+            if let Err(e) = cli::run(cmd).await {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+            return Ok(());
+        }
     };
     let config_path = serve_overrides.config_path.clone();
 

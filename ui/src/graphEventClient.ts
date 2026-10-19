@@ -111,6 +111,12 @@ export interface OrchestrationStageFrame {
   action: "orchestration_stage";
   user_id: number;
   device_id: number;
+  /** The triggering `/orchestrate` request's real scope (OrchestrationRequest.
+   * project_id/workspace_id, src/orchestrator/mod.rs) — both null means the
+   * prompt came from the global chat, not a project-scoped one. Lets a live
+   * consumer branch project-local-view-update vs. global-tab-navigation. */
+  project_id: number | null;
+  workspace_id: number | null;
   stage: number;
   stage_name: string;
   success: boolean;
@@ -129,10 +135,84 @@ function isOrchestrationStageFrame(value: unknown): value is OrchestrationStageF
     v.action === "orchestration_stage" &&
     typeof v.user_id === "number" &&
     typeof v.device_id === "number" &&
+    (typeof v.project_id === "number" || v.project_id === null) &&
+    (typeof v.workspace_id === "number" || v.workspace_id === null) &&
     typeof v.stage === "number" &&
     typeof v.stage_name === "string" &&
     typeof v.success === "boolean" &&
     typeof v.summary === "string"
+  );
+}
+
+// ── pipeline_location (src/orchestration_events.rs's PipelineLocationEvent,
+// additive 2026-10-18) — finer-grained than orchestration_stage: a specific
+// file/object a running pipeline subprocess is touching right now, parsed
+// from a structured stderr line by executor.rs's existing drain loop. NOTE:
+// as of this addition, no real pipeline producer exists yet (confirmed: no
+// code-modification pipeline exists anywhere in this codebase) — this type
+// guard and listener are ready infrastructure, not yet carrying real
+// traffic. The server-side `/ws` forwarding block (mirroring
+// orchestration_stage's own, src/grpc/mod.rs) is a separate, not-yet-landed
+// piece — see this change's own report for exactly what's still needed. ──
+
+export interface PipelineLocationFrame {
+  action: "pipeline_location";
+  execution_id: string;
+  task_id: number | null;
+  file_path: string;
+  operation: string;
+  timestamp: number;
+}
+
+export type PipelineLocationListener = (frame: PipelineLocationFrame) => void;
+
+function isPipelineLocationFrame(value: unknown): value is PipelineLocationFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.action === "pipeline_location" &&
+    typeof v.execution_id === "string" &&
+    (typeof v.task_id === "number" || v.task_id === null) &&
+    typeof v.file_path === "string" &&
+    typeof v.operation === "string"
+  );
+}
+
+// ── node_event (src/orchestration_events.rs's OrchestrationNodeEvent,
+// additive 2026-10-18) — finer than orchestration_stage: a real
+// per-node/per-edge graph-construction event, reported by a modality
+// pipeline subprocess over HTTP (POST /orchestration/node-event, since a
+// subprocess has no access to this host process's in-memory hub). Scoped
+// by project_id alone (no user_id/device_id — a pipeline action never
+// receives those). First real producer: 3D's ComputeSpatial op, one event
+// per real spatial edge it adds. ──
+
+export interface NodeEventFrame {
+  action: "node_event";
+  project_id: number | null;
+  modality: string;
+  graph_id: number;
+  node_id: number;
+  related_node_id: number | null;
+  node_type: string;
+  operation: string;
+  timestamp: number;
+}
+
+export type NodeEventListener = (frame: NodeEventFrame) => void;
+
+function isNodeEventFrame(value: unknown): value is NodeEventFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return (
+    v.action === "node_event" &&
+    (typeof v.project_id === "number" || v.project_id === null) &&
+    typeof v.modality === "string" &&
+    typeof v.graph_id === "number" &&
+    typeof v.node_id === "number" &&
+    (typeof v.related_node_id === "number" || v.related_node_id === null) &&
+    typeof v.node_type === "string" &&
+    typeof v.operation === "string"
   );
 }
 
@@ -222,6 +302,7 @@ export class GraphEventClient {
   private readonly eventListeners = new Set<EventSubscription>();
   private readonly pipelineProgressListeners = new Set<PipelineProgressListener>();
   private readonly orchestrationStageListeners = new Set<OrchestrationStageListener>();
+  private readonly nodeEventListeners = new Set<NodeEventListener>();
   private readonly statusListeners = new Set<GraphSocketStatusListener>();
   private status: GraphSocketStatus = {
     state: "closed",
@@ -305,6 +386,16 @@ export class GraphEventClient {
     this.orchestrationStageListeners.add(listener);
     return () => {
       this.orchestrationStageListeners.delete(listener);
+    };
+  }
+
+  /** Subscribe to real node_event frames (per-node/per-edge graph
+   * construction). Filter to your own project by comparing
+   * frame.project_id — this client does not filter for you. */
+  onNodeEvent(listener: NodeEventListener): () => void {
+    this.nodeEventListeners.add(listener);
+    return () => {
+      this.nodeEventListeners.delete(listener);
     };
   }
 
@@ -401,6 +492,10 @@ export class GraphEventClient {
     }
     if (isOrchestrationStageFrame(parsed)) {
       for (const fn of this.orchestrationStageListeners) fn(parsed);
+      return;
+    }
+    if (isNodeEventFrame(parsed)) {
+      for (const fn of this.nodeEventListeners) fn(parsed);
       return;
     }
     if (hasKnownAction(parsed)) {

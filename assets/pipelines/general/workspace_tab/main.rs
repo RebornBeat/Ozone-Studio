@@ -87,14 +87,26 @@ pub struct Project {
     pub zsei_container_id: Option<u64>,
 }
 
+/// Field names/types here must match file_link/main.rs's REAL `FileRefInfo`
+/// exactly, since this struct deserializes the same files_<id>.json that
+/// pipeline writes — confirmed field-by-field against actual JSON on disk
+/// (2026-10-18): `size_bytes`/`last_modified` here were never real field
+/// names in that JSON (it's `size`/`modified`), and since neither had
+/// `#[serde(default)]`, every single deserialize of a real files_<id>.json
+/// silently failed (caught by `if let Ok(...)`), making load_file_refs —
+/// and therefore GetProjectFiles, the Unlink file-matching flow, and the
+/// project stats row — return an empty list no matter how many files were
+/// actually linked. Extra fields FileRefInfo has that aren't needed here
+/// (project_id, exists, analyzed, created_at, analysis_graph_id) are fine
+/// to omit — serde ignores JSON fields a struct doesn't declare.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileRef {
     pub id: u64,
     pub path: String,
     pub name: String,
     pub modality: String,
-    pub size_bytes: u64,
-    pub last_modified: u64,
+    pub size: u64,
+    pub modified: u64,
     /// The real ZSEI FileReference container this link is wired to (written
     /// by file_link/main.rs's FileRefInfo.zsei_container_id into the same
     /// files_<project_id>.json this struct reads) — previously silently
@@ -139,6 +151,24 @@ fn storage_path() -> PathBuf {
         let zsei_base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         format!("{}/workspace_tab_data", zsei_base)
     });
+    PathBuf::from(base).join("workspaces")
+}
+
+/// Where file_link/url_link/package_link actually write files_<id>.json /
+/// urls_<id>.json / packages_<id>.json — confirmed by reading their own
+/// storage_path() (OZONE_DATA_PATH env, falling back to the CWD-relative
+/// "./data", never the zsei_data-anchored path this pipeline's own
+/// storage_path() above resolves to). Those two fallback chains genuinely
+/// diverge whenever OZONE_DATA_PATH is unset (confirmed against real files
+/// on disk, not assumed from a comment): this pipeline's own data lived
+/// under target/release/zsei_data/workspace_tab_data/workspaces/, while the
+/// three link pipelines' flat stores lived under target/release/data/
+/// workspaces/ — two different directories. load_file_refs (and therefore
+/// GetProjectFiles, the Unlink-matching flow, and the project stats row)
+/// was silently reading an empty directory this whole time as a result.
+/// Must mirror the link pipelines' exact fallback, not this pipeline's own.
+fn link_storage_path() -> PathBuf {
+    let base = std::env::var("OZONE_DATA_PATH").unwrap_or_else(|_| "./data".to_string());
     PathBuf::from(base).join("workspaces")
 }
 
@@ -192,7 +222,7 @@ fn save_projects(workspace_id: u64, projects: &[Project]) -> Result<(), String> 
 
 /// Load file references for a project
 fn load_file_refs(project_id: u64) -> Vec<FileRef> {
-    let path = storage_path().join(format!("files_{}.json", project_id));
+    let path = link_storage_path().join(format!("files_{}.json", project_id));
     if path.exists() {
         if let Ok(content) = fs::read_to_string(&path) {
             if let Ok(files) = serde_json::from_str(&content) {
@@ -201,6 +231,34 @@ fn load_file_refs(project_id: u64) -> Vec<FileRef> {
         }
     }
     vec![]
+}
+
+/// Live count of linked files/URLs/packages for a project, read directly
+/// from the flat stores file_link/url_link/package_link actually write to
+/// (same shared storage_path() convention as load_file_refs above, confirmed
+/// by file_link's own doc comments). The Project struct's stored
+/// files_count/url_count/package_count fields are only ever set once, at
+/// CreateProject (always 0), and never incremented afterward by any linking
+/// pipeline — those run as separate processes with no shared in-memory
+/// state to update. The operator-reported "0 files" stat despite real
+/// linked files was this: the UI was trusting that permanently-stale field
+/// instead of the real counts. Counting entries directly (not deserializing
+/// into each pipeline's own ref struct, which workspace_tab doesn't need to
+/// know the shape of) keeps this resilient to those structs changing shape.
+fn live_project_counts(project_id: u64) -> (u32, u32, u32) {
+    fn count_entries(path: std::path::PathBuf) -> u32 {
+        if let Ok(content) = fs::read_to_string(&path) {
+            if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(&content) {
+                return arr.len() as u32;
+            }
+        }
+        0
+    }
+    let base = link_storage_path();
+    let files = count_entries(base.join(format!("files_{}.json", project_id)));
+    let urls = count_entries(base.join(format!("urls_{}.json", project_id)));
+    let packages = count_entries(base.join(format!("packages_{}.json", project_id)));
+    (files, urls, packages)
 }
 
 /// Generate unique ID
@@ -541,6 +599,15 @@ pub async fn execute(input: WorkspaceInput) -> Result<WorkspaceOutput, String> {
                 save_projects(workspace_id, &projects)?;
             }
 
+            // Live stats (2026-10-18, operator-reported "0 files" despite
+            // real linked content) — see live_project_counts' doc comment.
+            for proj in projects.iter_mut() {
+                let (f, u, p) = live_project_counts(proj.id);
+                proj.files_count = f;
+                proj.url_count = u;
+                proj.package_count = p;
+            }
+
             Ok(WorkspaceOutput {
                 success: true,
                 workspace: None, workspaces: None, project: None,
@@ -548,7 +615,7 @@ pub async fn execute(input: WorkspaceInput) -> Result<WorkspaceOutput, String> {
                 files: None, context: None, error: None,
             })
         }
-        
+
         WorkspaceInput::CreateProject { workspace_id, name, description } => {
             // Update workspace project count, and lazily heal its real ZSEI
             // container if it doesn't have one yet (an old pre-existing
@@ -621,7 +688,11 @@ pub async fn execute(input: WorkspaceInput) -> Result<WorkspaceOutput, String> {
             // Search across all workspaces (could be optimized with index)
             for ws in load_workspaces() {
                 let projects = load_projects(ws.id);
-                if let Some(proj) = projects.into_iter().find(|p| p.id == project_id) {
+                if let Some(mut proj) = projects.into_iter().find(|p| p.id == project_id) {
+                    let (f, u, p) = live_project_counts(proj.id);
+                    proj.files_count = f;
+                    proj.url_count = u;
+                    proj.package_count = p;
                     return Ok(WorkspaceOutput {
                         success: true,
                         workspace: None, workspaces: None,
@@ -685,7 +756,7 @@ pub async fn execute(input: WorkspaceInput) -> Result<WorkspaceOutput, String> {
                     }
                     
                     // Delete associated files
-                    let files_path = storage_path().join(format!("files_{}.json", project_id));
+                    let files_path = link_storage_path().join(format!("files_{}.json", project_id));
                     let _ = fs::remove_file(files_path);
                     
                     return Ok(WorkspaceOutput {

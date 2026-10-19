@@ -10,7 +10,7 @@
  * - Shared state bus allows cross-tab communication
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { InjectedTab } from './themes/home_dashboard/HomeDashboard';
 import SettingsPanel from './components/SettingsPanel';
 import PipelinesPanel from './components/PipelinesPanel';
@@ -355,6 +355,18 @@ export function DynamicPipelineUI({
   onClose,
 }: DynamicPipelineUIProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // Stable node component.js's OWN ReactDOM.createRoot() is created on —
+  // never re-created, never directly given a JSX ref, so our own
+  // reconciliation above it can never reuse/relabel it. Only ITS PARENT
+  // changes (see the layout effect below); component.js's root keeps the
+  // exact same container it was created with for its entire lifetime, so
+  // its eventual root.unmount() always finds its children right where it
+  // left them, no matter where in the document this node currently sits.
+  const mountNodeRef = useRef<HTMLDivElement | null>(null);
+  if (!mountNodeRef.current) {
+    mountNodeRef.current = document.createElement('div');
+    mountNodeRef.current.className = 'pipeline-ui-mount';
+  }
   const cleanupRef   = useRef<(() => void) | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState<string | null>(null);
@@ -410,6 +422,64 @@ export function DynamicPipelineUI({
     throw new Error('Pipeline execution not available');
   }, []);
 
+  // REAL BUG (2026-10-18, found via live DOM inspection, not guessed): when
+  // `projectChatScope` flips from null to populated, the JSX this component
+  // RETURNS changes shape — single plain div (no children, IS containerRef's
+  // target) becomes a 3-child wrapper (NEW className, with containerRef
+  // moved onto a child). React sees the same element type ('div') at the
+  // same tree position in both cases and REUSES the same physical DOM node
+  // for the wrapper, just updating its className and appending the 3 new
+  // children — it does not know or care that a FOREIGN React root
+  // (component.js's `ReactDOM.createRoot`) had already appended its own
+  // content into that node earlier. component.js's real content (toolbar/
+  // stats/link list) was permanently stranded as an untracked extra child
+  // of the outer wrapper — confirmed directly against the live DOM.
+  //
+  // FIRST FIX ATTEMPT (reverted): adding this to the mount effect's deps to
+  // force a clean unmount+remount on every shape change. Wrong — it
+  // destroys component.js's OWN internal React state (selected workspace,
+  // selected project, the whole navigation stack) on every single project
+  // click, since that's exactly when this flips, making project selection
+  // look like it "doesn't load" (it resets back to the top-level view
+  // instead of opening the project). component.js's root must NOT be torn
+  // down just because the ancestor wrapper's shape changed.
+  //
+  // REAL FIX: leave the mount effect (and component.js's own React state)
+  // completely alone — relocate a DOM node via plain `appendChild` instead
+  // of asking React to redo any work. A React root doesn't care where its
+  // container sits in the wider document, so this is invisible to
+  // component.js's own React tree and preserves every bit of its state.
+  //
+  // SECOND ATTEMPT (also wrong, caught before shipping): moving whichever
+  // child of the old wrapper didn't match React's own expected sibling
+  // classes. That did relocate the right content, but component.js's React
+  // root was created with `containerRef.current` ITSELF (at mount time) as
+  // its container — moving a CHILD of that container elsewhere leaves the
+  // root's container correct but strands the relationship the other way on
+  // the next `root.unmount()` (pipeline switch/unmount): React's unmount
+  // tries to remove its children from the container node it was created
+  // with, and if this effect already moved those children out from under
+  // it, that remove throws `NotFoundError`.
+  //
+  // FINAL FIX: add one more layer of indirection. component.js's root is
+  // created on `mountNodeRef.current`, a plain node WE create once and
+  // never recreate — never the JSX ref target itself, so our own
+  // reconciliation can never reuse/relabel it out from under component.js.
+  // This effect's only job is to keep that stable node attached as a child
+  // of whatever `containerRef.current` currently is. component.js's root
+  // keeps the exact same container for its entire lifetime (mountNodeRef's
+  // children never move), so `root.unmount()` always finds things right
+  // where it left them, regardless of where mountNodeRef itself currently
+  // sits in the wider document.
+  // `useLayoutEffect` (not `useEffect`) so this runs synchronously right
+  // after the DOM commit, before paint — no visible flash in the wrong spot.
+  useLayoutEffect(() => {
+    if (!containerRef.current || !mountNodeRef.current) return;
+    if (mountNodeRef.current.parentNode !== containerRef.current) {
+      containerRef.current.appendChild(mountNodeRef.current);
+    }
+  });
+
   useEffect(() => {
     let mounted = true;
 
@@ -443,7 +513,7 @@ export function DynamicPipelineUI({
 
         console.log(`[PipelineUI ${pipelineId}] rendering module…`);
         const cleanup = mod.render(
-          containerRef.current!,
+          mountNodeRef.current!,
           {
             pipelineId,
             executePipeline,
@@ -495,6 +565,10 @@ export function DynamicPipelineUI({
     // its natural height on top, the real project-scoped Files/Fabric/
     // Hierarchy viewer takes the dominant middle space, and the
     // independent project chat docks as a bar along the bottom.
+    // REVERTED (2026-10-18, operator-reported): briefly swapped this and
+    // the viewer region's order — operator said that wasn't what they
+    // meant and asked for a literal revert. Back to original order;
+    // follow-up question pending on the exact final layout they want.
     return (
       <div className="dynamic-pipeline-ui-with-chat">
         <div ref={containerRef} className="dynamic-pipeline-ui-container dynamic-pipeline-ui-container-top" />

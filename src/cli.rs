@@ -19,6 +19,7 @@
 
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub struct ServeOverrides {
     pub config_path: PathBuf,
     pub host: Option<String>,
@@ -26,6 +27,7 @@ pub struct ServeOverrides {
     pub data_dir: Option<String>,
 }
 
+#[derive(Clone)]
 pub enum Command {
     /// Default — bare binary, no args. Optional overrides via flags.
     Serve(ServeOverrides),
@@ -39,6 +41,7 @@ pub enum Command {
     Help,
 }
 
+#[derive(Clone)]
 pub enum McpAction {
     List,
     Autostart { name: String, enabled: bool },

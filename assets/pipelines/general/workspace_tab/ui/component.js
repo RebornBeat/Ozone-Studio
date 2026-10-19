@@ -508,11 +508,20 @@ module.exports = {
         const path = await window.ozone?.system?.selectFile?.();
         if (!path) return;
         try {
+          // 2026-10-18 (linkparent fix): pass the project's REAL ZSEI
+          // container id (when known) so file_link parents the new
+          // FileReference container under it instead of the flat project_id
+          // above — the flat id was never a real container, so
+          // CreateContainer's parent attach silently no-opped and every
+          // linked file became unreachable from the graph. Falls back to
+          // today's exact behavior (undefined/omitted) when this project
+          // hasn't been backfilled with a real container id yet.
           const result = await executePipeline(30, {
             action: "Link",
             project_id: projId,
             file_path: path,
             analyze: true,
+            zsei_parent_id: selectedProject.zsei_container_id ?? null,
           });
 
           if (result?.output?.file_ref?.modality) {
@@ -555,11 +564,14 @@ module.exports = {
         const folderPath = await window.ozone?.system?.selectFolder?.();
         if (!folderPath) return;
         try {
+          // 2026-10-18 (linkparent fix): see handleLinkFile's comment on
+          // zsei_parent_id — same real-container-id fix, applied here too.
           const result = await executePipeline(30, {
             action: "LinkFolder",
             project_id: projId,
             folder_path: folderPath,
             analyze: true,
+            zsei_parent_id: selectedProject.zsei_container_id ?? null,
           });
 
           const linkedCount = result?.output?.file_refs?.length || 0;
@@ -585,11 +597,15 @@ module.exports = {
         if (!selectedProject || !linkUrl.trim()) return;
         const projId = selectedProject.id || selectedProject.project_id;
         try {
+          // 2026-10-18 (linkparent fix): see handleLinkFile's comment on
+          // zsei_parent_id — same real-container-id fix, applied to
+          // url_link (#31) here.
           await executePipeline(31, {
             action: "Link",
             project_id: projId,
             url: linkUrl.trim(),
             analyze: true,
+            zsei_parent_id: selectedProject.zsei_container_id ?? null,
           });
           setLinkUrl("");
           setShowLinkUrl(false);

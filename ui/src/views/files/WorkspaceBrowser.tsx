@@ -77,6 +77,23 @@ function currentUserId(): number {
 const KIND_LABEL: Record<FileRef["kind"], string> = { file: "Files", url: "URLs", package: "Packages" };
 const KIND_ICON: Record<FileRef["kind"], string> = { file: "📄", url: "🔗", package: "📦" };
 
+/** Linked date, read from the row's own untouched container (`ref.raw` —
+ * real `local_state.metadata.created_at`, same field FileReferenceViewer
+ * shows; not promoted to a named FileRef field, so reached directly here
+ * rather than widening the shared type for one display use). File size has
+ * no equivalent: graph-native FileReference containers never store it (only
+ * the disconnected flat workspace_tab store does, which this component
+ * deliberately doesn't read — see file header), so it's not shown here. */
+function linkedDate(ref: FileRef): string | null {
+  const secs = (ref.raw as any)?.local_state?.metadata?.created_at;
+  if (typeof secs !== "number" || secs <= 0) return null;
+  try {
+    return new Date(secs * 1000).toLocaleDateString();
+  } catch {
+    return null;
+  }
+}
+
 export const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({
   projectId,
   onUnlink,
@@ -222,6 +239,7 @@ export const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({
                   {grouped[kind].map((ref) => {
                     const active =
                       selectedFile?.containerId === ref.containerId && selectedFile?.kind === ref.kind;
+                    const date = linkedDate(ref);
                     return (
                       <div
                         key={ref.containerId}
@@ -237,7 +255,28 @@ export const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({
                           gap: 8,
                         }}
                       >
-                        <span style={{ overflowWrap: "anywhere", flex: 1 }}>{ref.name}</span>
+                        <span style={{ overflowWrap: "anywhere", flex: 1, minWidth: 0 }}>
+                          {ref.name}
+                          {/* Path, when it differs from the name shown above (i.e. this
+                              row has a folder component) — disambiguates same-named
+                              files linked from different folders, which `name` alone
+                              (just the basename) can't. */}
+                          {kind === "file" && ref.path && ref.path !== ref.name && (
+                            <div
+                              style={{
+                                fontSize: 10.5,
+                                color: C_MUTED,
+                                overflowWrap: "anywhere",
+                                marginTop: 1,
+                              }}
+                            >
+                              {ref.path}
+                            </div>
+                          )}
+                        </span>
+                        {date && (
+                          <span style={{ fontSize: 10.5, color: C_MUTED, flexShrink: 0 }}>{date}</span>
+                        )}
                         {ref.modality && (
                           <span
                             style={{
@@ -246,6 +285,7 @@ export const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({
                               border: `1px solid ${C_BORDER}`,
                               borderRadius: 999,
                               padding: "0 6px",
+                              flexShrink: 0,
                             }}
                           >
                             {ref.modality}

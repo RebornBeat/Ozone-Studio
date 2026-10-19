@@ -42,6 +42,10 @@ module.exports = {
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
       const [clarificationInput, setClarificationInput] = useState("");
+      // project_id -> real project name (pipeline 6 GetProject), resolved
+      // lazily and cached so a long task list doesn't fire one request per
+      // row — only ever fetches a project id the first time it's seen.
+      const [projectNames, setProjectNames] = useState({});
 
       // Load tasks on mount and poll for updates
       useEffect(() => {
@@ -49,6 +53,33 @@ module.exports = {
         const interval = setInterval(loadTasks, 5000); // Poll every 5s
         return () => clearInterval(interval);
       }, []);
+
+      // Resolve each task's real project_id (now real on TaskInfo, 2026-10-19
+      // fix) to its real project name via pipeline 6's GetProject — once per
+      // project id, cached in projectNames, never refetched for ids already
+      // resolved even as tasks reload every 5s.
+      useEffect(() => {
+        const unresolved = Array.from(
+          new Set(
+            tasks
+              .map((t) => t.project_id)
+              .filter((pid) => pid != null && !(pid in projectNames)),
+          ),
+        );
+        if (unresolved.length === 0) return;
+        unresolved.forEach(async (pid) => {
+          try {
+            const result = await executePipeline(6, {
+              action: "GetProject",
+              project_id: pid,
+            });
+            const name = result?.output?.project?.name ?? `Project #${pid}`;
+            setProjectNames((prev) => ({ ...prev, [pid]: name }));
+          } catch (e) {
+            setProjectNames((prev) => ({ ...prev, [pid]: `Project #${pid}` }));
+          }
+        });
+      }, [tasks, projectNames]);
 
       // 2026-10-16 fix: this used to call executePipeline(5, {action:"List"})
       // — pipeline 5's own TASK_MANAGER process, backed by its own separate
@@ -81,6 +112,7 @@ module.exports = {
                 : null,
             error: t.error,
             pipeline_name: t.blueprint_name,
+            project_id: t.project_id,
           }));
           setTasks(mapped);
           setLoading(false);
@@ -337,6 +369,23 @@ module.exports = {
                         { className: "task-time" },
                         formatTime(task.created_at),
                       ),
+                      task.project_id != null &&
+                        React.createElement(
+                          "span",
+                          {
+                            className: "task-project-badge",
+                            title: "Open this task's project",
+                            onClick: (e) => {
+                              e.stopPropagation();
+                              window.__ozoneThemeArea?.navigateTo({
+                                kind: "task",
+                                taskId: task.id,
+                                projectId: task.project_id,
+                              });
+                            },
+                          },
+                          projectNames[task.project_id] || `Project #${task.project_id}`,
+                        ),
                     ),
                     task.status === "running" &&
                       React.createElement(

@@ -399,33 +399,49 @@ fn analyze_action_payload(modality: &str, file_path: &str) -> Option<serde_json:
 /// file/url/package links were entirely flat-JSON, invisible to any real
 /// graph traversal or relationship. Creates a real `container_type`
 /// container (FileReference here; url_link/package_link mirror this with
-/// URLReference/PackageReference) parented under `project_id` when present
-/// (falling back to `fallback_root` — FILE_GRAPH_ROOT_ID=76 for files —
-/// otherwise; `create_container` degrades gracefully if project_id doesn't
-/// correspond to a real container, confirmed by reading
-/// text-modality's persist_graph_container and src/zsei/query.rs, so this
-/// is safe even for an ad-hoc/nonexistent project_id). Then writes a real
-/// bidirectional Relation edge (project Contains reference; reference
-/// PartOf project) — best-effort: if the project container can't be
-/// fetched (e.g. a genuinely nonexistent project_id), the reference
-/// container is still real and created, just not cross-linked, which is
-/// still strictly better than the previous fully-flat state.
+/// URLReference/PackageReference) parented under `graph_parent_id` when
+/// present (falling back to `fallback_root` — FILE_GRAPH_ROOT_ID=76 for
+/// files — otherwise; `create_container` degrades gracefully if
+/// graph_parent_id doesn't correspond to a real container, confirmed by
+/// reading text-modality's persist_graph_container and src/zsei/query.rs,
+/// so this is safe even for an ad-hoc/nonexistent id).
+///
+/// CALLER CONTRACT (2026-10-18, linkparent fix): pass the caller-resolved
+/// REAL ZSEI container id for the owning project here when one is known
+/// (see each `FileLinkInput` variant's `zsei_parent_id` field, sourced from
+/// `Project.zsei_container_id` — confirmed real via workspace_tab/main.rs's
+/// ListProjects/GetProject), falling back to the flat `project_id` only
+/// when no real container id is available (un-healed project, or a
+/// no-project ad-hoc link). Passing the flat project_id alone (the pre-fix
+/// behavior) was harmless but meant `CreateContainer`'s parent_id never
+/// resolved (a documented silent no-op per src/zsei/query.rs for an
+/// unresolvable id) and the Contains/PartOf edge below never attached
+/// either, since `GetContainer` on a non-container id also fails silently
+/// — every linked file/URL/package became an orphaned, unreachable
+/// container. That's the exact bug this change closes.
+///
+/// Then writes a real bidirectional Relation edge (project Contains
+/// reference; reference PartOf project) — best-effort: if the project
+/// container can't be fetched (e.g. a genuinely nonexistent id), the
+/// reference container is still real and created, just not cross-linked,
+/// which is still strictly better than the previous fully-flat state.
 async fn link_reference_to_graph(
-    project_id: u64,
+    graph_parent_id: u64,
     fallback_root: u64,
     container_type: &str,
     provenance: &str,
     name: String,
     keywords: Vec<String>,
+    modality: &str,
 ) -> Option<u64> {
     let now = chrono::Utc::now().timestamp() as u64;
-    let parent_id = if project_id != 0 { project_id } else { fallback_root };
+    let parent_id = if graph_parent_id != 0 { graph_parent_id } else { fallback_root };
     let container = serde_json::json!({
         "global_state": { "container_id": 0, "child_count": 0, "version": 1, "parent_id": 0, "child_ids": [] },
         "local_state": {
             "metadata": {
                 "container_type": container_type,
-                "modality": "Unknown",
+                "modality": modality,
                 "created_at": now,
                 "updated_at": now,
                 "provenance": provenance,
@@ -460,8 +476,8 @@ async fn link_reference_to_graph(
     .ok()?;
     let container_id = result.get("ContainerID").and_then(|v| v.as_u64())?;
 
-    if project_id != 0 {
-        link_relation_both_ways(project_id, container_id).await;
+    if graph_parent_id != 0 {
+        link_relation_both_ways(graph_parent_id, container_id).await;
     }
 
     Some(container_id)
@@ -518,12 +534,27 @@ pub enum FileLinkInput {
         project_id: u64,
         file_path: String,
         analyze: bool,
+        /// Real ZSEI container id for the owning project
+        /// (`Project.zsei_container_id`, sourced from workspace_tab's
+        /// ListProjects/GetProject), when the caller has one in scope.
+        /// 2026-10-18 (linkparent fix): used as the real graph parent
+        /// instead of the flat `project_id` above when present — see
+        /// `link_reference_to_graph`'s doc comment for why the flat id
+        /// alone silently orphaned every linked file from the graph.
+        /// `#[serde(default)]` so a caller that doesn't send this field
+        /// gets exactly today's fallback-to-flat-project_id behavior.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
     },
     /// Link multiple files to a project
     LinkMultiple {
         project_id: u64,
         file_paths: Vec<String>,
         analyze: bool,
+        /// See `Link`'s `zsei_parent_id` doc — same real-container-id
+        /// override, applied to every file in this batch.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
     },
     /// Link a whole folder to a project: creates one DirectoryReference
     /// container for the folder itself, then links each direct child file
@@ -535,6 +566,11 @@ pub enum FileLinkInput {
         project_id: u64,
         folder_path: String,
         analyze: bool,
+        /// See `Link`'s `zsei_parent_id` doc — same real-container-id
+        /// override, applied to the DirectoryReference container and
+        /// every child FileReference container created below it.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
     },
     /// Unlink a file from a project
     Unlink { project_id: u64, file_ref_id: u64 },
@@ -921,6 +957,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             project_id,
             file_path,
             analyze,
+            zsei_parent_id,
         } => {
             let mut refs = load_file_refs(project_id);
 
@@ -962,13 +999,18 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             // fail the link itself (the flat ref is still the source of
             // truth for fast lookup), just leaves zsei_container_id None.
             let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
+            // 2026-10-18 (linkparent fix): prefer the caller-resolved real
+            // ZSEI container id for the project over the flat project_id —
+            // see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
             file_ref.zsei_container_id = link_reference_to_graph(
-                project_id,
+                graph_parent_id,
                 76, // FILE_GRAPH_ROOT_ID
                 "FileReference",
                 "file_link_pipeline",
                 format!("File: {}", file_ref.path),
                 keywords,
+                &file_ref.modality,
             )
             .await;
 
@@ -989,9 +1031,13 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             project_id,
             file_paths,
             analyze,
+            zsei_parent_id,
         } => {
             let mut refs = load_file_refs(project_id);
             let mut new_refs = vec![];
+            // 2026-10-18 (linkparent fix): resolved once for the whole
+            // batch — see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
 
             for file_path in file_paths {
                 // Skip if already linked
@@ -1014,12 +1060,13 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
                 let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
                 file_ref.zsei_container_id = link_reference_to_graph(
-                    project_id,
+                    graph_parent_id,
                     76,
                     "FileReference",
                     "file_link_pipeline",
                     format!("File: {}", file_ref.path),
                     keywords,
+                    &file_ref.modality,
                 )
                 .await;
 
@@ -1192,6 +1239,7 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
             project_id,
             folder_path,
             analyze,
+            zsei_parent_id,
         } => {
             let folder_meta = fs::metadata(&folder_path);
             if folder_meta.is_err() || !folder_meta.unwrap().is_dir() {
@@ -1242,13 +1290,18 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
                 .unwrap_or(&folder_path)
                 .to_string();
             let dir_keywords: Vec<String> = vec![folder_name.to_lowercase(), "directory".to_string()];
+            // 2026-10-18 (linkparent fix): resolved once, applied to both
+            // the directory container and every child file container below
+            // — see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
             let directory_ref_id = link_reference_to_graph(
-                project_id,
+                graph_parent_id,
                 76,
                 "DirectoryReference",
                 "file_link_pipeline",
                 format!("Folder: {}", folder_path),
                 dir_keywords,
+                "Directory",
             )
             .await;
 
@@ -1274,12 +1327,13 @@ pub async fn execute(input: FileLinkInput) -> Result<FileLinkOutput, String> {
 
                 let keywords: Vec<String> = vec![file_ref.name.to_lowercase(), file_ref.modality.to_lowercase()];
                 file_ref.zsei_container_id = link_reference_to_graph(
-                    project_id,
+                    graph_parent_id,
                     76,
                     "FileReference",
                     "file_link_pipeline",
                     format!("File: {}", file_ref.path),
                     keywords,
+                    &file_ref.modality,
                 )
                 .await;
 

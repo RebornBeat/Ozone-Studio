@@ -25,6 +25,8 @@ import {
   renderMarkdown,
   summarizeTrail,
 } from '../chatRendering';
+import { loadILoopStatus } from '../data/iLoopReflections';
+import { getGraphEventClient, GraphEventFrame } from '../graphEventClient';
 
 interface MetaPortionProps {
   width: number;
@@ -203,42 +205,92 @@ export function MetaPortion({ width }: MetaPortionProps) {
     }
   }, [isConnected, consciousnessEnabled, executePipeline]);
 
-  // Fetch actual I-Loop status from backend (Reflection pipeline #44)
+  // Real I-Loop status (2026-10-18) — was polling pipeline #44
+  // (`GetILoopStatus`), a separate subprocess-per-call implementation whose
+  // in-memory store resets to empty on every invocation and that nothing in
+  // this codebase ever actually triggers (confirmed by grep) — it was
+  // reading a permanently-empty store, which is why this always showed "0
+  // insights"/the idle-fallback text regardless of real activity. The REAL
+  // I-Loop (`src/orchestrator/i_loop.rs`'s `run_i_loop`, confirmed spawned
+  // in the live host via `src/lib.rs:1114`) persists real reflections as
+  // real ZSEI containers; `loadILoopStatus` reads those. See
+  // `ui/src/data/iLoopReflections.ts`'s header for the full trace.
   const fetchILoopStatus = useCallback(async () => {
     if (!isConnected || !consciousnessEnabled) return;
-    
     try {
-      const result = await executePipeline(44, { action: 'GetILoopStatus' });
-      if (result?.i_loop) {
-        const loop = result.i_loop;
-        setILoopState({
-          isActive: loop.current_state?.is_active ?? false,
-          currentQuestion: loop.question?.text || 'Reflecting on patterns...',
-          questionsAsked: loop.current_state?.questions_asked ?? 0,
-          insightsGenerated: loop.current_state?.insights_generated ?? 0,
-        });
-      }
+      const status = await loadILoopStatus();
+      setILoopState((prev) => ({
+        // No live "currently reflecting" signal exists yet (the real loop
+        // emits no start/stop event, only the final persisted reflection) —
+        // left false, same honest default as before; not a regression.
+        isActive: false,
+        currentQuestion: status.currentReflection ?? prev.currentQuestion,
+        questionsAsked: prev.questionsAsked,
+        insightsGenerated: status.insightsGenerated,
+      }));
     } catch (err) {
       console.warn('Failed to fetch I-Loop status:', err);
     }
-  }, [isConnected, consciousnessEnabled, executePipeline]);
+  }, [isConnected, consciousnessEnabled]);
 
   // Poll consciousness state when enabled
   useEffect(() => {
     if (!isConnected || !consciousnessEnabled) return;
-    
+
     // Initial fetch
     fetchEmotionalState();
-    fetchILoopStatus();
-    
+
     // Poll every 5 seconds for updates
     const interval = setInterval(() => {
       fetchEmotionalState();
-      fetchILoopStatus();
     }, 5000);
-    
+
     return () => clearInterval(interval);
-  }, [isConnected, consciousnessEnabled, fetchEmotionalState, fetchILoopStatus]);
+  }, [isConnected, consciousnessEnabled, fetchEmotionalState]);
+
+  // I-Loop: real reflections land roughly every 30+ minutes (the loop's own
+  // budget-safety floor, `i_loop.rs`'s MIN_INTERVAL_SECS) — a 5s poll would
+  // just be hitting a ZSEI query for data that almost never changes. Fetch
+  // once for real historical state, then rely on the live graph-event
+  // socket (already real and connected elsewhere, e.g. TaskDetailPanel) to
+  // know exactly when a new one actually lands, instead of guessing a poll
+  // interval.
+  useEffect(() => {
+    if (!isConnected || !consciousnessEnabled) return;
+    fetchILoopStatus();
+    const client = getGraphEventClient();
+    client.connect();
+    const off = client.onEvent((frame: GraphEventFrame) => {
+      if (frame.event === 'created' && frame.container_type === 'CoordinationEvent') {
+        // Best-effort: CoordinationEvent covers every shared-context event
+        // (notes/decisions/handoffs too), not just i-loop reflections — the
+        // frame itself carries no kind keyword to filter on more precisely.
+        // The refetch is a small, cheap container-list read, not a reason
+        // to invest in a server-side filter for this.
+        fetchILoopStatus();
+      }
+    });
+    return off;
+  }, [isConnected, consciousnessEnabled, fetchILoopStatus]);
+
+  // Brief, subtle highlight when a genuinely new reflection arrives —
+  // separate from the constant idle pulse on .iloop-dot. Purely additive
+  // polish; the widget's own layout/copy is unchanged.
+  const [justReflected, setJustReflected] = useState(false);
+  const lastReflectionRef = useRef<string>('');
+  useEffect(() => {
+    const text = iLoopState.currentQuestion;
+    if (!text) return;
+    const prev = lastReflectionRef.current;
+    lastReflectionRef.current = text;
+    // Skip the flash on the first real value this session (prev === '') —
+    // only genuinely NEW reflections (a real change) should highlight.
+    if (prev !== '' && prev !== text) {
+      setJustReflected(true);
+      const t = setTimeout(() => setJustReflected(false), 2200);
+      return () => clearTimeout(t);
+    }
+  }, [iLoopState.currentQuestion]);
 
   // Voice waveform — REAL mic level while listening (AnalyserNode RMS);
   // synthesized motion only while the assistant is speaking.
@@ -1324,13 +1376,16 @@ export function MetaPortion({ width }: MetaPortionProps) {
           )}
         </div>
 
-        {/* I-Loop Status (when consciousness enabled) */}
+        {/* I-Loop Status (when consciousness enabled) — now wired to the
+            REAL orchestrator-side loop; `justReflected` is purely additive
+            (one extra class for a brief CSS highlight on genuine new data,
+            see App.css), no change to this block's existing structure/copy. */}
         {consciousnessEnabled && (
-          <div className="iloop-section">
+          <div className={`iloop-section${justReflected ? ' just-reflected' : ''}`}>
             <div className="iloop-header">
-              <span 
-                className={`iloop-dot ${iLoopState.isActive ? 'active' : ''}`} 
-                style={{ backgroundColor: iLoopState.isActive ? '#4ade80' : emotionColor }} 
+              <span
+                className={`iloop-dot ${iLoopState.isActive ? 'active' : ''}`}
+                style={{ backgroundColor: iLoopState.isActive ? '#4ade80' : emotionColor }}
               />
               <span className="iloop-title">
                 I-Loop {iLoopState.isActive ? 'Active' : 'Ready'}
@@ -1342,7 +1397,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
             <div className="iloop-reflection">
               <span className="reflection-label">Current reflection:</span>
               <span
-                className="reflection-text"
+                className={`reflection-text${justReflected ? ' just-reflected' : ''}`}
                 title={iLoopState.currentQuestion || 'Waiting for next reflection cycle...'}
               >
                 "{iLoopState.currentQuestion || 'Waiting for next reflection cycle...'}"

@@ -6,7 +6,7 @@ export type NavTarget =
   | { kind: "tab"; tabId: string }
   | { kind: "graph-node"; projectId: number; nodeId: string }
   | { kind: "container"; containerId: number }
-  | { kind: "task"; taskId: number }
+  | { kind: "task"; taskId: number; projectId?: number }
   | { kind: "code-file"; projectId: number; path: string; line?: number };
 
 type Handler = (t: NavTarget) => void;

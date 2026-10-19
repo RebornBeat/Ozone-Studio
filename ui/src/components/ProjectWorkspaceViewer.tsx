@@ -44,6 +44,7 @@ import { AmtTreeView } from '../views/hierarchy/AmtTreeView';
 import { ForkLineageView } from '../views/hierarchy/ForkLineageView';
 import { JurisdictionHierarchy } from '../views/hierarchy/JurisdictionHierarchy';
 import { GraphView } from './GraphView';
+import { useOzoneStore } from '../services/store';
 
 export interface ProjectWorkspaceViewerProps {
   // Flat Workspace-tab id — used ONLY by this component's own
@@ -84,6 +85,19 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
   const [section, setSection] = useState<Section>('files');
   const [filesSub, setFilesSub] = useState<FilesSub>('browser');
   const [hierarchySub, setHierarchySub] = useState<HierarchySub>('amt');
+  // Live orchestration activity for THIS project (2026-10-18) — real data
+  // from an orchestration_stage WS event whose request carried this exact
+  // flat projectId (ThemeArea.tsx's subscriber writes it to the store;
+  // see store.ts's liveEngineActivity doc comment). Deliberately does NOT
+  // change `section`/`filesSub`/`hierarchySub` — surfacing a small, inline
+  // indicator here is enough; forcing a tab switch while the operator is
+  // mid-read of something else would be the same disruptive mistake
+  // ThemeArea.tsx's notifyTabNeedsAttention already avoids for the global
+  // case. Naturally self-clears when a DIFFERENT project's activity
+  // arrives (the store only ever holds the latest one, and the equality
+  // check below stops matching).
+  const liveActivity = useOzoneStore((s) => s.liveEngineActivity);
+  const myActivity = liveActivity && liveActivity.projectId === projectId ? liveActivity : null;
   // W7.2 — bumped after a successful Unlink so WorkspaceBrowser's Browser
   // tab re-fetches just its file-refs list (not the whole workspaces/
   // projects sidebar tree — see its `refreshToken` prop).
@@ -149,7 +163,37 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
   }
 
   return (
+    // ORDER (2026-10-18, operator-reported, repeated across several
+    // rounds): the active section's content renders FIRST, the tab bar
+    // (Files/Fabric/Hierarchy/Graph + sub-tabs) LAST — directly above
+    // ProjectChatPanel below this viewer, so the tab bar is the thing
+    // sitting right on top of the chat title, not the content.
     <div className="project-insights-viewer">
+      {myActivity && (
+        <div className="project-live-activity" key={myActivity.timestamp}>
+          <span className="project-live-activity-dot" />
+          <span className="project-live-activity-stage">{myActivity.stageName}</span>
+          <span className="project-live-activity-summary">{myActivity.summary}</span>
+        </div>
+      )}
+      <div className="project-insights-content">
+        {section === 'files' && filesSub === 'browser' && (
+          <WorkspaceBrowser
+            projectId={zseiProjectId}
+            onUnlink={handleUnlinkFile}
+            onOpenFile={handleOpenFile}
+            refreshToken={browserRefreshToken}
+            embedded
+          />
+        )}
+        {section === 'files' && filesSub === 'refs' && <FileReferenceViewer projectId={zseiProjectId} />}
+        {section === 'files' && filesSub === 'code' && <CodeViewer projectId={zseiProjectId} />}
+        {section === 'fabric' && <FabricView projectId={zseiProjectId} />}
+        {section === 'hierarchy' && hierarchySub === 'amt' && <AmtTreeView projectId={zseiProjectId} />}
+        {section === 'hierarchy' && hierarchySub === 'lineage' && <ForkLineageView projectId={zseiProjectId} />}
+        {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
+        {section === 'graph' && <GraphView projectId={zseiProjectId} />}
+      </div>
       <div className="project-insights-tabs">
         {SECTIONS.map(s => (
           <button
@@ -174,24 +218,6 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
             ))}
           </>
         )}
-      </div>
-      <div className="project-insights-content">
-        {section === 'files' && filesSub === 'browser' && (
-          <WorkspaceBrowser
-            projectId={zseiProjectId}
-            onUnlink={handleUnlinkFile}
-            onOpenFile={handleOpenFile}
-            refreshToken={browserRefreshToken}
-            embedded
-          />
-        )}
-        {section === 'files' && filesSub === 'refs' && <FileReferenceViewer projectId={zseiProjectId} />}
-        {section === 'files' && filesSub === 'code' && <CodeViewer projectId={zseiProjectId} />}
-        {section === 'fabric' && <FabricView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'amt' && <AmtTreeView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'lineage' && <ForkLineageView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
-        {section === 'graph' && <GraphView projectId={zseiProjectId} />}
       </div>
     </div>
   );

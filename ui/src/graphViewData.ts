@@ -69,6 +69,15 @@ function modalityFromObjectStorePath(path: string | null | undefined): Modality 
   if (path.startsWith("graphs/math_")) return "math";
   if (path.startsWith("graphs/text_")) return "text";
   if (path.startsWith("graphs/image_")) return "image";
+  // `graphs/3d_graph_{id}.json` (assets/pipelines/modalities/3D/main.rs
+  // ~1374, 1393) — missing here meant the 3D engine view (2026-10-18) could
+  // never actually find a 3D graph: this function is the sole discriminant
+  // loadGraphData uses to keep/drop a child container per modality filter.
+  if (path.startsWith("graphs/3d_graph_")) return "3D";
+  // `graphs/cad_{id}.json` (assets/pipelines/modalities/CAD/main.rs:1330) —
+  // same missing-case bug class as 3D above: without this, loadGraphData
+  // silently drops every CAD graph regardless of real data on disk.
+  if (path.startsWith("graphs/cad_")) return "CAD";
   return null;
 }
 

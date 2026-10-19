@@ -2646,8 +2646,34 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
                         let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
                         for (from, to, etype) in spatial {
                             if valid.contains(&from) && valid.contains(&to) && from != to {
-                                graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                                graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype.clone(), weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                                 next_eid += 1;
+                                // LIVE NODE EVENT (2026-10-18, additive, first real
+                                // producer — see orchestration_events::OrchestrationNodeEvent's
+                                // doc comment): best-effort, fire-and-forget report of this
+                                // real spatial edge as it's added, so a connected live view
+                                // can show graph construction as it happens instead of only
+                                // after the whole HeadlessProcess call returns. Detached
+                                // tokio::spawn — never awaited inline, so a slow/unreachable
+                                // host can never slow down or fail real graph construction.
+                                let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+                                let project_id = graph.project_id;
+                                let node_type_name = format!("{:?}", etype);
+                                tokio::spawn(async move {
+                                    let client = reqwest::Client::new();
+                                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                                        .json(&serde_json::json!({
+                                            "project_id": project_id,
+                                            "modality": "3d",
+                                            "graph_id": graph_id,
+                                            "node_id": to,
+                                            "related_node_id": from,
+                                            "node_type": node_type_name,
+                                            "operation": "edge_added",
+                                        }))
+                                        .timeout(std::time::Duration::from_secs(2))
+                                        .send().await;
+                                });
                             }
                         }
                     }

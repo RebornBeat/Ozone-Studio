@@ -18,8 +18,34 @@ mod ozone_serve;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action")]
 pub enum PackageLinkInput {
-    Link { project_id: u64, registry: String, name: String, version: Option<String> },
-    LinkMultiple { project_id: u64, packages: Vec<PackageSpec> },
+    Link {
+        project_id: u64,
+        registry: String,
+        name: String,
+        version: Option<String>,
+        /// Real ZSEI container id for the owning project
+        /// (`Project.zsei_container_id`, sourced from workspace_tab's
+        /// ListProjects/GetProject), when the caller has one in scope.
+        /// 2026-10-18 (linkparent fix): used as the real graph parent
+        /// instead of the flat `project_id` above when present — see
+        /// `link_reference_to_graph`'s doc comment. `#[serde(default)]` so
+        /// a caller that doesn't send this field gets exactly today's
+        /// fallback-to-flat-project_id behavior. No real UI call site uses
+        /// this field yet (component.js has no PackageLink call site at
+        /// all — confirmed by grep, out of scope to add here); this keeps
+        /// the pipeline itself consistent with file_link/url_link so it's
+        /// ready whenever one is wired up.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
+    },
+    LinkMultiple {
+        project_id: u64,
+        packages: Vec<PackageSpec>,
+        /// See `Link`'s `zsei_parent_id` doc — same real-container-id
+        /// override, applied to every package in this batch.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
+    },
     Unlink { project_id: u64, package_ref_id: u64 },
     Refresh { package_ref_id: u64 },
     GetStatus { package_ref_id: u64 },
@@ -123,8 +149,16 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 }
 
 /// root=70 (EXTERNAL_PACKAGES_ROOT_ID) is the fallback parent.
+///
+/// CALLER CONTRACT (2026-10-18, linkparent fix): `graph_parent_id` should be
+/// the caller-resolved REAL ZSEI container id for the owning project when
+/// known (see `PackageLinkInput::Link`/`LinkMultiple`'s `zsei_parent_id`
+/// field), falling back to the flat `project_id` only when no real
+/// container id is available — see file_link's identical helper doc for
+/// why the flat id alone silently orphaned every linked package from the
+/// graph.
 async fn link_reference_to_graph(
-    project_id: u64,
+    graph_parent_id: u64,
     fallback_root: u64,
     container_type: &str,
     provenance: &str,
@@ -132,7 +166,7 @@ async fn link_reference_to_graph(
     keywords: Vec<String>,
 ) -> Option<u64> {
     let now = chrono::Utc::now().timestamp() as u64;
-    let parent_id = if project_id != 0 { project_id } else { fallback_root };
+    let parent_id = if graph_parent_id != 0 { graph_parent_id } else { fallback_root };
     let container = serde_json::json!({
         "global_state": { "container_id": 0, "child_count": 0, "version": 1, "parent_id": 0, "child_ids": [] },
         "local_state": {
@@ -173,8 +207,8 @@ async fn link_reference_to_graph(
     .ok()?;
     let container_id = result.get("ContainerID").and_then(|v| v.as_u64())?;
 
-    if project_id != 0 {
-        link_relation_both_ways(project_id, container_id).await;
+    if graph_parent_id != 0 {
+        link_relation_both_ways(graph_parent_id, container_id).await;
     }
 
     Some(container_id)
@@ -368,7 +402,7 @@ fn scan_linked_manifests(project_id: u64) -> Vec<PackageSpec> {
 
 pub async fn execute(input: PackageLinkInput) -> Result<PackageLinkOutput, String> {
     match input {
-        PackageLinkInput::Link { project_id, registry, name, version } => {
+        PackageLinkInput::Link { project_id, registry, name, version, zsei_parent_id } => {
             let mut refs = load_package_refs(project_id);
             if refs.iter().any(|r| r.registry == registry && r.name == name) {
                 return Ok(PackageLinkOutput {
@@ -392,8 +426,12 @@ pub async fn execute(input: PackageLinkInput) -> Result<PackageLinkOutput, Strin
                 last_updated: now(),
                 zsei_container_id: None,
             };
+            // 2026-10-18 (linkparent fix): prefer the caller-resolved real
+            // ZSEI container id for the project over the flat project_id —
+            // see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
             info.zsei_container_id = link_reference_to_graph(
-                project_id,
+                graph_parent_id,
                 70, // EXTERNAL_PACKAGES_ROOT_ID
                 "PackageReference",
                 "package_link_pipeline",
@@ -414,9 +452,12 @@ pub async fn execute(input: PackageLinkInput) -> Result<PackageLinkOutput, Strin
             })
         }
 
-        PackageLinkInput::LinkMultiple { project_id, packages } => {
+        PackageLinkInput::LinkMultiple { project_id, packages, zsei_parent_id } => {
             let mut refs = load_package_refs(project_id);
             let mut new_infos = vec![];
+            // 2026-10-18 (linkparent fix): resolved once for the whole
+            // batch — see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
             for spec in packages {
                 if refs.iter().any(|r| r.registry == spec.registry && r.name == spec.name) {
                     continue;
@@ -432,7 +473,7 @@ pub async fn execute(input: PackageLinkInput) -> Result<PackageLinkOutput, Strin
                     zsei_container_id: None,
                 };
                 info.zsei_container_id = link_reference_to_graph(
-                    project_id,
+                    graph_parent_id,
                     70,
                     "PackageReference",
                     "package_link_pipeline",

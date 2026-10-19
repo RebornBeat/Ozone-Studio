@@ -29,6 +29,54 @@
  */
 import React, { useEffect, useState } from "react";
 import { fetchPipelineRegistry, PipelineRegistryEntry } from "../../ozoneClient";
+import { navigateTo } from "../../navigation";
+import { requestEnginesTab } from "../../enginesPanelTab";
+
+/** `graph_ids_read`/`graph_ids_updated` are modality NAME strings (e.g.
+ * "text", "code"), never numeric container ids, despite the field name —
+ * confirmed against the real backend field (src/orchestrator/mod.rs:516-517,
+ * `OrchestratorStepState.graph_ids_read`, doc-commented "modality names
+ * read" on the struct itself). A click jumps to that modality's tab in the
+ * Engines panel (EnginesPanel.tsx's registry — only code/math/text/image/3d/
+ * audio-video/geospatial exist as tabs there today; an unmapped modality
+ * name still navigates to Engines, just lands on its default tab, which is
+ * honest given there's nowhere more specific to send it yet). */
+const MODALITY_TO_ENGINE_TAB: Record<string, string> = {
+  text: "text",
+  code: "code",
+  math: "math",
+  image: "image",
+  "3d": "3d",
+  audio: "audio-video",
+  video: "audio-video",
+  geospatial: "geospatial",
+  parametric_cad: "parametric_cad",
+};
+
+function jumpToModalityEngine(modality: string): void {
+  const tabId = MODALITY_TO_ENGINE_TAB[modality.toLowerCase()];
+  if (tabId) requestEnginesTab(tabId);
+  navigateTo({ kind: "tab", tabId: "engines" });
+}
+
+const ModalityChip: React.FC<{ name: string }> = ({ name }) => (
+  <button
+    onClick={() => jumpToModalityEngine(name)}
+    title={`Open ${name} in Engines`}
+    style={{
+      background: "rgba(110, 195, 255, 0.1)",
+      border: "1px solid rgba(110, 195, 255, 0.25)",
+      borderRadius: 4,
+      color: "#9fb4cc",
+      fontSize: 11,
+      padding: "1px 6px",
+      cursor: "pointer",
+      marginRight: 4,
+    }}
+  >
+    {name}
+  </button>
+);
 
 interface StepDetail {
   step_index: number;
@@ -152,10 +200,14 @@ export const StepDetailSection: React.FC<{ task: TaskShape }> = ({ task }) => {
                     <Row label="Stages pending">{s.stages_pending!.join(" → ")}</Row>
                   )}
                   {(s.graph_ids_read?.length ?? 0) > 0 && (
-                    <Row label="Graphs read">{s.graph_ids_read!.join(", ")}</Row>
+                    <Row label="Modalities read">
+                      {s.graph_ids_read!.map((m) => <ModalityChip key={m} name={m} />)}
+                    </Row>
                   )}
                   {(s.graph_ids_updated?.length ?? 0) > 0 && (
-                    <Row label="Graphs updated">{s.graph_ids_updated!.join(", ")}</Row>
+                    <Row label="Modalities updated">
+                      {s.graph_ids_updated!.map((m) => <ModalityChip key={m} name={m} />)}
+                    </Row>
                   )}
                   {(s.methodology_ids_applied?.length ?? 0) > 0 && (
                     <Row label="Methodologies applied">{s.methodology_ids_applied!.join(", ")}</Row>

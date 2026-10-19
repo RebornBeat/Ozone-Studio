@@ -63,3 +63,4 @@ data/
 *.pt
 *.log
 .gitignore.bak
+dist/

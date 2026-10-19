@@ -42,8 +42,15 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 /// Real ZSEI graph wiring for a URL link (task 64) — see file_link's
 /// identical helper for the full design rationale. root=71
 /// (EXTERNAL_URLS_ROOT_ID) is the fallback parent.
+///
+/// CALLER CONTRACT (2026-10-18, linkparent fix): `graph_parent_id` should be
+/// the caller-resolved REAL ZSEI container id for the owning project when
+/// known (see `URLLinkInput::Link`/`LinkMultiple`'s `zsei_parent_id`
+/// field), falling back to the flat `project_id` only when no real
+/// container id is available — see file_link's identical helper doc for
+/// why the flat id alone silently orphaned every linked URL from the graph.
 async fn link_reference_to_graph(
-    project_id: u64,
+    graph_parent_id: u64,
     fallback_root: u64,
     container_type: &str,
     provenance: &str,
@@ -51,7 +58,7 @@ async fn link_reference_to_graph(
     keywords: Vec<String>,
 ) -> Option<u64> {
     let now = chrono::Utc::now().timestamp() as u64;
-    let parent_id = if project_id != 0 { project_id } else { fallback_root };
+    let parent_id = if graph_parent_id != 0 { graph_parent_id } else { fallback_root };
     let container = serde_json::json!({
         "global_state": { "container_id": 0, "child_count": 0, "version": 1, "parent_id": 0, "child_ids": [] },
         "local_state": {
@@ -92,8 +99,8 @@ async fn link_reference_to_graph(
     .ok()?;
     let container_id = result.get("ContainerID").and_then(|v| v.as_u64())?;
 
-    if project_id != 0 {
-        link_relation_both_ways(project_id, container_id).await;
+    if graph_parent_id != 0 {
+        link_relation_both_ways(graph_parent_id, container_id).await;
     }
 
     Some(container_id)
@@ -143,9 +150,31 @@ async fn link_relation_both_ways(project_id: u64, ref_container_id: u64) {
 #[serde(tag = "action")]
 pub enum URLLinkInput {
     /// Link a single URL to a project
-    Link { project_id: u64, url: String, analyze: bool },
+    Link {
+        project_id: u64,
+        url: String,
+        analyze: bool,
+        /// Real ZSEI container id for the owning project
+        /// (`Project.zsei_container_id`, sourced from workspace_tab's
+        /// ListProjects/GetProject), when the caller has one in scope.
+        /// 2026-10-18 (linkparent fix): used as the real graph parent
+        /// instead of the flat `project_id` above when present — see
+        /// `link_reference_to_graph`'s doc comment. `#[serde(default)]` so
+        /// a caller that doesn't send this field gets exactly today's
+        /// fallback-to-flat-project_id behavior.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
+    },
     /// Link multiple URLs to a project
-    LinkMultiple { project_id: u64, urls: Vec<String>, analyze: bool },
+    LinkMultiple {
+        project_id: u64,
+        urls: Vec<String>,
+        analyze: bool,
+        /// See `Link`'s `zsei_parent_id` doc — same real-container-id
+        /// override, applied to every URL in this batch.
+        #[serde(default)]
+        zsei_parent_id: Option<u64>,
+    },
     /// Unlink a URL from a project
     Unlink { project_id: u64, url_ref_id: u64 },
     /// Refresh URL status (check reachability, update content)
@@ -354,7 +383,7 @@ fn extract_text_from_html(html: &str) -> String {
 
 pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
     match input {
-        URLLinkInput::Link { project_id, url, analyze } => {
+        URLLinkInput::Link { project_id, url, analyze, zsei_parent_id } => {
             // Validate URL format
             if !url.starts_with("http://") && !url.starts_with("https://") {
                 return Ok(URLLinkOutput {
@@ -384,8 +413,12 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
             // Real graph wiring (task 64) — a genuine URLReference
             // container + bidirectional Relation edge with the project.
             let keywords: Vec<String> = vec![url_ref.domain.to_lowercase()];
+            // 2026-10-18 (linkparent fix): prefer the caller-resolved real
+            // ZSEI container id for the project over the flat project_id —
+            // see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
             url_ref.zsei_container_id = link_reference_to_graph(
-                project_id,
+                graph_parent_id,
                 71, // EXTERNAL_URLS_ROOT_ID
                 "URLReference",
                 "url_link_pipeline",
@@ -405,10 +438,13 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
             })
         }
         
-        URLLinkInput::LinkMultiple { project_id, urls, analyze } => {
+        URLLinkInput::LinkMultiple { project_id, urls, analyze, zsei_parent_id } => {
             let mut refs = load_url_refs(project_id);
             let mut new_refs = vec![];
-            
+            // 2026-10-18 (linkparent fix): resolved once for the whole
+            // batch — see link_reference_to_graph's doc comment.
+            let graph_parent_id = zsei_parent_id.filter(|&id| id != 0).unwrap_or(project_id);
+
             for url in urls {
                 // Validate URL format
                 if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -423,7 +459,7 @@ pub async fn execute(input: URLLinkInput) -> Result<URLLinkOutput, String> {
                 let mut url_ref = create_url_ref(project_id, &url, analyze);
                 let keywords: Vec<String> = vec![url_ref.domain.to_lowercase()];
                 url_ref.zsei_container_id = link_reference_to_graph(
-                    project_id,
+                    graph_parent_id,
                     71,
                     "URLReference",
                     "url_link_pipeline",

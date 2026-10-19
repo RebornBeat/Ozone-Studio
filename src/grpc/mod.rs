@@ -1308,6 +1308,40 @@ pub struct CaptureQuery {
     pub limit: Option<usize>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct NodeEventRequest {
+    pub project_id: Option<u64>,
+    pub modality: String,
+    pub graph_id: u64,
+    pub node_id: u64,
+    pub related_node_id: Option<u64>,
+    pub node_type: String,
+    pub operation: String,
+}
+
+/// POST /orchestration/node-event — the real entry point a modality
+/// pipeline subprocess calls to report real per-node/per-edge
+/// graph-construction activity (2026-10-18, additive; see
+/// `orchestration_events::OrchestrationNodeEvent`'s doc comment for why
+/// this HTTP bridge exists at all — the producer runs in a separate OS
+/// process with no access to this host's in-memory hub). Fire-and-forget
+/// from the caller's side by design: this just republishes to the hub and
+/// returns; no validation beyond deserialization, matching `query_zsei`'s
+/// own tolerance for a best-effort internal signal rather than a
+/// security-sensitive write path.
+async fn report_node_event(Json(req): Json<NodeEventRequest>) -> Json<serde_json::Value> {
+    crate::orchestration_events::emit_node_event(
+        req.project_id,
+        &req.modality,
+        req.graph_id,
+        req.node_id,
+        req.related_node_id,
+        &req.node_type,
+        &req.operation,
+    );
+    Json(serde_json::json!({ "success": true }))
+}
+
 /// GET /quota — OpenRouter free-model quota, read from the host's own
 /// snapshot (src/openrouter_quota.rs persists this on its own poll cycle;
 /// this route never calls OpenRouter itself, so it spends nothing). Uses
@@ -2508,6 +2542,48 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
         });
     }
 
+    // NODE RIPPLE — a third sibling hub (2026-10-18, additive), finer than
+    // `orchestration_stage` above: real per-node/per-edge construction
+    // activity reported by a modality pipeline subprocess via `POST
+    // /orchestration/node-event` (no in-process access to this hub from a
+    // separate OS process — see `OrchestrationNodeEvent`'s doc comment).
+    {
+        let tx = tx.clone();
+        let mut node_rx = crate::orchestration_events::NodeEventHub::global().subscribe();
+        tokio::spawn(async move {
+            loop {
+                match node_rx.recv().await {
+                    Ok(evt) => {
+                        let wire = serde_json::json!({
+                            "action": "node_event",
+                            "project_id": evt.project_id,
+                            "modality": evt.modality,
+                            "graph_id": evt.graph_id,
+                            "node_id": evt.node_id,
+                            "related_node_id": evt.related_node_id,
+                            "node_type": evt.node_type,
+                            "operation": evt.operation,
+                            "timestamp": evt.timestamp,
+                        });
+                        if tx
+                            .send(serde_json::to_string(&wire).unwrap_or_default())
+                            .await
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        let _ = tx
+                            .send(format!("{{\"action\":\"node_event\",\"lagged\":{n}}}"))
+                            .await;
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
     tokio::spawn(async move {
         let mut last_snapshot: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -2720,6 +2796,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/cancel", post(cancel_task))
         .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
+        .route("/orchestration/node-event", post(report_node_event))
         // OpenRouter quota status, read-only, spends nothing (2026-10-07).
         .route("/quota", get(get_quota))
         .route("/model-ledger-summary", get(get_model_ledger_summary))

@@ -25,6 +25,7 @@ import {
 import { navigateTo, onNavigate, NavTarget } from "../navigation";
 import UnifiedSearch from "../views/search/UnifiedSearch";
 import { setSelectedProject } from "../projectSelection";
+import { getGraphEventClient } from "../graphEventClient";
 
 /** J2: which real tab a cross-view NavTarget lands on. `graph-node` and
  * `container` both resolve inside the Graph View tab itself (GraphView.tsx
@@ -38,7 +39,11 @@ function tabForNavTarget(target: NavTarget): string | null {
     case "container":
       return "graph-view";
     case "task":
-      return "tasks";
+      // A project-scoped task opens straight into that project's own
+      // Workspace view (where its live engine activity actually shows,
+      // per ProjectWorkspaceViewer's liveEngineActivity banner) instead of
+      // the Tasks tab — a task with no project keeps the original behavior.
+      return target.projectId != null ? "workspace" : "tasks";
     case "code-file":
       return "files-viewer";
     default:
@@ -352,9 +357,51 @@ export function ThemeArea({ theme }: ThemeAreaProps) {
       if (tabId) handleTabChange(tabId);
       if (target.kind === "task") {
         useOzoneStore.getState().setLastTaskId(target.taskId);
+        if (target.projectId != null) setSelectedProject(target.projectId);
       }
     });
   }, [handleTabChange]);
+
+  // ── Live orchestration activity → engine switching ─────────────────────────
+  // orchestration_stage events (graphEventClient.ts, real data from
+  // src/orchestration_events.rs, every stage of an in-flight /orchestrate
+  // call) now carry the triggering request's real project_id/workspace_id
+  // (threaded through 2026-10-18 specifically for this). Branch on it,
+  // per the operator's explicit requirement:
+  //   - project_id present → the prompt was PROJECT-scoped (ProjectChatPanel).
+  //     Write to the store's liveEngineActivity instead of navigating
+  //     anywhere — ProjectWorkspaceViewer watches this and only reacts if
+  //     ITS OWN project happens to match, so this never disturbs a view the
+  //     operator isn't already looking at, and never jumps to the global
+  //     Engines tab for project-scoped work.
+  //   - project_id null → the prompt was GLOBAL (MetaPortion sidebar chat
+  //     with no project selected). Uses the EXISTING notifyTabNeedsAttention
+  //     (flash+dismissible-notification, or an immediate switch only when
+  //     already on another core tab) rather than a new mechanism — this is
+  //     the same conservative "don't yank the user away" rule every other
+  //     backend-attention signal in this file already follows.
+  // Connects the socket once on mount; does not disconnect on unmount since
+  // ThemeArea is the top-level app shell (lives for the app's whole life).
+  useEffect(() => {
+    const client = getGraphEventClient();
+    client.connect();
+    return client.onOrchestrationStage((frame) => {
+      if (frame.project_id !== null) {
+        useOzoneStore.getState().setLiveEngineActivity({
+          projectId: frame.project_id,
+          stageName: frame.stage_name,
+          summary: frame.summary,
+          timestamp: frame.timestamp,
+        });
+      } else {
+        notifyTabNeedsAttention(
+          "engines",
+          `AGI: ${frame.stage_name} — ${frame.summary}`,
+          "task",
+        );
+      }
+    });
+  }, [notifyTabNeedsAttention]);
 
   // ── Global API for backend/pipeline hooks ─────────────────────────────────
 

@@ -106,6 +106,25 @@ interface UIState {
   // first fetch resolves; stays at the last good reading on a network
   // failure, never fabricated.
   ledgerSummary: LedgerSummary | null;
+
+  // Live orchestration_stage activity for a PROJECT-SCOPED /orchestrate
+  // call (real wire data — orchestration_stage's project_id, stage_name,
+  // summary are never fabricated; see graphEventClient.ts). null means no
+  // project-scoped stage event has arrived yet this session. Consumed by
+  // ProjectWorkspaceViewer, which only reacts when its own flat projectId
+  // matches — so this being set doesn't force any view to change unless
+  // that exact project's own view happens to be open right now (operator's
+  // explicit requirement: project-scoped activity surfaces inside that
+  // project's own Files/Fabric/Hierarchy/Graph area, never a navigation
+  // away to the global Engines tab). A global-scoped stage event
+  // (project_id null) does NOT touch this field — see ThemeArea.tsx's
+  // separate handling for that case.
+  liveEngineActivity: {
+    projectId: number;
+    stageName: string;
+    summary: string;
+    timestamp: number;
+  } | null;
 }
 
 interface UIActions {
@@ -144,6 +163,9 @@ interface UIActions {
   setSelectedModel: (model: string) => void;
   setConsciousnessEnabled: (enabled: boolean) => void;
   setLastTaskId: (taskId: number | null) => void;
+  setLiveEngineActivity: (
+    activity: { projectId: number; stageName: string; summary: string; timestamp: number } | null,
+  ) => void;
 
   // Fetches GET /quota and stores the result. Best-effort: a network
   // failure leaves quotaStatus as whatever it already was, never guessed.
@@ -204,6 +226,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   lastTaskId: null,
   quotaStatus: null,
   ledgerSummary: null,
+  liveEngineActivity: null,
 
   // Actions
   initializeApp: async (config: any) => {
@@ -487,6 +510,10 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   setLastTaskId: (taskId: number | null) => {
     set({ lastTaskId: taskId });
+  },
+
+  setLiveEngineActivity: (activity) => {
+    set({ liveEngineActivity: activity });
   },
 
   fetchQuota: async () => {

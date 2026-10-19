@@ -2296,6 +2296,45 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
+    transition: color 0.6s ease;
+}
+
+/* Brief, subtle highlight when a genuinely new real reflection arrives
+   (2026-10-18) — distinct from .iloop-dot's constant idle pulse, which
+   never meant "new data," just "loop exists." Purely additive: no change
+   to the section's layout or copy, just a soft transient glow + a color
+   shift on the text itself while it settles in. */
+.iloop-section.just-reflected {
+    animation: iloop-reflected-glow 2.2s ease-out;
+}
+@keyframes iloop-reflected-glow {
+    0% {
+        box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+        background: linear-gradient(
+            135deg,
+            rgba(139, 92, 246, 0.1),
+            rgba(59, 130, 246, 0.1)
+        );
+    }
+    15% {
+        box-shadow: 0 0 14px 2px rgba(139, 92, 246, 0.35);
+        background: linear-gradient(
+            135deg,
+            rgba(139, 92, 246, 0.22),
+            rgba(59, 130, 246, 0.2)
+        );
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(139, 92, 246, 0);
+        background: linear-gradient(
+            135deg,
+            rgba(139, 92, 246, 0.1),
+            rgba(59, 130, 246, 0.1)
+        );
+    }
+}
+.reflection-text.just-reflected {
+    color: var(--color-text);
 }
 
 /* Consciousness Overlay */
@@ -3868,7 +3907,7 @@ body {
 .project-stats {
     display: flex;
     gap: var(--space-lg);
-    padding: var(--space-md) var(--space-lg);
+    padding: var(--space-xs) var(--space-lg);
     border-bottom: 1px solid var(--color-border);
 }
 
@@ -6138,12 +6177,47 @@ ui/component.js files
   overflow: hidden;
 }
 .dynamic-pipeline-ui-container-top {
+  /* Real bug (2026-10-18, confirmed independently twice — direct reasoning
+     + a fork's full ancestor-chain trace): this div also carries the base
+     .dynamic-pipeline-ui-container class, which sets height:100%. flex:0 0
+     auto only means "basis = the height property's computed value" — with
+     height:100% resolving to a definite pixel height (the whole ancestor
+     chain above is a valid definite-height flex chain), THAT became the
+     basis, not the content size. flex-shrink:0 then locked it there,
+     clamped only by max-height. Net effect: this box rendered at a fixed
+     220px always, regardless of how short its real content (toolbar +
+     stats) actually was — a permanent blank band stealing space from the
+     project viewer below it. height:auto here restores "basis = content
+     size", which is what flex:0 0 auto was actually supposed to mean. */
+  height: auto;
   flex: 0 0 auto;
   max-height: 220px;
   width: 100%;
   min-height: 0;
   overflow-y: auto;
   border-bottom: 1px solid #223046;
+}
+/* Third bug in this exact spot (2026-10-18, found from an actual
+   screenshot after the first two fixes didn't visibly resolve it):
+   component.js's own root wrapper, `.workspace-tab` (App.css ~line 3557,
+   shared with .tasks-tab/.library-tab/.settings-tab), independently sets
+   `height: 100%`. That's correct everywhere else .workspace-tab is used
+   (it's normally the ONLY thing filling its tab, so 100% of a definite
+   parent height is right) — but mounted here, inside a box that now sizes
+   ITSELF to content (height:auto, just fixed above), a child demanding
+   "100% of my parent" while the parent is simultaneously trying to size
+   to that same child's content is a circular dependency, not a request
+   either box can satisfy. The practical result was this box rendering far
+   taller than its real content (toolbar + stats), clamped only by
+   max-height — the empty band the operator kept pointing at. Scoped
+   override, not a change to the shared .workspace-tab rule itself (which
+   stays height:100% for every other real use — e.g. the Workspace tab's
+   own WORKSPACES/PROJECTS list views, and Tasks/Library/Settings, none of
+   which have this split top-box/chat layout and all of which still want
+   .workspace-tab to fill their single, undivided tab). */
+.dynamic-pipeline-ui-container-top .workspace-tab {
+  height: auto;
+  overflow: visible;
 }
 .project-insights-viewer {
   flex: 1 1 auto;
@@ -6159,7 +6233,10 @@ ui/component.js files
   align-items: center;
   gap: 4px;
   padding: 8px 12px;
-  border-bottom: 1px solid #223046;
+  /* Tab bar now renders AFTER .project-insights-content (operator-
+     requested reorder, 2026-10-18) — divider moved to this side so it
+     still separates tabs from content instead of from the chat panel. */
+  border-top: 1px solid #223046;
   flex-shrink: 0;
   overflow-x: auto;
 }
@@ -6193,6 +6270,48 @@ ui/component.js files
   min-height: 0;
   overflow-y: auto;
   padding: 14px 16px;
+}
+/* Live orchestration activity for this project (2026-10-18) — small,
+   non-disruptive strip above the content, never forces a tab switch (see
+   ProjectWorkspaceViewer.tsx's own comment on why). */
+.project-live-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  flex-shrink: 0;
+  background: rgba(110, 195, 255, 0.07);
+  border-bottom: 1px solid #223046;
+  font-size: 12px;
+  color: #9fb4cc;
+  animation: project-live-activity-fade-in 0.25s ease-out;
+}
+.project-live-activity-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #6ec3ff;
+  flex-shrink: 0;
+  animation: project-live-activity-pulse 1.4s ease-in-out infinite;
+}
+.project-live-activity-stage {
+  font-weight: 600;
+  color: #dfe7f2;
+  flex-shrink: 0;
+}
+.project-live-activity-summary {
+  color: #9fb4cc;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@keyframes project-live-activity-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(110, 195, 255, 0.5); }
+  50% { opacity: 0.6; box-shadow: 0 0 0 4px rgba(110, 195, 255, 0); }
+}
+@keyframes project-live-activity-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 .project-chat-panel {
   flex: 0 0 320px;
@@ -6954,8 +7073,43 @@ ui/component.js files
    project chat bar (bottom) and scrolls internally, instead of taking
    natural height (blank gap) or overflowing hidden (content stuck below). */
 .project-viewer-region {
+  /* Second real bug in this area (2026-10-18, found right after the first
+     one): this wrapper sets flex:1 1 auto on ITSELF (correct, as a child of
+     .dynamic-pipeline-ui-with-chat) but never declares display:flex — so
+     IT is not a flex container for its own child. Its child
+     (.project-insights-viewer, which has flex:1 1 auto expecting to be a
+     flex item) was therefore just a normal block, sized to its own short
+     content (tab strip + whatever notice/list the active tab shows) and
+     top-aligned, leaving the rest of this region's real height as a dead,
+     scrollable-but-empty gap between the content and the chat bar below
+     it. display:flex + flex-direction:column makes the child a real flex
+     item again, so it actually stretches to fill this region. */
+  display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   width: 100%;
+}
+
+/* Task row project badge (2026-10-19) — clickable, jumps to the task's
+   owning project. Self-contained rather than relying on whichever of this
+   file's several pre-existing .task-item/.task-info rulesets (drifted
+   apart over time, none an exact match for task_manager's real current
+   classNames) happens to apply to a given row. */
+.task-project-badge {
+  display: inline-block;
+  margin-left: var(--space-sm);
+  padding: 1px 8px;
+  font-size: 0.72rem;
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.task-project-badge:hover {
+  color: var(--color-text);
+  border-color: var(--color-accent);
 }

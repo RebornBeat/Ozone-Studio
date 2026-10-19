@@ -38,7 +38,7 @@
 import React, { useEffect, useState } from "react";
 import { zseiQuery } from "../../ozoneClient";
 import { useSelectedFile } from "../../fileSelection";
-import { readFileContent, FileContentUnavailable, type FileContentResult } from "../../data/fileContent";
+import { readFileContent, type FileContentResult } from "../../data/fileContent";
 import { navigateTo } from "../../navigation";
 
 const C_TEXT = "var(--color-text)";
@@ -126,6 +126,50 @@ const Row: React.FC<{ label: string; children: React.ReactNode }> = ({ label, ch
     <span style={{ color: C_BODY }}>{children}</span>
   </div>
 );
+/** The reference's actual path/URL/registry-name — the thing an operator is
+ * really here to see, vs. the bookkeeping fields below. Heavier weight +
+ * monospace (this codebase's established --font-mono convention) sets it
+ * apart from the Row rows without introducing any new visual language. */
+const PrimaryRow: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => (
+  <div style={{ margin: "2px 0 12px" }}>
+    <div style={{ fontSize: 10.5, color: C_MUTED, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 }}>
+      {label}
+    </div>
+    <div
+      style={{
+        ...wrap,
+        fontSize: 13,
+        color: C_TEXT,
+        fontFamily: "var(--font-mono)",
+        background: "var(--color-bg)",
+        border: `1px solid ${C_BORDER}`,
+        borderRadius: 6,
+        padding: "6px 9px",
+      }}
+    >
+      {children}
+    </div>
+  </div>
+);
+/** Pure provenance/bookkeeping (container id, pipeline name, timestamps) —
+ * real data, kept in full, just not what anyone reads first. Collapsed by
+ * default via native <details> rather than new state/styling machinery. */
+const DetailsBlock: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <details style={{ marginTop: 10 }}>
+    <summary
+      style={{
+        cursor: "pointer",
+        fontSize: 11,
+        color: C_MUTED,
+        listStyle: "none",
+        userSelect: "none",
+      }}
+    >
+      Details
+    </summary>
+    <div style={{ marginTop: 6, paddingLeft: 2 }}>{children}</div>
+  </details>
+);
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   <div style={{ ...wrap, fontSize: 11.5, color: C_MUTED, fontStyle: "italic" }}>{children}</div>
 );
@@ -181,12 +225,14 @@ const FileContentBlock: React.FC<{ path: string }> = ({ path }) => {
       .then((result) => !cancelled && setState({ kind: "ready", result }))
       .catch((e) => {
         if (cancelled) return;
-        const message =
-          e instanceof FileContentUnavailable
-            ? "File content access requires the desktop app and hasn't been enabled for this build yet."
-            : e instanceof Error
-              ? e.message
-              : String(e);
+        // FileContentUnavailable already carries a real, specific message
+        // (fileContent.ts's own throw sites) — no bridge at all vs. this
+        // particular file failing Electron's live registration check are
+        // different situations with different messages; showing one fixed
+        // string here for both discarded that distinction and was also
+        // stale (implied a build-time flag; the real gating is a runtime
+        // bridge check + per-file registration, confirmed in fileContent.ts).
+        const message = e instanceof Error ? e.message : String(e);
         setState({ kind: "error", message });
       });
     return () => {
@@ -289,13 +335,21 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
         {selected.name || meta.name || `Container #${container.global_state.container_id}`}
       </div>
 
-      <Row label="Kind">
-        {meta.container_type} (container #
-        <ContainerLink id={container.global_state.container_id}>{container.global_state.container_id}</ContainerLink>)
-      </Row>
-      {meta.provenance && <Row label="Linked via">{meta.provenance}</Row>}
-      {created && <Row label="Created">{created}</Row>}
-      {updated && updated !== created && <Row label="Updated">{updated}</Row>}
+      {selected.kind === "file" &&
+        (filePath ? (
+          <PrimaryRow label="Path">{filePath}</PrimaryRow>
+        ) : (
+          <Empty>No path recorded for this reference.</Empty>
+        ))}
+      {selected.kind === "url" &&
+        (url ? <PrimaryRow label="Address">{url}</PrimaryRow> : <Empty>No URL recorded for this reference.</Empty>)}
+      {selected.kind === "package" &&
+        (pkg ? (
+          <PrimaryRow label="Registry / name">{pkg}</PrimaryRow>
+        ) : (
+          <Empty>No package identity recorded for this reference.</Empty>
+        ))}
+
       {keywords.length > 0 && <Row label="Keywords">{keywords.join(", ")}</Row>}
       <Row label="Modality">
         {meta.modality === "Unknown" ? (
@@ -305,10 +359,19 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
         )}
       </Row>
 
+      <DetailsBlock>
+        <Row label="Kind">
+          {meta.container_type} (container #
+          <ContainerLink id={container.global_state.container_id}>{container.global_state.container_id}</ContainerLink>)
+        </Row>
+        {meta.provenance && <Row label="Linked via">{meta.provenance}</Row>}
+        {created && <Row label="Created">{created}</Row>}
+        {updated && updated !== created && <Row label="Updated">{updated}</Row>}
+      </DetailsBlock>
+
       {selected.kind === "file" && (
         <>
           <SectionTitle>File</SectionTitle>
-          {filePath ? <Row label="Path">{filePath}</Row> : <Empty>No path recorded for this reference.</Empty>}
           {filePath && <FileContentBlock path={filePath} />}
           <div style={{ marginTop: 10, fontSize: 11, color: C_MUTED, ...wrap }}>
             Linked analysis (if any) is written to a flat file outside the graph store this view can read
@@ -318,19 +381,8 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
         </>
       )}
 
-      {selected.kind === "url" && (
-        <>
-          <SectionTitle>URL</SectionTitle>
-          {url ? <Row label="Address">{url}</Row> : <Empty>No URL recorded for this reference.</Empty>}
-        </>
-      )}
-
       {selected.kind === "package" && (
-        <>
-          <SectionTitle>Package</SectionTitle>
-          {pkg ? <Row label="Registry / name">{pkg}</Row> : <Empty>No package identity recorded for this reference.</Empty>}
-          <Empty>Version is not recoverable here — it is stored only in a flat file this view has no route to read.</Empty>
-        </>
+        <Empty>Version is not recoverable here — it is stored only in a flat file this view has no route to read.</Empty>
       )}
 
       <SectionTitle>Graph relationships (best-effort)</SectionTitle>
@@ -340,7 +392,11 @@ export const FileReferenceViewer: React.FC<FileReferenceViewerProps> = () => {
         relations.map((r, i) => (
           <Row key={i} label={r.relation_type}>
             <ContainerLink id={r.target_id}>{relationLabels[r.target_id] ?? `container #${r.target_id}`}</ContainerLink>
-            {typeof r.confidence === "number" && ` (confidence ${r.confidence.toFixed(2)})`}
+            {/* confidence dropped (2026-10-18): file_link/url_link/package_link's
+                link_relation_both_ways — the only writer of relations on
+                these container types — hardcodes 1.0 on every edge; showing
+                a number that never varies read as fabricated precision even
+                though it was technically real. */}
             {r.discovered_via && <span style={{ color: C_MUTED }}> — {r.discovered_via}</span>}
           </Row>
         ))
