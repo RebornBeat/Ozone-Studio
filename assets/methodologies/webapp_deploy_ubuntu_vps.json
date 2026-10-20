@@ -1,0 +1,33 @@
+{
+ "methodology": "Django/React Web App Deployment on Ubuntu VPS (nginx + gunicorn + Postgres + Redis)",
+ "steps": [
+  {
+   "step": "transfer only build artifacts",
+   "detail": "built SPA + backend source + requirements + .env; NEVER .venv/node_modules/.git/logs (heavy, and deps rebuild fresh)"
+  },
+  {
+   "step": "DB with generated secret",
+   "detail": "dedicated Postgres user/db; password generated ON the server (openssl rand -hex 16), stored mode-600 root-only, written into .env \u2014 never printed"
+  },
+  {
+   "step": ".env productionization",
+   "detail": "DEBUG=False, ALLOWED_HOSTS=<ip/domain>, CORS_ORIGINS=<origin>, DB to local postgres"
+  },
+  {
+   "step": "gunicorn systemd unit",
+   "detail": "3 workers, bind 127.0.0.1:8000, Restart=always, NoNewPrivileges, ProtectSystem=full"
+  },
+  {
+   "step": "nginx SPA + proxy",
+   "detail": "root=SPA build; /api/ + /admin/ proxy to gunicorn with real Host/X-Forwarded-For; /static-django/ alias to collectstatic output; SPA fallback try_files"
+  },
+  {
+   "step": "runtime dep discovery",
+   "detail": "missing packages surface at migrate (dj_db_conn_pool not in requirements \u2014 install AND append to requirements); logs/ dir must pre-exist or logging config fails; Redis required by app (500 traced to it)"
+  },
+  {
+   "step": "verify from outside",
+   "detail": "localhost 400s are ALLOWED_HOSTS, not breakage \u2014 always verify via the public IP/domain through nginx"
+  }
+ ]
+}

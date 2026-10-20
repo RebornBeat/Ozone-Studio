@@ -1,0 +1,29 @@
+{
+ "methodology": "Ozone-Studio Self-Deployment on Ubuntu VPS (tarball + systemd + CLI)",
+ "steps": [
+  {
+   "step": "transfer + unpack",
+   "detail": "tarball (binary + config.example + systemd unit + DEPLOY.md) to /opt/ozone-studio"
+  },
+  {
+   "step": "dedicated user",
+   "detail": "useradd -r -s /usr/sbin/nologin ozone; chown the tree"
+  },
+  {
+   "step": "systemd",
+   "detail": "enable ozone-studio.service (Restart=always); the service IS the API + orchestrator"
+  },
+  {
+   "step": "doctor first",
+   "detail": "ozone-studio doctor runs real checks (config parse, data-dir write probe, pipeline census, port) \u2014 run after ANY change"
+  },
+  {
+   "step": "loopback default",
+   "detail": "binds 127.0.0.1: secure by default; expose only via tunnel or proxy+firewall"
+  },
+  {
+   "step": "source-first serving",
+   "detail": "UI files resolve from assets/ first \u2014 a frozen bootstrap copy must never shadow source (live-found bug)"
+  }
+ ]
+}

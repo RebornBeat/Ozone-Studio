@@ -1,0 +1,25 @@
+{
+ "methodology": "Security Monitoring via Scoped-Capability MCP (read-only, unprivileged)",
+ "steps": [
+  {
+   "step": "read-only toolset",
+   "detail": "firewall_status/listening_ports/net_connections/process_top \u2014 nothing can be mutated through them"
+  },
+  {
+   "step": "unprivileged + scoped caps",
+   "detail": "runs as a non-login user with ONLY CAP_NET_ADMIN+CAP_NET_RAW (ambient+bounding) \u2014 never root; nftables inspection needs exactly these"
+  },
+  {
+   "step": "systemd guard",
+   "detail": "Restart=always; the process supervisor tracks auto_start opt-ins"
+  },
+  {
+   "step": "group auto-start",
+   "detail": "tools sharing one (transport,endpoint) flip together \u2014 one toggle, no half-on desync"
+  },
+  {
+   "step": "verify with real output",
+   "detail": "a firewall_status call must return the actual ruleset; an 'Operation not permitted' means caps are missing, not that the tool is broken"
+  }
+ ]
+}

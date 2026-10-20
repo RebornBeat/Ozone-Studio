@@ -1,0 +1,29 @@
+{
+ "methodology": "VPS SSH Brute-Force Defense (Belarus-bot class countermeasures)",
+ "steps": [
+  {
+   "step": "know the threat",
+   "detail": "bot class scans SSH and brute-forces DEFAULT combos only (root:root, admin:admin, support:support); 4,081 failed attempts surveyed on one fresh server in ~1 day"
+  },
+  {
+   "step": "fail2ban",
+   "detail": "auto-bans brute-forcers; first bans happened within minutes of enabling"
+  },
+  {
+   "step": "MaxAuthTries 3",
+   "detail": "cuts each connection's guess budget"
+  },
+  {
+   "step": "no default credentials",
+   "detail": "the entire bot's wordlist misses; password auth may be KEPT per operator ruling with a long unique password"
+  },
+  {
+   "step": "default-deny firewall",
+   "detail": "ufw deny incoming + allow only served ports; no HTTP exposure for the scan side"
+  },
+  {
+   "step": "break-glass",
+   "detail": "keep VNC/console access (Contabo panel) for recovery; test key auth survives every sshd change before closing the session"
+  }
+ ]
+}
