@@ -2454,6 +2454,32 @@ async fn create_graph(
                 },
                 annotations: vec![],
             });
+            // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+            // first real producer). Fire-and-forget, detached, never slows
+            // real graph construction. Uses this file's own shared static
+            // client rather than a fresh one, matching its established
+            // convention.
+            {
+                let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+                let ev_project_id = project_id;
+                let ev_graph_id = graph_id;
+                let ev_node_id = step_node_id;
+                tokio::spawn(async move {
+                    let client = shared_http_client();
+                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                        .json(&serde_json::json!({
+                            "project_id": ev_project_id,
+                            "modality": "math",
+                            "graph_id": ev_graph_id,
+                            "node_id": ev_node_id,
+                            "related_node_id": serde_json::Value::Null,
+                            "node_type": "ProofStep",
+                            "operation": "node_created",
+                        }))
+                        .timeout(std::time::Duration::from_secs(2))
+                        .send().await;
+                });
+            }
 
             // Edge from root to step
             edges.push(MathGraphEdge {

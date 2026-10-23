@@ -107,6 +107,27 @@ impl ConsciousnessStore {
         tracing::info!("ConsciousnessStore: store integration enabled");
     }
 
+    /// Copy the operator's TOML `[consciousness]` config into the store.
+    /// Without this the store stays on `ConsciousnessConfig::default()`
+    /// (`enabled: false`) and every early-return gate (pre_task_gate,
+    /// post_task_experience) is inert regardless of config.toml. Honors the
+    /// TOML value either way: `enabled = false` stays false.
+    pub fn apply_config(&mut self, c: &crate::config::ConsciousnessConfig) {
+        self.config = ConsciousnessConfig {
+            enabled: c.enabled,
+            emotional_system_enabled: c.emotional_system_enabled,
+            experience_memory_enabled: c.experience_memory_enabled,
+            identity_system_enabled: c.identity_system_enabled,
+            relationship_system_enabled: c.relationship_system_enabled,
+            ethical_system_enabled: c.ethical_system_enabled,
+            collective_enabled: c.collective_enabled,
+            show_emotional_state: c.show_emotional_state,
+            show_decision_reasoning: c.show_decision_reasoning,
+            i_loop_interval_ms: c.i_loop_interval_ms,
+        };
+        tracing::info!(enabled = c.enabled, "ConsciousnessStore: config applied from config.toml");
+    }
+
     /// Graph traversal as a sense (TOP_DOWN_REVIEW_GUIDE.md §8, item 2):
     /// the store contract was already wired in via `set_store` for writes
     /// (experience persistence); this is the same handle, exposed for

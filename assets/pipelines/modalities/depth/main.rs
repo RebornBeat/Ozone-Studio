@@ -1231,7 +1231,7 @@ async fn persist_depth_graph(graph: &mut DepthGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["depth"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/depth_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},

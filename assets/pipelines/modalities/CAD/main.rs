@@ -1314,7 +1314,7 @@ async fn persist_cad_graph(graph: &mut CADGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["cad"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/cad_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1408,6 +1408,31 @@ async fn create_graph(executor: &PipelineExecutor, analysis: CADAnalysisResult, 
         });
         edges.push(CADGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: CADEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
+
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, never awaited inline.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let p_id = project_id;
+            let g_id = graph_id;
+            let n_id = pid;
+            let part_name = part.name.clone();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": p_id,
+                        "modality": "parametric_cad",
+                        "graph_id": g_id,
+                        "node_id": n_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": format!("PartNode:{}", part_name),
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
 
         // Part → material
         if let Some(ref mat_name) = part.material_name {

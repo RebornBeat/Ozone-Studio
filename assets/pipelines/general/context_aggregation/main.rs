@@ -75,6 +75,12 @@ pub enum ContextAggInput {
         /// related to, not just whatever keyword search happens to surface.
         #[serde(default)]
         known_seed_ids: Vec<u64>,
+        /// Prior-walk design work (matched Blueprint names/descriptions/
+        /// steps) pre-built by the orchestrator's load_prior_design_context.
+        /// Optional + defaulted so older callers stay valid. Placed after
+        /// the session context and before container text.
+        #[serde(default)]
+        prior_design_context: Option<String>,
     },
     /// Section S — reconstruct provided texts at a token limit, honoring
     /// sentence boundaries (greedy packing, ~4 chars/token). Session chunk
@@ -677,6 +683,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             workspace_id,
             include_coordination,
             known_seed_ids,
+            prior_design_context,
         } => {
             // Container context (store side) — real keyword search now:
             // search for matching ids, then resolve each to full content.
@@ -756,6 +763,14 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     context_text.push_str(session);
                     context_text.push_str("\n\n");
                     token_count += (session.len() as u32) / 4;
+                }
+            }
+            if let Some(prior) = &prior_design_context {
+                if !prior.trim().is_empty() {
+                    context_text.push_str("[Prior design context]\n");
+                    context_text.push_str(prior);
+                    context_text.push_str("\n\n");
+                    token_count += (prior.len() as u32) / 4;
                 }
             }
             context_text.push_str(&container_text);

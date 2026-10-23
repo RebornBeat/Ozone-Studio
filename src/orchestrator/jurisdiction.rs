@@ -428,9 +428,13 @@ impl PromptOrchestrator {
         }
         let _ = result;
 
+        // Stage key 14: Stage 8 is the Consciousness Gate — both used to
+        // record as 8 and the UI (rows keyed by stage number) overwrote one
+        // with the other. 14 is the unique key for the "8b" gate; the UI
+        // places its row between 8 and 9.
         self.record_stage(
             state,
-            8,
+            14,
             "Jurisdiction Full Gate",
             true,
             &format!(

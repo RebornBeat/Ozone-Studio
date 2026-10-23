@@ -44,6 +44,7 @@ import { AmtTreeView } from '../views/hierarchy/AmtTreeView';
 import { ForkLineageView } from '../views/hierarchy/ForkLineageView';
 import { JurisdictionHierarchy } from '../views/hierarchy/JurisdictionHierarchy';
 import { GraphView } from './GraphView';
+import { ENGINES } from '../panels/EnginesPanel';
 import { useOzoneStore } from '../services/store';
 
 export interface ProjectWorkspaceViewerProps {
@@ -58,15 +59,20 @@ export interface ProjectWorkspaceViewerProps {
   zseiProjectId: number | null;
 }
 
-type Section = 'files' | 'fabric' | 'hierarchy' | 'graph';
+type Section = 'files' | 'fabric' | 'hierarchy' | 'graph' | 'engines';
 type FilesSub = 'browser' | 'refs' | 'code';
 type HierarchySub = 'amt' | 'lineage' | 'jurisdiction';
+// Mirrors EnginesPanel.tsx's own registry (same ids) so a project-scoped
+// click (e.g. StepDetailSection's ModalityChip jump target) and the global
+// Engines tab always land on the same sub-tab id for the same modality.
+type EngineSub = typeof ENGINES[number]['id'];
 
 const SECTIONS: { id: Section; label: string }[] = [
   { id: 'files', label: '📁 Files' },
   { id: 'fabric', label: '🧵 Fabric' },
   { id: 'hierarchy', label: '🌳 Hierarchy' },
   { id: 'graph', label: '🕸 Graph' },
+  { id: 'engines', label: '⚙️ Engines' },
 ];
 
 const FILES_SUBS: { id: FilesSub; label: string }[] = [
@@ -81,10 +87,13 @@ const HIERARCHY_SUBS: { id: HierarchySub; label: string }[] = [
   { id: 'jurisdiction', label: 'Jurisdiction' },
 ];
 
+const ENGINE_SUBS: { id: EngineSub; label: string }[] = ENGINES.map(e => ({ id: e.id, label: e.label }));
+
 export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: ProjectWorkspaceViewerProps) {
   const [section, setSection] = useState<Section>('files');
   const [filesSub, setFilesSub] = useState<FilesSub>('browser');
   const [hierarchySub, setHierarchySub] = useState<HierarchySub>('amt');
+  const [enginesSub, setEnginesSub] = useState<EngineSub>(ENGINES[0].id);
   // Live orchestration activity for THIS project (2026-10-18) — real data
   // from an orchestration_stage WS event whose request carried this exact
   // flat projectId (ThemeArea.tsx's subscriber writes it to the store;
@@ -103,11 +112,13 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
   // projects sidebar tree — see its `refreshToken` prop).
   const [browserRefreshToken, setBrowserRefreshToken] = useState(0);
 
-  const subs = section === 'files' ? FILES_SUBS : section === 'hierarchy' ? HIERARCHY_SUBS : null;
-  const activeSub = section === 'files' ? filesSub : section === 'hierarchy' ? hierarchySub : null;
+  const subs = section === 'files' ? FILES_SUBS : section === 'hierarchy' ? HIERARCHY_SUBS : section === 'engines' ? ENGINE_SUBS : null;
+  const activeSub = section === 'files' ? filesSub : section === 'hierarchy' ? hierarchySub : section === 'engines' ? enginesSub : null;
   const setSub = section === 'files' ? (id: string) => setFilesSub(id as FilesSub)
     : section === 'hierarchy' ? (id: string) => setHierarchySub(id as HierarchySub)
+    : section === 'engines' ? (id: string) => setEnginesSub(id as EngineSub)
     : () => {};
+  const activeEngine = ENGINES.find(e => e.id === enginesSub) ?? ENGINES[0];
 
   // W7.2 — real unlink, called from WorkspaceBrowser's "Remove link"
   // button. WorkspaceBrowser's rows are graph-native FileReference/
@@ -193,6 +204,7 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
         {section === 'hierarchy' && hierarchySub === 'lineage' && <ForkLineageView projectId={zseiProjectId} />}
         {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
         {section === 'graph' && <GraphView projectId={zseiProjectId} />}
+        {section === 'engines' && activeEngine.render(zseiProjectId)}
       </div>
       <div className="project-insights-tabs">
         {SECTIONS.map(s => (

@@ -449,13 +449,65 @@ function ccSessions({ limit = 8 } = {}) {
   return { sessions: sessions.slice(0, limit), note: "read-only view of Claude Code session logs" };
 }
 
-function contextSummary() {
+// Host-written coordination events (tool_call, config_change, ...) live only
+// as CoordinationEvent containers under /SharedContext (root id 8) — they are
+// never in notes.jsonl, so without this read agents never see them. Reads
+// need no session. Bounded (last `limit` children, newest first) and
+// fail-soft: host down / unexpected shape → { available:false } and the rest
+// of the summary is unaffected.
+const SHARED_CONTEXT_ROOT_ID = 8;
+const HOST_EVENT_KINDS = ["tool_call", "config_change"];
+
+async function hostQuery(query) {
+  const res = await fetch(`${OZONE_HOST}/zsei/query`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query, session_token: "" }),
+    signal: AbortSignal.timeout(3000),
+  });
+  const out = await res.json();
+  if (!out?.success) throw new Error(out?.error || "host query failed");
+  return out.result;
+}
+
+async function hostEvents(limit = 10) {
+  try {
+    const root = (await hostQuery({ GetContainer: { container_id: SHARED_CONTEXT_ROOT_ID } }))?.Container;
+    const ids = root?.global_state?.child_ids;
+    if (!Array.isArray(ids)) return { available: false, events: [] };
+    const events = [];
+    // Walk newest-first; scan a bounded window so a burst of notes/claims
+    // between host events cannot make this unbounded.
+    for (const id of ids.slice(-limit * 5).reverse()) {
+      if (events.length >= limit) break;
+      try {
+        const c = (await hostQuery({ GetContainer: { container_id: id } }))?.Container;
+        const kws = c?.local_state?.context?.keywords || [];
+        const kind = HOST_EVENT_KINDS.find((k) => kws.includes(k));
+        if (!kind) continue;
+        events.push({
+          container_id: id,
+          kind,
+          title: c.local_state.metadata?.name ?? null,
+          agent: c.local_state.metadata?.provenance ?? null,
+          at: c.local_state.metadata?.created_at ?? null,
+        });
+      } catch {}
+    }
+    return { available: true, events };
+  } catch {
+    return { available: false, events: [] };
+  }
+}
+
+async function contextSummary() {
   return {
     agent: AGENT_NAME,
     scope_binding: eventScope({}),
     presence: presenceList(),
     claims: fileClaims().claims,
     latest_notes: readNotes(8),
+    host_events: await hostEvents(10),
     cc_sessions: ccSessions({ limit: 5 }).sessions,
     state_dir: STATE_DIR,
     ozone_host: OZONE_HOST,

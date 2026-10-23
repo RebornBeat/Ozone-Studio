@@ -537,6 +537,17 @@ pub struct NetworkConfig {
     pub enable_mdns: bool,
     /// Sync interval in seconds for batch sync
     pub batch_sync_interval_secs: u64,
+    /// Whether real container-creation events (methodologies/blueprints/
+    /// findings) actually broadcast to connected P2P peers. The chain that
+    /// does this (`orchestrator::amt_loop::spawn_network_hook_bridge` →
+    /// `NetworkManager::on_methodology_created`/etc. → the real, already-
+    /// working `broadcast_high_priority()`) was built but never started at
+    /// boot — this flag is the explicit opt-in for wiring it up, so an
+    /// existing deployment upgrading to this binary keeps today's exact
+    /// behavior (no outbound sharing) unless an operator deliberately turns
+    /// it on. Default false.
+    #[serde(default)]
+    pub auto_broadcast_sync: bool,
 }
 
 impl Default for NetworkConfig {
@@ -548,6 +559,7 @@ impl Default for NetworkConfig {
             max_peers: 50,
             enable_mdns: true,
             batch_sync_interval_secs: 60,
+            auto_broadcast_sync: false,
         }
     }
 }

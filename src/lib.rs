@@ -878,6 +878,7 @@ impl OzoneRuntime {
                 let consciousness_store: Arc<dyn crate::orchestrator::StoreAccess> =
                     Arc::new(crate::orchestrator::ZseiStoreAdapter { zsei: zsei_arc.clone() });
                 store.set_store(consciousness_store);
+                store.apply_config(&config.consciousness);
             }
         }
 
@@ -949,7 +950,11 @@ impl OzoneRuntime {
         zsei_arc.write().await.set_integrity(integrity.clone());
 
         // Initialize network manager
-        let mut network = network::NetworkManager::new(config.network.clone()).await?;
+        let mut network = network::NetworkManager::new(
+            config.network.clone(),
+            std::path::PathBuf::from(&config.general.data_dir),
+        )
+        .await?;
         network.initialize().await?;
 
         // Initialize consciousness if enabled in config
@@ -1147,6 +1152,43 @@ impl OzoneRuntime {
             // FileReference containers. Same store_adapter, same
             // boot-spawn convention as the two loops above.
             crate::file_beacon::spawn(store_adapter);
+
+            // P2P SYNC BRIDGE (2026-10-19): the real methodology/blueprint
+            // broadcast chain (NetworkManager::on_methodology_created/etc.
+            // -> trigger_hooks -> broadcast_high_priority -> send_to_peer)
+            // was always real, but spawn_network_hook_bridge — the one
+            // piece that actually feeds it real container-creation events —
+            // was written and never called anywhere, so nothing ever
+            // reached a connected peer regardless of P2P being enabled.
+            // Opt-in only (auto_broadcast_sync defaults false): an existing
+            // deployment upgrading to this binary keeps today's exact
+            // no-outbound-sharing behavior unless an operator deliberately
+            // turns this on in config.
+            if runtime.read().await.config.network.auto_broadcast_sync {
+                tracing::info!("P2P auto-broadcast sync: ENABLED (auto_broadcast_sync=true)");
+                crate::orchestrator::amt_loop::spawn_network_hook_bridge(
+                    crate::graph_events::GraphEventHub::global(),
+                    runtime.read().await.network.clone(),
+                );
+                // Periodic driver for the Normal-priority batch queue —
+                // process_batch_sync previously had no caller, so batched
+                // findings queued forever. Same gate as the bridge above.
+                {
+                    let batch_network = runtime.read().await.network.clone();
+                    let batch_secs = runtime.read().await.config.network.batch_sync_interval_secs.max(5);
+                    tokio::spawn(async move {
+                        let mut tick = tokio::time::interval(std::time::Duration::from_secs(batch_secs));
+                        loop {
+                            tick.tick().await;
+                            if let Err(e) = batch_network.read().await.process_batch_sync().await {
+                                tracing::warn!("P2P batch sync pass failed: {}", e);
+                            }
+                        }
+                    });
+                }
+            } else {
+                tracing::info!("P2P auto-broadcast sync: disabled (auto_broadcast_sync=false, default) — container creation never reaches connected peers automatically");
+            }
         }
 
         // Start gRPC server. Ctrl+C or SIGTERM first drains the ZSEI

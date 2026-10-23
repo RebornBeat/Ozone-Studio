@@ -31,6 +31,9 @@ fn prefix_chars_safe(s: &str, max_bytes: usize) -> &str {
 #[path = "../../shared/semantic_relations.rs"]
 mod semantic_relations;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
@@ -968,8 +971,13 @@ impl PipelineExecutor {
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({ "action": "Prompt", "prompt": prompt, "max_tokens": max_tokens, "temperature": 0.05, "system_context": "Geospatial analysis. Return only valid JSON." });
-        let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
+            .arg("--input").arg(input.to_string())
+            .output()
+            .map_err(|e| e.to_string())
+            .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).map_err(|e| e.to_string()));
+        capture::capture_zero_shot_call("geospatial", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
 
@@ -1269,7 +1277,7 @@ async fn persist_geo_graph(graph: &mut GeoGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["geospatial"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/geospatial_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1465,6 +1473,31 @@ async fn create_graph(executor: &PipelineExecutor, analysis: GeoAnalysisResult, 
         });
         edges.push(GeoGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: GeoEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
+
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, never awaited inline.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let p_id = project_id;
+            let g_id = graph_id;
+            let n_id = pid;
+            let poi_type = poi.poi_type.clone();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": p_id,
+                        "modality": "geospatial",
+                        "graph_id": g_id,
+                        "node_id": n_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": format!("POI:{}", poi_type),
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
 
         // POI inside which region
         for (reg_data, &(_, reg_nid)) in analysis.regions.iter().zip(region_node_ids.iter()) {

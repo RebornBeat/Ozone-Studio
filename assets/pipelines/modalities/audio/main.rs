@@ -1455,7 +1455,7 @@ async fn persist_audio_graph(graph: &mut AudioGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["audio"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/audio_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1560,6 +1560,31 @@ async fn create_graph(
             weight: segment.confidence,
             properties: HashMap::new(),
         });
+
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, never awaited inline.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let pid = project_id;
+            let gid = graph_id;
+            let nid = seg_node_id;
+            let type_name = format!("{:?}", segment.segment_type);
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": pid,
+                        "modality": "audio",
+                        "graph_id": gid,
+                        "node_id": nid,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": format!("Segment:{}", type_name),
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
 
         node_id_counter += 1;
     }

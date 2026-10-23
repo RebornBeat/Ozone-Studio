@@ -29,6 +29,14 @@
 //! fleet) has neither requirement and starts as soon as the operator
 //! flips `auto_start` on.
 //!
+//! - `requires_p2p_enabled` (2026-10-21): a third requirement kind, for
+//!   `p2p-bridge-mcp` only — the operator's own tool for turning the
+//!   manual SSH-tunnel-then-connect-peer sequence this session ran by
+//!   hand into one MCP call. Gated on `NetworkConfig::enable_p2p` (the
+//!   real top-level config the host already boots with) rather than
+//!   guessed from the tool's own name — a bridge tool for a disabled
+//!   transport has nothing real to do.
+//!
 //! Process identity is the real `(transport, endpoint)` pair, not the
 //! registered tool `name` — one Node process backs many registered
 //! capability names (`bridges` alone backs 67 on one port). The port
@@ -58,6 +66,11 @@ pub struct McpProcessFacts {
     pub port_env: &'static str,
     pub device_requirement: Option<&'static str>,
     pub credential_requirement: Option<&'static str>,
+    /// Third requirement kind (2026-10-21, p2p-bridge-mcp): only start if
+    /// `NetworkConfig::enable_p2p` is true. A bridge/connect tool for a
+    /// disabled transport has nothing real to do — same "only start once
+    /// every real requirement is honestly met" doctrine as the other two.
+    pub requires_p2p_enabled: bool,
 }
 
 const fn facts(
@@ -65,7 +78,12 @@ const fn facts(
     entry: &'static str,
     port_env: &'static str,
 ) -> McpProcessFacts {
-    McpProcessFacts { dir, entry, port_env, device_requirement: None, credential_requirement: None }
+    McpProcessFacts {
+        dir, entry, port_env,
+        device_requirement: None,
+        credential_requirement: None,
+        requires_p2p_enabled: false,
+    }
 }
 
 /// Port → process facts. Confirmed live against the real running host's
@@ -88,6 +106,7 @@ pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
             port_env: "OZONE_GCAL_PORT",
             device_requirement: None,
             credential_requirement: Some("google_oauth"),
+            requires_p2p_enabled: false,
         }),
         3245 => Some(facts("cerebrix-mcp", "server.mjs", "OZONE_CEREBRIX_PORT")),
         3250 => Some(facts("threed-mcp", "server.mjs", "OZONE_THREED_PORT")),
@@ -99,6 +118,7 @@ pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
             port_env: "OZONE_ZOOM_PORT",
             device_requirement: None,
             credential_requirement: Some("zoom_oauth"),
+            requires_p2p_enabled: false,
         }),
         3271 => Some(facts("dna-mcp", "server.mjs", "OZONE_DNA_PORT")),
         3272 => Some(facts("chemistry-mcp", "server.mjs", "OZONE_CHEM_PORT")),
@@ -111,6 +131,15 @@ pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
             port_env: "OZONE_ANDROID_PORT",
             device_requirement: Some("android"),
             credential_requirement: None,
+            requires_p2p_enabled: false,
+        }),
+        3278 => Some(McpProcessFacts {
+            dir: "p2p-bridge-mcp",
+            entry: "server.mjs",
+            port_env: "OZONE_P2P_BRIDGE_PORT",
+            device_requirement: None,
+            credential_requirement: None,
+            requires_p2p_enabled: true,
         }),
         _ => None,
     }
@@ -289,6 +318,7 @@ impl Default for McpProcessSupervisor {
 pub fn spawn_autostart_supervisor(
     registry: Arc<McpRegistry>,
     zsei_data_dir: String,
+    enable_p2p: bool,
 ) -> Arc<McpProcessSupervisor> {
     let supervisor = Arc::new(McpProcessSupervisor::new());
     let sup = supervisor.clone();
@@ -329,6 +359,13 @@ pub fn spawn_autostart_supervisor(
                         );
                         continue;
                     }
+                }
+                if facts.requires_p2p_enabled && !enable_p2p {
+                    tracing::info!(
+                        "mcp-supervisor: skipping {} (port {port}) — requires enable_p2p=true, P2P is disabled",
+                        facts.dir
+                    );
+                    continue;
                 }
                 if !sup.is_running(port).await {
                     match sup.start_port(port, &zsei_data_dir).await {

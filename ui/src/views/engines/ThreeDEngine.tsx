@@ -51,10 +51,11 @@
  * fetch, same `GraphViewStatus` states, same inline-style/CSS-var
  * conventions, same honest loading/error/empty handling.
  */
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import { loadGraphData } from "../../graphViewData";
 import { GraphViewNode, GraphViewEdge, GraphViewStatus } from "../../graphViewTypes";
 import { navigateTo } from "../../navigation";
+import { getGraphEventClient, NodeEventFrame } from "../../graphEventClient";
 
 const C_TEXT = "var(--color-text)";
 const C_BODY = "var(--color-text-secondary)";
@@ -139,15 +140,17 @@ const TreeRow: React.FC<{
   onSelect: (id: string) => void;
   expanded: Set<string>;
   toggle: (id: string) => void;
-}> = ({ entry, depth, selectedId, onSelect, expanded, toggle }) => {
+  justTouched: Set<string>;
+}> = ({ entry, depth, selectedId, onSelect, expanded, toggle, justTouched }) => {
   const r = raw3d(entry.node);
   const isOpen = expanded.has(entry.node.id);
   const hasChildren = entry.children.length > 0;
+  const isTouched = justTouched.has(entry.node.id);
   return (
     <div>
       <div
         onClick={() => onSelect(entry.node.id)}
-        title="Inspect"
+        title={isTouched ? "Just touched by a live construction event" : "Inspect"}
         style={{
           display: "flex",
           alignItems: "baseline",
@@ -156,7 +159,12 @@ const TreeRow: React.FC<{
           padding: "2px 6px",
           paddingLeft: 6 + depth * 14,
           borderRadius: 4,
-          background: entry.node.id === selectedId ? "rgba(79,195,247,0.12)" : "transparent",
+          background: isTouched
+            ? "rgba(79,195,247,0.28)"
+            : entry.node.id === selectedId
+              ? "rgba(79,195,247,0.12)"
+              : "transparent",
+          transition: "background 0.4s ease-out",
         }}
       >
         {hasChildren ? (
@@ -189,6 +197,7 @@ const TreeRow: React.FC<{
               onSelect={onSelect}
               expanded={expanded}
               toggle={toggle}
+              justTouched={justTouched}
             />
           ))}
         </div>
@@ -273,6 +282,71 @@ export const ThreeDEngine: React.FC<{ projectId: number | null }> = ({ projectId
     });
   };
 
+  // LIVE CONSTRUCTION FEEDBACK (2026-10-19, additive) — real per-node/edge
+  // events from `src/orchestration_events.rs`'s `OrchestrationNodeEvent`,
+  // confirmed end-to-end this session: 3D's `ComputeSpatial` loop is the
+  // ONLY real producer anywhere in this codebase right now (every other
+  // modality's `StreamToUI` is a declared-but-unimplemented stub — see
+  // this session's own research). So this view is the one place a live
+  // indicator is honest; it stays silent (no fake activity) until a real
+  // event for THIS project's THIS graph actually arrives. No fabricated
+  // progress percentage — no real "total" node count is ever known ahead
+  // of time, so this shows only real counts and real recency, matching
+  // this codebase's no-fabrication convention.
+  const [liveCount, setLiveCount] = useState(0);
+  const [recentlyActive, setRecentlyActive] = useState(false);
+  const [justTouched, setJustTouched] = useState<Set<string>>(new Set());
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setLiveCount(0);
+    setRecentlyActive(false);
+    setJustTouched(new Set());
+  }, [projectId]);
+
+  useEffect(() => {
+    if (projectId === null || status.kind !== "ready") return;
+    const sourceGraphIds = new Set(status.data.sourceContainers);
+    const client = getGraphEventClient();
+    client.connect();
+    const off = client.onNodeEvent((frame: NodeEventFrame) => {
+      if (frame.project_id !== projectId) return;
+      if (!sourceGraphIds.has(frame.graph_id)) return;
+      setLiveCount((n) => n + 1);
+      setRecentlyActive(true);
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      idleTimerRef.current = setTimeout(() => setRecentlyActive(false), 3000);
+      // GraphViewNode.id is a composite string (`${modality}:${sourceContainerId}:${node_id}`,
+      // graphViewData.ts:107), never a bare node_id — reconstruct the same
+      // format, or the highlight would silently never match any real tree
+      // row. Deliberately NOT using frame.modality here: the real producer
+      // sends "3d" lowercase (3D/main.rs's emit payload), but this view
+      // always fetches with `modality: "3D"` uppercase (its own
+      // loadGraphData call below) — that's the casing baked into every real
+      // id in THIS view's tree, regardless of what the event claims.
+      const touchedId = `3D:${frame.graph_id}:${frame.node_id}`;
+      const relatedId = frame.related_node_id != null ? `3D:${frame.graph_id}:${frame.related_node_id}` : null;
+      setJustTouched((prev) => {
+        const next = new Set(prev);
+        next.add(touchedId);
+        if (relatedId) next.add(relatedId);
+        return next;
+      });
+      setTimeout(() => {
+        setJustTouched((prev) => {
+          const next = new Set(prev);
+          next.delete(touchedId);
+          if (relatedId) next.delete(relatedId);
+          return next;
+        });
+      }, 1500);
+    });
+    return () => {
+      off();
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    };
+  }, [projectId, status.kind === "ready" ? status.data.sourceContainers.join(",") : null]);
+
   const physicsCacheNodes = useMemo(
     () => (status.kind === "ready" ? status.data.nodes.filter((n) => (raw3d(n).node_type ?? n.nodeType) === "PhysicsCache") : []),
     [status],
@@ -289,7 +363,32 @@ export const ThreeDEngine: React.FC<{ projectId: number | null }> = ({ projectId
 
   return (
     <div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: C_TEXT, marginBottom: 8 }}>3D Scene</div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 8 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: C_TEXT }}>3D Scene</div>
+        {recentlyActive && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 10.5, color: C_ACCENT }}>
+            <span
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: "50%",
+                background: C_ACCENT,
+                animation: "pulse 1s ease-in-out infinite",
+              }}
+            />
+            constructing — {liveCount} live update{liveCount === 1 ? "" : "s"}
+          </span>
+        )}
+        {!recentlyActive && liveCount > 0 && (
+          <span style={{ fontSize: 10.5, color: C_MUTED }}>
+            {liveCount} live update{liveCount === 1 ? "" : "s"} received this session
+          </span>
+        )}
+      </div>
+      <div style={{ fontSize: 10, color: C_MUTED, marginBottom: 8, fontStyle: "italic" }}>
+        Live construction feedback is experimental — 3D is the only modality with a real event producer today; every
+        other engine view here is still fetch-on-load only.
+      </div>
 
       {status.kind === "loading" && <div style={{ color: C_MUTED, fontSize: 12.5 }}>Loading 3D graph…</div>}
       {status.kind === "error" && (
@@ -318,6 +417,7 @@ export const ThreeDEngine: React.FC<{ projectId: number | null }> = ({ projectId
                     onSelect={setSelectedId}
                     expanded={expanded}
                     toggle={toggle}
+                    justTouched={justTouched}
                   />
                 ))
               )}
@@ -337,6 +437,7 @@ export const ThreeDEngine: React.FC<{ projectId: number | null }> = ({ projectId
                     onSelect={setSelectedId}
                     expanded={expanded}
                     toggle={toggle}
+                    justTouched={justTouched}
                   />
                 ))}
               </div>

@@ -1347,7 +1347,7 @@ impl PipelineExecutor {
                     "context": {"categories": [], "methodologies": [], "keywords": keywords,
                         "topics": ["hyperspectral"], "relationships": [], "learned_associations": [], "embedding": null},
                     "storage": {"db_shard_id": null, "vector_index_ref": null,
-                        "object_store_path": "graphs/hyperspectral_placeholder.json", "compression_type": "None"},
+                        "object_store_path": null, "compression_type": "None"},
                     "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
                     "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                         "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1473,6 +1473,31 @@ impl PipelineExecutor {
                     provenance: EdgeProvenance::DerivedFromPrompt, version: 1,
                     ..Default::default()
                 });
+                // LIVE NODE EVENT (2026-10-19, additive, same fire-and-forget
+                // pattern as 3D/main.rs's first real producer): best-effort
+                // report of this real material node as it's connected.
+                {
+                    let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+                    let pid = project_id;
+                    let gid = graph_id;
+                    let nid = mid;
+                    let rid = root_id;
+                    tokio::spawn(async move {
+                        let client = reqwest::Client::new();
+                        let _ = client.post(format!("{host}/orchestration/node-event"))
+                            .json(&serde_json::json!({
+                                "project_id": pid,
+                                "modality": "hyperspectral",
+                                "graph_id": gid,
+                                "node_id": nid,
+                                "related_node_id": rid,
+                                "node_type": "MaterialComponentNode",
+                                "operation": "node_created",
+                            }))
+                            .timeout(std::time::Duration::from_secs(2))
+                            .send().await;
+                    });
+                }
                 edge_id += 1; node_id += 1;
                 (mat.material_id, mid)
             }).collect();

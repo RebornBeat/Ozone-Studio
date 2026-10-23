@@ -59,6 +59,9 @@ const STAGE_ORDER: { stage: number; name: string }[] = [
   { stage: 6, name: "Blueprint Assignment" },
   { stage: 7, name: "Zero-Shot Simulation" },
   { stage: 8, name: "Consciousness Gate" },
+  // "Stage 8b" — own unique key (14) so it never overwrites the Consciousness
+  // Gate row; array position (not number) drives ordering/skip inference.
+  { stage: 14, name: "Jurisdiction Full Gate" },
   { stage: 9, name: "Task Creation" },
   { stage: 10, name: "Step Execution" },
   { stage: 11, name: "Result Collection" },

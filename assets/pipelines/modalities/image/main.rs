@@ -1030,7 +1030,7 @@ async fn persist_image_graph(graph: &mut ImageGraph) -> Result<(), String> {
             },
             "storage": {
                 "db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": format!("graphs/image_placeholder.json"),
+                "object_store_path": serde_json::Value::Null,
                 "compression_type": "None"
             },
             "hints": {
@@ -1485,6 +1485,35 @@ async fn create_graph(
             weight: obj.confidence,
             properties: HashMap::new(),
         });
+
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer, see orchestration_events::OrchestrationNodeEvent's
+        // doc comment): best-effort, fire-and-forget report of this real
+        // object node as it's added. Detached tokio::spawn, never awaited
+        // inline, so a slow/unreachable host can never slow or fail real
+        // graph construction.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let pid = project_id;
+            let gid = graph_id;
+            let nid = obj_node_id;
+            let label = obj.label.clone();
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": pid,
+                        "modality": "image",
+                        "graph_id": gid,
+                        "node_id": nid,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": format!("Object:{}", label),
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
 
         node_id_counter += 1;
     }

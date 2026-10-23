@@ -1431,7 +1431,7 @@ async fn persist_biology_graph(graph: &mut BiologyGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["biology"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/biology_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1505,6 +1505,31 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
         });
         edges.push(BiologyGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: BiologyEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
+        // LIVE NODE EVENT (2026-10-19, additive, same fire-and-forget
+        // pattern as 3D/main.rs's first real producer): best-effort report
+        // of this real pathway node as it's connected.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let pid_ = project_id;
+            let gid = graph_id;
+            let nid = pid;
+            let rid = root_id;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": pid_,
+                        "modality": "biology",
+                        "graph_id": gid,
+                        "node_id": nid,
+                        "related_node_id": rid,
+                        "node_type": "PathwayNode",
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
         // Parent pathway hierarchy
         if let Some(ref parent_id) = pw.parent_pathway_id {
             if let Some(&parent_nid) = pathway_id_to_nid.get(parent_id) {

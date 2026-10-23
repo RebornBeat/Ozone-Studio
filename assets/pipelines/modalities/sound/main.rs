@@ -1390,7 +1390,7 @@ async fn persist_sound_graph(graph: &mut SoundGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["sound"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/sound_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1538,6 +1538,30 @@ async fn create_graph(
             embedding_hint: Some(format!("species: {} scientific: {} group: {:?}", sp.common_name, sp.scientific_name, sp.taxonomic_group)),
             ..Default::default()
         });
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, detached, never slows
+        // real graph construction.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let ev_project_id = project_id;
+            let ev_graph_id = graph_id;
+            let ev_node_id = spid;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": ev_project_id,
+                        "modality": "sound",
+                        "graph_id": ev_graph_id,
+                        "node_id": ev_node_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": "SpeciesNode",
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
         species_node_ids.insert(sp.detection_id, spid);
         edges.push(SoundGraphEdge { edge_id, from_node: root_id, to_node: spid, edge_type: SoundEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;

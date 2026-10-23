@@ -80,8 +80,25 @@ pub struct NetworkManager {
     /// Network configuration
     config: NetworkConfig,
 
-    /// Known peers by libp2p PeerId (persistent)
+    /// Known peers by libp2p PeerId. NOT actually persistent despite the
+    /// name (pre-existing doc comment was wrong, found 2026-10-20 while
+    /// fixing the real P2P connectivity bugs this session) — purely
+    /// in-memory, wiped on every restart. Real connection/session
+    /// bookkeeping only; trust is tracked separately in `paired_peers`
+    /// below, which genuinely is persisted.
     known_peers: Arc<RwLock<HashMap<PeerId, PeerInfo>>>,
+
+    /// Explicitly operator-approved ("paired") peer ids — PeerId -> unix
+    /// seconds when approved. 2026-10-20: real trust gate, added because
+    /// `connect_peer` succeeding never implied any trust — ANY peer that
+    /// completed a libp2p handshake was treated identically to an
+    /// explicitly-approved one. This is the durable source of truth
+    /// (`<data_dir>/paired_peers.json`); `known_peers` above is current
+    /// connection state only and is NOT consulted for trust decisions.
+    paired_peers: Arc<RwLock<HashMap<PeerId, u64>>>,
+
+    /// Where `paired_peers` is persisted.
+    paired_peers_path: std::path::PathBuf,
 
     /// Connection attempt tracking
     connection_attempts: HashMap<String, std::time::Instant>,
@@ -123,6 +140,76 @@ fn now() -> u64 {
         .as_secs()
 }
 
+/// Load the durable paired-peers store. Missing/unreadable/corrupt file is
+/// treated as "no peers approved yet", not an error — a fresh install or a
+/// deliberately-cleared file are both legitimate "start from zero trust"
+/// states, consistent with this gate's whole purpose (default-deny).
+fn load_paired_peers(path: &std::path::Path) -> HashMap<PeerId, u64> {
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return HashMap::new();
+    };
+    let Ok(entries) = serde_json::from_str::<HashMap<String, u64>>(&raw) else {
+        tracing::warn!("P2P: paired_peers.json at {:?} is unreadable/corrupt — starting with zero approved peers (default-deny)", path);
+        return HashMap::new();
+    };
+    entries
+        .into_iter()
+        .filter_map(|(id_str, ts)| {
+            use std::str::FromStr;
+            match PeerId::from_str(&id_str) {
+                Ok(pid) => Some((pid, ts)),
+                Err(_) => {
+                    tracing::warn!("P2P: ignoring unparseable peer id in paired_peers.json: {}", id_str);
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+/// Append one received sync envelope from a PAIRED peer to
+/// `peer_sync_candidates.jsonl` (guide §7.3 first version: bookkeeping only —
+/// no container is created, no model is called). Best-effort: any failure is
+/// logged and swallowed so the swarm event loop can never be taken down by
+/// disk trouble.
+fn append_peer_sync_candidate(path: &std::path::Path, from: &PeerId, data: &[u8]) {
+    use std::io::Write;
+    let envelope = serde_json::from_slice::<serde_json::Value>(data)
+        .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(data).to_string()));
+    let line = serde_json::json!({
+        "received_at": now(),
+        "from_peer": from.to_string(),
+        "envelope": envelope,
+    })
+    .to_string();
+    let result = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut f| writeln!(f, "{}", line));
+    if let Err(e) = result {
+        tracing::warn!("P2P: failed to append peer_sync_candidates.jsonl at {:?}: {}", path, e);
+    }
+}
+
+/// Persist the paired-peers store. Best-effort: a write failure is logged,
+/// not propagated as an error up through `approve_peer`/`revoke_peer` — the
+/// in-memory state (the actual source of truth for the running process)
+/// still updates either way, so a transient disk issue degrades to "this
+/// approval won't survive a restart" rather than failing the operator's
+/// action outright.
+fn save_paired_peers(path: &std::path::Path, peers: &HashMap<PeerId, u64>) {
+    let entries: HashMap<String, u64> = peers.iter().map(|(pid, ts)| (pid.to_string(), *ts)).collect();
+    match serde_json::to_string_pretty(&entries) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(path, json) {
+                tracing::error!("P2P: failed to persist paired_peers.json at {:?}: {}", path, e);
+            }
+        }
+        Err(e) => tracing::error!("P2P: failed to serialize paired_peers: {}", e),
+    }
+}
+
 /// Combined network behaviour
 #[derive(libp2p::swarm::NetworkBehaviour)]
 struct OzoneBehaviour {
@@ -133,10 +220,13 @@ struct OzoneBehaviour {
 }
 
 impl NetworkManager {
-    pub async fn new(config: NetworkConfig) -> OzoneResult<Self> {
+    pub async fn new(config: NetworkConfig, data_dir: std::path::PathBuf) -> OzoneResult<Self> {
         use libp2p::{
             gossipsub, identify, identity, mdns, noise, ping, SwarmBuilder, tcp, yamux,
         };
+
+        let paired_peers_path = data_dir.join("paired_peers.json");
+        let paired_peers = load_paired_peers(&paired_peers_path);
 
         // Generate or load keypair
         let local_key = identity::Keypair::generate_ed25519();
@@ -182,6 +272,30 @@ impl NetworkManager {
                 })
             })
             .map_err(|e| OzoneError::NetworkError(format!("Behaviour error: {}", e)))?
+            // 2026-10-20 — found live, immediately after fixing the Swarm
+            // event-loop gap above: libp2p's own default
+            // `idle_connection_timeout` is 0 (confirmed in its own doc
+            // comment, libp2p-swarm's `Config::with_idle_connection_timeout`),
+            // meaning a connection with no actively-busy substream at a
+            // given instant is torn down right away. First fix tried 120s,
+            // reasoning `ping`'s own periodic keepalive traffic would reset
+            // the idle timer — confirmed WRONG by direct observation: a
+            // real local<->EU-VPS connection ran for exactly 120s, to the
+            // second, then closed with `KeepAliveTimeout` regardless of
+            // ping's ongoing traffic. In this libp2p version
+            // `idle_connection_timeout` is the sole, non-overridable
+            // authority — no behaviour's own activity resets it. Since the
+            // operator explicitly wants to leave two real instances
+            // connected (not just briefly testing), set to a full day
+            // rather than re-guessing another short value that would just
+            // fail the same way for a longer-but-still-wrong reason. A
+            // peer that's genuinely gone is still detected independent of
+            // this (TCP-level close / `ConnectionClosed` fires on a real
+            // disconnect) — this setting only controls how long an IDLE
+            // but still-live connection is kept.
+            .with_swarm_config(|cfg| {
+                cfg.with_idle_connection_timeout(std::time::Duration::from_secs(86400))
+            })
             .build();
 
         let (sync_sender, sync_receiver) = mpsc::channel(1000);
@@ -195,6 +309,8 @@ impl NetworkManager {
             swarm: Arc::new(Mutex::new(swarm)),
             config,
             known_peers: Arc::new(RwLock::new(HashMap::new())),
+            paired_peers: Arc::new(RwLock::new(paired_peers)),
+            paired_peers_path,
             connection_attempts: HashMap::new(),
             stats: Arc::new(Mutex::new(NetworkStats::default())),
             local_peer_id,
@@ -209,6 +325,224 @@ impl NetworkManager {
         }
 
         tracing::info!("Network initialized with peer ID: {}", self.local_peer_id);
+
+        // Bind the libp2p transport so this instance can actually ACCEPT
+        // inbound dials (2026-10-20, found live: `swarm.listen_on(...)` never
+        // existed anywhere in this file — confirmed both this host's and a
+        // paired EU VPS instance's real listening sockets (`ss -tlnp`) had
+        // nothing on `p2p_port` despite both configs setting it to 9090.
+        // Every `connect_peer` dial from either side was therefore always
+        // going to fail (connection refused), regardless of firewall state
+        // or whether a peer address was even correct — `peer_count` could
+        // never become nonzero. Binds loopback-only, matching this
+        // codebase's existing convention for the gRPC/HTTP server
+        // (`[grpc] address = "127.0.0.1"` in config.toml) — real cross-host
+        // reachability is meant to go through an SSH tunnel to this port,
+        // the same pattern already used to pair a UI device to the HTTP
+        // API (`ssh -L <port>:127.0.0.1:<port>`). Does not change firewall
+        // or expose anything new to the public internet.
+        {
+            use libp2p::Multiaddr;
+            use std::str::FromStr;
+            let listen_addr_str = format!("/ip4/127.0.0.1/tcp/{}", self.config.p2p_port);
+            match Multiaddr::from_str(&listen_addr_str) {
+                Ok(listen_addr) => {
+                    let mut swarm = self.swarm.lock().await;
+                    match swarm.listen_on(listen_addr) {
+                        Ok(_) => tracing::info!("P2P swarm listening on {}", listen_addr_str),
+                        Err(e) => tracing::error!(
+                            "P2P swarm failed to listen on {}: {} (peers will never be able to dial in)",
+                            listen_addr_str, e
+                        ),
+                    }
+                }
+                Err(e) => tracing::error!("Invalid P2P listen multiaddr {}: {}", listen_addr_str, e),
+            }
+        }
+
+        // Subscribe to our own direct-message topic (2026-10-20, found live
+        // while verifying a real end-to-end sync test after the two fixes
+        // below this one): `send_to_peer` publishes to gossipsub topic
+        // `"direct/<recipient peer id>"`, but nothing anywhere in this file
+        // ever called `gossipsub.subscribe(...)` for ANY topic — in gossipsub
+        // a peer only receives messages on topics it has subscribed to, so
+        // every `send_to_peer` call was always going to reach zero
+        // subscribers even once the connection itself was real. Subscribing
+        // to our own address is what makes an incoming direct message to us
+        // actually deliverable at all.
+        {
+            let topic = libp2p::gossipsub::IdentTopic::new(format!("direct/{}", self.local_peer_id));
+            let mut swarm = self.swarm.lock().await;
+            match swarm.behaviour_mut().gossipsub.subscribe(&topic) {
+                Ok(_) => tracing::info!("P2P: subscribed to own direct topic direct/{}", self.local_peer_id),
+                Err(e) => tracing::error!("P2P: failed to subscribe to own direct topic: {}", e),
+            }
+        }
+
+        // Drive the libp2p Swarm's own event loop (2026-10-20, found live
+        // right after the listen_on fix above: `Swarm` is a `Stream` — none
+        // of its pending work (dials, inbound handshakes, protocol
+        // negotiation) ever progresses unless something polls it, and
+        // nothing anywhere in this codebase did. Confirmed empirically: a
+        // real connect_peer dial opened a raw TCP socket (visible in `ss`)
+        // that then tore down within seconds (FIN-WAIT-2/CLOSE-WAIT)
+        // because libp2p's own noise/yamux handshake had nowhere to make
+        // progress — so `swarm.connected_peers()`/`is_connected()` could
+        // never reflect a real connection, independent of the listen_on
+        // gap. This was the deeper, more fundamental half of that finding.
+        //
+        // Spawned as its own task holding clones of only the two Arcs it
+        // needs (not `self`) so it runs for the whole process lifetime.
+        // Locking: `swarm` is also used by one-shot callers (connect_peer/
+        // send_to_peer/broadcast) via their own brief `.lock().await` — an
+        // unbounded `select_next_some().await` while holding the lock here
+        // would starve them whenever the swarm is otherwise idle, so each
+        // iteration polls with a short bounded timeout and releases the
+        // lock in between.
+        {
+            let swarm = self.swarm.clone();
+            let known_peers = self.known_peers.clone();
+            let paired_peers = self.paired_peers.clone();
+            // Bookkeeping-only receive ingest target (guide §7.3, first
+            // version): sits beside paired_peers.json in the data dir.
+            let candidates_path = self
+                .paired_peers_path
+                .parent()
+                .map(|d| d.join("peer_sync_candidates.jsonl"))
+                .unwrap_or_else(|| std::path::PathBuf::from("peer_sync_candidates.jsonl"));
+            tokio::spawn(async move {
+                use futures::StreamExt;
+                loop {
+                    let event = {
+                        let mut s = swarm.lock().await;
+                        match tokio::time::timeout(
+                            std::time::Duration::from_millis(250),
+                            s.select_next_some(),
+                        )
+                        .await
+                        {
+                            Ok(ev) => Some(ev),
+                            Err(_) => None,
+                        }
+                    };
+                    let Some(event) = event else { continue };
+                    match event {
+                        libp2p::swarm::SwarmEvent::ConnectionEstablished {
+                            peer_id, endpoint, ..
+                        } => {
+                            let addr = endpoint.get_remote_address().to_string();
+                            tracing::info!(
+                                "P2P: connection established with peer {} ({})",
+                                peer_id, addr
+                            );
+                            known_peers.write().await.insert(
+                                peer_id,
+                                PeerInfo {
+                                    peer_id: peer_id.to_string(),
+                                    address: addr.clone(),
+                                    addresses: vec![addr],
+                                    last_seen: now(),
+                                    latency_ms: 0,
+                                    reputation: 1.0,
+                                    contribution_count: 0,
+                                    capabilities: vec![],
+                                },
+                            );
+                        }
+                        libp2p::swarm::SwarmEvent::ConnectionClosed {
+                            peer_id, cause, ..
+                        } => {
+                            tracing::info!(
+                                "P2P: connection closed with peer {} ({:?})",
+                                peer_id, cause
+                            );
+                            known_peers.write().await.remove(&peer_id);
+                        }
+                        libp2p::swarm::SwarmEvent::OutgoingConnectionError {
+                            peer_id, error, ..
+                        } => {
+                            tracing::warn!(
+                                "P2P: outgoing connection to {:?} failed: {:?}",
+                                peer_id, error
+                            );
+                        }
+                        libp2p::swarm::SwarmEvent::IncomingConnectionError { error, .. } => {
+                            tracing::warn!("P2P: incoming connection failed: {:?}", error);
+                        }
+                        libp2p::swarm::SwarmEvent::NewListenAddr { address, .. } => {
+                            tracing::info!("P2P: now listening on {}", address);
+                        }
+                        libp2p::swarm::SwarmEvent::Behaviour(OzoneBehaviourEvent::Mdns(
+                            mdns::Event::Discovered(list),
+                        )) => {
+                            let mut s = swarm.lock().await;
+                            for (peer_id, addr) in list {
+                                tracing::info!("P2P: mDNS discovered peer {} at {}", peer_id, addr);
+                                s.behaviour_mut().gossipsub.add_explicit_peer(&peer_id);
+                            }
+                        }
+                        libp2p::swarm::SwarmEvent::Behaviour(OzoneBehaviourEvent::Mdns(
+                            mdns::Event::Expired(list),
+                        )) => {
+                            let mut s = swarm.lock().await;
+                            for (peer_id, _addr) in list {
+                                tracing::info!("P2P: mDNS peer expired {}", peer_id);
+                                s.behaviour_mut().gossipsub.remove_explicit_peer(&peer_id);
+                            }
+                        }
+                        // A received sync message (2026-10-20). Per
+                        // `on_methodology_created`/etc.'s real call site
+                        // (orchestrator::amt_loop::spawn_network_hook_bridge),
+                        // the bytes are a JSON envelope — container_id,
+                        // parent_id, container_type, source, scope_keywords
+                        // — a lightweight "a container was created
+                        // elsewhere" FINDING signal, not the container's
+                        // full content (no full-content replication exists
+                        // anywhere in this codebase; building that is a
+                        // separate, larger feature, not attempted here).
+                        //
+                        // Trust gate (2026-10-20, same pass as the fix that
+                        // made this arm reachable at all): a successful
+                        // libp2p connection never implied trust — before
+                        // this check, ANY connected peer's message was
+                        // logged and treated as real signal identically to
+                        // an explicitly-approved one. Now only a peer the
+                        // operator has explicitly approved (`approve_peer`,
+                        // `POST /network/approve-peer`) is treated as a
+                        // real signal; anything else is logged at debug
+                        // level and dropped — observable if you go looking
+                        // (nothing is silently hidden), but never acted on
+                        // or surfaced as trusted content.
+                        libp2p::swarm::SwarmEvent::Behaviour(OzoneBehaviourEvent::Gossipsub(
+                            gossipsub::Event::Message {
+                                propagation_source,
+                                message,
+                                ..
+                            },
+                        )) => {
+                            let summary = String::from_utf8_lossy(&message.data);
+                            if paired_peers.read().await.contains_key(&propagation_source) {
+                                tracing::info!(
+                                    "P2P: received sync message from paired peer {}: {}",
+                                    propagation_source, summary
+                                );
+                                append_peer_sync_candidate(
+                                    &candidates_path,
+                                    &propagation_source,
+                                    &message.data,
+                                );
+                            } else {
+                                tracing::debug!(
+                                    "P2P: ignoring sync message from UNPAIRED peer {} (not approved — call approve_peer first): {}",
+                                    propagation_source, summary
+                                );
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            });
+        }
 
         // Register default hooks
         self.register_default_hooks().await;
@@ -410,6 +744,12 @@ impl NetworkManager {
 
         for item in &items {
             for (peer_id, _peer) in peers.iter() {
+                // Outbound trust gate (default-deny): never send to a peer
+                // the operator has not explicitly approved.
+                if !self.is_peer_paired(peer_id).await {
+                    tracing::debug!("P2P: skipping UNPAIRED peer {} for outbound sync", peer_id);
+                    continue;
+                }
                 if let Err(e) = self.send_to_peer(peer_id, &item.data).await {
                     tracing::warn!("Failed to send to peer {}: {}", peer_id, e);
                 }
@@ -437,6 +777,10 @@ impl NetworkManager {
         // Group items and send in batches
         for item in &items {
             for (peer_id, _peer) in peers.iter() {
+                if !self.is_peer_paired(peer_id).await {
+                    tracing::debug!("P2P: skipping UNPAIRED peer {} for outbound batch sync", peer_id);
+                    continue;
+                }
                 if let Err(e) = self.send_to_peer(peer_id, &item.data).await {
                     tracing::warn!("Failed to batch send to peer {}: {}", peer_id, e);
                 }
@@ -501,8 +845,55 @@ impl NetworkManager {
         }
     }
 
+    /// Explicitly mark a peer as trusted (2026-10-20, the real trust gate —
+    /// see `paired_peers`'s own doc comment on the struct). Operator-only,
+    /// same loopback-only HTTP security boundary as `connect_peer`/the
+    /// pairing routes — no additional auth layer here, consistent with the
+    /// rest of this API. Idempotent (re-approving just refreshes the
+    /// timestamp) and persisted immediately, not batched, since approvals
+    /// are rare, deliberate actions, not hot-path traffic.
+    pub async fn approve_peer(&self, peer_id: PeerId) -> OzoneResult<()> {
+        self.paired_peers.write().await.insert(peer_id, now());
+        save_paired_peers(&self.paired_peers_path, &*self.paired_peers.read().await);
+        tracing::info!("P2P: peer {} explicitly approved (paired)", peer_id);
+        Ok(())
+    }
+
+    /// Revoke a previously-approved peer. Added alongside `approve_peer`
+    /// rather than later — an approve-only API with no way back out would
+    /// be a real gap the moment a mistake or a compromised peer needs
+    /// undoing.
+    pub async fn revoke_peer(&self, peer_id: &PeerId) -> OzoneResult<()> {
+        self.paired_peers.write().await.remove(peer_id);
+        save_paired_peers(&self.paired_peers_path, &*self.paired_peers.read().await);
+        tracing::info!("P2P: peer {} approval revoked (unpaired)", peer_id);
+        Ok(())
+    }
+
+    /// Whether a peer has been explicitly approved — the one real trust
+    /// check this module has. Anything gating on peer-sent content MUST
+    /// call this rather than inferring trust from `known_peers`/a
+    /// successful connection, which never implied trust (the original gap).
+    pub async fn is_peer_paired(&self, peer_id: &PeerId) -> bool {
+        self.paired_peers.read().await.contains_key(peer_id)
+    }
+
+    /// List of currently-approved peer ids, for a status/listing endpoint.
+    pub async fn paired_peer_ids(&self) -> Vec<String> {
+        self.paired_peers.read().await.keys().map(|p| p.to_string()).collect()
+    }
+
     /// Send data to a specific peer using libp2p gossipsub
     pub async fn send_to_peer(&self, peer_id: &PeerId, data: &[u8]) -> OzoneResult<()> {
+        // Outbound trust gate (default-deny), enforced here too so no caller
+        // can bypass it: content only ever goes to an operator-approved peer.
+        if !self.is_peer_paired(peer_id).await {
+            tracing::debug!("P2P: refusing send to UNPAIRED peer {}", peer_id);
+            return Err(OzoneError::NetworkError(format!(
+                "Peer {} is not paired (approve it first)",
+                peer_id
+            )));
+        }
         // Get the swarm
         let mut swarm = self.swarm.lock().await;
 

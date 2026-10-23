@@ -438,6 +438,10 @@ pub struct QueuedTask {
     pub project_id: Option<u64>,
     pub inputs: HashMap<String, serde_json::Value>,
     pub task_summary: String,
+    /// Copy of the task's `due_at` (unix secs) — queue tie-break only.
+    /// `serde(default)` keeps previously persisted queues loadable.
+    #[serde(default)]
+    pub due_at: Option<u64>,
 }
 
 /// Task priority levels
@@ -1006,6 +1010,7 @@ impl TaskManager {
         self.logs.write().await.insert(task_id, Vec::new());
 
         // Create queued task entry
+        let queued_due_at = inputs.get("due_at").and_then(|d| d.as_u64());
         let queued = QueuedTask {
             task_id,
             priority,
@@ -1017,13 +1022,24 @@ impl TaskManager {
             project_id,
             inputs,
             task_summary: task_summary.clone(),
+            due_at: queued_due_at,
         };
 
-        // Add to queue (sorted by priority)
+        // Add to queue. Order key: priority desc, then (within equal
+        // priority) earlier due_at first, undated after dated, then FIFO
+        // (a new item goes after existing equals).
         let mut queue = self.queue.write().await;
         let insert_pos = queue
             .iter()
-            .position(|t| t.priority < priority)
+            .position(|t| {
+                t.priority < priority
+                    || (t.priority == priority
+                        && match (queued_due_at, t.due_at) {
+                            (Some(new_d), Some(old_d)) => new_d < old_d,
+                            (Some(_), None) => true,
+                            _ => false,
+                        })
+            })
             .unwrap_or(queue.len());
         queue.insert(insert_pos, queued);
 

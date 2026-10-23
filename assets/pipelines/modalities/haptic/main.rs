@@ -1503,7 +1503,7 @@ async fn persist_haptic_graph(graph: &mut HapticGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["haptic"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/haptic_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1596,6 +1596,30 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
             provisional: false, provisional_status: ProvisionalStatus::Validated, version: 1,
             keywords: vec!["phase".into(), format!("{:?}", phase.phase_type).to_lowercase()], hotness_score: 0.6, ..Default::default()
         });
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, detached, never slows
+        // real graph construction.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let ev_project_id = project_id;
+            let ev_graph_id = graph_id;
+            let ev_node_id = pid;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": ev_project_id,
+                        "modality": "haptic",
+                        "graph_id": ev_graph_id,
+                        "node_id": ev_node_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": "ContactPhaseNode",
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
         edges.push(HapticGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: HapticEdgeType::Contains, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
         if let Some(prev) = prev_phase_nid {

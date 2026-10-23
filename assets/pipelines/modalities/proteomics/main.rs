@@ -1531,7 +1531,7 @@ async fn persist_proteomics_graph(graph: &mut ProteomicsGraph) -> Result<(), Str
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["proteomics"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/proteomics_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -1631,6 +1631,33 @@ async fn create_graph(
             embedding_hint: Some(format!("protein {} gene:{:?} org:{}", prot.full_name, prot.gene_name, prot.organism)),
             ..Default::default()
         });
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer, see orchestration_events::OrchestrationNodeEvent's
+        // doc comment): best-effort, fire-and-forget report of this real
+        // protein node as it's added. Detached tokio::spawn, never awaited
+        // inline, so a slow/unreachable host can never slow down or fail
+        // real graph construction.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let ev_project_id = project_id;
+            let ev_graph_id = graph_id;
+            let ev_node_id = pid;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": ev_project_id,
+                        "modality": "proteomics",
+                        "graph_id": ev_graph_id,
+                        "node_id": ev_node_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": "ProteinNode",
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
         prot_nid.insert(prot.protein_id, pid);
         edges.push(ProteomicsGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: ProteomicsEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1; node_id += 1;

@@ -6864,6 +6864,31 @@ RESPOND ONLY WITH JSON."#,
                 entity.confidence,
             ));
             edge_id += 1;
+            // LIVE NODE EVENT (2026-10-19, additive, same fire-and-forget
+            // pattern as 3D/main.rs's first real producer): best-effort
+            // report of this real entity node as it's connected.
+            {
+                let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+                let pid = project_id;
+                let gid = graph_id;
+                let nid = entity_node_id;
+                let rid = doc_node_id;
+                tokio::spawn(async move {
+                    let client = reqwest::Client::new();
+                    let _ = client.post(format!("{host}/orchestration/node-event"))
+                        .json(&serde_json::json!({
+                            "project_id": pid,
+                            "modality": "text",
+                            "graph_id": gid,
+                            "node_id": nid,
+                            "related_node_id": rid,
+                            "node_type": "Entity",
+                            "operation": "node_created",
+                        }))
+                        .timeout(std::time::Duration::from_secs(2))
+                        .send().await;
+                });
+            }
 
             node_id += 1;
         }

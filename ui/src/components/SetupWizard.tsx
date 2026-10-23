@@ -861,10 +861,12 @@ export function SetupWizard({ onComplete }: Props) {
 
           {setupStep === 2 && (
             <div className="setup-step">
-              <h2>🧠 Consciousness Features</h2>
+              <h2>⚙️ Features</h2>
               <p>
-                Enable AGI-like consciousness features (optional, can enable
-                later)
+                Configure optional capabilities: consciousness, P2P
+                networking, and jurisdiction. Consciousness and P2P can be
+                changed later in Settings; jurisdiction cannot yet (see
+                below).
               </p>
 
               <div className="consciousness-toggle">
@@ -904,7 +906,17 @@ export function SetupWizard({ onComplete }: Props) {
                 💡 You can always enable or disable this later in Settings
               </p>
 
-              <div className="consciousness-toggle" style={{ marginTop: 18 }}>
+              <h4
+                style={{
+                  marginTop: 18,
+                  marginBottom: 8,
+                  fontSize: "0.9rem",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                🌐 Network &amp; Data Sharing
+              </h4>
+              <div className="consciousness-toggle">
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -941,11 +953,27 @@ export function SetupWizard({ onComplete }: Props) {
                 </div>
               )}
               <p className="feature-note">
-                💡 Turn this off for fully local, single-machine operation —
-                configurable later in Settings → Network
+                💡 What actually syncs to peers when P2P is on: methodologies
+                and blueprints always sync immediately; new findings sync in
+                batches; pipeline results are shared only when explicitly
+                requested; your own user data never syncs. Peers you connect
+                to may be running in a different jurisdiction than this
+                instance — see the jurisdiction setting below. Turn P2P off
+                for fully local, single-machine operation — all of this is
+                configurable later in Settings → Network.
               </p>
 
-              <div className="consciousness-toggle" style={{ marginTop: 18 }}>
+              <h4
+                style={{
+                  marginTop: 18,
+                  marginBottom: 8,
+                  fontSize: "0.9rem",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                ⚖️ Jurisdiction
+              </h4>
+              <div className="consciousness-toggle">
                 <label className="toggle-label">
                   <input
                     type="checkbox"
@@ -975,6 +1003,14 @@ export function SetupWizard({ onComplete }: Props) {
                       }))
                     }
                   />
+                  <p className="config-hint">
+                    Free text — not validated against any real list of
+                    jurisdictions. A typo here (e.g. "use" instead of "us")
+                    will silently fail to match any rule set rather than
+                    showing an error. There's no Settings-panel control for
+                    this today; changing it later means editing config.toml
+                    directly.
+                  </p>
                 </div>
               )}
               <p className="feature-note">
@@ -982,7 +1018,10 @@ export function SetupWizard({ onComplete }: Props) {
                 for later — it does not add any legal rules or make this
                 instance compliant with anything on its own. Real rules must
                 be sourced and loaded separately; this is a hook for that,
-                not compliance itself.
+                not compliance itself. Leave it off (or leave the region
+                blank) and the system will try to auto-detect a region from
+                this machine's timezone/locale/IP instead — only when at
+                least two of those signals agree.
               </p>
 
               <div className="setup-buttons">
@@ -1032,6 +1071,23 @@ export function SetupWizard({ onComplete }: Props) {
                     {setupConfig.consciousnessEnabled
                       ? "Enabled"
                       : "Disabled"}
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">P2P Networking:</span>
+                  <span className="summary-value">
+                    {setupConfig.enableP2p
+                      ? `Enabled${setupConfig.enableMdns ? " (+ mDNS local discovery)" : ""}`
+                      : "Disabled (fully local)"}
+                  </span>
+                </div>
+                <div className="summary-item">
+                  <span className="summary-label">Jurisdiction:</span>
+                  <span className="summary-value">
+                    {setupConfig.jurisdictionEnabled
+                      ? setupConfig.instanceRegion.trim() ||
+                        "Enabled — no region entered (hardware auto-detect will fill this in)"
+                      : "Off"}
                   </span>
                 </div>
               </div>

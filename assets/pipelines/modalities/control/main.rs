@@ -28,6 +28,9 @@
 #[path = "../../shared/semantic_relations.rs"]
 mod semantic_relations;
 
+#[path = "../../shared/capture.rs"]
+mod capture;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -684,7 +687,8 @@ pub struct IdentifiedModel {
     pub bic: f64,                  // Bayesian information criterion
     pub state_space: Option<StateSpaceModel>,
     pub transfer_function: Option<TransferFunctionModel>,
-    pub residuals_whiteness_p_value: f64,
+    /// Ljung-Box whiteness p-value; None = not computed (never a fabricated value).
+    pub residuals_whiteness_p_value: Option<f64>,
     pub cross_validation_fit_percent: Option<f64>,
 }
 
@@ -1113,8 +1117,13 @@ impl PipelineExecutor {
     }
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
         let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"Control systems analysis. Return only valid JSON."});
-        let out = std::process::Command::new(&self.prompt_pipeline_path).arg("--input").arg(input.to_string()).output().map_err(|e| e.to_string())?;
-        let r: serde_json::Value = serde_json::from_slice(&out.stdout).map_err(|e| e.to_string())?;
+        let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
+            .arg("--input").arg(input.to_string())
+            .output()
+            .map_err(|e| e.to_string())
+            .and_then(|out| serde_json::from_slice::<serde_json::Value>(&out.stdout).map_err(|e| e.to_string()));
+        capture::capture_zero_shot_call("control", "llm_zero_shot", prompt, &result);
+        let r = result?;
         Ok(r["response"].as_str().unwrap_or("{}").to_string())
     }
     fn save_graph(&self, g: &ControlGraph) -> Result<(), String> {
@@ -1596,6 +1605,30 @@ async fn create_graph(
             embedding_hint: Some(format!("plant {} domain:{:?} states:{}", plant.name, plant.physical_domain, plant.n_states)),
             ..Default::default()
         });
+        // LIVE NODE EVENT (2026-10-19, additive — same pattern as 3D's
+        // first real producer). Fire-and-forget, detached, never slows
+        // real graph construction.
+        {
+            let host = env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".into());
+            let ev_project_id = project_id;
+            let ev_graph_id = graph_id;
+            let ev_node_id = pid;
+            tokio::spawn(async move {
+                let client = reqwest::Client::new();
+                let _ = client.post(format!("{host}/orchestration/node-event"))
+                    .json(&serde_json::json!({
+                        "project_id": ev_project_id,
+                        "modality": "control",
+                        "graph_id": ev_graph_id,
+                        "node_id": ev_node_id,
+                        "related_node_id": serde_json::Value::Null,
+                        "node_type": "PlantNode",
+                        "operation": "node_created",
+                    }))
+                    .timeout(std::time::Duration::from_secs(2))
+                    .send().await;
+            });
+        }
         plant_nid.insert(plant.plant_id, pid);
         edges.push(ControlGraphEdge { edge_id, from_node: root_id, to_node: pid, edge_type: ControlEdgeType::Contains, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
         edge_id += 1;
@@ -2125,7 +2158,7 @@ async fn persist_control_graph(graph: &mut ControlGraph) -> Result<(), String> {
             "context": {"categories": [], "methodologies": [], "keywords": keywords,
                 "topics": ["control"], "relationships": [], "learned_associations": [], "embedding": null},
             "storage": {"db_shard_id": null, "vector_index_ref": null,
-                "object_store_path": "graphs/control_placeholder.json", "compression_type": "None"},
+                "object_store_path": null, "compression_type": "None"},
             "hints": {"access_frequency": 0, "hotness_score": 0.0, "last_accessed": 0, "centroid": null, "ml_prediction_weight": 0.0},
             "integrity": {"content_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 "semantic_fingerprint": [], "last_verified": 0, "integrity_score": 1.0, "version_history": []},
@@ -2874,7 +2907,7 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                         zeros: vec![],
                         ..Default::default()
                     }),
-                    residuals_whiteness_p_value: 0.05, // placeholder — production: Ljung-Box test
+                    residuals_whiteness_p_value: None, // Ljung-Box test not implemented — absent, not fabricated
                     ..Default::default()
                 }),
                 ..Default::default()

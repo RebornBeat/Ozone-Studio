@@ -19,8 +19,8 @@
 //! jurisdiction rule sets use.
 
 use crate::types::container::{
-    Container, Context, GlobalState, IntegrityData, LocalState, Metadata, Modality,
-    StoragePointers, TraversalHints, ContainerType, SHARED_CONTEXT_ROOT_ID,
+    Container, Context, DiscoveryMethod, GlobalState, IntegrityData, LocalState, Metadata,
+    Modality, Relation, RelationType, StoragePointers, TraversalHints, ContainerType, SHARED_CONTEXT_ROOT_ID,
 };
 use crate::types::zsei::ZSEIQuery;
 use crate::zsei::ZSEI;
@@ -74,6 +74,13 @@ fn now_secs() -> u64 {
 /// the time an actor read it back). A process-wide monotonic counter
 /// guarantees uniqueness regardless of timing, at zero real cost.
 static MIRROR_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Last mirrored event id per "kind:agent" — the real predecessor for the
+/// ForkOf lineage edge on the next event of the same kind/agent. In-memory
+/// (resets on restart; the first event after boot simply has no edge).
+static LAST_EVENT_BY_KIND_AGENT: std::sync::LazyLock<
+    std::sync::Mutex<std::collections::HashMap<String, u64>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 fn slug(s: &str, max: usize) -> String {
     let clean: String = s
@@ -212,6 +219,19 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
         ("project", w, p) => format!("proj-{}-{}", w.unwrap_or(0), p.unwrap_or(0)),
         _ => format!("ws-{}", ws.unwrap_or(0)),
     };
+    // Lineage edge: this event continues the previous event of the same
+    // (kind, agent) written by this process (real id, no graph scan). Claims
+    // are excluded — they dedupe per file path instead. The request carries
+    // no "subject container" id, so no subject edge is invented here.
+    let lineage_key = format!("{}:{}", req.kind, req.agent);
+    let prior_event_id = if dedupe_keyword.is_none() {
+        LAST_EVENT_BY_KIND_AGENT
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&lineage_key).copied())
+    } else {
+        None
+    };
     let container = Container {
         global_state: GlobalState {
             container_id: 0, // allocated by CreateContainer
@@ -240,7 +260,17 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
                 methodologies: vec![],
                 keywords,
                 topics: vec!["coordination".to_string()],
-                relationships: vec![],
+                relationships: prior_event_id
+                    .map(|prev| {
+                        vec![Relation {
+                            target_id: prev,
+                            relation_type: RelationType::ForkOf,
+                            confidence: 1.0,
+                            discovered_via: DiscoveryMethod::Manual,
+                            graph_hops: None,
+                        }]
+                    })
+                    .unwrap_or_default(),
                 learned_associations: vec![],
                 embedding: None,
             },
@@ -266,7 +296,14 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
         })
         .await
     {
-        Ok(crate::types::zsei::ZSEIQueryResult::ContainerID(id)) => Ok(id),
+        Ok(crate::types::zsei::ZSEIQueryResult::ContainerID(id)) => {
+            if dedupe_keyword.is_none() {
+                if let Ok(mut m) = LAST_EVENT_BY_KIND_AGENT.lock() {
+                    m.insert(lineage_key, id);
+                }
+            }
+            Ok(id)
+        }
         Ok(_) => Err("unexpected CreateContainer result".to_string()),
         Err(e) => Err(e.to_string()),
     }

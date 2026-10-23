@@ -99,7 +99,7 @@ impl PromptOrchestrator {
         // the soft run — it can only judge the raw prompt; the FULL run
         // judges the RESOLVED PLAN and belongs alongside the consciousness
         // gate, post-simulation, pre-execution).
-        tracing::info!(stage = 8, "Stage 8b (Jurisdiction Full Gate) starting");
+        tracing::info!(stage = 14, "Stage 8b (Jurisdiction Full Gate, stage key 14) starting");
         self.stage_jurisdiction_full_gate(state).await?;
 
         // STAGES 9-10: Task Creation + Step Execution
@@ -304,6 +304,64 @@ impl PromptOrchestrator {
     }
 
 
+    /// Persist a walk-designed blueprint: write the body file, then create a
+    /// typed Container pointing at it. Returns the new container id.
+    async fn persist_blueprint_container(
+        &self,
+        name: &str,
+        state: &OrchestrationState,
+        body: &serde_json::Value,
+    ) -> Result<u64, String> {
+        use crate::types::container::{Container, ContainerType, GlobalState, LocalState};
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let rel = format!("blueprints/walk_{}.json", nanos);
+        let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let abs = std::path::Path::new(&base).join(&rel);
+        if let Some(parent) = abs.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("blueprint body dir: {e}"))?;
+        }
+        let json = serde_json::to_string_pretty(body).map_err(|e| e.to_string())?;
+        std::fs::write(&abs, json).map_err(|e| format!("blueprint body write: {e}"))?;
+
+        let mut local = LocalState::default();
+        local.metadata.container_type = ContainerType::Blueprint;
+        local.metadata.created_at = now;
+        local.metadata.updated_at = now;
+        local.metadata.provenance = "orchestrator".to_string();
+        local.metadata.name = Some(name.to_string());
+        local.metadata.materialized_path = Some(format!("/Blueprints/{}", name));
+        local.context.keywords = state.keywords.clone();
+        local.context.topics = state.topics.clone();
+        local.context.methodologies = state.methodologies.clone();
+        local.storage.object_store_path = Some(rel);
+        let container = Container {
+            global_state: GlobalState::default(),
+            local_state: local,
+        };
+        let value = serde_json::to_value(&container).map_err(|e| e.to_string())?;
+        self.store.create_container(0, value).await
+    }
+
+    /// Read a Blueprint container's body file (the JSON at
+    /// storage.object_store_path, resolved under OZONE_ZSEI_DATA_DIR).
+    fn read_blueprint_body(container: &serde_json::Value) -> Option<serde_json::Value> {
+        let rel = container
+            .get("local_state")
+            .and_then(|ls| ls.get("storage"))
+            .and_then(|s| s.get("object_store_path"))
+            .and_then(|p| p.as_str())?;
+        let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let content = std::fs::read_to_string(std::path::Path::new(&base).join(rel)).ok()?;
+        serde_json::from_str::<serde_json::Value>(&content).ok()
+    }
+
     /// PRIOR DESIGN CONTEXT (cross-walk design mechanism 1 — the step-level
     /// half; the enrich-level half runs in build_amt_layer_by_layer): search
     /// the graph for Blueprint containers whose keywords overlap this step's
@@ -342,17 +400,36 @@ impl PromptOrchestrator {
                     .and_then(|m| m.get("name"))
                     .and_then(|n| n.as_str())
                     .unwrap_or("unnamed");
-                let description = container
-                    .get("local_state")
-                    .and_then(|ls| ls.get("context"))
-                    .and_then(|c| c.get("description"))
+                // Content lives in the blueprint's body file, not in the
+                // typed container (Context/Metadata have no description).
+                let body = Self::read_blueprint_body(&container);
+                let description = body
+                    .as_ref()
+                    .and_then(|b| b.get("description"))
                     .and_then(|d| d.as_str())
                     .unwrap_or("");
-                if !description.is_empty() {
-                    sections.push(format!(
-                        "- Blueprint \"{}\" (#{}) — {}",
-                        name, bp_id, description
-                    ));
+                let steps_text = body
+                    .as_ref()
+                    .and_then(|b| b.get("steps"))
+                    .and_then(|st| st.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .take(8)
+                            .filter_map(|st| st.get("description").and_then(|d| d.as_str()))
+                            .map(|d| format!("    · {}", d))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    })
+                    .unwrap_or_default();
+                if !description.is_empty() || !steps_text.is_empty() {
+                    let mut entry = format!("- Blueprint \"{}\" (#{})", name, bp_id);
+                    if !description.is_empty() {
+                        entry.push_str(&format!(" — {}", description));
+                    }
+                    if !steps_text.is_empty() {
+                        entry.push_str(&format!("\n  Prior steps:\n{}", steps_text));
+                    }
+                    sections.push(entry);
                 }
             }
         }
@@ -472,37 +549,18 @@ impl PromptOrchestrator {
         // Only use if 100% match (or very close - 95%+)
         if let Some((bp_id, score)) = best_match {
             if score >= 0.95 {
-                state.blueprint_id = Some(bp_id);
-
                 // Load blueprint steps — from the blueprint's CONTENT FILE
                 // (object_store_path) when present, falling back to inline
                 // storage.steps. B17 resolution (2026-09-28): the content
-                // files are the canonical home (16 migrated blueprints now
-                // carry new-schema steps at zsei_data/blueprints/); the
-                // old inline read could never see them because storage is
-                // a typed struct and serde drops unknown keys on the
-                // round-trip (the same serde class as the insight-content
-                // bug). Path resolution matches B0's convention:
-                // relative joins OZONE_ZSEI_DATA_DIR (default zsei_data).
+                // files are the canonical home; the typed storage struct
+                // drops unknown keys on the round-trip. A matched blueprint
+                // with ZERO loadable steps is NOT reused — it falls through
+                // to a fresh design (previously it reported "Using existing
+                // blueprint" with an empty plan).
+                let mut loaded_steps: Vec<BlueprintStep> = Vec::new();
                 if let Ok(Some(container)) = self.store.get_container(bp_id).await {
-                    let store_path = container
-                        .get("local_state")
-                        .and_then(|ls| ls.get("storage"))
-                        .and_then(|s| s.get("object_store_path"))
-                        .and_then(|p| p.as_str())
-                        .map(String::from);
-                    let mut loaded: Option<serde_json::Value> = None;
-                    if let Some(rel) = store_path {
-                        let base = std::env::var("OZONE_ZSEI_DATA_DIR")
-                            .unwrap_or_else(|_| "zsei_data".to_string());
-                        let abs = std::path::Path::new(&base).join(&rel);
-                        if let Ok(content) = std::fs::read_to_string(&abs) {
-                            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content)
-                            {
-                                loaded = parsed.get("steps").cloned();
-                            }
-                        }
-                    }
+                    let loaded = Self::read_blueprint_body(&container)
+                        .and_then(|b| b.get("steps").cloned());
                     let steps_value = loaded.or_else(|| {
                         container
                             .get("local_state")
@@ -511,35 +569,40 @@ impl PromptOrchestrator {
                             .cloned()
                     });
                     if let Some(steps) = steps_value {
-                        state.blueprint_steps =
-                            serde_json::from_value(steps.clone()).unwrap_or_default();
-                        let n = steps.as_array().map(|a| a.len()).unwrap_or(0);
-                        if n > 0 {
-                            self.record_stage_timed(
-                                state,
-                                6,
-                                "Blueprint Steps Loaded",
-                                true,
-                                &format!("{} step(s) from blueprint {}", n, bp_id),
-                                0,
-                            );
-                        }
+                        loaded_steps = serde_json::from_value(steps).unwrap_or_default();
                     }
                 }
-
-                self.record_stage_timed(
-                    state,
-                    6,
-                    "Blueprint Assignment",
-                    true,
-                    &format!(
-                        "Using existing blueprint {} (match: {:.0}%)",
-                        bp_id,
-                        score * 100.0
-                    ),
-                    stage_start.elapsed().as_millis() as u64,
-                );
-                return Ok(());
+                if loaded_steps.is_empty() {
+                    tracing::warn!(
+                        blueprint_id = bp_id,
+                        "stage 3: matched blueprint has no loadable steps — designing fresh instead of reusing an empty plan"
+                    );
+                } else {
+                    state.blueprint_id = Some(bp_id);
+                    let n = loaded_steps.len();
+                    state.blueprint_steps = loaded_steps;
+                    self.record_stage_timed(
+                        state,
+                        6,
+                        "Blueprint Steps Loaded",
+                        true,
+                        &format!("{} step(s) from blueprint {}", n, bp_id),
+                        0,
+                    );
+                    self.record_stage_timed(
+                        state,
+                        6,
+                        "Blueprint Assignment",
+                        true,
+                        &format!(
+                            "Using existing blueprint {} (match: {:.0}%)",
+                            bp_id,
+                            score * 100.0
+                        ),
+                        stage_start.elapsed().as_millis() as u64,
+                    );
+                    return Ok(());
+                }
             }
         }
 
@@ -1133,28 +1196,34 @@ steps this AMT's branch count above actually requires, not necessarily two):
             }
         }
 
-        // Store blueprint in ZSEI
-        let blueprint_container = serde_json::json!({
-            "container_type": "Blueprint",
-            "metadata": {
-                "name": name,
-                "description": description,
-                "created_by": "orchestrator"
-            },
-            "context": {
-                "keywords": state.keywords,
-                "topics": state.topics,
-                "methodology_ids": state.methodologies
-            },
-            "storage": {
-                "steps": state.blueprint_steps,
-                "missing_capabilities": missing_capabilities
-            }
+        // Store blueprint in ZSEI — as a TYPED Container whose content
+        // (name, description, steps, missing_capabilities) lives in a body
+        // file pointed at by storage.object_store_path: the codebase's one
+        // content-pointer convention (same as bootstrap blueprints and
+        // consciousness insights), and exactly where the reuse path and
+        // load_prior_design_context read from. The previous flat JSON
+        // ({container_type, metadata, context, storage:{steps}}) could not
+        // deserialize into Container (no global_state/local_state), so
+        // create_container always failed and the failure was swallowed.
+        let blueprint_body = serde_json::json!({
+            "name": name,
+            "description": description,
+            "created_by": "orchestrator",
+            "steps": state.blueprint_steps,
+            "missing_capabilities": missing_capabilities,
+            "methodology_ids": state.methodologies,
         });
-
-        if let Ok(new_id) = self.store.create_container(0, blueprint_container).await {
-            state.blueprint_id = Some(new_id);
-            state.blueprints_created += 1;
+        match self
+            .persist_blueprint_container(&name, state, &blueprint_body)
+            .await
+        {
+            Ok(new_id) => {
+                state.blueprint_id = Some(new_id);
+                state.blueprints_created += 1;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "stage 3: new blueprint could not be persisted — this walk proceeds, but nothing is reusable later");
+            }
         }
 
         self.record_stage_timed(

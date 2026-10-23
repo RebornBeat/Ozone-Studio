@@ -1687,9 +1687,20 @@ Instruction with added constraints: IPv4 and IPv6..."#);
 /// `on_container_created` / `on_blueprint_created` /
 /// `on_methodology_created` calls, finally connecting the network
 /// transport to the graph writes (it was registered but never fed).
+///
+/// Gated by `NetworkConfig::auto_broadcast_sync` at the one real call site
+/// (src/lib.rs) — this function itself runs unconditionally once spawned,
+/// the gate is the caller's responsibility (only spawn it when the operator
+/// opted in), matching every other boot-spawned loop's convention.
+///
+/// Takes the SAME `Arc<RwLock<NetworkManager>>` the runtime already stores
+/// (not a bare `Arc<NetworkManager>` — there was no other real caller to
+/// have fixed this mismatch before; `on_*_created` are all `&self` methods,
+/// so a `.read().await` guard per event is correct and does not block
+/// unrelated readers for long).
 pub fn spawn_network_hook_bridge(
     hub: &'static crate::graph_events::GraphEventHub,
-    network: std::sync::Arc<crate::network::NetworkManager>,
+    network: std::sync::Arc<tokio::sync::RwLock<crate::network::NetworkManager>>,
 ) {
     let mut rx = hub.subscribe();
     tokio::spawn(async move {
@@ -1705,15 +1716,16 @@ pub fn spawn_network_hook_bridge(
                             "scope_keywords": evt.scope_keywords,
                         }))
                         .unwrap_or_default();
+                        let net = network.read().await;
                         match evt.container_type.as_str() {
                             "Methodology" => {
-                                let _ = network.on_methodology_created(evt.container_id, data).await;
+                                let _ = net.on_methodology_created(evt.container_id, data).await;
                             }
                             "Blueprint" => {
-                                let _ = network.on_blueprint_created(evt.container_id, data).await;
+                                let _ = net.on_blueprint_created(evt.container_id, data).await;
                             }
                             _ => {
-                                let _ = network.on_container_created(evt.container_id, data).await;
+                                let _ = net.on_container_created(evt.container_id, data).await;
                             }
                         }
                     }

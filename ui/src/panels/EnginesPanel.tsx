@@ -28,7 +28,7 @@ import { useRequestedEnginesTab } from "../enginesPanelTab";
  * GraphView/FabricView directly (not through this panel) — add a tab here
  * the same way when one gets built.
  */
-const ENGINES: PanelTab[] = [
+export const ENGINES: PanelTab[] = [
   {
     id: "code",
     label: "Code",

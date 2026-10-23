@@ -176,6 +176,33 @@ pub struct TaskInfo {
     /// so older persisted records without this field still deserialize.
     #[serde(default)]
     pub project_id: Option<u64>,
+    /// Final answer text for a completed task — the exact same text
+    /// OrchestrateResponse.response carries on the fast synchronous path,
+    /// read from the one place the orchestrator itself already writes it on
+    /// completion: TaskData.outputs.response (set by
+    /// TaskManager::complete_task, written from orchestrator/stages.rs's
+    /// stage_9_result_collection `state.final_response`). Was previously
+    /// computed by the orchestrator but silently dropped at this API
+    /// boundary — get_task never copied `task.outputs` into the response at
+    /// all, so a client that had to recover a slow-but-successful task via
+    /// /task/get had no way to read back the real answer. None until the
+    /// task reaches a terminal status, or if it failed before producing one.
+    #[serde(default)]
+    pub response: Option<String>,
+    /// Same derivation the orchestrator itself uses for its own top-level
+    /// OrchestrateResponse.model_used (orchestrator/mod.rs:
+    /// `state.step_results.last()...model_used`): the last executed step's
+    /// model, read from the already-populated per-step `steps[].model_used`
+    /// above — not a new data source, just exposed at the top level too.
+    #[serde(default)]
+    pub model_used: Option<String>,
+    /// Same split OrchestrateResponse applies via `attempt_trail_and_refusals`
+    /// below, run here over `thinking_log` above — so a recovered task shows
+    /// the identical fallback-walk trail/refusal lists the fast path does.
+    #[serde(default)]
+    pub attempt_trail: Vec<String>,
+    #[serde(default)]
+    pub refusals: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -207,6 +234,14 @@ pub struct HealthResponse {
     /// previously only faked in the UI layer via a nonexistent config field.
     pub peer_count: usize,
     pub p2p_enabled: bool,
+    /// This instance's own real libp2p PeerId (2026-10-21, additive — was
+    /// computed by `get_status()` already but never surfaced over HTTP,
+    /// so the only way to learn a remote instance's peer id was to read
+    /// its log by eye, "Local peer ID: ..." — confirmed by grep, no route
+    /// exposed it). Lets a tool that's tunneled into a remote instance's
+    /// loopback-only API discover its peer id and build a real multiaddr
+    /// without any log-scraping step.
+    pub peer_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -414,6 +449,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         active_tasks: task_mgr.active_count().await as u32,
         peer_count: net_status.connected_peers,
         p2p_enabled: net_status.enabled,
+        peer_id: net_status.peer_id,
     })
 }
 
@@ -567,44 +603,61 @@ async fn get_task(
     let _active_tasks = task_mgr.active_count().await as u32;
 
     match task_mgr.get_task(req.task_id).await {
-        Some(task) => Json(Some(TaskInfo {
-            task_id: task.task_id,
-            blueprint_id: task.blueprint_id,
-            blueprint_name: format!("Blueprint #{}", task.blueprint_id.unwrap_or(0)),
-            // task.status is already a String (src/task/mod.rs) — Debug-
-            // formatting it here wrapped every real status value in literal
-            // quote characters (e.g. the JSON value was "\"interrupted\""
-            // instead of "interrupted"), confirmed live by the UI fork
-            // working around it defensively. Fixed at the source instead.
-            status: task.status.clone(),
-            progress: task.progress,
-            created_at: task.created_at,
-            started_at: task.started_at,
-            completed_at: task.completed_at,
-            error: task.error.map(|e| format!("{:?}", e)),
-            description: task
-                .inputs
+        Some(task) => {
+            // Computed from borrows BEFORE the fields below move task.outputs
+            // / task.steps / task.thinking_log out of `task`.
+            let response = task
+                .outputs
                 .as_ref()
-                .and_then(|i| i.get("prompt"))
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            assignee: task
-                .inputs
-                .as_ref()
-                .and_then(|i| i.get("assignee"))
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            created_by: task
-                .inputs
-                .as_ref()
-                .and_then(|i| i.get("source"))
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            steps: task.steps,
-            thinking_log: task.thinking_log,
-            amt_summary: task.amt_summary,
-            project_id: task.project_id,
-        })),
+                .and_then(|o| o.get("response"))
+                .and_then(|r| r.as_str())
+                .map(String::from);
+            let model_used = task.steps.iter().rev().find_map(|s| s.model_used.clone());
+            let (attempt_trail, refusals) = attempt_trail_and_refusals(&task.thinking_log);
+
+            Json(Some(TaskInfo {
+                task_id: task.task_id,
+                blueprint_id: task.blueprint_id,
+                blueprint_name: format!("Blueprint #{}", task.blueprint_id.unwrap_or(0)),
+                // task.status is already a String (src/task/mod.rs) — Debug-
+                // formatting it here wrapped every real status value in literal
+                // quote characters (e.g. the JSON value was "\"interrupted\""
+                // instead of "interrupted"), confirmed live by the UI fork
+                // working around it defensively. Fixed at the source instead.
+                status: task.status.clone(),
+                progress: task.progress,
+                created_at: task.created_at,
+                started_at: task.started_at,
+                completed_at: task.completed_at,
+                error: task.error.map(|e| format!("{:?}", e)),
+                description: task
+                    .inputs
+                    .as_ref()
+                    .and_then(|i| i.get("prompt"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                assignee: task
+                    .inputs
+                    .as_ref()
+                    .and_then(|i| i.get("assignee"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                created_by: task
+                    .inputs
+                    .as_ref()
+                    .and_then(|i| i.get("source"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                steps: task.steps,
+                thinking_log: task.thinking_log,
+                amt_summary: task.amt_summary,
+                project_id: task.project_id,
+                response,
+                model_used,
+                attempt_trail,
+                refusals,
+            }))
+        }
         None => Json(None),
     }
 }
@@ -658,6 +711,13 @@ async fn list_tasks(
                     thinking_log: Vec::new(),
                     amt_summary: None,
                     project_id: t.project_id,
+                    // Same lightweight-list-view convention as steps/
+                    // thinking_log/amt_summary above: populated on get_task,
+                    // left empty here to keep the list view cheap.
+                    response: None,
+                    model_used: None,
+                    attempt_trail: Vec::new(),
+                    refusals: Vec::new(),
                 }
             })
             .collect(),
@@ -811,24 +871,13 @@ async fn get_global_order(
         let due_at = t.due_at;
         if let Some(due) = q.due.as_deref() {
             let bucket = match due_at {
-                Some(d) => {
-                    if d < now.saturating_sub(day) {
-                        "overdue"
-                    } else if d <= now + day {
-                        "today"
-                    } else if d <= now + 7 * day {
-                        "week"
-                    } else {
-                        "upcoming"
-                    }
-                }
+                Some(_) => due_bucket(due_at),
                 None => "someday",
             };
             if bucket != due {
                 continue;
             }
         }
-        let _ = due_bucket;
         *counts.entry(state_of(&t.status).to_string()).or_insert(0) += 1;
 
         let inputs = t.inputs.as_ref().cloned().unwrap_or(serde_json::Value::Null);
@@ -877,9 +926,23 @@ async fn get_global_order(
         groups.entry(state_of(&t.status)).or_default().push(entry);
     }
 
-    // Oldest-first within every group: creation order IS the sequence.
+    // Order key within every group (stable sort, so equal keys keep input
+    // order): dated before undated; dated items by due_at ascending
+    // (overdue naturally first, then soonest); then created_at (creation
+    // order is the final sequence). The stored task record carries no
+    // priority, so priority only orders the live task QUEUE (task/mod.rs),
+    // not this view; the `priority_rank` slot below is 0 until a response
+    // field exists for it.
     for list in groups.values_mut() {
-        list.sort_by_key(|e| e["created_at"].as_u64().unwrap_or(0));
+        list.sort_by_key(|e| {
+            let due = e["due_at"].as_u64();
+            (
+                due.is_none(),
+                due.unwrap_or(0),
+                std::cmp::Reverse(e["priority_rank"].as_u64().unwrap_or(0)),
+                e["created_at"].as_u64().unwrap_or(0),
+            )
+        });
     }
 
     Json(serde_json::json!({
@@ -1340,6 +1403,98 @@ async fn report_node_event(Json(req): Json<NodeEventRequest>) -> Json<serde_json
         &req.operation,
     );
     Json(serde_json::json!({ "success": true }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ConnectPeerRequest {
+    /// A full libp2p multiaddr, e.g.
+    /// "/ip4/161.97.114.105/tcp/9090/p2p/<PeerId>". Validated by
+    /// `NetworkManager::connect_peer` itself (real `Multiaddr::from_str`
+    /// parse) — this route adds no parsing of its own.
+    pub peer_addr: String,
+}
+
+/// POST /network/connect-peer — the real, previously-missing entry point
+/// to dial a NEW P2P peer (2026-10-19). `NetworkManager::connect_peer` was
+/// always real (genuine libp2p swarm dial), but nothing in the HTTP API
+/// ever called it with a fresh address — `initialize()` only ever
+/// reconnects to peers already present in `known_peers`, which starts
+/// empty on a fresh instance. Explicit, operator-triggered only: never
+/// called automatically by anything in this codebase. Does not itself
+/// enable broadcasting anything to the new peer — that's gated separately
+/// by `NetworkConfig::auto_broadcast_sync` (see
+/// `orchestrator::amt_loop::spawn_network_hook_bridge`'s call site in
+/// `lib.rs`).
+async fn connect_peer_route(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ConnectPeerRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let mut network = runtime.network.write().await;
+    match network.connect_peer(&req.peer_addr).await {
+        Ok(()) => Json(serde_json::json!({ "success": true, "peer_addr": req.peer_addr })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct PeerIdRequest {
+    /// Base58 libp2p PeerId string (as printed in this host's own logs,
+    /// e.g. "P2P: connection established with peer <this>").
+    pub peer_id: String,
+}
+
+fn parse_peer_id(raw: &str) -> Result<libp2p::PeerId, Json<serde_json::Value>> {
+    raw.parse::<libp2p::PeerId>().map_err(|e| {
+        Json(serde_json::json!({ "success": false, "error": format!("invalid peer id: {}", e) }))
+    })
+}
+
+/// POST /network/approve-peer — the real trust gate (2026-10-20). A
+/// successful `connect-peer`/inbound dial never implied trust — see
+/// `NetworkManager::paired_peers`'s own doc comment. Explicit,
+/// operator-triggered only, same loopback-only security boundary as
+/// `connect-peer` itself; never called automatically.
+async fn approve_peer_route(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PeerIdRequest>,
+) -> Json<serde_json::Value> {
+    let peer_id = match parse_peer_id(&req.peer_id) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let runtime = state.runtime.read().await;
+    let network = runtime.network.read().await;
+    match network.approve_peer(peer_id).await {
+        Ok(()) => Json(serde_json::json!({ "success": true, "peer_id": req.peer_id })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+/// POST /network/revoke-peer — undo an approval. Added alongside
+/// approve-peer, not as an afterthought: an approve-only trust gate with
+/// no way back out would itself be a real gap.
+async fn revoke_peer_route(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PeerIdRequest>,
+) -> Json<serde_json::Value> {
+    let peer_id = match parse_peer_id(&req.peer_id) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let runtime = state.runtime.read().await;
+    let network = runtime.network.read().await;
+    match network.revoke_peer(&peer_id).await {
+        Ok(()) => Json(serde_json::json!({ "success": true, "peer_id": req.peer_id })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
+    }
+}
+
+/// GET /network/paired-peers — list currently-approved (trusted) peer ids.
+async fn paired_peers_route(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let network = runtime.network.read().await;
+    Json(serde_json::json!({ "paired_peers": network.paired_peer_ids().await }))
 }
 
 /// GET /quota — OpenRouter free-model quota, read from the host's own
@@ -2723,13 +2878,14 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     // (default false for all 134 persisted entries; never flipped by
     // this code). See src/mcp_supervisor.rs's module doc for the real
     // device/credential requirements this pass honors.
-    let zsei_data_dir = {
+    let (zsei_data_dir, enable_p2p) = {
         let r = runtime.read().await;
-        r.config.general.data_dir.clone()
+        (r.config.general.data_dir.clone(), r.config.network.enable_p2p)
     };
     let mcp_supervisor = crate::mcp_supervisor::spawn_autostart_supervisor(
         mcp_registry.clone(),
         zsei_data_dir.clone(),
+        enable_p2p,
     );
 
     let state = Arc::new(AppState {
@@ -2797,6 +2953,12 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/step/rerun", post(rerun_step))
         .route("/zsei/query", post(query_zsei))
         .route("/orchestration/node-event", post(report_node_event))
+        // Real, explicit, operator-triggered P2P dial — see
+        // connect_peer_route's doc comment (2026-10-19).
+        .route("/network/connect-peer", post(connect_peer_route))
+        .route("/network/approve-peer", post(approve_peer_route))
+        .route("/network/revoke-peer", post(revoke_peer_route))
+        .route("/network/paired-peers", get(paired_peers_route))
         // OpenRouter quota status, read-only, spends nothing (2026-10-07).
         .route("/quota", get(get_quota))
         .route("/model-ledger-summary", get(get_model_ledger_summary))
@@ -3776,6 +3938,85 @@ async fn mcp_call(
             "usage": null,
             "jurisdiction_gate": jurisdiction_result,
         }));
+    }
+
+    // ON-DEMAND START (2026-10-21, operator directive: "AMT blueprints
+    // should be able to call MCPs on demand"). Before this, `invoke()`
+    // just failed outright with "tool unreachable" whenever a registered
+    // tool's backing process wasn't already running — confirmed by
+    // reading `McpRegistry::invoke()` directly, there was no third
+    // pattern beyond `auto_start`'s boot-time pass and the manual
+    // "start now" route. This widens WHEN an already-opted-in tool
+    // starts (right now, on first use, instead of waiting up to 30s for
+    // the periodic sweep or needing a manual action) — it deliberately
+    // does NOT widen WHETHER a tool is allowed to start at all. A tool
+    // the operator has not set `auto_start=true` for (terminal-mcp as of
+    // this writing — a real, presumably deliberate choice to keep an
+    // actual command-execution capability off the standing attack
+    // surface) stays off exactly as before; a blueprint calling it still
+    // gets the same "tool unreachable" failure until the operator opts
+    // it in. Honors the exact same device/credential/p2p requirement
+    // gates the periodic auto-start sweep already enforces — on-demand
+    // start never bypasses a real unmet requirement.
+    if let Some(tool) = state.mcp.get(&call.tool).await {
+        if tool.auto_start
+            && matches!(tool.transport, crate::mcp::McpTransport::Http | crate::mcp::McpTransport::Sse)
+        {
+            if let Some(port) = crate::mcp_supervisor::extract_port(&tool.endpoint) {
+                if !state.mcp_supervisor.is_running(port).await {
+                    if let Some(facts) = crate::mcp_supervisor::facts_for_port(port) {
+                        let mut requirement_met = true;
+                        if let Some(req) = facts.device_requirement {
+                            requirement_met &= crate::mcp_supervisor::device_available(req);
+                        }
+                        if let Some(req) = facts.credential_requirement {
+                            requirement_met &= crate::mcp_supervisor::credential_available(req);
+                        }
+                        if facts.requires_p2p_enabled {
+                            requirement_met &= runtime.config.network.enable_p2p;
+                        }
+                        if requirement_met {
+                            match state
+                                .mcp_supervisor
+                                .start_port(port, &runtime.config.general.data_dir)
+                                .await
+                            {
+                                Ok(_) => {
+                                    // Brief best-effort readiness wait — Node
+                                    // start is fast but not instant. Not every
+                                    // tool implements GET /status; a timeout
+                                    // here just falls through to the real
+                                    // call below, which will fail honestly if
+                                    // the process genuinely isn't up yet.
+                                    let status_url = tool.endpoint.replace("/call", "/status");
+                                    for _ in 0..25 {
+                                        if reqwest::Client::new()
+                                            .get(&status_url)
+                                            .timeout(std::time::Duration::from_millis(300))
+                                            .send()
+                                            .await
+                                            .is_ok()
+                                        {
+                                            break;
+                                        }
+                                        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                                    }
+                                }
+                                Err(e) => tracing::warn!(
+                                    "on-demand start of {} (port {port}) failed: {e}",
+                                    facts.dir
+                                ),
+                            }
+                        } else {
+                            tracing::info!(
+                                "on-demand start of {} (port {port}) skipped — a real requirement isn't met",
+                                facts.dir
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     let result = state
