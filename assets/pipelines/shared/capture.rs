@@ -96,7 +96,21 @@ pub fn capture_zero_shot_call(
         }
         Err(e) => (false, String::new(), 0, cut(e, 300)),
     };
-    let record = serde_json::json!({
+    // TRACE SPINE: the host stamps OZONE_TRACE_ID / OZONE_PARENT_SPAN into
+    // this process's environment (executor.rs `invoke_pipeline`), so the row
+    // joins back to the run that caused it. `parent_span` is the host span of
+    // THIS pipeline's invocation; `span_id` is a fresh id for this one call.
+    // Pure std — this file is shared by pipeline crates with no host dependency.
+    let trace_id = std::env::var("OZONE_TRACE_ID").ok().filter(|s| !s.is_empty());
+    let parent_span = std::env::var("OZONE_PARENT_SPAN").ok().filter(|s| !s.is_empty());
+    let span_id = {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{:08x}{:08x}", (nanos & 0xffff_ffff) as u32, std::process::id())
+    };
+    let mut record = serde_json::json!({
         "ts": chrono::Utc::now().to_rfc3339(),
         "pipeline": pipeline,
         "call_site": call_site,
@@ -106,5 +120,14 @@ pub fn capture_zero_shot_call(
         "response_preview": response_preview,
         "prompt_preview": cut(prompt_preview, 200),
     });
+    if let Some(obj) = record.as_object_mut() {
+        if let Some(t) = trace_id {
+            obj.insert("trace_id".to_string(), serde_json::Value::String(t));
+            obj.insert("span_id".to_string(), serde_json::Value::String(span_id));
+            if let Some(p) = parent_span {
+                obj.insert("parent_span".to_string(), serde_json::Value::String(p));
+            }
+        }
+    }
     let _ = writeln!(f, "{}", record);
 }

@@ -38,10 +38,19 @@ tail-only (read-only, never written). Override the dir with
 
 - Tool registered in the host MCP registry: `GET /mcp/tools`
 - Coordination events appear in `GET /monitor/summary` (Monitor tab)
-- Next layer (designed, not yet wired): mirror notes/claims as ZSEI
-  containers under the SharedContext root — graph relationships, file
-  links, movement graph. Blocked only on the container-over-HTTP shape;
-  everything else runs without it.
+- Mirroring is built (`src/context_mirror.rs`, `POST /context/mirror`): notes
+  and claims become `CoordinationEvent` containers under the SharedContext
+  root (id 8), and non-claim events carry a `ForkOf` edge to the previous
+  event of the same kind and agent. `context_summary` reads the host's
+  recent `tool_call` / `config_change` events back as `host_events`.
+  Still open: an edge from an event to the container it touched (the mirror
+  request carries no subject id), and cross-host sharing (P2P carries only a
+  finding signal today — this server stays local, stdio-only, by design).
+- Tool servers the host starts log to `<zsei_data>/logs/mcp-<tool>.log`; a
+  tool already listening on its port (systemd on the server) is recognized
+  as running and is not re-spawned. The host forwards the caller's validated
+  identity to HTTP tools in the call envelope (`identity_validated`,
+  `session_user_id`) plus a `trace` object.
 
 ## Scoping (defined 2026-09-15 — the coordination graph is scoped, never flat)
 

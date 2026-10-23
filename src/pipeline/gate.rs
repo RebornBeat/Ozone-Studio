@@ -15,6 +15,19 @@
 //! Within a tier: strict FIFO. User tier always drains before Lane, Lane
 //! before Loop.
 //!
+//! TASK-LOCAL DISCIPLINE (shared with the trace spine): the call tier lives in
+//! a `tokio::task_local!` (`CALL_PRIORITY`, set by `with_priority`), exactly
+//! like the trace context in `crate::trace` (`TRACE`, set by `with_trace`).
+//! Both share the same limits: a `tokio::spawn`ed future does NOT inherit
+//! them, and neither does `spawn_blocking` or a child process — so every
+//! spawned future that makes pipeline calls must be wrapped by hand with
+//! `with_priority(..)` AND `with_trace(..)` (the loops, AMT lane spawns and
+//! the confirmation-vote JoinSet already do this for the tier). An unwrapped
+//! spawn silently degrades: its calls are admitted as `User` and run
+//! untraced. Anything the child process needs from either must be copied
+//! into its command/env BEFORE the move into `spawn_blocking`
+//! (`executor::invoke_pipeline` does this for the trace).
+//!
 //! Safety: this gate REPLACES nothing safety-critical — the adapter and
 //! metered watchdogs still bound every call once it executes; the gate
 //! only orders the START. Queue depth and wait times are real metrics

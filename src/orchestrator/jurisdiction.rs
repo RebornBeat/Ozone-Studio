@@ -94,6 +94,18 @@ pub struct JurisdictionGateResult {
     /// match, in match order) — each a genuine decision_gate pipeline call,
     /// never a fabricated approval.
     pub confirmations: Vec<(JurisdictionRule, GateResult)>,
+    /// Review ids of confirmation reviews that ended unresolved
+    /// (ReviewPending / ReviewFailed / a missing or unrecognised decision).
+    /// Such a review HALTS the request (`blocked` is set too) until an
+    /// operator resolves it — an unjudged confirmation is never an approval.
+    /// See decision_review::{list_pending_reviews, resolve_review}.
+    #[serde(default)]
+    pub pending_reviews: Vec<String>,
+    /// Where this run's rules came from: "graph" (loaded from ZSEI),
+    /// "graph+compiled_fallback" or "compiled_fallback" (the graph had no
+    /// Global-scope rules, so the compiled minimal global set was applied).
+    #[serde(default)]
+    pub rules_source: String,
 }
 
 /// On-disk shape for a jurisdiction content file (referenced by a
@@ -110,91 +122,122 @@ pub struct JurisdictionContentFile {
     pub rules: Vec<JurisdictionRule>,
 }
 
-impl PromptOrchestrator {
-    /// Load real jurisdiction rules from ZSEI for the current instance's
-    /// configured region plus Global scope. Returns an empty Vec (not an
-    /// error) when nothing has been loaded — that is the expected, honest
-    /// starting state for every instance until a human loads real content.
-    /// `pub(crate)` (was private) so the real MCP-call jurisdiction gate in
-    /// grpc/mod.rs's `mcp_call` can load the same real rules through a real
-    /// `PromptOrchestrator` instance instead of a second, drifting copy of
-    /// this loading logic.
-    pub(crate) async fn load_jurisdiction_rules(&self, instance_region: Option<&str>) -> Vec<JurisdictionRule> {
-        use crate::types::zsei::{Filter, Operator, TraversalMode, TraversalRequest, TraversalResult};
+/// The minimal global rule set compiled into the binary, mirroring
+/// `assets/jurisdiction/global.json` condition-for-condition and
+/// action-for-action (same cited instruments). It is applied ONLY when the
+/// graph yields no Global-scope rules at all (empty graph, unregistered rule
+/// sets, unreadable/undisclaimed files): "the global layer is unconditional",
+/// so a load failure must not silently switch the highest-stakes
+/// deterministic gate off. It changes no word's action; it carries the same
+/// engineering-starting-point caveat as the data file (NOT verified legal
+/// compliance).
+pub(crate) fn compiled_global_fallback_rules() -> Vec<JurisdictionRule> {
+    let mk = |condition: &str, action: RuleAction, source: &str| JurisdictionRule {
+        scope: JurisdictionScope::Global,
+        condition: condition.to_string(),
+        action,
+        source: source.to_string(),
+        retrieved_snippet: None,
+        official_source: None,
+    };
+    vec![
+        mk("discriminate", RuleAction::Warn, "UDHR Articles 1-2 (dignity, equality, non-discrimination)"),
+        mk("personal data", RuleAction::Warn, "UDHR Article 12 (right to privacy)"),
+        mk("child", RuleAction::RequireConfirmation, "CRC Article 3 (best interests of the child as a primary consideration)"),
+        mk("minor", RuleAction::RequireConfirmation, "CRC Article 16 (child's right to privacy)"),
+        mk("exploit", RuleAction::Block, "CRC Article 34 (protection from sexual exploitation and abuse)"),
+        mk("abuse", RuleAction::Block, "CRC Article 19 (protection from violence, abuse, and neglect)"),
+        mk("self-harm", RuleAction::RequireConfirmation, "UDHR Article 3 (right to life, liberty, and security of person)"),
+    ]
+}
 
-        let mut scopes_to_try: Vec<String> = vec!["global".to_string()];
-        if let Some(region) = instance_region {
-            scopes_to_try.push(region.to_lowercase());
-            // Also try the national prefix of a "US-CA"-style region label.
-            if let Some((national, _)) = region.split_once('-') {
-                scopes_to_try.push(national.to_lowercase());
-            }
+/// Load real jurisdiction rules from ZSEI for `instance_region` plus Global
+/// scope — the free-function core of `PromptOrchestrator::load_jurisdiction_rules`
+/// (so external entry points can load the same rules without constructing a
+/// whole orchestrator). Failures are LOUD: a container with no
+/// `object_store_path`, an unreadable file, an empty disclaimer or a parse
+/// error each log a warning. If no Global-scope rule ended up loaded, the
+/// compiled global fallback (`compiled_global_fallback_rules`) is added and
+/// the returned source says so.
+pub(crate) async fn load_rules_from_store(
+    store: &Arc<dyn StoreAccess>,
+    instance_region: Option<&str>,
+) -> (Vec<JurisdictionRule>, &'static str) {
+    use crate::types::zsei::{Filter, Operator, TraversalMode, TraversalRequest, TraversalResult};
+
+    let mut scopes_to_try: Vec<String> = vec!["global".to_string()];
+    if let Some(region) = instance_region {
+        scopes_to_try.push(region.to_lowercase());
+        // Also try the national prefix of a "US-CA"-style region label.
+        if let Some((national, _)) = region.split_once('-') {
+            scopes_to_try.push(national.to_lowercase());
         }
+    }
 
-        // Exact-match keyword lookup finds each scope's OWN container (this
-        // part is still a targeted, type-scoped lookup, not the type-blind
-        // flat scan that caused the earlier hallucination bug — see
-        // context_aggregation's is_infrastructure_container_type fix).
-        // From each one found, a real graph traversal then follows its
-        // actual relationship edges (structural_traversal now walks
-        // Context.relationships — see traversal.rs) so e.g. a national
-        // ruleset reaches whatever broader baseline it's really layered on
-        // (its EU baseline, then Global) instead of that being hand-encoded
-        // here as a fixed scope list. Global is still resolved directly
-        // above regardless, since it's a hard invariant independent of what
-        // the graph happens to connect.
-        let seed_ids = self
-            .store
-            .search_by_keywords(&scopes_to_try, Some("JurisdictionRuleSet"))
-            .await
-            .unwrap_or_default();
+    // Exact-match keyword lookup finds each scope's OWN container (this
+    // part is still a targeted, type-scoped lookup, not the type-blind
+    // flat scan that caused the earlier hallucination bug — see
+    // context_aggregation's is_infrastructure_container_type fix).
+    // From each one found, a real graph traversal then follows its
+    // actual relationship edges (structural_traversal now walks
+    // Context.relationships — see traversal.rs) so e.g. a national
+    // ruleset reaches whatever broader baseline it's really layered on
+    // (its EU baseline, then Global) instead of that being hand-encoded
+    // here as a fixed scope list. Global is still resolved directly
+    // above regardless, since it's a hard invariant independent of what
+    // the graph happens to connect.
+    let seed_ids = store
+        .search_by_keywords(&scopes_to_try, Some("JurisdictionRuleSet"))
+        .await
+        .unwrap_or_default();
 
-        let mut ids: std::collections::HashSet<u64> = seed_ids.iter().copied().collect();
-        for seed_id in &seed_ids {
-            let request = TraversalRequest {
-                start_container: *seed_id,
-                mode: TraversalMode::Structural,
-                filters: vec![Filter {
-                    field: "container_type".to_string(),
-                    operator: Operator::Equals,
-                    value: crate::types::Value::String("JurisdictionRuleSet".to_string()),
-                }],
-                max_depth: 4,
-                max_results: 50,
-                ..Default::default()
-            };
-            if let Ok(req_value) = serde_json::to_value(&request) {
-                if let Ok(result_value) = self.store.traverse(req_value).await {
-                    if let Ok(result) = serde_json::from_value::<TraversalResult>(result_value) {
-                        ids.extend(result.containers);
-                    }
+    let mut ids: std::collections::HashSet<u64> = seed_ids.iter().copied().collect();
+    for seed_id in &seed_ids {
+        let request = TraversalRequest {
+            start_container: *seed_id,
+            mode: TraversalMode::Structural,
+            filters: vec![Filter {
+                field: "container_type".to_string(),
+                operator: Operator::Equals,
+                value: crate::types::Value::String("JurisdictionRuleSet".to_string()),
+            }],
+            max_depth: 4,
+            max_results: 50,
+            ..Default::default()
+        };
+        if let Ok(req_value) = serde_json::to_value(&request) {
+            if let Ok(result_value) = store.traverse(req_value).await {
+                if let Ok(result) = serde_json::from_value::<TraversalResult>(result_value) {
+                    ids.extend(result.containers);
                 }
             }
         }
-        let ids: Vec<u64> = ids.into_iter().collect();
+    }
+    let ids: Vec<u64> = ids.into_iter().collect();
 
-        let mut rules = Vec::new();
-        for id in ids {
-            if let Ok(Some(container)) = self.store.get_container(id).await {
-                if let Some(object_store_path) = container
-                    .get("local_state")
-                    .and_then(|ls| ls.get("storage"))
-                    .and_then(|s| s.get("object_store_path"))
-                    .and_then(|p| p.as_str())
-                {
-                    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-                    // Same absolute-path garbage-join bug class ZCode found
-                    // and fixed in amt_loop.rs's try_reexpand_one tonight —
-                    // applying the identical defensive fix here rather than
-                    // waiting for it to bite this call site too (jurisdiction
-                    // containers only ever register relative paths today, so
-                    // this was latent, not yet observed live).
-                    let full_path = if std::path::Path::new(object_store_path).is_absolute() {
-                        object_store_path.to_string()
-                    } else {
-                        format!("{}/{}", data_dir, object_store_path)
-                    };
-                    if let Ok(content) = std::fs::read_to_string(&full_path) {
+    let mut rules = Vec::new();
+    for id in ids {
+        if let Ok(Some(container)) = store.get_container(id).await {
+            if let Some(object_store_path) = container
+                .get("local_state")
+                .and_then(|ls| ls.get("storage"))
+                .and_then(|s| s.get("object_store_path"))
+                .and_then(|p| p.as_str())
+            {
+                let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+                // Same absolute-path garbage-join bug class ZCode found
+                // and fixed in amt_loop.rs's try_reexpand_one tonight —
+                // applying the identical defensive fix here rather than
+                // waiting for it to bite this call site too (jurisdiction
+                // containers only ever register relative paths today, so
+                // this was latent, not yet observed live).
+                let full_path = if std::path::Path::new(object_store_path).is_absolute() {
+                    object_store_path.to_string()
+                } else {
+                    format!("{}/{}", data_dir, object_store_path)
+                };
+                match std::fs::read_to_string(&full_path) {
+                    Ok(content) => {
                         // Requires the disclaimer field (JurisdictionContentFile,
                         // not a bare array) — a content file missing it fails to
                         // parse and contributes zero rules rather than silently
@@ -215,10 +258,79 @@ impl PromptOrchestrator {
                             }
                         }
                     }
+                    Err(e) => {
+                        // Previously silent: a registered rule set whose body
+                        // file is missing/unreadable disabled its rules with
+                        // no trace anywhere.
+                        tracing::warn!(
+                            container_id = id,
+                            path = %full_path,
+                            error = %e,
+                            "Jurisdiction rule set container points at an unreadable content file — its rules are NOT loaded"
+                        );
+                    }
                 }
+            } else {
+                tracing::warn!(
+                    container_id = id,
+                    "Jurisdiction rule set container has no object_store_path — its rules are NOT loaded"
+                );
             }
         }
-        rules
+    }
+
+    // The global layer is unconditional: if no Global-scope rule loaded from
+    // the graph, apply the compiled minimal set instead of running with the
+    // Block/RequireConfirmation words silently disabled.
+    let has_global = rules.iter().any(|r| matches!(r.scope, JurisdictionScope::Global));
+    if has_global {
+        (rules, "graph")
+    } else {
+        let source = if rules.is_empty() { "compiled_fallback" } else { "graph+compiled_fallback" };
+        tracing::warn!(
+            graph_rules = rules.len(),
+            "No Global-scope jurisdiction rules loaded from the graph — applying the compiled global fallback set"
+        );
+        rules.extend(compiled_global_fallback_rules());
+        (rules, source)
+    }
+}
+
+/// Convenience for entry points that have only text: categorize `text`
+/// (case-folded here) against `rules` and return the result plus the
+/// RequireConfirmation matches still needing a review.
+pub(crate) fn evaluate_text_against_rules(
+    rules: &[JurisdictionRule],
+    text: &str,
+) -> (JurisdictionGateResult, Vec<JurisdictionRule>) {
+    let mut result = JurisdictionGateResult {
+        rules_loaded: rules.len(),
+        ..Default::default()
+    };
+    let confirmation_matches = categorize_jurisdiction_matches(rules, &text.to_lowercase(), &mut result);
+    (result, confirmation_matches)
+}
+
+impl PromptOrchestrator {
+    /// Load real jurisdiction rules from ZSEI for the current instance's
+    /// configured region plus Global scope. Returns an empty Vec (not an
+    /// error) when nothing has been loaded — that is the expected, honest
+    /// starting state for every instance until a human loads real content.
+    /// `pub(crate)` (was private) so the real MCP-call jurisdiction gate in
+    /// grpc/mod.rs's `mcp_call` can load the same real rules through a real
+    /// `PromptOrchestrator` instance instead of a second, drifting copy of
+    /// this loading logic.
+    pub(crate) async fn load_jurisdiction_rules(&self, instance_region: Option<&str>) -> Vec<JurisdictionRule> {
+        load_rules_from_store(&self.store, instance_region).await.0
+    }
+
+    /// Same as `load_jurisdiction_rules` but also reports where the rules
+    /// came from ("graph" / "graph+compiled_fallback" / "compiled_fallback").
+    pub(crate) async fn load_jurisdiction_rules_with_source(
+        &self,
+        instance_region: Option<&str>,
+    ) -> (Vec<JurisdictionRule>, &'static str) {
+        load_rules_from_store(&self.store, instance_region).await
     }
 
     /// STAGE: Jurisdiction Gate — always runs, independent of
@@ -244,7 +356,7 @@ impl PromptOrchestrator {
         } else {
             None
         };
-        let rules = self.load_jurisdiction_rules(region).await;
+        let (rules, rules_source) = self.load_jurisdiction_rules_with_source(region).await;
 
         // If a real region is configured/detected but nothing region-specific
         // has been loaded yet (only Global-scope rules, if any), kick off a
@@ -278,6 +390,7 @@ impl PromptOrchestrator {
 
         let mut result = JurisdictionGateResult {
             rules_loaded: rules.len(),
+            rules_source: rules_source.to_string(),
             ..Default::default()
         };
         let confirmation_matches = categorize_jurisdiction_matches(&rules, &haystack, &mut result);
@@ -348,27 +461,20 @@ impl PromptOrchestrator {
             "Jurisdiction Gate",
             true,
             &format!(
-                "region={:?}, rules_loaded={}, matched={}, warnings={}, confirmations_reviewed={}, blocked={}",
+                "region={:?}, rules_loaded={} (rules_source={}), matched={}, warnings={}, confirmations_reviewed={}, pending_reviews={}, blocked={}",
                 region,
                 result.rules_loaded,
+                result.rules_source,
                 result.matched.len(),
                 result.warnings.len(),
                 result.confirmations.len(),
+                result.pending_reviews.len(),
                 blocked
             ),
         );
 
         if blocked {
-            let reason = result
-                .confirmations
-                .iter()
-                .find(|(_, r)| r.decision == "Decline")
-                .map(|(rule, r)| format!("confirmation review declined for \"{}\": {}", rule.condition, r.reasoning))
-                .unwrap_or_else(|| "a Block-action jurisdiction rule matched".to_string());
-            return Err(format!(
-                "Request blocked by jurisdiction gate: {} (see jurisdiction_gate on the response for full detail)",
-                reason
-            ));
+            return Err(jurisdiction_block_message(&result, "Request"));
         }
 
         Ok(())
@@ -390,7 +496,7 @@ impl PromptOrchestrator {
         } else {
             None
         };
-        let rules = self.load_jurisdiction_rules(region).await;
+        let (rules, rules_source) = self.load_jurisdiction_rules_with_source(region).await;
 
         // The resolved plan: what will actually execute.
         let mut plan = String::new();
@@ -414,9 +520,30 @@ impl PromptOrchestrator {
 
         let mut result = JurisdictionGateResult {
             rules_loaded: rules.len(),
+            rules_source: rules_source.to_string(),
             ..Default::default()
         };
-        categorize_jurisdiction_matches(&rules, &haystack, &mut result);
+        let confirmation_matches = categorize_jurisdiction_matches(&rules, &haystack, &mut result);
+
+        // RequireConfirmation matches that appear only in the RESOLVED PLAN
+        // used to be dropped here (the categorize return value was
+        // discarded), so a `child`/`minor`/`self-harm` rule that first
+        // matched in the plan never got its review. Run the same real
+        // confirmation review on the plan text now. The review kind is
+        // plan-level so its review_id differs from the intake review's.
+        if !confirmation_matches.is_empty() {
+            resolve_confirmation_reviews_kind(
+                &self.executor,
+                &confirmation_matches,
+                &plan,
+                state.blueprint_id.unwrap_or(0),
+                state.request.user_id,
+                &mut result,
+                "RESOLVED PLAN under review (blueprint steps + simulation + original request) — not a chat request.",
+                "jurisdiction-plan",
+            )
+            .await;
+        }
 
         let blocked = result.blocked;
         // Merge into the carried gate result so the response's
@@ -424,9 +551,10 @@ impl PromptOrchestrator {
         if let Some(intake) = &mut state.jurisdiction_gate_result {
             intake.matched.extend(result.matched.clone());
             intake.warnings.extend(result.warnings.clone());
+            intake.confirmations.extend(result.confirmations.clone());
+            intake.pending_reviews.extend(result.pending_reviews.clone());
             intake.blocked = intake.blocked || blocked;
         }
-        let _ = result;
 
         // Stage key 14: Stage 8 is the Consciousness Gate — both used to
         // record as 8 and the UI (rows keyed by stage number) overwrote one
@@ -438,20 +566,45 @@ impl PromptOrchestrator {
             "Jurisdiction Full Gate",
             true,
             &format!(
-                "resolved-plan re-check: rules_loaded={}, blocked={}",
-                self.load_jurisdiction_rules(region).await.len(),
+                "resolved-plan re-check: rules_loaded={} (rules_source={}), confirmations_reviewed={}, pending_reviews={}, blocked={}",
+                result.rules_loaded,
+                result.rules_source,
+                result.confirmations.len(),
+                result.pending_reviews.len(),
                 blocked
             ),
         );
 
         if blocked {
-            return Err(
-                "Request blocked by the FULL jurisdiction gate (resolved plan matched a Block-action rule post-simulation)".to_string(),
-            );
+            return Err(jurisdiction_block_message(&result, "Resolved plan (post-simulation, full gate)"));
         }
 
         Ok(())
     }
+}
+
+/// The human/API-facing reason a gate run stopped the request, built from the
+/// gate result. A Decline names the rule; an unresolved confirmation review
+/// is a HOLD (not a Block) naming the review ids the operator must resolve;
+/// otherwise a Block-action rule matched.
+fn jurisdiction_block_message(result: &JurisdictionGateResult, subject: &str) -> String {
+    if let Some((rule, r)) = result.confirmations.iter().find(|(_, r)| r.decision == "Decline") {
+        return format!(
+            "{} blocked by jurisdiction gate: confirmation review declined for \"{}\": {} (see jurisdiction_gate on the response for full detail)",
+            subject, rule.condition, r.reasoning
+        );
+    }
+    if !result.pending_reviews.is_empty() {
+        return format!(
+            "{} held for human review by the jurisdiction gate [ReviewPending review_id={}]: a confirmation review could not be completed, so the request is NOT approved. Resolve it (decision_review resolve route), then re-submit. (see jurisdiction_gate on the response for full detail)",
+            subject,
+            result.pending_reviews.join(",")
+        );
+    }
+    format!(
+        "{} blocked by jurisdiction gate: a Block-action jurisdiction rule matched (see jurisdiction_gate on the response for full detail)",
+        subject
+    )
 }
 
 /// Pure categorization: for each rule that matches `haystack`, route it by
@@ -470,6 +623,16 @@ impl PromptOrchestrator {
 /// deterministic gate in the system. A match counts only when the characters
 /// immediately before and after the needle are NOT alphanumeric (string
 /// edges count as boundaries; hyphen/space/punctuation separate correctly).
+/// A character that continues a word: alphanumeric OR `_`. Treating `_` as a
+/// word character stops identifiers (`child_ids`, `exploit_status`,
+/// `abuse_report_id`) from matching the bare rule word — those are container
+/// field names and tool arguments, not the flagged concept, and they were
+/// triggering model reviews on essentially every `/mcp/call` that carried a
+/// container. Hyphen/space/punctuation still separate words.
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 fn contains_word(haystack: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return false;
@@ -481,11 +644,11 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
         let before_ok = haystack[..start]
             .chars()
             .next_back()
-            .map_or(true, |c| !c.is_alphanumeric());
+            .map_or(true, |c| !is_word_char(c));
         let after_ok = haystack[end..]
             .chars()
             .next()
-            .map_or(true, |c| !c.is_alphanumeric());
+            .map_or(true, |c| !is_word_char(c));
         if before_ok && after_ok {
             return true;
         }

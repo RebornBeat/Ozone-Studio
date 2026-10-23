@@ -278,6 +278,11 @@ pub struct OrchestrationResponse {
     /// the final step's answer ever reached the user — nothing showed the
     /// reasoning that produced it.
     pub thinking_log: Vec<ThinkingEntry>,
+    /// Trace id of this run — join key into `capture/call_spans.jsonl` and
+    /// every capture sink's `trace_id` field. Additive: absent on responses
+    /// from before this field existed.
+    #[serde(default)]
+    pub trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1137,6 +1142,12 @@ pub(crate) struct OrchestrationState {
     /// Accumulates one entry per real LLM call made this run — see
     /// ThinkingEntry and OrchestrationResponse.thinking_log.
     pub thinking_log: Vec<ThinkingEntry>,
+    /// Trace id of this run (`crate::trace`). Minted by `orchestrate()`;
+    /// stages stamp it onto the task / AMT / blueprint records they create so
+    /// a record can be joined back to the run's `call_spans.jsonl` rows. NEVER
+    /// added as a container KEYWORD: graph-event scope keywords drive the
+    /// ripple sync, so a per-run keyword would queue re-expansion work.
+    pub trace_id: Option<String>,
     /// Set by stage_jurisdiction_gate (jurisdiction.rs) — always runs,
     /// independent of consciousness_enabled. None only if that stage
     /// somehow never ran; Some(_) with rules_loaded: 0 is the honest
@@ -1187,6 +1198,21 @@ pub(crate) struct OrchestrationState {
     /// MCPs WHERE pipeline gathering is) — applicable entries selected
     /// against the request's keywords/topics, general-availability floor
     /// when nothing matches. [{"name","capabilities","endpoint","matched"}]
+    ///
+    /// TOOL-SELECTION RULING (2026-10-23, operator-approved): there are two
+    /// selections and they have different jobs. `capability_summary`
+    /// (filtered per need by `capability_summary_for_need` in stages.rs) is
+    /// what the blueprint / simulation PROMPTS read, so a plan can name the
+    /// capabilities it needs (`missing_capabilities`). THIS list is the
+    /// keyword/floor selection that feeds the stage-3 log line and is the
+    /// intended input for the future tool-ROUTING consumer. It is kept, not
+    /// removed. Tool routing itself — a blueprint step actually invoking an
+    /// MCP tool — is deliberately NOT wired: every executable step is
+    /// pipeline 9 (or 56), and nothing in the orchestrator calls
+    /// `mcp::call_global`. That stays deferred until the approval gate, the
+    /// untrusted-text labelling of tool output and the `model_override`
+    /// whitelist exist, because wiring it converts today's accidental
+    /// safety (model text can't reach a tool) into an execution path.
     pub applicable_tools: Vec<serde_json::Value>,
     /// Real file content (read from disk in prompt_normalization's attached-
     /// file step), keyed by the same file_path as file_graphs. Confirmed
@@ -1685,6 +1711,34 @@ pub(crate) fn dedupe_chain_order(order: &[String]) -> Vec<String> {
     out
 }
 
+/// Optional correlation + timing for `capture_loop_model_call_with`. Every
+/// field is optional: `latency_ms == 0` means "not measured", and the ids are
+/// whatever the calling loop knows about the container it is working on.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LoopCallMeta {
+    pub latency_ms: u64,
+    pub amt_container_id: Option<u64>,
+    pub blueprint_id: Option<u64>,
+    pub project_id: Option<u64>,
+}
+
+/// Wrap `fut` so it runs inside the trace context that is current RIGHT NOW.
+/// `tokio::spawn` / `JoinSet::spawn` do not inherit task-locals, so every
+/// spawned future that makes executor calls must be wrapped, e.g.
+/// `set.spawn(traced(async move { ... }))`. A no-op when there is no current
+/// trace (the future runs untraced — never an error).
+pub(crate) fn traced<F: std::future::Future>(
+    fut: F,
+) -> impl std::future::Future<Output = F::Output> {
+    let ctx = crate::trace::current_trace();
+    async move {
+        match ctx {
+            Some(c) => crate::trace::with_trace(c, fut).await,
+            None => fut.await,
+        }
+    }
+}
+
 impl PromptOrchestrator {
     pub fn new(
         executor: Arc<dyn PipelineExecutor>,
@@ -1805,8 +1859,24 @@ impl PromptOrchestrator {
         }
     }
 
-    /// Main entry point - orchestrates the full 11-stage flow
+    /// Main entry point - orchestrates the full 11-stage flow.
+    ///
+    /// TRACE ROOT: every run mints (or, when called from inside an existing
+    /// trace, extends) a `crate::trace` context here and runs the whole walk
+    /// inside it, so every executor call the walk makes — directly, through a
+    /// spawned lane, or in a nested pipeline process — is attributable to this
+    /// run. The id is returned on the response and stored on the state.
     pub async fn orchestrate(&self, request: OrchestrationRequest) -> OrchestrationResponse {
+        let ctx = crate::trace::child_or_root("orchestrate", "orchestrate");
+        let trace_id = ctx.trace_id.clone();
+        crate::trace::with_trace(ctx, self.orchestrate_traced(request, trace_id)).await
+    }
+
+    async fn orchestrate_traced(
+        &self,
+        request: OrchestrationRequest,
+        trace_id: String,
+    ) -> OrchestrationResponse {
         let model_identifier = request
             .model_config
             .as_ref()
@@ -1851,6 +1921,7 @@ impl PromptOrchestrator {
             start_time: std::time::Instant::now(),
             stages: Vec::new(),
             thinking_log: Vec::new(),
+            trace_id: Some(trace_id),
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
             prior_design_context: None,
@@ -1905,6 +1976,17 @@ impl PromptOrchestrator {
             capability_summary,
             applicable_tools: Vec::new(),
         };
+
+        // Record the run's trace id on the thinking log (and so the task
+        // record, which persists it) — the join key from a stored run back to
+        // its `call_spans.jsonl` rows and every capture sink's `trace_id`.
+        if let Some(tid) = state.trace_id.clone() {
+            state.thinking_log.push(ThinkingEntry {
+                stage: "trace".to_string(),
+                raw_response: format!("trace_id={tid}"),
+                ..Default::default()
+            });
+        }
 
         // ── Voice input (Whisper, headless path) ──
         // Non-UI callers attach audio here; the Voice pipeline (#10)
@@ -2618,7 +2700,39 @@ impl PromptOrchestrator {
     // ========================================================================
 
     /// Execute an LLM call and fold its token usage into the running budget.
+    ///
+    /// RECORDED: a plain call used to leave no ledger row and no ContextRecord
+    /// (only the resilient wrapper recorded, and it records on its own — it
+    /// calls `metered_execute_raw` below so nothing is recorded twice). When
+    /// the pipeline reports the model that served it, the call now gets a
+    /// ContextRecord and a ledger row with its real latency.
     async fn metered_execute(
+        &self,
+        state: &mut OrchestrationState,
+        pipeline_id: u64,
+        input: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let started = std::time::Instant::now();
+        let prompt_for_record = input
+            .get("prompt")
+            .and_then(|p| p.as_str())
+            .unwrap_or("")
+            .to_string();
+        let result = self.metered_execute_raw(state, pipeline_id, input).await;
+        Self::record_context_and_ledger(
+            &format!("pipeline-{pipeline_id}"),
+            &format!("pipeline-{pipeline_id}"),
+            &prompt_for_record,
+            &result,
+            started.elapsed().as_millis() as u64,
+        );
+        result
+    }
+
+    /// The watchdog-bounded execute + token folding, WITHOUT call capture.
+    /// Used directly by `metered_execute_resilient_inner`, which records every
+    /// attempt itself; everything else goes through `metered_execute`.
+    async fn metered_execute_raw(
         &self,
         state: &mut OrchestrationState,
         pipeline_id: u64,
@@ -3292,7 +3406,7 @@ impl PromptOrchestrator {
         let mut result;
         loop {
             let started = std::time::Instant::now();
-            result = self.metered_execute(state, 9, input.clone()).await;
+            result = self.metered_execute_raw(state, 9, input.clone()).await;
             let latency_ms = started.elapsed().as_millis() as u64;
             let outcome = Self::classify_attempt(&result);
             if matches!(outcome, crate::model_ledger::Outcome::Success) {
@@ -3399,7 +3513,7 @@ impl PromptOrchestrator {
         // and the project it belongs to. This is what makes a raw thought
         // queryable: "show me every thought about container X" or "what
         // did model M say about blueprint B" are jsonl greps.
-        let record = serde_json::json!({
+        let mut record = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "call_site": call_site,
             "model_used": model_used,
@@ -3413,6 +3527,15 @@ impl PromptOrchestrator {
             "project_id": state.request.project_id,
             "prompt_preview": cut(&state.request.prompt, 200),
         });
+        // TRACE: join key into call_spans.jsonl and every other sink. The
+        // task-local is authoritative; the state's own id covers a call made
+        // outside the traced scope (e.g. a detached task).
+        crate::trace::stamp(&mut record);
+        if record["trace_id"].is_null() {
+            if let (Some(tid), Some(obj)) = (state.trace_id.as_ref(), record.as_object_mut()) {
+                obj.insert("trace_id".to_string(), serde_json::json!(tid));
+            }
+        }
         let _ = writeln!(f, "{}", record);
     }
 
@@ -3507,6 +3630,21 @@ impl PromptOrchestrator {
         prompt: &str,
         result: &Result<serde_json::Value, String>,
     ) {
+        Self::capture_loop_model_call_with(call_site, prompt, result, LoopCallMeta::default())
+    }
+
+    /// `capture_loop_model_call` with the optional correlation + timing the
+    /// plain form cannot know: the call's REAL latency (the ledger previously
+    /// got 0 for every loop call, so loop latency stats were not measurements)
+    /// and the AMT / blueprint / project the call is about (previously
+    /// hardcoded null in every loop row). Callers pass what they have and
+    /// leave the rest `None`; the trace ids come from the current trace.
+    pub fn capture_loop_model_call_with(
+        call_site: &str,
+        prompt: &str,
+        result: &Result<serde_json::Value, String>,
+        meta: LoopCallMeta,
+    ) {
         use std::io::Write;
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let dir = format!("{data_dir}/model_calls");
@@ -3525,7 +3663,7 @@ impl PromptOrchestrator {
             ),
             Err(e) => (false, String::new(), 0, cut(e, 300)),
         };
-        let record = serde_json::json!({
+        let mut record = serde_json::json!({
             "ts": chrono::Utc::now().to_rfc3339(),
             "call_site": call_site,
             "model_used": model_used,
@@ -3534,22 +3672,56 @@ impl PromptOrchestrator {
             "used_fallback": false,
             "success": success,
             "response_preview": response_preview,
-            "amt_container_id": null,
-            "blueprint_id": null,
-            "project_id": null,
+            "amt_container_id": meta.amt_container_id,
+            "blueprint_id": meta.blueprint_id,
+            "project_id": meta.project_id,
+            "latency_ms": meta.latency_ms,
             "prompt_preview": cut(prompt, 200),
         });
+        crate::trace::stamp(&mut record);
         let _ = writeln!(f, "{}", record);
-        // CONTEXT RECORD (docs/CONTEXT_OBJECT_MODEL.md step 1): loop calls
-        // are points too — same capture contract as the fallback walk.
-        // The window is looked up for the model that SERVED the call
-        // (`model_used` is pipeline 9's response-reported id, e.g. the
-        // routed model behind openrouter/auto). A miss stays 0 = unknown and
-        // is named once in the log — never a guessed number.
-        let mut rec = crate::context_budget::ContextRecord::new(
-            format!("loop:{call_site}"),
-            model_used.clone(),
+        // CONTEXT RECORD + LEDGER (docs/CONTEXT_OBJECT_MODEL.md step 1): loop
+        // calls are points too — same capture contract as the fallback walk.
+        Self::record_context_and_ledger(
+            &format!("loop:{call_site}"),
+            call_site,
+            prompt,
+            result,
+            meta.latency_ms,
         );
+    }
+
+    /// The ContextRecord + model-ledger half of call capture, shared by loop
+    /// calls and by plain `metered_execute` calls (which previously wrote
+    /// neither). The window is looked up for the model that SERVED the call
+    /// (`model_used` is pipeline 9's response-reported id, e.g. the routed
+    /// model behind openrouter/auto); a miss stays 0 = unknown and is named
+    /// once in the log — never a guessed number. Unattributable results (no
+    /// served model in the response) get no ledger row rather than one under
+    /// a fake key. `latency_ms` 0 means "not measured" (the ledger's median
+    /// skips zeros). Best-effort; never fails the call.
+    fn record_context_and_ledger(
+        context_site: &str,
+        ledger_site: &str,
+        prompt: &str,
+        result: &Result<serde_json::Value, String>,
+        latency_ms: u64,
+    ) {
+        let model_used = result
+            .as_ref()
+            .ok()
+            .and_then(|v| v.get("model_used"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+            .to_string();
+        let success = result
+            .as_ref()
+            .ok()
+            .and_then(|v| v.get("response"))
+            .and_then(|r| r.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+        let mut rec = crate::context_budget::ContextRecord::new(context_site.to_string(), model_used.clone());
         if !model_used.is_empty() {
             match crate::context_budget::model_windows::window_for(&model_used) {
                 Some(w) => {
@@ -3562,15 +3734,9 @@ impl PromptOrchestrator {
         rec.prompt_tokens = crate::context_budget::estimate_tokens(prompt);
         rec.usable = success;
         crate::context_budget::record_call(rec);
-        // LEDGER (as-it-happens occurrence counting): loop calls are model
-        // outcomes too — BitNet meta-chain calls now build ranking history
-        // like walk calls do. Latency is unknown at this seam (0; the
-        // ledger's median skips zeros). Unattributable results (no served
-        // model in the response) are skipped rather than recorded under a
-        // fake key.
         if !model_used.is_empty() {
             let outcome = Self::classify_attempt(result);
-            crate::model_ledger::record(&model_used, outcome, 0, call_site);
+            crate::model_ledger::record(&model_used, outcome, latency_ms, ledger_site);
         }
     }
 
@@ -4363,7 +4529,7 @@ impl PromptOrchestrator {
                     let exec = executor.clone();
                     let inp = input.clone();
                     let mts = max_tokens_sent;
-                    set.spawn(crate::pipeline::gate::with_priority(
+                    set.spawn(traced(crate::pipeline::gate::with_priority(
                         crate::pipeline::gate::CallPriority::User,
                         async move {
                             // No adjudication judge in the parallel-batch path yet (first
@@ -4374,7 +4540,7 @@ impl PromptOrchestrator {
                             let r = Self::run_one_candidate(&exec, pipeline_id, inp, &profile, mts, None).await;
                             (profile.identifier, r)
                         },
-                    ));
+                    )));
                 }
                 let mut winner: Option<serde_json::Value> = None;
                 while let Some(joined) = set.join_next().await {
@@ -5015,6 +5181,7 @@ impl PromptOrchestrator {
                 .and_then(|v| v.as_str())
                 .map(String::from),
             thinking_log: state.thinking_log.clone(),
+            trace_id: state.trace_id.clone(),
         }
     }
 
@@ -5042,6 +5209,7 @@ impl PromptOrchestrator {
             amt_summary: None,
             model_used: None,
             thinking_log: state.thinking_log.clone(),
+            trace_id: state.trace_id.clone(),
         }
     }
 

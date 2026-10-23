@@ -21,7 +21,11 @@
 
 import { zseiQuery } from "./ozoneClient";
 import { GraphEventFrame, getGraphEventClient } from "./graphEventClient";
-import { classifyEdge, classifyNode } from "./graphRenderers";
+import {
+  classifyEdge,
+  classifyNode,
+  modalityFromObjectStorePath,
+} from "./graphRenderers";
 import {
   ContainerRelation,
   GraphViewData,
@@ -36,16 +40,16 @@ import {
 
 // ── Real ZSEIQueryResult parsing (externally-tagged JSON: {"Variant": {...}}) ──
 
-interface ContainerJson {
+export interface ContainerJson {
   global_state: { container_id: number; parent_id: number; child_ids: number[] };
   local_state: {
     metadata: { container_type: string; modality: string; name?: string | null };
-    context: { relationships: ContainerRelation[] };
+    context: { relationships: ContainerRelation[]; keywords?: string[] };
     storage: { object_store_path?: string | null };
   };
 }
 
-async function getContainer(containerId: number): Promise<ContainerJson | null> {
+export async function getContainer(containerId: number): Promise<ContainerJson | null> {
   const result = await zseiQuery<any>({ GetContainer: { container_id: containerId } });
   if (result && typeof result === "object" && "Container" in result) {
     return result.Container as ContainerJson;
@@ -53,7 +57,7 @@ async function getContainer(containerId: number): Promise<ContainerJson | null> 
   return null;
 }
 
-async function getContainerContent(containerId: number): Promise<RawModalityGraph | null> {
+export async function getContainerContent(containerId: number): Promise<RawModalityGraph | null> {
   const result = await zseiQuery<any>({ GetContainerContent: { container_id: containerId } });
   const content = result && typeof result === "object" ? result.Content : null;
   if (!content) return null;
@@ -63,23 +67,11 @@ async function getContainerContent(containerId: number): Promise<RawModalityGrap
   return (content.json as RawModalityGraph) ?? null;
 }
 
-function modalityFromObjectStorePath(path: string | null | undefined): Modality | null {
-  if (!path) return null;
-  if (path.startsWith("graphs/code_")) return "code";
-  if (path.startsWith("graphs/math_")) return "math";
-  if (path.startsWith("graphs/text_")) return "text";
-  if (path.startsWith("graphs/image_")) return "image";
-  // `graphs/3d_graph_{id}.json` (assets/pipelines/modalities/3D/main.rs
-  // ~1374, 1393) — missing here meant the 3D engine view (2026-10-18) could
-  // never actually find a 3D graph: this function is the sole discriminant
-  // loadGraphData uses to keep/drop a child container per modality filter.
-  if (path.startsWith("graphs/3d_graph_")) return "3D";
-  // `graphs/cad_{id}.json` (assets/pipelines/modalities/CAD/main.rs:1330) —
-  // same missing-case bug class as 3D above: without this, loadGraphData
-  // silently drops every CAD graph regardless of real data on disk.
-  if (path.startsWith("graphs/cad_")) return "CAD";
-  return null;
-}
+// modalityFromObjectStorePath now lives in ./graphRenderers/defaults (single
+// source, shared with the crossModal overlay) — see its doc comment there for
+// the verified all-27 derivation. Conversion helpers (getContainer /
+// getContainerContent / convertGraph) are exported here as GraphKit's one
+// conversion path — the kit reuses them verbatim instead of a second copy.
 
 function nodeLabel(node: RawGraphNode): string {
   // Real field presence genuinely differs per modality (see graphViewTypes.ts) —
@@ -96,7 +88,7 @@ function edgeId(edge: RawGraphEdge): string {
 /** Structural conversion; the per-modality "is this type actually constructed
  * anywhere" judgment (isReal, edgeClass, label) is delegated to the renderer
  * plugins in ./graphRenderers (C2-C7). */
-function convertGraph(
+export function convertGraph(
   raw: RawModalityGraph,
   modality: Modality,
   sourceContainerId: number,
@@ -192,6 +184,7 @@ export function loadGraphData(
       const allEdges: GraphViewEdge[] = [];
       const sourceContainers: number[] = [];
       const containerRelations: Record<number, ContainerRelation[]> = {};
+      let unknownModalityGraphs = 0;
 
       for (const child of modalityGraphChildren) {
         const raw = await getContainerContent(child.id);
@@ -202,11 +195,19 @@ export function loadGraphData(
         allNodes.push(...nodes);
         allEdges.push(...edges);
       }
+      // No-omission accounting: ModalityGraph children whose prefix no known
+      // modality claims are counted (and visible here), never silently gone.
+      unknownModalityGraphs = children.filter(
+        (c) =>
+          !!c &&
+          c.local_state.metadata.container_type === "ModalityGraph" &&
+          modalityFromObjectStorePath(c.local_state.storage.object_store_path) === null,
+      ).length;
 
       if (!cancelled) {
         onStatus({
           kind: "ready",
-          data: { nodes: allNodes, edges: allEdges, sourceContainers, containerRelations },
+          data: { nodes: allNodes, edges: allEdges, sourceContainers, containerRelations, unknownModalityGraphs },
         });
       }
     } catch (err) {

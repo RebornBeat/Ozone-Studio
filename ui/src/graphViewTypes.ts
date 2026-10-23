@@ -252,6 +252,11 @@ export interface GraphViewData {
    * surfaced so any consumer can cite its real source, per this plan's
    * doctrine ("every fork should cite the real file/data source it renders"). */
   sourceContainers: number[];
+  /** ModalityGraph containers whose object_store_path prefix no known
+   * modality claims (GraphKit migration step 1: counted, never silently
+   * dropped — the no-omission law). Normally 0; >0 means a backend writes a
+   * graph format the UI palette doesn't know about yet. */
+  unknownModalityGraphs: number;
   /** Real `local_state.context.relationships` for each fetched
    * ModalityGraph container, keyed by container id — passed through as-is
    * (already fetched for free alongside each container's metadata, B16

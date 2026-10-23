@@ -24,16 +24,33 @@ pub mod store;
 
 pub use store::*;
 
-// Type alias for backwards compatibility
+// Type alias for backwards compatibility.
+//
+// NOTE (C1 consolidation, 2026-10-23): the host's REAL consciousness state is
+// the static `CONSCIOUSNESS_STORE` below — it is what the task manager
+// observes, what config.toml's `[consciousness]` section is copied into at
+// boot (`ConsciousnessStore::apply_config`), and what the assistant reads.
+// `lib.rs` also builds a second `ConsciousnessSystem::new()` (this alias) into
+// `OzoneRuntime.consciousness`; its only reader is an `is_some()` check
+// (`OzoneRuntime::is_consciousness_enabled`). It cannot delegate to the static
+// store because the alias is the SAME struct (`Arc<RwLock<..>>` ownership in
+// lib.rs), so it is an independent in-memory copy that loads the same files at
+// boot and is never mutated. Folding it away needs a lib.rs change and is
+// recorded as a follow-up; nothing reads state from it.
 pub type ConsciousnessSystem = store::ConsciousnessStore;
 
 // Re-export key functions for easy access
 pub use store::{
-    is_consciousness_enabled,
-    pre_task_gate,
-    post_task_experience,
-    get_relevant_experiences,
     get_current_emotional_state,
+    get_relevant_experiences,
+    i_loop_busy,
+    is_consciousness_enabled,
+    observe_task_event,
+    post_task_experience,
+    post_task_experience_with,
+    pre_task_gate,
+    set_i_loop_active,
+    wait_for_i_loop_completion,
     CONSCIOUSNESS_STORE,
 };
 

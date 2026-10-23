@@ -90,6 +90,25 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
             }
         };
 
+        // TRACE: stamp the current trace onto the ExecutionContext metadata so
+        // the pipeline envelope (and a remote pipeline's request body) carries
+        // it even where the environment cannot. Existing keys win — a caller
+        // that already set trace metadata keeps its own. The executor layer
+        // additionally exports it as OZONE_TRACE_ID / OZONE_PARENT_SPAN to the
+        // spawned process. Untraced calls are left exactly as before.
+        let mut context = context;
+        if let Some(t) = crate::trace::current_trace() {
+            for (k, v) in [
+                ("trace_id", Some(t.trace_id.clone())),
+                ("span_id", Some(t.span_id.clone())),
+                ("parent_span", t.parent_span.clone()),
+            ] {
+                if let Some(v) = v {
+                    context.metadata.entry(k.to_string()).or_insert(v);
+                }
+            }
+        }
+
         let pipeline_input = PipelineInput { data, context };
 
         // ADAPTER BACKSTOP (rescaled 2026-10-10 after walk B died at exactly

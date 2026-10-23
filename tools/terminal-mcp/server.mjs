@@ -76,16 +76,24 @@ function allowlistFor(agent) {
 // this is the third. Absent = token check off (loopback-only trust).
 const TOKEN_SECRET = process.env.OZONE_TERMINAL_TOKEN ?? "";
 const PLATFORM = `${process.platform}/${process.arch}`; // e.g. linux/x64
-const FORBIDDEN = /[;|&`$><]/;
+// Shell metacharacters rejected outright. Newline / carriage return / NUL
+// are included: with `shell: true` a newline separates commands exactly like
+// ';' does, so `ls\n<cmd>` would otherwise run a second command.
+const FORBIDDEN = /[;|&`$><\n\r\0]/;
 const startedAt = Date.now();
 
 function exec_allowed(command, agent) {
   const allow = allowlistFor(agent);
   if (!allow.length) return { ok: false, reason: `no allowlist for agent '${agent ?? "?"}' — terminal_exec is locked for this role` };
   if (!command || typeof command !== "string") return { ok: false, reason: "missing command" };
-  if (FORBIDDEN.test(command)) return { ok: false, reason: "shell operators (; | & ` $ < >) are rejected — one command per call" };
+  if (FORBIDDEN.test(command)) return { ok: false, reason: "shell operators (; | & ` $ < > and newlines) are rejected — one command per call" };
   const first = command.trim().split(/\s+/)[0];
-  if (!allow.some((a) => first === a || first.startsWith(a))) {
+  // EXACT match on the first token. The old `first.startsWith(a)` let an
+  // allowlisted `git` also permit `gitk` / `git-shell`, `node` permit
+  // `nodemon`, etc. An allowlist entry that itself ends with a space or a
+  // path separator (a prefix form like "cargo " or "/usr/bin/") still works
+  // as a prefix because it can never equal a bare token.
+  if (!allow.some((a) => first === a || (a.length > 0 && /[\s/]$/.test(a) && first.startsWith(a)))) {
     return { ok: false, reason: `command '${first}' is not in the allowlist for role of '${agent}' (${allow.join(", ")})` };
   }
   return { ok: true };

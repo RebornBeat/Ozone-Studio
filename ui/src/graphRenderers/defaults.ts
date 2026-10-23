@@ -60,3 +60,25 @@ export function defaultNodeClassification(): NodeClassification {
 export function defaultEdgeVisual(): EdgeVisual {
   return { stroke: "#2c3a4f", strokeWidth: 1 };
 }
+
+/** SINGLE-SOURCE modality discriminator (GraphKit migration step 1,
+ * 2026-10-23): every modality backend writes `graphs/<lowercased-key>_<id>.json`
+ * (verified in all 27 backends' own format! strings — including the two
+ * case-irregular ones, 3D → `graphs/3d_graph_` and IMU → `graphs/imu_`),
+ * so the prefix table is DERIVED from MODALITY_COLOR's key set: one source
+ * of truth, auto-extending when a modality joins the palette. Replaces the
+ * hand-listed tables (graphViewData's 6 prefixes, crossModal's 3) that left
+ * 21 modalities invisible and mislabeled cross-link endpoints "unknown".
+ * Returns null for a prefix no known modality claims — callers count those,
+ * never silently dropping them. */
+export function modalityFromObjectStorePath(path: string | null | undefined): Modality | null {
+  if (!path || !path.startsWith("graphs/")) return null;
+  const rest = path.slice("graphs/".length);
+  const underscore = rest.indexOf("_");
+  if (underscore <= 0) return null;
+  const candidate = rest.slice(0, underscore).toLowerCase();
+  for (const key of Object.keys(MODALITY_COLOR)) {
+    if (key.toLowerCase() === candidate) return key as Modality;
+  }
+  return null;
+}

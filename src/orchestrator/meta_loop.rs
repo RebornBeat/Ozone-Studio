@@ -24,6 +24,7 @@
 
 use crate::config::{AvailableModel, ModelFallbackConfig};
 use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, StoreAccess};
+use crate::orchestrator::run_spans::{self, PassStats};
 use crate::task::RefinementConfig;
 use std::sync::Arc;
 
@@ -56,10 +57,23 @@ pub async fn run_methodology_meta_loop(
         tokio::time::sleep(std::time::Duration::from_secs(config.interval_secs)).await;
 
         tracing::info!("Methodology meta-loop: starting review pass");
-        if let Err(e) =
-            review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback).await
-        {
+        // TRACE ROOT (trace spine): one root per pass; every executor call
+        // inside the pass (and every capture row it writes) carries it.
+        let ctx = crate::trace::TraceCtx::new_root("loop-pass");
+        let mut stats = PassStats::default();
+        let outcome = crate::trace::with_trace(
+            ctx.clone(),
+            review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats),
+        )
+        .await;
+        if let Err(e) = outcome {
             tracing::warn!(error = %e, "Methodology meta-loop review pass failed");
+            stats.notes.push(format!("pass failed: {}", e));
+        }
+        if stats.did_work() {
+            let _ = run_spans::record_pass_span(&store, "meta", &ctx, stats.to_json()).await;
+        } else {
+            tracing::debug!("Methodology meta-loop: idle pass — no span recorded (no gaps consumed, no call made)");
         }
         tracing::info!("Methodology meta-loop: review pass complete");
     }
@@ -76,6 +90,7 @@ async fn review_methodology_gaps_once(
     store: &Arc<dyn StoreAccess>,
     available_models: &[AvailableModel],
     meta_fallback: &ModelFallbackConfig,
+    stats: &mut PassStats,
 ) -> Result<(), String> {
     let path = gaps_log_path();
 
@@ -104,6 +119,7 @@ async fn review_methodology_gaps_once(
             continue;
         }
         attempted_this_pass += 1;
+        stats.candidates_consumed += 1;
 
         let keywords: Vec<String> = gap
             .get("keywords")
@@ -225,31 +241,51 @@ async fn review_methodology_gaps_once(
             "Methodology meta-loop: drafting a new methodology for a real gap"
         );
 
-        let draft_prompt = format!(
-            r#"A real user request's keyword signal repeatedly matched no existing methodology:
-
-KEYWORDS: {}
-TOPICS: {}
-
-If — and only if — this is a genuinely coherent, real, methodology-worthy
-pattern (specific enough to give concrete, actionable guidance, not vague or
-overly broad), draft ONE real methodology for it. Every decision rule must be
-a concrete "if X then do Y" a person or system could actually follow — not a
-restatement of the keywords. Return ONLY valid JSON:
-{{
-    "name": "short methodology name",
-    "description": "one sentence description",
-    "keywords": ["...", "..."],
-    "topics": ["...", "..."],
-    "principles": [{{"name": "...", "description": "...", "priority": 1}}],
-    "heuristics": [{{"condition": "...", "action": "...", "confidence": 0.8}}],
-    "decision_rules": [{{"name": "...", "condition": "...", "outcome": "..."}}]
-}}
-If this keyword set is too vague, too broad, or not actually a coherent
-methodology-worthy pattern, return exactly: {{"skip": true}}"#,
-            keywords.join(", "),
-            topics.join(", ")
+        // CONTEXT BUDGET (operator ruling: budgets follow the model window,
+        // every cut recorded): keywords/topics are the only variable inputs;
+        // the scaffold is protected and the topics trim before the keywords.
+        // All-fits output is byte-identical to the old format! prompt.
+        let (window, window_source) = match escalated_model {
+            Some(m) => run_spans::profile_window(m.context_length),
+            None => run_spans::default_model_window(),
+        };
+        let want_output = 800usize;
+        let budget = run_spans::input_budget_tokens(window, want_output);
+        let assembled = crate::context_budget::assemble(
+            vec![
+                crate::context_budget::ContextSection::new(
+                    "scaffold-head",
+                    0,
+                    "A real user request's keyword signal repeatedly matched no existing methodology:\n\nKEYWORDS: ",
+                ),
+                crate::context_budget::ContextSection::new("keywords", 2, keywords.join(", ")),
+                crate::context_budget::ContextSection::new("scaffold-mid", 0, "\nTOPICS: "),
+                crate::context_budget::ContextSection::new("topics", 4, topics.join(", ")),
+                crate::context_budget::ContextSection::new(
+                    "scaffold-tail",
+                    0,
+                    "\n\nIf — and only if — this is a genuinely coherent, real, methodology-worthy\npattern (specific enough to give concrete, actionable guidance, not vague or\noverly broad), draft ONE real methodology for it. Every decision rule must be\na concrete \"if X then do Y\" a person or system could actually follow — not a\nrestatement of the keywords. Return ONLY valid JSON:\n{\n    \"name\": \"short methodology name\",\n    \"description\": \"one sentence description\",\n    \"keywords\": [\"...\", \"...\"],\n    \"topics\": [\"...\", \"...\"],\n    \"principles\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": 1}],\n    \"heuristics\": [{\"condition\": \"...\", \"action\": \"...\", \"confidence\": 0.8}],\n    \"decision_rules\": [{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\"}]\n}\nIf this keyword set is too vague, too broad, or not actually a coherent\nmethodology-worthy pattern, return exactly: {\"skip\": true}",
+                ),
+            ],
+            budget,
         );
+        run_spans::record_view_trims(
+            "meta_loop_draft",
+            escalated_model.map(|m| m.identifier.as_str()).unwrap_or(""),
+            window,
+            window_source,
+            want_output,
+            &assembled,
+        );
+        if !assembled.trims.is_empty() {
+            tracing::warn!(
+                trims = assembled.trims.len(),
+                budget_tokens = budget,
+                window,
+                "Methodology meta-loop: gap view trimmed to the model's window (recorded, markers emitted)"
+            );
+        }
+        let draft_prompt = assembled.text;
 
         let mut draft_input = serde_json::json!({
             "prompt": draft_prompt,
@@ -276,11 +312,13 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
             }
         }
 
+        stats.calls_made += 1;
         let draft_result = executor.execute(PROMPT_PIPELINE_ID, draft_input).await;
         crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_draft", &draft_prompt, &draft_result);
         let result = match draft_result {
             Ok(v) => v,
             Err(e) => {
+                stats.failures += 1;
                 tracing::warn!(error = %e, ?keywords, "Methodology meta-loop: draft LLM call failed, will retry next cycle");
                 continue;
             }
@@ -398,14 +436,20 @@ methodology-worthy pattern, return exactly: {{"skip": true}}"#,
                 );
                 gap["handled"] = serde_json::json!(true);
                 any_change = true;
+                stats.successes += 1;
             }
             Err(e) => {
+                stats.failures += 1;
                 tracing::warn!(error = %e, ?keywords, "Methodology meta-loop: create call failed, will retry next cycle");
             }
         }
     }
 
     if left_for_next_pass > 0 {
+        stats.notes.push(format!(
+            "per-pass gap bound hit: {} attempted, {} left for the next tick",
+            attempted_this_pass, left_for_next_pass
+        ));
         tracing::info!(
             attempted = attempted_this_pass,
             left_for_next_pass,

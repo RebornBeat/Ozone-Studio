@@ -22,7 +22,7 @@
 import { zseiQuery } from "../../ozoneClient";
 import type { ContainerRelation, GraphViewEdge, GraphViewNode, HubKind, Modality } from "../../graphViewTypes";
 import type { GraphOverlay, OverlayContext, OverlayResult } from "../overlays";
-import { MODALITY_COLOR } from "../defaults";
+import { modalityFromObjectStorePath, MODALITY_COLOR } from "../defaults";
 import type { EdgeVisual, NodeVisual } from "../types";
 
 interface ContainerLike {
@@ -55,11 +55,9 @@ async function fetchContainer(id: number): Promise<ContainerLike | null> {
 }
 
 function modalityFromPath(path: string | null | undefined): Modality | null {
-  if (!path) return null;
-  if (path.startsWith("graphs/code_")) return "code";
-  if (path.startsWith("graphs/math_")) return "math";
-  if (path.startsWith("graphs/text_")) return "text";
-  return null;
+  // Single-source discriminator (defaults.ts) — was a hand-listed 3-prefix
+  // table that mislabeled every non-code/math/text endpoint "unknown graph".
+  return modalityFromObjectStorePath(path);
 }
 
 function isAmtContainer(c: ContainerLike): boolean {
@@ -136,6 +134,48 @@ async function load(ctx: OverlayContext): Promise<OverlayResult> {
       if (rel.relation_type === "SimilarTo" && rel.target_id !== src) relations.push({ src, rel });
     }
   }
+
+  // SERVER-SIDE PAIRS JOIN (GraphKit migration step 2, 2026-10-23): the
+  // per-container read above only sees relations held by the graph containers
+  // THIS session fetched — a pair whose relation lives on a container nobody
+  // fetched (a file, an AMT, another project's graph) was invisible even
+  // though both endpoints may be real. `GetCrossModalPairs` is the host's
+  // per-request rebuild over ALL context.relationships (no cache, no second
+  // writer — its own route doc), so merging it in makes the overlay show the
+  // project's whole cross-link fabric. Exact duplicates of the per-container
+  // pairs are removed; symmetric A→B/B→A pairs are kept as stored (unchanged
+  // doctrine — nothing is de-duplicated that the store really holds twice).
+  try {
+    const resp = await zseiQuery<any>({ GetCrossModalPairs: { src: null, dst: null } });
+    const content = resp && typeof resp === "object" && "Content" in resp ? (resp as any).Content : resp;
+    const pairs = content?.json?.pairs ?? content?.pairs;
+    if (Array.isArray(pairs)) {
+      const seen = new Set(relations.map(({ src, rel }) => `${src}>${rel.target_id}`));
+      for (const p of pairs) {
+        const src = p.source_id;
+        const dst = p.target_id;
+        if (typeof src !== "number" || typeof dst !== "number") continue;
+        if (src === dst) continue;
+        if (seen.has(`${src}>${dst}`)) continue;
+        seen.add(`${src}>${dst}`);
+        relations.push({
+          src,
+          rel: {
+            target_id: dst,
+            relation_type: typeof p.relation_type === "string" ? p.relation_type : "SimilarTo",
+            confidence: typeof p.confidence === "number" ? p.confidence : 1.0,
+            discovered_via: typeof p.discovered_via === "string" ? p.discovered_via : "CrossModalIndex",
+          },
+        });
+      }
+    }
+    // Tolerant by design: the pairs read-model is additive enrichment — if it
+    // errors, the per-container relations above still render (fail-soft, the
+    // overlay never blocks the canvas on an enhancement).
+  } catch {
+    /* pairs read-model unavailable — per-container relations stand alone */
+  }
+
   if (relations.length === 0) return { nodes: [], edges: [] };
 
   const ids = Array.from(new Set(relations.flatMap(({ src, rel }) => [src, rel.target_id])));

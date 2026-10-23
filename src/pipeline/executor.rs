@@ -694,6 +694,51 @@ impl PipelineExecutor {
             }
         }
 
+        // ALIASES + NORMALIZED NAMES (added after every exact candidate, so
+        // an exact match always wins): the registered folder name can differ
+        // from the real crate/binary (`3d_engine` vs `3D`, `imu` vs `IMU`),
+        // and Linux paths are case-sensitive.
+        if let Some(alias) = crate::pipeline::registry::binary_alias(name) {
+            candidates.push(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("target/pipelines/release")
+                    .join(alias),
+            );
+            candidates.push(self.builtin_path.join(category).join(alias).join(alias));
+            candidates.push(
+                self.builtin_path
+                    .join(category)
+                    .join(alias)
+                    .join("target/release")
+                    .join(alias),
+            );
+            candidates.push(
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("target/pipelines/debug")
+                    .join(alias),
+            );
+        }
+        {
+            // Last resort: a case/underscore-insensitive match inside the
+            // shared release dir (never a directory, never the .d dep dirs).
+            let norm = |s: &str| s.to_lowercase().replace('_', "");
+            let wanted = norm(name);
+            let shared_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("target/pipelines/release");
+            if let Ok(rd) = std::fs::read_dir(&shared_dir) {
+                for entry in rd.flatten() {
+                    let p = entry.path();
+                    if p.is_file() {
+                        if let Some(fname) = p.file_name().and_then(|f| f.to_str()) {
+                            if !fname.ends_with(".d") && norm(fname) == wanted {
+                                candidates.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let pipeline_path = candidates
             .iter()
             .find(|c| c.exists())
@@ -793,10 +838,27 @@ impl PipelineExecutor {
     async fn invoke_pipeline(
         &self,
         pipeline_path: &PathBuf,
-        input: PipelineInput,
+        mut input: PipelineInput,
         execution_id: ExecutionID,
         task_id: Option<TaskID>,
     ) -> OzoneResult<PipelineOutput> {
+        // TRACE SPINE: capture the current trace NOW — task-locals do not
+        // cross `spawn_blocking`, so everything the child needs from it is
+        // read here, before the command is moved. The ids ride (a) the
+        // PipelineInput envelope's `context.metadata` (already serialized to
+        // the child) and (b) the child's environment, which its own nested
+        // spawns (modality pipeline -> `prompt` binary) inherit because the
+        // host never `env_clear`s. No trace in scope = nothing is added.
+        let trace_ctx = crate::trace::current_trace();
+        if let Some(ctx) = trace_ctx.as_ref() {
+            let md = &mut input.context.metadata;
+            md.entry("trace_id".to_string()).or_insert_with(|| ctx.trace_id.clone());
+            md.entry("span_id".to_string()).or_insert_with(|| ctx.span_id.clone());
+            if let Some(p) = ctx.parent_span.as_ref() {
+                md.entry("parent_span".to_string()).or_insert_with(|| p.clone());
+            }
+        }
+
         let input_json = serde_json::to_string(&input)
             .map_err(|e| OzoneError::SerializationError(e.to_string()))?;
 
@@ -842,6 +904,11 @@ impl PipelineExecutor {
         // bound: one load + generation with headroom. The child itself is
         // not age-bounded anymore — idle-kill governs (run_child_bounded).
         cmd.env("OZONE_PIPELINE_TIMEOUT_SECS", "600");
+        if let Some(ctx) = trace_ctx.as_ref() {
+            for (k, v) in ctx.env_pairs() {
+                cmd.env(k, v);
+            }
+        }
         let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let _cancel_on_drop = CancelOnDrop(cancel.clone());
         let output = tokio::task::spawn_blocking(move || {

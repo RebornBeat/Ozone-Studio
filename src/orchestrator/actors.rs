@@ -550,6 +550,18 @@ async fn dispatch_event(
                 "ripple actor: real finding queued as an AMT re-expansion candidate"
             );
             notify_wake();
+        } else {
+            // Never silent: an actor's finding that did not queue says why.
+            // (amt_candidates::append logs the exact key at debug.) A finding
+            // lands here only when the IDENTICAL finding — same container,
+            // route and detail — is already queued and unhandled.
+            tracing::info!(
+                actor = actor.kind(),
+                route = finding.route,
+                container_id = target_container_id,
+                detail = %finding.detail.chars().take(120).collect::<String>(),
+                "ripple actor: finding NOT queued — an identical finding is already queued and unhandled"
+            );
         }
     }
     Ok(())

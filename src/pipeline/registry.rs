@@ -187,6 +187,39 @@ pub fn get_pipeline_info(id: PipelineID) -> Option<&'static PipelineInfo> {
     PIPELINE_INFO.get(&id)
 }
 
+/// Registered `folder_name` -> real crate / binary name, for pipelines whose
+/// index (or compile-time) folder name differs from the directory and binary
+/// that actually exist. Verified against `assets/pipelines/**` and
+/// `target/pipelines/release` (2026-10-23): the modality index uses
+/// descriptive names (`3d_engine`, `imu`, ...) while the crates are named
+/// `3D`, `IMU`, ... — on Linux (case-sensitive) the exact lookup never found
+/// them, so those pipelines were unreachable by id. The consciousness rows
+/// map only where a crate with the same job exists; ids with no matching
+/// crate (e.g. 44 i_loop, 46 narrative_construction, 53 voice_identity,
+/// 54 meta_portion_consciousness) are deliberately NOT guessed.
+/// The exact registered name is always tried first; this table only adds
+/// candidates, it never replaces one.
+pub fn binary_alias(folder_name: &str) -> Option<&'static str> {
+    match folder_name {
+        // modalities (index name -> real crate dir / binary)
+        "3d_engine" => Some("3D"),
+        "sound_reconstruction" => Some("sound"),
+        "depth_sensing" => Some("depth"),
+        "imu" => Some("IMU"),
+        "bci" => Some("BCI"),
+        "parametric_cad" => Some("CAD"),
+        "control_systems" => Some("control"),
+        "network_topology" => Some("network"),
+        // consciousness (registered name -> crate with the same job)
+        "consciousness_decision_gate" => Some("decision_gate"),
+        "core_memory_formation" => Some("experience_memory"),
+        "experience_retrieval" => Some("experience_search"),
+        "emotional_baseline_update" => Some("emotional_state"),
+        "relationship_development" => Some("relationship"),
+        _ => None,
+    }
+}
+
 fn info(
     id: PipelineID,
     name: &str,

@@ -21,9 +21,11 @@
 //! separate undertaking — not built here.
 
 use crate::config::{AvailableModel, ModelFallbackConfig};
+use crate::orchestrator::run_spans::{self, PassStats};
 use crate::orchestrator::{AMTNode, ModelConfigOverride, PipelineExecutor, PromptOrchestrator, StoreAccess};
 use crate::task::RefinementConfig;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 
 const PROMPT_PIPELINE_ID: u64 = 9;
 
@@ -55,40 +57,111 @@ pub fn extract_proj_id(scope_keywords: &[String]) -> Option<u64> {
         .find_map(|k| k.strip_prefix("proj:").and_then(|v| v.parse::<u64>().ok()))
 }
 
+/// Anchor -> resolved AMT container id. Resolving scans the anchor's children
+/// (one `get_container` each); the ripple sync resolves on EVERY project-scoped
+/// graph event, so a hit is verified with a single fetch instead of a rescan.
+static ANCHOR_AMT_CACHE: OnceLock<std::sync::Mutex<HashMap<u64, u64>>> = OnceLock::new();
+
+fn container_json_has_body(c: &serde_json::Value) -> bool {
+    c.get("local_state")
+        .and_then(|l| l.get("storage"))
+        .and_then(|s| s.get("object_store_path"))
+        .and_then(|p| p.as_str())
+        .map(|p| !p.is_empty())
+        .unwrap_or(false)
+}
+
 /// Resolve the AMT container anchored under `anchor` (a project or
-/// equivalent container) — the first Derived/AMT-typed child. Shared by
-/// `process_graph_event` below and the ripple-actor dispatch loop's
-/// project-scoped findings (`actors.rs`). Errors if `anchor` itself
-/// doesn't resolve (matches `process_graph_event`'s original behavior);
-/// `Ok(None)` means the anchor is real but has no AMT child yet.
+/// equivalent container). Shared by `process_graph_event` below and the
+/// ripple-actor dispatch loop's project-scoped findings (`actors.rs`). Errors
+/// if `anchor` itself doesn't resolve (matches `process_graph_event`'s
+/// original behavior); `Ok(None)` means the anchor is real but has no AMT
+/// child yet.
+///
+/// Selection (root cause of the "container has no object_store_path" task
+/// spam: the old rule returned the FIRST `Derived` child, but a project has
+/// other `Derived` children — insights, graphs — that carry no AMT body, so
+/// the loop was handed a container it could never expand and failed one task
+/// per event): only children WITH a body file qualify, a real AMT container
+/// (provenance `orchestrator:amt`, or `amt`/`amt-main`/`amt-fork-of:` keywords)
+/// wins, the project's main AMT wins over its forks, and a body-bearing
+/// `Derived` child is the last-resort fallback (the old behavior, minus the
+/// body-less ones).
 pub async fn resolve_anchor_amt(store: &dyn StoreAccess, anchor: u64) -> Result<Option<u64>, String> {
     let anchor_json = store
         .get_container(anchor)
         .await?
         .ok_or_else(|| format!("anchor container {} not found", anchor))?;
+
+    let cache = ANCHOR_AMT_CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    let cached = cache.lock().ok().and_then(|m| m.get(&anchor).copied());
+    if let Some(id) = cached {
+        if let Ok(Some(c)) = store.get_container(id).await {
+            if container_json_has_body(&c) {
+                return Ok(Some(id));
+            }
+        }
+    }
+
     let child_ids: Vec<u64> = anchor_json
         .get("global_state")
         .and_then(|g| g.get("child_ids"))
         .and_then(|c| c.as_array())
         .map(|a| a.iter().filter_map(|v| v.as_u64()).collect())
         .unwrap_or_default();
+    let mut strict_main: Option<u64> = None;
+    let mut strict_any: Option<u64> = None;
+    let mut fallback: Option<u64> = None;
     for child in child_ids {
-        if let Some(c) = store.get_container(child).await? {
-            let ctype = c
-                .get("local_state")
-                .and_then(|l| l.get("metadata"))
-                .and_then(|m| m.get("container_type"))
-                .and_then(|t| t.as_str())
-                .unwrap_or("")
-                .to_string();
-            // AMT containers persist as "Derived"-typed children of the
-            // anchor (see persist_amt_container's JSON contract).
-            if ctype == "Derived" || ctype.contains("AMT") {
-                return Ok(Some(child));
+        let Some(c) = store.get_container(child).await? else { continue };
+        let ctype = c
+            .get("local_state")
+            .and_then(|l| l.get("metadata"))
+            .and_then(|m| m.get("container_type"))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string();
+        // AMT containers persist as "Derived"-typed children of the
+        // anchor (see persist_amt_container's JSON contract).
+        if !(ctype == "Derived" || ctype.contains("AMT")) {
+            continue;
+        }
+        if !container_json_has_body(&c) {
+            continue; // nothing to expand — never hand the loop a body-less container
+        }
+        let provenance = c
+            .get("local_state")
+            .and_then(|l| l.get("metadata"))
+            .and_then(|m| m.get("provenance"))
+            .and_then(|p| p.as_str())
+            .unwrap_or("");
+        let keywords: Vec<String> = c
+            .get("local_state")
+            .and_then(|l| l.get("context"))
+            .and_then(|x| x.get("keywords"))
+            .and_then(|k| serde_json::from_value(k.clone()).ok())
+            .unwrap_or_default();
+        let is_main = keywords.iter().any(|k| k == "amt-main");
+        let is_amt = provenance == "orchestrator:amt"
+            || is_main
+            || keywords.iter().any(|k| k == "amt" || k.starts_with("amt-fork-of:"));
+        if is_amt {
+            if is_main && strict_main.is_none() {
+                strict_main = Some(child);
+                break; // the project's main AMT cannot be beaten
             }
+            if strict_any.is_none() {
+                strict_any = Some(child);
+            }
+        } else if fallback.is_none() {
+            fallback = Some(child);
         }
     }
-    Ok(None)
+    let resolved = strict_main.or(strict_any).or(fallback);
+    if let (Some(id), Ok(mut m)) = (resolved, cache.lock()) {
+        m.insert(anchor, id);
+    }
+    Ok(resolved)
 }
 
 /// Subscribe the AMT re-expansion pipeline to the living-graph ripple

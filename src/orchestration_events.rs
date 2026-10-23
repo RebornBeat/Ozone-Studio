@@ -46,6 +46,10 @@ pub struct OrchestrationStageEvent {
     /// 0 for stages recorded via the untimed `record_stage` path.
     pub duration_ms: u64,
     pub timestamp: u64,
+    /// TRACE SPINE: the run this stage belongs to (see `crate::trace`),
+    /// read from the current trace at emit time. Absent when untraced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 static HUB: OnceLock<OrchestrationEventHub> = OnceLock::new();
@@ -103,6 +107,9 @@ pub struct PipelineLocationEvent {
     pub file_path: String,
     pub operation: String,
     pub timestamp: u64,
+    /// TRACE SPINE: run this execution belongs to, when one was in scope.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
 }
 
 static LOCATION_HUB: OnceLock<PipelineLocationEventHub> = OnceLock::new();
@@ -140,6 +147,7 @@ pub fn emit_location(execution_id: &str, task_id: Option<u64>, file_path: &str, 
         file_path: file_path.to_string(),
         operation: operation.to_string(),
         timestamp,
+        trace_id: crate::trace::current_trace().map(|t| t.trace_id),
     };
     // No active subscribers is the common case — not an error, nothing to log.
     let _ = PipelineLocationEventHub::global()
@@ -269,5 +277,6 @@ pub fn emit(
         summary: summary.to_string(),
         duration_ms,
         timestamp,
+        trace_id: crate::trace::current_trace().map(|t| t.trace_id),
     });
 }

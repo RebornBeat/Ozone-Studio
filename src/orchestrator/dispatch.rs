@@ -55,7 +55,10 @@ where
     for (idx, item) in items.into_iter().enumerate() {
         let semaphore = semaphore.clone();
         let f = f.clone();
-        set.spawn(async move {
+        // `traced`: JoinSet tasks do not inherit task-locals — without this the
+        // calls an item makes (intent / cross-ref / grammar waves) would fall
+        // out of the run's trace.
+        set.spawn(crate::orchestrator::traced(async move {
             // The permit is held for the item's whole future — continuous
             // dispatch: the next item starts the moment ANY slot frees.
             let _permit = semaphore
@@ -63,7 +66,7 @@ where
                 .await
                 .expect("dispatch semaphore closed while in use");
             (idx, f(item).await)
-        });
+        }));
     }
 
     let mut slots: Vec<Option<Result<V, String>>> = (0..total).map(|_| None).collect();

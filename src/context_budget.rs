@@ -204,6 +204,12 @@ pub struct ContextRecord {
     /// Every cut made while materializing this view (empty when none).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub trims: Vec<TrimRecord>,
+    /// TRACE SPINE: run / span this call belongs to (see `crate::trace`).
+    /// Filled by `record_call` from the current trace; absent when untraced.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<String>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -226,6 +232,8 @@ impl ContextRecord {
             usable: false,
             served_window_exceeded: false,
             trims: Vec::new(),
+            trace_id: None,
+            span_id: None,
         }
     }
 }
@@ -237,9 +245,15 @@ static SINK_DISABLED: AtomicBool = AtomicBool::new(false);
 /// model_calls/ capture precedent). BEST-EFFORT by contract: a capture
 /// failure warns once and disables the sink — it must never block, panic,
 /// or fail a model call. This is capture, not behavior.
-pub fn record_call(record: ContextRecord) {
+pub fn record_call(mut record: ContextRecord) {
     if SINK_DISABLED.load(Ordering::Relaxed) {
         return;
+    }
+    if record.trace_id.is_none() {
+        if let Some(t) = crate::trace::current_trace() {
+            record.trace_id = Some(t.trace_id);
+            record.span_id = Some(t.span_id);
+        }
     }
     use std::io::Write;
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());

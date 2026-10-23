@@ -104,6 +104,10 @@ const server = createServer((req, res) => {
     try {
       const body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
       tool = String(body?.tool ?? "");
+      // The host registry also lists `sec_`-prefixed aliases of these tools
+      // (sec_net_connections, sec_firewall_status, ...). Accept them as the
+      // same read-only tool instead of answering "unknown tool".
+      if (tool.startsWith("sec_")) tool = tool.slice(4);
       input = body?.input ?? {};
     } catch {
       reply(res, 400, { success: false, error: "invalid JSON body" });

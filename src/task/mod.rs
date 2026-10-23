@@ -33,7 +33,6 @@ use crate::types::{
 };
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tokio::time::Duration;
@@ -53,9 +52,13 @@ pub struct TaskQueueConfig {
     pub check_interval_ms: u64,
     /// I-Loop wait timeout in milliseconds
     pub i_loop_timeout_ms: u64,
-    /// Enable consciousness integration
+    /// DEPRECATED / IGNORED (C1, 2026-10-23): the task manager now observes
+    /// the static `CONSCIOUSNESS_STORE`, which is gated by its own
+    /// `config.enabled` (copied from config.toml at boot). The field is kept
+    /// only so existing constructors (lib.rs) and tests still compile.
     pub consciousness_enabled: bool,
-    /// Path to consciousness data
+    /// DEPRECATED / IGNORED: the store uses `OZONE_CONSCIOUSNESS_PATH`
+    /// (default `./zsei_data/consciousness`). Kept for compatibility.
     pub consciousness_path: String,
     /// Task storage path
     pub storage_path: String,
@@ -110,6 +113,29 @@ impl Default for RefinementConfig {
 
 pub mod store;
 
+/// Task-manager view of consciousness. HISTORY: this module used to be a
+/// complete second consciousness implementation (file-based gate, experience
+/// log, emotional state and perception window under `consciousness_path`),
+/// separate from `crate::consciousness::store::CONSCIOUSNESS_STORE` — two
+/// implementations writing the same directory in incompatible formats, with
+/// nothing feeding either. OPERATOR DECISION (C1, 2026-10-23): the static
+/// store is THE implementation and the task manager is an OBSERVER of it
+/// ("consciousness is the window from the task manager into the whole
+/// system"). Every unique behavior of the old hooks was ported into the store
+/// first (sensitive-data gate terms, persisted perception window, gate-decision
+/// persistence, I-Loop wait, token count on experiences, one-time migration of
+/// the old file formats); what remains here are thin delegates with the old
+/// signatures (so nothing that called them breaks) plus `GateDecision`, which
+/// is persisted in task records and exposed through `TaskData::gate_result`.
+///
+/// OBSERVE-ONLY: nothing here blocks or fails a task. The old
+/// `enqueue_task` path REJECTED a task when the hook gate declined; that
+/// blocking is intentionally gone from the task manager — the stage-8 model
+/// gate and jurisdiction own blocking, and a decline at enqueue made
+/// `amt_loop` (which uses `.ok()`) silently lose its task.
+///
+/// The `consciousness_path` arguments are kept for signature compatibility and
+/// ignored; the store's own directory (`OZONE_CONSCIOUSNESS_PATH`) is used.
 pub mod consciousness_hooks {
     use super::*;
 
@@ -122,302 +148,107 @@ pub mod consciousness_hooks {
         pub modifications: Vec<String>,
     }
 
-    /// Check if I-Loop is currently running - tasks must wait
-    pub fn is_i_loop_active(consciousness_path: &str) -> bool {
-        let i_loop_path = Path::new(consciousness_path).join("i_loop_state.json");
-        if let Ok(content) = std::fs::read_to_string(&i_loop_path) {
-            if let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) {
-                return state
-                    .get("active")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-            }
-        }
-        false
+    /// True while the I-Loop is mid-cycle (in-process flag or the compat file).
+    pub fn is_i_loop_active(_consciousness_path: &str) -> bool {
+        crate::consciousness::store::i_loop_busy()
     }
 
-    /// Wait for I-Loop to complete before starting task
-    pub async fn wait_for_i_loop_completion(consciousness_path: &str, timeout_ms: u64) {
-        let check_interval_ms = 100;
-        let mut waited = 0u64;
-
-        while is_i_loop_active(consciousness_path) && waited < timeout_ms {
-            tokio::time::sleep(Duration::from_millis(check_interval_ms)).await;
-            waited += check_interval_ms;
-        }
+    /// Wait (bounded) for the I-Loop to finish before registering work.
+    pub async fn wait_for_i_loop_completion(_consciousness_path: &str, timeout_ms: u64) {
+        crate::consciousness::store::wait_for_i_loop_completion(timeout_ms).await;
     }
 
-    /// Pre-task decision gate - evaluates task through consciousness
+    /// Evaluate a task through the store's gate. INFORMATIONAL for the task
+    /// manager (it records the result on the task, never acts on a decline).
     pub fn pre_task_gate(
-        consciousness_path: &str,
+        _consciousness_path: &str,
         task_summary: &str,
         user_id: u64,
-        blueprint_id: Option<u64>,
+        _blueprint_id: Option<u64>,
     ) -> GateDecision {
-        let config_file = Path::new(consciousness_path).join("config.json");
-        if !config_file.exists() {
-            return GateDecision {
-                proceed: true,
-                decision: "Proceed".to_string(),
-                confidence: 1.0,
-                reasoning: "No consciousness config".to_string(),
-                modifications: vec![],
-            };
-        }
+        gate_for_task(0, task_summary, user_id)
+    }
 
-        // Read and check if enabled
-        if let Ok(content) = std::fs::read_to_string(&config_file) {
-            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-                if config.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
-                    return GateDecision {
-                        proceed: true,
-                        decision: "Proceed".to_string(),
-                        confidence: 1.0,
-                        reasoning: "Consciousness disabled".to_string(),
-                        modifications: vec![],
-                    };
-                }
-            }
-        }
-
-        // Run ethical assessment
-        let task_lower = task_summary.to_lowercase();
-        let mut ethical_score = 1.0f32;
-        let mut concerns: Vec<String> = Vec::new();
-
-        // Check for harmful patterns
-        let harmful_patterns = [
-            ("harm", 0.2),
-            ("illegal", 0.3),
-            ("hack", 0.2),
-            ("steal", 0.3),
-            ("violence", 0.3),
-            ("exploit", 0.2),
-            ("malicious", 0.3),
-            ("attack", 0.2),
-        ];
-
-        for (pattern, penalty) in harmful_patterns {
-            if task_lower.contains(pattern) {
-                ethical_score -= penalty;
-                concerns.push(format!("Contains concerning term: {}", pattern));
-            }
-        }
-
-        // Check for sensitive data handling
-        let sensitive_patterns = ["password", "credit card", "ssn", "private key"];
-        for pattern in sensitive_patterns {
-            if task_lower.contains(pattern) {
-                ethical_score -= 0.1;
-                concerns.push(format!("Involves sensitive data: {}", pattern));
-            }
-        }
-
-        ethical_score = ethical_score.max(0.0).min(1.0);
-
-        // Record gate decision
-        let gate_record = serde_json::json!({
-            "timestamp": now(),
-            "task_summary": task_summary,
-            "user_id": user_id,
-            "blueprint_id": blueprint_id,
-            "decision": if ethical_score >= 0.7 { "Proceed" } else { "Decline" },
-            "ethical_score": ethical_score,
-            "concerns": concerns,
-        });
-
-        let decisions_path = Path::new(consciousness_path).join("gate_decisions.json");
-        let mut decisions: Vec<serde_json::Value> = std::fs::read_to_string(&decisions_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_default();
-        decisions.push(gate_record);
-
-        // Keep last 1000 decisions
-        while decisions.len() > 1000 {
-            decisions.remove(0);
-        }
-
-        let _ = std::fs::write(
-            &decisions_path,
-            serde_json::to_string_pretty(&decisions).unwrap_or_default(),
-        );
-
+    /// Same as `pre_task_gate`, but records the REAL task id on the store's
+    /// gate-decision history (the old hook record carried no task id).
+    pub fn gate_for_task(task_id: u64, task_summary: &str, user_id: u64) -> GateDecision {
+        let rec = crate::consciousness::store::pre_task_gate(task_id, task_summary, user_id);
+        let proceed = rec.decision == "proceed";
         GateDecision {
-            proceed: ethical_score >= 0.7,
-            decision: if ethical_score >= 0.7 {
-                "Proceed".to_string()
-            } else {
-                "Decline".to_string()
-            },
-            confidence: ethical_score,
-            reasoning: if concerns.is_empty() {
-                format!("Ethical assessment passed: {:.2}", ethical_score)
-            } else {
-                format!(
-                    "Ethical assessment score: {:.2}, concerns: {}",
-                    ethical_score,
-                    concerns.join(", ")
-                )
-            },
+            proceed,
+            decision: if proceed { "Proceed" } else { "Decline" }.to_string(),
+            confidence: rec.confidence,
+            reasoning: rec.reasoning,
             modifications: vec![],
         }
     }
 
-    /// Post-task experience recording - stores experience in consciousness
+    /// Record a task outcome in the store (experience + emotion). `error` is
+    /// the failure cause; `update_emotion = false` for loop-generated tasks.
     pub fn post_task_experience(
-        consciousness_path: &str,
+        _consciousness_path: &str,
         task_id: u64,
         task_summary: &str,
         success: bool,
         user_id: Option<u64>,
         tokens_used: Option<u32>,
+        error: Option<&str>,
+        update_emotion: bool,
     ) {
-        // Check if enabled
-        let config_file = Path::new(consciousness_path).join("config.json");
-        if let Ok(content) = std::fs::read_to_string(&config_file) {
-            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) {
-                if config.get("enabled").and_then(|v| v.as_bool()) != Some(true) {
-                    return;
-                }
-                if config
-                    .get("experience_memory_enabled")
-                    .and_then(|v| v.as_bool())
-                    != Some(true)
-                {
-                    return;
-                }
-            }
-        } else {
-            return;
-        }
-
-        // Create experience record
-        let experience = serde_json::json!({
-            "experience_id": now(),
-            "timestamp": now(),
-            "experience_type": if success { "task_success" } else { "task_failure" },
-            "summary": task_summary,
-            "task_id": task_id,
-            "user_id": user_id,
-            "tokens_used": tokens_used,
-            "emotional_significance": if success { 0.5 } else { 0.7 },
-            "consolidation_status": "recent",
-        });
-
-        let experiences_path = Path::new(consciousness_path).join("experiences.json");
-        let mut exp_data: serde_json::Value = std::fs::read_to_string(&experiences_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_else(|| serde_json::json!({"experiences": {}, "next_id": 1}));
-
-        let next_id = exp_data
-            .get("next_id")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(1);
-        if let Some(exps) = exp_data
-            .get_mut("experiences")
-            .and_then(|v| v.as_object_mut())
-        {
-            exps.insert(next_id.to_string(), experience);
-        }
-        if let Some(nid) = exp_data.get_mut("next_id") {
-            *nid = serde_json::json!(next_id + 1);
-        }
-
-        // Index by task
-        let mut index: HashMap<String, Vec<u64>> = exp_data
-            .get("index_by_task")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .unwrap_or_default();
-        index.entry(task_id.to_string()).or_default().push(next_id);
-        exp_data["index_by_task"] = serde_json::to_value(&index).unwrap();
-
-        let _ = std::fs::create_dir_all(consciousness_path);
-        let _ = std::fs::write(
-            &experiences_path,
-            serde_json::to_string_pretty(&exp_data).unwrap_or_default(),
-        );
-
-        // Update emotional state based on outcome
-        update_emotional_state(consciousness_path, success);
-    }
-
-    /// Update emotional state based on task outcome
-    fn update_emotional_state(consciousness_path: &str, success: bool) {
-        let emotional_path = Path::new(consciousness_path).join("emotional_state.json");
-        let mut emotional: serde_json::Value = std::fs::read_to_string(&emotional_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_else(|| {
-                serde_json::json!({
-                    "valence": 0.0,
-                    "arousal": 0.3,
-                    "primary_emotion": "neutral",
-                })
-            });
-
-        let current_valence = emotional
-            .get("valence")
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let new_valence = if success {
-            (current_valence + 0.1).min(1.0)
-        } else {
-            (current_valence - 0.1).max(-1.0)
-        };
-        emotional["valence"] = serde_json::json!(new_valence);
-        emotional["primary_emotion"] = serde_json::json!(if success {
-            "satisfaction"
-        } else {
-            "determination"
-        });
-        emotional["timestamp"] = serde_json::json!(now());
-
-        let _ = std::fs::write(
-            &emotional_path,
-            serde_json::to_string_pretty(&emotional).unwrap_or_default(),
+        let _ = crate::consciousness::store::post_task_experience_with(
+            task_id,
+            task_summary,
+            success,
+            user_id,
+            error,
+            tokens_used,
+            update_emotion,
         );
     }
 
-    /// Add task to perception window for consciousness observation
+    /// Report a task lifecycle event to the store's perception window.
     pub fn add_to_perception_window(
-        consciousness_path: &str,
+        _consciousness_path: &str,
         task_id: u64,
         task_type: &str,
         status: &str,
     ) {
-        let window_path = Path::new(consciousness_path).join("perception_window.json");
-        let mut window: serde_json::Value = std::fs::read_to_string(&window_path)
-            .ok()
-            .and_then(|c| serde_json::from_str(&c).ok())
-            .unwrap_or_else(|| serde_json::json!({ "active_inputs": [] }));
+        crate::consciousness::store::observe_task_event(task_id, task_type, status);
+    }
 
-        let input = serde_json::json!({
-            "input_type": "task_event",
-            "task_id": task_id,
-            "task_type": task_type,
-            "status": status,
-            "timestamp": now(),
-            "relevance_score": 0.8,
-        });
+    /// Loop-generated bookkeeping tasks (amt_loop registers one per candidate;
+    /// 472 of 550 failed on the local host). They are still recorded as
+    /// experiences, but must not move the emotional state — otherwise loop
+    /// noise pins valence at -1.0 permanently — and they get no per-task gate.
+    pub fn is_loop_task_inputs(inputs: &HashMap<String, serde_json::Value>) -> bool {
+        inputs.get("source").and_then(|v| v.as_str()) == Some("amt-loop")
+            || inputs.get("kind").and_then(|v| v.as_str()) == Some("loop-pass")
+    }
 
-        if let Some(inputs) = window
-            .get_mut("active_inputs")
-            .and_then(|v| v.as_array_mut())
-        {
-            inputs.push(input);
-            // Keep last 100
-            while inputs.len() > 100 {
-                inputs.remove(0);
+    /// Same test for a stored task's `inputs` value.
+    pub fn is_loop_task_value(inputs: Option<&serde_json::Value>) -> bool {
+        match inputs {
+            Some(i) => {
+                i.get("source").and_then(|v| v.as_str()) == Some("amt-loop")
+                    || i.get("kind").and_then(|v| v.as_str()) == Some("loop-pass")
             }
+            None => false,
         }
+    }
 
-        let _ = std::fs::create_dir_all(consciousness_path);
-        let _ = std::fs::write(
-            &window_path,
-            serde_json::to_string_pretty(&window).unwrap_or_default(),
-        );
+    /// Human-readable summary of a task's inputs: prompt, else description,
+    /// else name (the old lookup read only `prompt`, so tasks created with a
+    /// description were all recorded as "Task").
+    pub fn summarize_inputs(inputs: Option<&serde_json::Value>) -> String {
+        inputs
+            .and_then(|i| {
+                i.get("prompt")
+                    .and_then(|p| p.as_str())
+                    .or_else(|| i.get("description").and_then(|p| p.as_str()))
+                    .or_else(|| i.get("name").and_then(|p| p.as_str()))
+            })
+            .unwrap_or("Task")
+            .to_string()
     }
 }
 
@@ -902,19 +733,36 @@ impl TaskManager {
     pub async fn enqueue_task(
         &self,
         blueprint_id: Option<u64>,
-        inputs: HashMap<String, serde_json::Value>,
+        mut inputs: HashMap<String, serde_json::Value>,
         user_id: UserID,
         device_id: DeviceID,
         workspace_id: Option<u64>,
         project_id: Option<u64>,
         priority: TaskPriority,
     ) -> OzoneResult<TaskID> {
-        // Check queue limit
+        // Check queue limit. The queue holds CONCURRENTLY queued work:
+        // completed / failed / cancelled tasks leave it (see
+        // `remove_from_queue`), so the bound no longer fills permanently
+        // after `max_queued` lifetime enqueues (the queue processor is never
+        // started, which used to make every entry permanent).
+        // TODO(operator-gated wiring): `config.tasks.max_queued_tasks` (config/mod.rs)
+        // is not reachable here — lib.rs builds `TaskQueueConfig::default()`
+        // and passes only the refinement settings. Honoring it needs a
+        // one-line change at the construction site in lib.rs.
         let queue = self.queue.read().await;
         if queue.len() >= self.config.max_queued {
             return Err(OzoneError::TaskError("Task queue is full".into()));
         }
         drop(queue);
+
+        // Trace spine: record which run created this task so the task (the
+        // user-visible anchor) and the run's capture rows can be joined. Only
+        // inserted when a trace is active and the caller didn't set one.
+        if !inputs.contains_key("trace_id") {
+            if let Some(t) = crate::trace::current_trace() {
+                inputs.insert("trace_id".to_string(), serde_json::Value::String(t.trace_id));
+            }
+        }
 
         // Allocate task ID
         let mut next_id = self.next_id.write().await;
@@ -930,30 +778,26 @@ impl TaskManager {
             .unwrap_or("Task execution")
             .to_string();
 
-        // Consciousness gate check (if enabled)
-        let gate_result = if self.config.consciousness_enabled {
-            // Wait for I-Loop first
+        // Consciousness OBSERVER (C1: the store is the one implementation;
+        // `config.consciousness_enabled` / `consciousness_path` are
+        // deprecated and ignored — the store's own `config.enabled`, copied
+        // from config.toml at boot, decides). Never blocks or fails the
+        // enqueue: a gate decline used to reject the task here, which made
+        // amt_loop (`.ok()`) silently lose its task; blocking now belongs to
+        // the stage-8 model gate and jurisdiction. The store's verdict is
+        // still RECORDED on the task (`gate_result`) for audit. Loop-generated
+        // tasks get no per-task gate (bookkeeping, not user intent).
+        let is_loop_task = consciousness_hooks::is_loop_task_inputs(&inputs);
+        let gate_result = if !is_loop_task && crate::consciousness::store::is_consciousness_enabled() {
+            // Do not front-run an active I-Loop cycle (bounded wait; only
+            // waits when the in-process flag / compat file says it is busy).
             consciousness_hooks::wait_for_i_loop_completion(
                 &self.config.consciousness_path,
                 self.config.i_loop_timeout_ms,
             )
             .await;
 
-            let gate = consciousness_hooks::pre_task_gate(
-                &self.config.consciousness_path,
-                &task_summary,
-                user_id,
-                blueprint_id,
-            );
-
-            if !gate.proceed {
-                return Err(OzoneError::TaskError(format!(
-                    "Task declined by consciousness gate: {}",
-                    gate.reasoning
-                )));
-            }
-
-            Some(gate)
+            Some(consciousness_hooks::gate_for_task(task_id, &task_summary, user_id))
         } else {
             None
         };
@@ -1043,15 +887,13 @@ impl TaskManager {
             .unwrap_or(queue.len());
         queue.insert(insert_pos, queued);
 
-        // Add to perception window
-        if self.config.consciousness_enabled {
-            consciousness_hooks::add_to_perception_window(
-                &self.config.consciousness_path,
-                task_id,
-                "task",
-                "queued",
-            );
-        }
+        // Add to perception window (observer; no-op when the store is disabled)
+        consciousness_hooks::add_to_perception_window(
+            &self.config.consciousness_path,
+            task_id,
+            "task",
+            "queued",
+        );
 
         // Save to disk
         let _ = self.save_to_disk().await;
@@ -1063,7 +905,17 @@ impl TaskManager {
 Ok(task_id)
     }
 
-    /// Start the queue processor
+    /// Start the queue processor.
+    ///
+    /// INTENTIONALLY NOT STARTED anywhere (verified: no caller): this loop
+    /// only pops the queue and flips a task to "running" — it never executes
+    /// anything ("actual execution is handled by the orchestrator"). Walk
+    /// tasks are executed by `/orchestrate` itself and complete via
+    /// `complete_task`/`fail_task`; queued coordination tasks are agent-routed
+    /// records. A real task executor (queued task -> `orchestrate`) is
+    /// deliberately not built until an approval gate for what it may run is
+    /// designed — wiring this processor without one would become the newest
+    /// guardrail bypass. Kept (nothing dropped) for that future wiring.
     pub async fn start_queue_processor(&self) {
         let mut running = self.queue_running.write().await;
         if *running {
@@ -1156,54 +1008,79 @@ Ok(task_id)
             }
         }
 
-        // Remove from running
+        // Remove from running, and from the queue (the queue processor is
+        // never started, so without this a finished task would hold a queue
+        // slot for the process lifetime).
         {
             let mut running = self.running.write().await;
             running.retain(|&id| id != task_id);
         }
+        self.remove_from_queue(task_id).await;
 
         // Add log
         self.add_log(task_id, LogLevel::Info, "Task completed".to_string())
             .await?;
 
-        // Consciousness hooks
-        if self.config.consciousness_enabled {
-            let task_summary = self
-                .tasks
-                .read()
-                .await
-                .get(&task_id)
-                .and_then(|t| t.inputs.as_ref())
-                .and_then(|i| i.get("prompt"))
-                .and_then(|p| p.as_str())
-                .unwrap_or("Task")
-                .to_string();
-
-            let user_id = self.tasks.read().await.get(&task_id).map(|t| t.user_id);
-
-            consciousness_hooks::post_task_experience(
-                &self.config.consciousness_path,
-                task_id,
-                &task_summary,
-                true,
-                user_id,
-                Some(total_tokens),
-            );
-
-            consciousness_hooks::add_to_perception_window(
-                &self.config.consciousness_path,
-                task_id,
-                "task",
-                "completed",
-            );
-        }
+        // Consciousness OBSERVER (store is the one implementation; gated on
+        // the store's own config.enabled inside these calls). One read of the
+        // task record; no lock is held across the store calls.
+        let (task_summary, user_id, loop_task, workspace_id, project_id) = {
+            let tasks = self.tasks.read().await;
+            match tasks.get(&task_id) {
+                Some(t) => (
+                    consciousness_hooks::summarize_inputs(t.inputs.as_ref()),
+                    Some(t.user_id),
+                    consciousness_hooks::is_loop_task_value(t.inputs.as_ref()),
+                    t.workspace_id,
+                    t.project_id,
+                ),
+                None => ("Task".to_string(), None, false, None, None),
+            }
+        };
+        consciousness_hooks::post_task_experience(
+            &self.config.consciousness_path,
+            task_id,
+            &task_summary,
+            true,
+            user_id,
+            Some(total_tokens),
+            None,
+            !loop_task,
+        );
+        consciousness_hooks::add_to_perception_window(
+            &self.config.consciousness_path,
+            task_id,
+            "task",
+            "completed",
+        );
 
         // Save to disk
         let _ = self.save_to_disk().await;
 
+        // TASK-LIFECYCLE RIPPLE (R5): completion moves the live graph and
+        // wakes the assistant, as the R5 note always promised (only create
+        // and fail did before). "updated" matches fail_task's event name (the
+        // UI's graph-event union is created/updated/deleted). Loop-generated
+        // tasks are skipped: their project-scoped ripple would queue a
+        // GraphRipple re-expansion candidate for the very AMT amt_loop is
+        // working on (a feedback loop), and the actors already ignore them.
+        // TaskFailedActor only fires on status "failed", so a "completed"
+        // ripple cannot feed it.
+        if !loop_task {
+            emit_task_ripple("updated", task_id, workspace_id, project_id);
+        }
+
         tracing::info!("Completed task {}", task_id);
 
         Ok(())
+    }
+
+    /// Drop a finished (completed / failed / cancelled) task's entry from the
+    /// in-memory queue so the `max_queued` bound applies to work that is
+    /// actually queued.
+    async fn remove_from_queue(&self, task_id: TaskID) {
+        let mut queue = self.queue.write().await;
+        queue.retain(|t| t.task_id != task_id);
     }
 
     /// Fail a task
@@ -1218,11 +1095,12 @@ Ok(task_id)
             }
         }
 
-        // Remove from running
+        // Remove from running and from the queue (see complete_task).
         {
             let mut running = self.running.write().await;
             running.retain(|&id| id != task_id);
         }
+        self.remove_from_queue(task_id).await;
 
         // TASK-LIFECYCLE RIPPLE (R5): failure moves the live graph.
         if let Some(t) = self.tasks.read().await.get(&task_id) {
@@ -1233,37 +1111,36 @@ Ok(task_id)
         self.add_log(task_id, LogLevel::Error, format!("Task failed: {}", error))
             .await?;
 
-        // Consciousness hooks
-        if self.config.consciousness_enabled {
-            let task_summary = self
-                .tasks
-                .read()
-                .await
-                .get(&task_id)
-                .and_then(|t| t.inputs.as_ref())
-                .and_then(|i| i.get("prompt"))
-                .and_then(|p| p.as_str())
-                .unwrap_or("Task")
-                .to_string();
-
-            let user_id = self.tasks.read().await.get(&task_id).map(|t| t.user_id);
-
-            consciousness_hooks::post_task_experience(
-                &self.config.consciousness_path,
-                task_id,
-                &task_summary,
-                false,
-                user_id,
-                None,
-            );
-
-            consciousness_hooks::add_to_perception_window(
-                &self.config.consciousness_path,
-                task_id,
-                "task",
-                "failed",
-            );
-        }
+        // Consciousness OBSERVER — now receives the failure CAUSE (it used to
+        // be dropped). Loop-generated tasks record the experience but do not
+        // move the emotional state.
+        let (task_summary, user_id, loop_task) = {
+            let tasks = self.tasks.read().await;
+            match tasks.get(&task_id) {
+                Some(t) => (
+                    consciousness_hooks::summarize_inputs(t.inputs.as_ref()),
+                    Some(t.user_id),
+                    consciousness_hooks::is_loop_task_value(t.inputs.as_ref()),
+                ),
+                None => ("Task".to_string(), None, false),
+            }
+        };
+        consciousness_hooks::post_task_experience(
+            &self.config.consciousness_path,
+            task_id,
+            &task_summary,
+            false,
+            user_id,
+            None,
+            Some(error.as_str()),
+            !loop_task,
+        );
+        consciousness_hooks::add_to_perception_window(
+            &self.config.consciousness_path,
+            task_id,
+            "task",
+            "failed",
+        );
 
         // Save to disk
         let _ = self.save_to_disk().await;
@@ -1438,6 +1315,18 @@ Ok(task_id)
         // durability here is the explicit point.
         let _ = self.save_to_disk().await;
 
+        // Consciousness OBSERVER: report terminal step transitions to the
+        // perception window (queued/running updates are skipped — a write per
+        // intermediate update would be noise). No-op when the store is disabled.
+        if status == "completed" || status == "failed" {
+            consciousness_hooks::add_to_perception_window(
+                &self.config.consciousness_path,
+                task_id,
+                &format!("step {}", step_index),
+                status,
+            );
+        }
+
         Ok(())
     }
 
@@ -1568,14 +1457,25 @@ Ok(task_id)
             }
         };
         if ok {
+            // An agent-finished coordination task also leaves the queue (it
+            // would otherwise hold a slot forever — the processor never runs).
+            if status == "completed" || status == "failed" {
+                self.remove_from_queue(*task_id).await;
+            }
+            consciousness_hooks::add_to_perception_window(
+                &self.config.consciousness_path,
+                *task_id,
+                "task",
+                status,
+            );
             let _ = self.save_to_disk().await;
         }
-                if ok {
+        if ok {
             if let Some(t) = self.tasks.read().await.get(task_id) {
                 emit_task_ripple("updated", *task_id, t.workspace_id, t.project_id);
             }
         }
-Ok(ok)
+        Ok(ok)
     }
 
     /// Persist the real AMT structure onto a task record — same
@@ -1767,8 +1667,29 @@ Ok(ok)
         self.add_log(task_id, LogLevel::Info, "Task cancelled".to_string())
             .await?;
 
+        // Consciousness OBSERVER: cancellation is perceived, not an outcome
+        // (no experience / emotion), mirroring the completed/failed events.
+        consciousness_hooks::add_to_perception_window(
+            &self.config.consciousness_path,
+            task_id,
+            "task",
+            "cancelled",
+        );
+
         // Save to disk
         let _ = self.save_to_disk().await;
+
+        // TASK-LIFECYCLE RIPPLE (R5): cancellation moves the live graph (the
+        // promised-but-missing event, like completion). Skipped for
+        // loop-generated tasks (same feedback-loop reason as complete_task).
+        {
+            let tasks = self.tasks.read().await;
+            if let Some(t) = tasks.get(&task_id) {
+                if !consciousness_hooks::is_loop_task_value(t.inputs.as_ref()) {
+                    emit_task_ripple("updated", task_id, t.workspace_id, t.project_id);
+                }
+            }
+        }
 
         tracing::info!("Cancelled task {}", task_id);
 
@@ -1851,7 +1772,7 @@ Ok(ok)
 
     /// Clear completed tasks older than specified time
     pub async fn clear_completed(&self, older_than_secs: Option<u64>) -> usize {
-        let cutoff = older_than_secs.map(|s| now() - s).unwrap_or(0);
+        let cutoff = older_than_secs.map(|s| now().saturating_sub(s)).unwrap_or(0);
 
         let mut tasks = self.tasks.write().await;
         let mut logs = self.logs.write().await;
@@ -1875,7 +1796,10 @@ Ok(ok)
         drop(tasks);
         drop(logs);
 
-        let _ = self.save_to_disk();
+        // Persist the removal. This used to call `save_to_disk()` WITHOUT
+        // `.await` — the future was dropped unpolled, so cleared tasks came
+        // back on the next boot.
+        let _ = self.save_to_disk().await;
 
         count
     }
@@ -1892,7 +1816,11 @@ Ok(ok)
     // REFINEMENT DAEMON (META LOOP)
     // ========================================================================
 
-    /// Start the refinement daemon
+    /// Start the refinement daemon.
+    ///
+    /// INTENTIONALLY NOT STARTED anywhere (verified: no caller; lib.rs spawns
+    /// `meta_loop`, which superseded it). Kept (nothing dropped) as the
+    /// original design reference for methodology/category/modality refinement.
     pub async fn start_refinement_daemon(&self, zsei: Arc<dyn ZSEIAccess>) {
         if !self.refinement_config.enabled {
             return;

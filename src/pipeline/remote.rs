@@ -85,6 +85,41 @@ impl RemotePipelines {
         entry
     }
 
+    /// Whether `pipeline_id` is a built-in the host ships (any id the pipeline
+    /// registry knows: the compile-time 1-55 table plus every runtime index
+    /// entry, e.g. 9 prompt, 39 decision gate, 56 web search, 100+ modalities).
+    /// A remote registered over one of these WINS dispatch (see
+    /// `executor::execute_inner`), so registering one is a deliberate,
+    /// privileged act: it reroutes that pipeline's traffic — prompts and
+    /// context included — to the registrant.
+    pub fn is_reserved_builtin(pipeline_id: u64) -> bool {
+        crate::pipeline::registry::get_pipeline_info(pipeline_id).is_some()
+    }
+
+    /// `register`, with the reserved-id guard. A built-in id is refused unless
+    /// `allow_builtin_override` is true — which the caller may pass only after
+    /// it has authenticated the registrant (the "agent serves as the model"
+    /// connect-model feature on id 9 stays available, just no longer to an
+    /// anonymous caller). Ids outside the built-in set (custom pipelines, the
+    /// 200-299 bridge range, 9xxx agent ids) register exactly as before.
+    pub async fn register_guarded(
+        &self,
+        pipeline_id: u64,
+        name: String,
+        execute_url: String,
+        roles: Vec<String>,
+        allow_builtin_override: bool,
+    ) -> Result<Arc<RemotePipeline>, String> {
+        if Self::is_reserved_builtin(pipeline_id) && !allow_builtin_override {
+            return Err(format!(
+                "pipeline id {} is a built-in; a remote registration would shadow it and receive its traffic. \
+                 Registering over a built-in id requires an authenticated operator override.",
+                pipeline_id
+            ));
+        }
+        Ok(self.register(pipeline_id, name, execute_url, roles).await)
+    }
+
     pub async fn deregister(&self, pipeline_id: u64) -> bool {
         self.map.write().await.remove(&pipeline_id).is_some()
     }
@@ -133,7 +168,27 @@ impl RemotePipelines {
             .await
             .ok_or_else(|| format!("No remote pipeline registered for id {}", pipeline_id))?;
 
-        let body = serde_json::to_value(input).map_err(|e| e.to_string())?;
+        let mut body = serde_json::to_value(input).map_err(|e| e.to_string())?;
+
+        // TRACE SPINE: a remote runs in another process we don't spawn, so
+        // the env-var route is unavailable — carry the ids in the envelope's
+        // `context.metadata` (the same place the spawn path stamps them).
+        if let Some(ctx) = crate::trace::current_trace() {
+            if let Some(md) = body
+                .get_mut("context")
+                .and_then(|c| c.get_mut("metadata"))
+                .and_then(|m| m.as_object_mut())
+            {
+                md.entry("trace_id".to_string())
+                    .or_insert_with(|| serde_json::Value::String(ctx.trace_id.clone()));
+                md.entry("span_id".to_string())
+                    .or_insert_with(|| serde_json::Value::String(ctx.span_id.clone()));
+                if let Some(p) = ctx.parent_span.as_ref() {
+                    md.entry("parent_span".to_string())
+                        .or_insert_with(|| serde_json::Value::String(p.clone()));
+                }
+            }
+        }
 
         let resp = self
             .client

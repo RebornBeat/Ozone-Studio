@@ -2914,7 +2914,7 @@ Return ONLY valid JSON with a single one-word answer:
                     .saturating_mul(1 + order.len() as u64)
                     .saturating_add(30)
             };
-            set.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, crate::orchestrator::lane_split::LANE_SPEC.scope(spec, async move {
+            set.spawn(crate::orchestrator::traced(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, crate::orchestrator::lane_split::LANE_SPEC.scope(spec, async move {
                 let last_error = "lane starting".to_string();
                 let primary_model = crate::orchestrator::primary_model_identity(&input, None);
                 let walked = crate::orchestrator::PromptOrchestrator::walk_fallback_chain_standalone(
@@ -2946,7 +2946,7 @@ Return ONLY valid JSON with a single one-word answer:
                     }
                 };
                 (li, r)
-            })));
+            }))));
         }
         let mut slots: Vec<Option<Result<serde_json::Value, String>>> = vec![None; lanes.len()];
         while let Some(res) = set.join_next().await {
@@ -3025,10 +3025,10 @@ Return ONLY valid JSON with a single one-word answer:
                 if let Some(input) = input_opt {
                     let executor = self.executor.clone();
                     let input = input.clone();
-                    set2.spawn(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, async move {
+                    set2.spawn(crate::orchestrator::traced(crate::pipeline::gate::with_priority(crate::pipeline::gate::CallPriority::Lane, async move {
                         let r = executor.execute(9, input).await;
                         (li, r)
-                    }));
+                    })));
                 }
             }
             let mut retried: Vec<Option<Result<serde_json::Value, String>>> = vec![None; lanes.len()];
@@ -4073,6 +4073,7 @@ mod tests {
             start_time: std::time::Instant::now(),
             stages: Vec::new(),
             thinking_log: Vec::new(),
+            trace_id: None,
             jurisdiction_gate_result: None,
             file_relationship_summary_cache: None,
             prior_design_context: None,

@@ -35,6 +35,7 @@
 //! `compute_findings` fn — one canonical implementation, no second store.
 
 use crate::config::{AvailableModel, ModelFallbackConfig};
+use crate::orchestrator::run_spans::{self, PassStats};
 use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, StoreAccess};
 use crate::task::TaskData;
 use std::sync::Arc;
@@ -310,6 +311,46 @@ pub fn compute_findings(tasks: &[TaskData], now: u64) -> Vec<AssistantFinding> {
     out
 }
 
+/// Stable digest of a findings set: class + severity + task id + title per
+/// finding, sorted, hashed. Titles are stable across passes (the changing
+/// "N h ago" numbers live in `detail`, which is deliberately NOT part of the
+/// digest), so an unchanged set hashes identically pass after pass.
+fn findings_digest(findings: &[AssistantFinding]) -> String {
+    let mut lines: Vec<String> = findings
+        .iter()
+        .map(|f| format!("{}|{}|{}|{}", f.class, f.severity, f.task_id, f.title))
+        .collect();
+    lines.sort();
+    blake3::hash(lines.join("\n").as_bytes()).to_hex().to_string()
+}
+
+fn last_digest_path() -> std::path::PathBuf {
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    std::path::PathBuf::from(dir).join("consciousness/assistant_last_digest.json")
+}
+
+fn load_last_digest() -> Option<String> {
+    std::fs::read_to_string(last_digest_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("hash").and_then(|h| h.as_str()).map(String::from))
+}
+
+fn save_last_digest(hash: &str, findings: usize) {
+    let path = last_digest_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let body = serde_json::json!({ "hash": hash, "findings": findings, "at": now_secs() });
+    if let Ok(json) = serde_json::to_string_pretty(&body) {
+        // temp + rename so a crash mid-write cannot leave a truncated file.
+        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
 /// One assistant pass: free filter → one batched digest call → one insight
 /// container. Returns what it persisted (0 or 1 container id).
 async fn run_one_check_up(
@@ -319,6 +360,7 @@ async fn run_one_check_up(
     available_models: &[AvailableModel],
     meta_fallback: &ModelFallbackConfig,
     last_fire: &mut Option<u64>,
+    stats: &mut PassStats,
 ) -> Option<u64> {
     let now = now_secs();
     // Dedup against our own last firing — one check-up per interval max,
@@ -333,6 +375,20 @@ async fn run_one_check_up(
     let findings = compute_findings(&all, now);
     if findings.is_empty() {
         return None; // free, silent
+    }
+    stats.candidates_consumed = findings.len() as u64;
+    // CHANGE DETECTION: an identical findings set to the last paid digest
+    // would buy the same prose again. Skip the PAID call only — the free
+    // filter and the derived /assistant/feed route are untouched, so nothing
+    // the operator can see is lost. Logged, never silent.
+    let digest_hash = findings_digest(&findings);
+    if load_last_digest().as_deref() == Some(digest_hash.as_str()) {
+        tracing::info!(
+            findings = findings.len(),
+            "assistant: findings unchanged since the last digest — paid check-up skipped (change detection; /assistant/feed still shows them)"
+        );
+        stats.notes.push("findings unchanged since last digest — skipped".to_string());
+        return None;
     }
     *last_fire = Some(now);
 
@@ -355,6 +411,10 @@ async fn run_one_check_up(
         .map(|f| format!("- [{}] {}", f.class, f.title))
         .collect::<Vec<_>>()
         .join("\n");
+    let (meta_window_source, meta_model_id) = match meta_model.as_ref() {
+        Some(m) => (run_spans::profile_window(m.context_length).1, m.identifier.clone()),
+        None => (run_spans::default_model_window().1, String::new()),
+    };
     let assembled_findings = {
         let a = crate::context_budget::assemble(
             vec![
@@ -374,6 +434,14 @@ async fn run_one_check_up(
                 "assistant digest: findings trimmed to the meta model's window (recorded, markers emitted)"
             );
         }
+        run_spans::record_view_trims(
+            "assistant_check_up",
+            &meta_model_id,
+            meta_window,
+            meta_window_source,
+            350,
+            &a,
+        );
         a.text
     };
     let prompt = assembled_findings;
@@ -408,8 +476,15 @@ async fn run_one_check_up(
         }
     }
 
+    stats.calls_made += 1;
     let digest_result = executor.execute(PROMPT_PIPELINE_ID, input).await;
     crate::orchestrator::PromptOrchestrator::capture_loop_model_call("assistant_check_up", &prompt, &digest_result);
+    let digest_ok = digest_result.is_ok();
+    if digest_ok {
+        stats.successes += 1;
+    } else {
+        stats.failures += 1;
+    }
     let digest = match digest_result {
         Ok(result) => {
             let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
@@ -444,7 +519,7 @@ async fn run_one_check_up(
         "\n\n[consciousness-response: type=consciousness channel=text emotion={} valence={:.2} arousal={:.2} dominance={:.2} findings={}]",
         emotion.primary_emotion, emotion.valence, emotion.arousal, emotion.dominance, findings.len()
     ));
-    let citations: Vec<String> = findings
+    let mut citations: Vec<String> = findings
         .iter()
         .map(|f| {
             format!(
@@ -456,6 +531,11 @@ async fn run_one_check_up(
             )
         })
         .collect();
+    // Trace fields ride in the stored insight BODY (citations), never in the
+    // container keywords.
+    if let Some(t) = crate::trace::current_trace() {
+        citations.push(format!("trace:{} span:{}", t.trace_id, t.span_id));
+    }
 
     match crate::consciousness::review::persist_insight(
         store,
@@ -467,6 +547,11 @@ async fn run_one_check_up(
     {
         Some(id) => {
             tracing::info!(container_id = id, findings = findings.len(), "assistant: check-up insight persisted");
+            // Remember the set this paid digest covered — only when the model
+            // call itself succeeded, so a transient failure is retried.
+            if digest_ok {
+                save_last_digest(&digest_hash, findings.len());
+            }
             Some(id)
         }
         None => None,
@@ -557,17 +642,32 @@ pub async fn run_assistant_loop(
             _ = ticker.tick() => {}
             _ = wake().notified() => {}
         }
-        // run_one_check_up traces its own outcomes (persisted id, empty
-        // pass, digest failure) — nothing to add at this layer.
-        let _ = run_one_check_up(
-            &executor,
-            &store,
-            &tasks,
-            &available_models,
-            &meta_fallback,
-            &mut last_fire,
+        // TRACE ROOT (trace spine): one root per pass; the digest call and
+        // its capture rows carry it. run_one_check_up traces its own outcomes
+        // (persisted id, empty pass, digest failure).
+        let ctx = crate::trace::TraceCtx::new_root("loop-pass");
+        let mut stats = PassStats::default();
+        let persisted = crate::trace::with_trace(
+            ctx.clone(),
+            run_one_check_up(
+                &executor,
+                &store,
+                &tasks,
+                &available_models,
+                &meta_fallback,
+                &mut last_fire,
+                &mut stats,
+            ),
         )
         .await;
+        if let Some(id) = persisted {
+            stats.notes.push(format!("insight container {}", id));
+        }
+        if stats.did_work() {
+            let _ = run_spans::record_pass_span(&store, "assistant", &ctx, stats.to_json()).await;
+        } else {
+            tracing::debug!("assistant: idle pass — no span recorded (no findings, or unchanged since the last digest)");
+        }
     }
 }
 
@@ -719,11 +819,3 @@ mod tests {
     }
 }
 
-
-// staleness-actor live-fire probe
-
-// staleness probe 2
-
-// staleness probe 4
-
-// staleness probe 5

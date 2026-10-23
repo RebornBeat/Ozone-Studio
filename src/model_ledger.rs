@@ -166,6 +166,12 @@ struct LedgerLine {
     /// before this field existed have none, and are attributed on replay.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     cause: Option<String>,
+    /// TRACE SPINE: the run / span this call belongs to (see `crate::trace`).
+    /// Absent on rows written before the spine existed and on untraced calls.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    trace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    span_id: Option<String>,
     latency_ms: u64,
     call_site: String,
 }
@@ -185,6 +191,8 @@ fn to_line(model: &str, outcome: &Outcome, latency_ms: u64, call_site: &str, ts_
         prompt: None,
         response: None,
         cause: None,
+        trace_id: None,
+        span_id: None,
         latency_ms,
         call_site: call_site.to_string(),
     };
@@ -439,6 +447,10 @@ fn record_inner(
     line.cause = cause.map(|c| c.tag().to_string());
     line.prompt = prompt;
     line.response = response;
+    if let Some(t) = crate::trace::current_trace() {
+        line.trace_id = Some(t.trace_id);
+        line.span_id = Some(t.span_id);
+    }
     {
         let mut t = table().write().unwrap_or_else(|e| e.into_inner());
         t.entries
