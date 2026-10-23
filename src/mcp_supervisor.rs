@@ -141,6 +141,10 @@ pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
             credential_requirement: None,
             requires_p2p_enabled: true,
         }),
+        // code-graph-mcp (server.mjs default port 3279, env OZONE_CODE_GRAPH_PORT).
+        // Known to the supervisor so on-demand start works; auto_start stays
+        // a per-tool operator opt-in (default false) like every other tool.
+        3279 => Some(facts("code-graph-mcp", "server.mjs", "OZONE_CODE_GRAPH_PORT")),
         _ => None,
     }
 }
@@ -153,13 +157,74 @@ pub fn extract_port(endpoint: &str) -> Option<u16> {
     host_port.rsplit(':').next()?.parse().ok()
 }
 
-/// Where the fleet's source lives, relative-path convention matching
-/// this project's existing `zsei_data` cwd-relative pattern (the real
-/// host runs with cwd `target/release/`, two levels under `tools/`).
+/// Where the fleet's source lives. Resolution order (first that exists):
+/// 1. `OZONE_TOOLS_DIR` (explicit operator override, honored as-is),
+/// 2. `<exe dir>/../../tools` (the dev layout: binary in `target/release/`),
+/// 3. `<cwd>/tools` (repo root),
+/// 4. `/opt/ozone-tools` (the EU/server layout),
+/// 5. the historical cwd-relative `../../tools` (the real host used to run
+///    with cwd `target/release/`) — kept as the last-resort fallback so
+///    nothing that worked before stops working.
+/// The resolved path is logged once per process.
 pub fn tools_dir() -> PathBuf {
-    std::env::var("OZONE_TOOLS_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("../../tools"))
+    static RESOLVED: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    RESOLVED
+        .get_or_init(|| {
+            if let Ok(p) = std::env::var("OZONE_TOOLS_DIR") {
+                let p = PathBuf::from(p);
+                tracing::info!("mcp-supervisor: tools dir = {} (OZONE_TOOLS_DIR)", p.display());
+                return p;
+            }
+            let mut candidates: Vec<PathBuf> = Vec::new();
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    candidates.push(dir.join("../../tools"));
+                }
+            }
+            if let Ok(cwd) = std::env::current_dir() {
+                candidates.push(cwd.join("tools"));
+            }
+            candidates.push(PathBuf::from("/opt/ozone-tools"));
+            for c in candidates {
+                if c.is_dir() {
+                    tracing::info!("mcp-supervisor: tools dir = {}", c.display());
+                    return c;
+                }
+            }
+            let fallback = PathBuf::from("../../tools");
+            tracing::warn!(
+                "mcp-supervisor: no tools dir found via OZONE_TOOLS_DIR / exe-relative / cwd/tools / /opt/ozone-tools — falling back to {}",
+                fallback.display()
+            );
+            fallback
+        })
+        .clone()
+}
+
+/// Whether something is already accepting connections on `127.0.0.1:port`
+/// (~300ms budget). Used so a tool managed outside this host (systemd on
+/// the EU box) is recognized as running instead of being re-spawned.
+pub async fn port_is_listening(port: u16) -> bool {
+    matches!(
+        tokio::time::timeout(
+            Duration::from_millis(300),
+            tokio::net::TcpStream::connect(("127.0.0.1", port)),
+        )
+        .await,
+        Ok(Ok(_))
+    )
+}
+
+/// Last up-to-`n` lines of a log file, best-effort (empty string on error).
+fn tail_lines(path: &std::path::Path, n: usize) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(s) => {
+            let lines: Vec<&str> = s.lines().collect();
+            let start = lines.len().saturating_sub(n);
+            lines[start..].join("\n")
+        }
+        Err(_) => String::new(),
+    }
 }
 
 fn adb_binary() -> String {
@@ -256,28 +321,110 @@ impl McpProcessSupervisor {
     /// (missing `node`, missing script, port in use — all surfaced
     /// honestly, never swallowed).
     pub async fn start_port(&self, port: u16, zsei_data_dir: &str) -> Result<bool, String> {
-        let mut children = self.children.lock().await;
-        if let Some(child) = children.get_mut(&port) {
-            if matches!(child.try_wait(), Ok(None)) {
+        let facts = facts_for_port(port).ok_or_else(|| format!("no known process facts for port {port}"))?;
+        let log_path = {
+            let mut children = self.children.lock().await;
+            if let Some(child) = children.get_mut(&port) {
+                if matches!(child.try_wait(), Ok(None)) {
+                    return Ok(false);
+                }
+            }
+            // Something else already owns the port (e.g. the EU box runs
+            // security-mcp under systemd): not ours to start, and spawning
+            // a duplicate would only die on EADDRINUSE. Not an error.
+            if port_is_listening(port).await {
+                tracing::debug!(
+                    "mcp-supervisor: {} (port {port}) already listening — externally managed, not spawning",
+                    facts.dir
+                );
                 return Ok(false);
             }
+            let script = tools_dir().join(facts.dir).join(facts.entry);
+            if !script.exists() {
+                return Err(format!("entry script not found: {}", script.display()));
+            }
+            // stdout+stderr go to <data_dir>/logs/mcp-<dir>.log (append) so a
+            // spawn-and-die failure (port in use, missing dependency, syntax
+            // error) is visible instead of vanishing into /dev/null. Falls
+            // back to null only if the log file genuinely cannot be opened.
+            let logs_dir = std::path::Path::new(zsei_data_dir).join("logs");
+            let _ = std::fs::create_dir_all(&logs_dir);
+            let log_path = logs_dir.join(format!("mcp-{}.log", facts.dir));
+            let (out_stdio, err_stdio, logged) = match std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&log_path)
+            {
+                Ok(f) => match f.try_clone() {
+                    Ok(f2) => (
+                        std::process::Stdio::from(f),
+                        std::process::Stdio::from(f2),
+                        true,
+                    ),
+                    Err(_) => (std::process::Stdio::from(f), std::process::Stdio::null(), true),
+                },
+                Err(e) => {
+                    tracing::warn!(
+                        "mcp-supervisor: cannot open log file {} ({e}) — {} output will be discarded",
+                        log_path.display(),
+                        facts.dir
+                    );
+                    (std::process::Stdio::null(), std::process::Stdio::null(), false)
+                }
+            };
+            let child = std::process::Command::new("node")
+                .arg(&script)
+                .env(facts.port_env, port.to_string())
+                .env("OZONE_ZSEI_DATA_DIR", zsei_data_dir)
+                .stdin(std::process::Stdio::null())
+                .stdout(out_stdio)
+                .stderr(err_stdio)
+                .spawn()
+                .map_err(|e| format!("spawn failed: {e}"))?;
+            if logged {
+                tracing::info!(
+                    "mcp-supervisor: spawned {} on port {port}; output → {}",
+                    facts.dir,
+                    log_path.display()
+                );
+            }
+            children.insert(port, child);
+            if logged { Some(log_path) } else { None }
+        };
+
+        // Give it a moment, then say so loudly if it already died — the
+        // previous behavior reported "started" over a process that exited
+        // within milliseconds.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        let mut children = self.children.lock().await;
+        if let Some(child) = children.get_mut(&port) {
+            if let Ok(Some(status)) = child.try_wait() {
+                let tail = log_path
+                    .as_ref()
+                    .map(|p| tail_lines(p, 8))
+                    .unwrap_or_default();
+                tracing::warn!(
+                    "mcp-supervisor: {} (port {port}) exited immediately with {status}; last log lines:\n{tail}",
+                    facts.dir
+                );
+            }
         }
-        let facts = facts_for_port(port).ok_or_else(|| format!("no known process facts for port {port}"))?;
-        let script = tools_dir().join(facts.dir).join(facts.entry);
-        if !script.exists() {
-            return Err(format!("entry script not found: {}", script.display()));
-        }
-        let child = std::process::Command::new("node")
-            .arg(&script)
-            .env(facts.port_env, port.to_string())
-            .env("OZONE_ZSEI_DATA_DIR", zsei_data_dir)
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|e| format!("spawn failed: {e}"))?;
-        children.insert(port, child);
         Ok(true)
+    }
+
+    /// Whether `port` is served by a process this host did NOT spawn (a
+    /// systemd unit, a manual start). Additive helper for callers that want
+    /// to distinguish "ours" from "someone else's" — `is_running` already
+    /// reports true for both.
+    pub async fn is_externally_managed(&self, port: u16) -> bool {
+        let owned = {
+            let mut children = self.children.lock().await;
+            match children.get_mut(&port) {
+                Some(child) => matches!(child.try_wait(), Ok(None)),
+                None => false,
+            }
+        };
+        !owned && port_is_listening(port).await
     }
 
     /// Kill and stop tracking the process on `port`, if any. `true` if a
@@ -292,13 +439,19 @@ impl McpProcessSupervisor {
         }
     }
 
-    /// Whether a tracked, still-alive child exists for `port`.
+    /// Whether the tool on `port` is up: a tracked still-alive child OR
+    /// anything else listening on the port (e.g. a systemd-managed unit).
+    /// Previously this checked only the children map, so an externally
+    /// managed tool looked permanently down and was re-spawned every sweep.
     pub async fn is_running(&self, port: u16) -> bool {
-        let mut children = self.children.lock().await;
-        match children.get_mut(&port) {
-            Some(child) => matches!(child.try_wait(), Ok(None)),
-            None => false,
-        }
+        let owned = {
+            let mut children = self.children.lock().await;
+            match children.get_mut(&port) {
+                Some(child) => matches!(child.try_wait(), Ok(None)),
+                None => false,
+            }
+        };
+        owned || port_is_listening(port).await
     }
 }
 

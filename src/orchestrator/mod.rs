@@ -54,6 +54,15 @@ pub mod decision_review;
 pub mod jurisdiction;
 pub mod jurisdiction_search;
 
+/// Executor decorator that indexes EVERY executor call as a trace span
+/// (`capture/call_spans.jsonl`) — see instrumented.rs.
+pub mod instrumented;
+/// Gated entry for EXTERNAL callers (`/pipeline/execute`, `rerun_step`,
+/// `/mcp/call`): jurisdiction + trace root, no walk. Owned by the stages fork.
+pub mod entry_gate;
+/// Run/span containers for the background loops. Owned by the loops fork.
+pub mod run_spans;
+
 // K-ALGORITHM contracts come from the unified shared module (single
 // compilation, tests run once): crate::shared_contracts::{k_validation, k_loops}.
 use crate::shared_contracts::k_validation;
@@ -913,18 +922,30 @@ pub struct BlueprintStep {
     pub action: String,
     pub description: String,
     pub pipeline_id: u64,
+    // The `serde(default)`s below are deliberate: the blueprint prompt's
+    // example JSON omits several of these fields, and a model that copies the
+    // example used to get EVERY step skipped at the per-step deserialize
+    // (then silently replaced by synthesized "Address: <branch>" steps).
+    // Missing = the same value the walk's own synthesized steps use.
+    #[serde(default)]
     pub context_requirements: Vec<String>,
     /// Loop configuration
+    #[serde(default)]
     pub loop_config: Option<LoopConfig>,
     /// Sub-steps within this step
+    #[serde(default)]
     pub sub_steps: Vec<BlueprintSubStep>,
     /// IDs of steps this depends on
+    #[serde(default)]
     pub depends_on: Vec<u32>,
     /// Whether to wait for graph update before proceeding
+    #[serde(default)]
     pub wait_for_graph_update: bool,
     /// Maximum retries on failure
+    #[serde(default = "default_step_max_retries")]
     pub max_retries: u32,
     /// Timeout in milliseconds
+    #[serde(default)]
     pub timeout_ms: Option<u64>,
     /// Per-step model backend override — lets one orchestration run route
     /// different steps to different model backends (e.g. BitNet for a quick
@@ -982,11 +1003,20 @@ pub enum LoopType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlueprintSubStep {
+    #[serde(default)]
     pub sub_index: u32,
     pub action: String,
     pub pipeline_id: u64,
+    #[serde(default)]
     pub input_mapping: HashMap<String, String>,
+    #[serde(default)]
     pub output_mapping: HashMap<String, String>,
+}
+
+/// Default retry budget for a blueprint step whose JSON omitted it — matches
+/// the value the walk's own synthesized steps carry (stages.rs `max_retries: 1`).
+fn default_step_max_retries() -> u32 {
+    1
 }
 
 // ============================================================================

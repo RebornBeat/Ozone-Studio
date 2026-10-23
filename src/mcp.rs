@@ -131,10 +131,26 @@ pub async fn registry_entries() -> Option<Vec<McpTool>> {
 /// Issue the standardized abstract call through the process-global handles.
 /// Same metering, gating, and rippling as the HTTP path.
 pub async fn call_global(call: McpCall) -> McpResult {
-    let (registry, usage) = GLOBAL_MCP
-        .get()
-        .expect("mcp global handles not installed — call install_global at startup");
+    // Never panic when the handles are not installed (a loop or stage may run
+    // before server startup finished): return an honest failed result.
+    let Some((registry, usage)) = GLOBAL_MCP.get() else {
+        return McpResult {
+            success: false,
+            output: None,
+            error: Some("mcp global handles not installed — install_global has not run yet".to_string()),
+            usage: serde_json::json!({ "agent": call.agent, "tool": call.tool, "allowed": false }),
+        };
+    };
     registry.invoke(call, usage, None).await
+}
+
+/// Validated caller identity forwarded to tool servers (see
+/// `McpRegistry::invoke_with_identity`). The default is "unvalidated", the
+/// documented localhost posture.
+#[derive(Debug, Clone, Default)]
+pub struct McpCallerIdentity {
+    pub validated: bool,
+    pub session_user_id: Option<String>,
 }
 
 /// The registry itself — one per host, shared through AppState.
@@ -438,6 +454,26 @@ impl McpRegistry {
         usage: &UsageLedger,
         activity: Option<&crate::monitor::ActivityHub>,
     ) -> McpResult {
+        self.invoke_with_identity(call, usage, activity, McpCallerIdentity::default())
+            .await
+    }
+
+    /// Same as `invoke`, but forwards the caller's VALIDATED identity to the
+    /// tool in the envelope (`identity_validated`, `session_user_id`) so a
+    /// tool server can key its own per-role authorization on a real session
+    /// instead of the caller-claimed `agent` string. `invoke` is this with
+    /// the unvalidated default, so existing callers are unchanged.
+    pub async fn invoke_with_identity(
+        &self,
+        call: McpCall,
+        usage: &UsageLedger,
+        activity: Option<&crate::monitor::ActivityHub>,
+        identity: McpCallerIdentity,
+    ) -> McpResult {
+        // NOTE: `agent` is caller-claimed. The usage ledger meters per claimed
+        // name, so it is accounting by convention, not an authenticated quota
+        // (a caller can rotate names). Validated identity travels separately
+        // in `identity` and is forwarded to the tool in the envelope.
         let (allowed, total_today, limit) = usage.record(&call.agent, &call.tool).await;
         let usage_json = serde_json::json!({
             "agent": call.agent,
@@ -478,6 +514,9 @@ impl McpRegistry {
                     "agent": call.agent,
                     "input": call.input,
                     "context": call.context,
+                    "identity_validated": identity.validated,
+                    "session_user_id": identity.session_user_id,
+                    "trace": crate::trace::current_fields(),
                 });
                 let client = reqwest::Client::new();
                 let resp = client

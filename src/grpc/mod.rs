@@ -1171,7 +1171,7 @@ async fn rerun_step(
                     req.step_index,
                     "completed",
                     tokens_used,
-                    response_text.as_ref().map(|r| r[..200.min(r.len())].to_string()),
+                    response_text.as_ref().map(|r| r.chars().take(200).collect::<String>()),
                     None,
                     action,
                     Some(format!(
@@ -1800,13 +1800,46 @@ async fn get_zero_shot_calls(
     Json(serde_json::json!({ "rows": page, "total": total, "offset": offset, "limit": limit }))
 }
 
+/// Redaction sentinel for serialized secrets. `/config/get` replaces every
+/// non-empty `api_key` value with this string; `/config/set` treats an
+/// incoming value of exactly this string as "unchanged", so a UI
+/// read-modify-write round-trip can never overwrite a real key with the mask.
+const CONFIG_SECRET_MASK: &str = "[redacted]";
+
+/// Mask secret fields in a serialized config value. Recursive because the
+/// full-config branch nests models behind section objects. `api_key_env` is
+/// NOT masked — it is a variable NAME, not a secret.
+fn redact_config_secrets(v: &mut serde_json::Value) {
+    match v {
+        serde_json::Value::Object(map) => {
+            for (k, val) in map.iter_mut() {
+                if k == "api_key" {
+                    if let Some(s) = val.as_str() {
+                        if !s.is_empty() {
+                            *val = serde_json::Value::String(CONFIG_SECRET_MASK.to_string());
+                        }
+                    }
+                } else {
+                    redact_config_secrets(val);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                redact_config_secrets(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 async fn get_config(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ConfigRequest>,
 ) -> Json<ConfigResponse> {
     let runtime = state.runtime.read().await;
 
-    let config = match req.section.as_deref() {
+    let mut config = match req.section.as_deref() {
         None | Some("") => serde_json::to_value(&runtime.config).ok(),
         Some("zsei") => serde_json::to_value(&runtime.config.zsei).ok(),
         Some("pipelines") => serde_json::to_value(&runtime.config.pipelines).ok(),
@@ -1844,6 +1877,13 @@ async fn get_config(
             })
         }
     };
+
+    // No secret leaves via this route: mask api_key values in whatever
+    // section was requested (perimeter review 2026-10-23 — /config/get
+    // previously serialized the raw key to any caller).
+    if let Some(ref mut v) = config {
+        redact_config_secrets(v);
+    }
 
     Json(ConfigResponse {
         success: config.is_some(),
@@ -1970,10 +2010,15 @@ async fn set_config(
                 }
             }
             if let Some(v) = models.get("api_key").and_then(|v| v.as_str()) {
-                // Raw secret value — belongs in api_key (persisted, gitignored
-                // config.toml), never in api_key_env (that field is a NAME,
-                // e.g. "ANTHROPIC_API_KEY", not a value).
-                model_config.api_key = Some(v.to_string());
+                // Redaction sentinel = "unchanged" (get masked it on the way
+                // out; a UI round-trip posts the mask back and must NOT
+                // overwrite the real key with it).
+                if v != CONFIG_SECRET_MASK {
+                    // Raw secret value — belongs in api_key (persisted, gitignored
+                    // config.toml), never in api_key_env (that field is a NAME,
+                    // e.g. "ANTHROPIC_API_KEY", not a value).
+                    model_config.api_key = Some(v.to_string());
+                }
             }
             if let Some(v) = models.get("api_key_env").and_then(|v| v.as_str()) {
                 model_config.api_key_env = Some(v.to_string());
@@ -3269,7 +3314,29 @@ async fn upsert_bridge_container(
 async fn register_remote_pipeline(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RemotePipelineRegisterRequest>,
-) -> Json<RemotePipelineRegisterResponse> {    let runtime = state.runtime.read().await;
+) -> Json<RemotePipelineRegisterResponse> {
+    // RESERVED-ID GUARD (perimeter review 2026-10-23): remote dispatch wins
+    // over built-ins at the executor, so a remote registration for an
+    // already-built-in pipeline id would silently REDIRECT that pipeline's
+    // every call to a caller-chosen URL (registering id 9 = hijack every
+    // prompt call). Registration refuses any id the built-in registry
+    // claims, consciousness ids included — remote entries may only ever
+    // occupy ids the host does not itself implement.
+    if crate::pipeline::registry::category_of(req.pipeline_id).is_some() {
+        tracing::warn!(
+            pipeline_id = req.pipeline_id,
+            name = %req.name,
+            "remote pipeline registration REFUSED: id belongs to the built-in registry (reserved-id guard)"
+        );
+        return Json(RemotePipelineRegisterResponse {
+            success: false,
+            error: Some(format!(
+                "pipeline id {} is a built-in and cannot be overridden by a remote registration",
+                req.pipeline_id
+            )),
+        });
+    }
+    let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let roles = req
         .roles

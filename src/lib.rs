@@ -44,6 +44,7 @@ pub mod network;
 pub mod orchestrator;
 pub mod pipeline;
 pub mod task;
+pub mod trace;
 pub mod types;
 pub mod zsei;
 

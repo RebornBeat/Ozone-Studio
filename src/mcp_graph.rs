@@ -26,6 +26,46 @@ pub struct GraphSummary {
     pub root_id: u64,
     pub entities: usize,
     pub relations: usize,
+    /// Honest record of any bounding applied to untrusted tool output
+    /// (oversized label / attributes shortened). `None` = nothing was cut.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncation_note: Option<String>,
+}
+
+/// Bounds on UNTRUSTED tool output. A graph over either count cap is
+/// REFUSED with an explicit error (never partially persisted and never
+/// silently trimmed): trimming nodes would orphan their parents/edges.
+const MAX_NODES: usize = 5_000;
+const MAX_EDGES: usize = 20_000;
+/// Per-field bounds: shortened with a recorded note, never silently.
+const MAX_LABEL_CHARS: usize = 200;
+const MAX_KIND_CHARS: usize = 40;
+const MAX_ATTR_BYTES: usize = 64 * 1024;
+
+/// Keywords that other subsystems react to. A tool-supplied `kind` must never
+/// be able to forge one (it becomes a container keyword, and graph events
+/// carry keywords as scope): `finding` / `tool_call` / `config_change` feed
+/// the ripple actors; `proj:<id>` / `file:<id>` feed the AMT ripple sync.
+/// ':' is stripped from kinds entirely, which also kills the scoped forms.
+const RESERVED_KEYWORDS: [&str; 3] = ["finding", "tool_call", "config_change"];
+
+/// Char-boundary-safe prefix.
+fn take_chars(s: &str, n: usize) -> String {
+    s.chars().take(n).collect()
+}
+
+/// A tool-supplied `kind` (or tool name) made safe to use as a keyword.
+fn sanitize_keyword(raw: &str) -> String {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .take(MAX_KIND_CHARS)
+        .collect();
+    if cleaned.is_empty() || RESERVED_KEYWORDS.contains(&cleaned.to_ascii_lowercase().as_str()) {
+        "entity".to_string()
+    } else {
+        cleaned
+    }
 }
 
 pub async fn persist_from_output(
@@ -170,6 +210,19 @@ async fn persist(
     if nodes.is_empty() {
         return Err("graph has no nodes".to_string());
     }
+    if nodes.len() > MAX_NODES {
+        return Err(format!(
+            "graph has {} nodes; the limit for untrusted tool output is {MAX_NODES} (refused, nothing persisted)",
+            nodes.len()
+        ));
+    }
+    if edges.len() > MAX_EDGES {
+        return Err(format!(
+            "graph has {} edges; the limit for untrusted tool output is {MAX_EDGES} (refused, nothing persisted)",
+            edges.len()
+        ));
+    }
+    let mut notes: Vec<String> = Vec::new();
 
     let mut keys: HashMap<&str, Option<&str>> = HashMap::new();
     for node in nodes {
@@ -221,7 +274,7 @@ async fn persist(
         modality_for(tool),
         &format!("{tool} result"),
         format!("/mcp/{tool}"),
-        vec![tool.to_string(), "mcp_result".to_string()],
+        vec![sanitize_keyword(tool), "mcp_result".to_string()],
         agent,
         None,
         zsei.root_id(),
@@ -245,8 +298,34 @@ async fn persist(
             if !valid_key(key) {
                 return Err(format!("node key '{key}' must be [A-Za-z0-9_-], max 80 chars"));
             }
-            let kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("entity");
-            let label = node.get("label").and_then(|l| l.as_str()).unwrap_or(key);
+            let raw_kind = node.get("kind").and_then(|k| k.as_str()).unwrap_or("entity");
+            let kind = sanitize_keyword(raw_kind);
+            if kind != raw_kind {
+                notes.push(format!("node '{key}': kind '{}' normalized to '{kind}'", take_chars(raw_kind, 60)));
+            }
+            let raw_label = node.get("label").and_then(|l| l.as_str()).unwrap_or(key);
+            let label_owned: String = if raw_label.chars().count() > MAX_LABEL_CHARS {
+                notes.push(format!("node '{key}': label shortened to {MAX_LABEL_CHARS} chars"));
+                take_chars(raw_label, MAX_LABEL_CHARS)
+            } else {
+                raw_label.to_string()
+            };
+            let label: &str = &label_owned;
+            let attributes_value = {
+                let raw = node.get("attributes").cloned().unwrap_or(Value::Null);
+                let size = serde_json::to_vec(&raw).map(|v| v.len()).unwrap_or(0);
+                if size > MAX_ATTR_BYTES {
+                    notes.push(format!("node '{key}': attributes ({size} bytes) replaced by a bounded preview"));
+                    let text = serde_json::to_string(&raw).unwrap_or_default();
+                    serde_json::json!({
+                        "truncated": true,
+                        "original_bytes": size,
+                        "preview": take_chars(&text, 4_000),
+                    })
+                } else {
+                    raw
+                }
+            };
             let parent_id = match node.get("parent").and_then(|p| p.as_str()) {
                 None => root_id,
                 Some(pk) => match key_to_id.get(pk) {
@@ -264,7 +343,7 @@ async fn persist(
                 "kind": kind,
                 "label": label,
                 "tool": tool,
-                "attributes": node.get("attributes").cloned().unwrap_or(Value::Null),
+                "attributes": attributes_value,
             });
             tokio::fs::write(
                 format!("{}/{}", data_dir, rel_path),
@@ -278,7 +357,7 @@ async fn persist(
                 modality_for(tool),
                 label,
                 format!("/mcp/{tool}/{root_id}/{key}"),
-                vec![tool.to_string(), kind.to_string()],
+                vec![sanitize_keyword(tool), kind.clone()],
                 agent,
                 Some(rel_path),
                 parent_id,
@@ -299,7 +378,8 @@ async fn persist(
         let confidence = edge
             .get("confidence")
             .and_then(|v| v.as_f64())
-            .unwrap_or(1.0) as f32;
+            .unwrap_or(1.0)
+            .clamp(0.0, 1.0) as f32;
         let from_id = *key_to_id
             .get(from)
             .ok_or_else(|| format!("edge source '{from}' is not a node"))?;
@@ -341,9 +421,20 @@ async fn persist(
         relations += 1;
     }
 
+    let truncation_note = if notes.is_empty() {
+        None
+    } else {
+        let shown = notes.iter().take(20).cloned().collect::<Vec<_>>().join("; ");
+        Some(if notes.len() > 20 {
+            format!("{shown}; … and {} more", notes.len() - 20)
+        } else {
+            shown
+        })
+    };
     Ok(GraphSummary {
         root_id,
         entities: key_to_id.len(),
         relations,
+        truncation_note,
     })
 }

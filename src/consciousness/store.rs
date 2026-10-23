@@ -15,11 +15,29 @@ use crate::types::container::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 lazy_static::lazy_static! {
     pub static ref CONSCIOUSNESS_STORE: Mutex<ConsciousnessStore> =
         Mutex::new(ConsciousnessStore::new());
+}
+
+/// In-process "the I-Loop is mid-cycle" flag. Ported from the retired
+/// task-manager `consciousness_hooks`, which polled an `i_loop_state.json`
+/// file that no host component ever wrote. The host I-Loop (or any caller)
+/// flips this with `set_i_loop_active`; the task manager's observer waits on
+/// it (bounded) via `wait_for_i_loop_completion`. The file is still honored
+/// by `i_loop_busy` so an external I-Loop pipeline that writes it keeps
+/// working (nothing dropped).
+static I_LOOP_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+/// Lock the global store, surviving a poisoned mutex (a panic in some other
+/// holder must not turn every later consciousness call into a second panic).
+fn lock_store() -> std::sync::MutexGuard<'static, ConsciousnessStore> {
+    CONSCIOUSNESS_STORE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 /// Central consciousness state store
@@ -144,12 +162,34 @@ impl ConsciousnessStore {
             return;
         }
 
-        if let Ok(content) = std::fs::read_to_string(path.join("experiences.json")) {
-            if let Ok(data) = serde_json::from_str::<ExperienceStoreData>(&content) {
-                self.experiences = data.experiences;
-                self.experience_index_by_task = data.index_by_task;
-                self.experience_index_by_type = data.index_by_type;
-                self.next_experience_id = data.next_id;
+        // One-time migration flag: files written by the retired task-manager
+        // `consciousness_hooks` (different JSON shapes, same directory) are
+        // converted into the store's types instead of silently loading empty
+        // and being overwritten on the next save. The original is renamed to
+        // `<name>.migrated.bak`, and the migrated state is persisted in store
+        // format immediately (end of this function) so a restart before any
+        // other save can't lose it.
+        let mut migrated = false;
+
+        let exp_path = path.join("experiences.json");
+        if let Ok(content) = std::fs::read_to_string(&exp_path) {
+            match serde_json::from_str::<ExperienceStoreData>(&content) {
+                Ok(data) => {
+                    self.experiences = data.experiences;
+                    self.experience_index_by_task = data.index_by_task;
+                    self.experience_index_by_type = data.index_by_type;
+                    self.next_experience_id = data.next_id;
+                }
+                Err(_) => {
+                    if let Some(data) = migrate_hook_experiences(&content) {
+                        self.experiences = data.experiences;
+                        self.experience_index_by_task = data.index_by_task;
+                        self.experience_index_by_type = data.index_by_type;
+                        self.next_experience_id = data.next_id;
+                        retire_hook_file(&exp_path);
+                        migrated = true;
+                    }
+                }
             }
         }
 
@@ -160,9 +200,17 @@ impl ConsciousnessStore {
             }
         }
 
-        if let Ok(content) = std::fs::read_to_string(path.join("emotional_state.json")) {
-            if let Ok(state) = serde_json::from_str(&content) {
-                self.current_emotional_state = state;
+        let emo_path = path.join("emotional_state.json");
+        if let Ok(content) = std::fs::read_to_string(&emo_path) {
+            match serde_json::from_str::<EmotionalState>(&content) {
+                Ok(state) => self.current_emotional_state = state,
+                Err(_) => {
+                    if let Some(state) = migrate_hook_emotional_state(&content) {
+                        self.current_emotional_state = state;
+                        retire_hook_file(&emo_path);
+                        migrated = true;
+                    }
+                }
             }
         }
 
@@ -178,9 +226,34 @@ impl ConsciousnessStore {
             }
         }
 
-        if let Ok(content) = std::fs::read_to_string(path.join("gate_decisions.json")) {
-            if let Ok(data) = serde_json::from_str(&content) {
-                self.gate_decisions = data;
+        let gate_path = path.join("gate_decisions.json");
+        if let Ok(content) = std::fs::read_to_string(&gate_path) {
+            match serde_json::from_str::<Vec<GateDecisionRecord>>(&content) {
+                Ok(data) => self.gate_decisions = data,
+                Err(_) => {
+                    if let Some(data) = migrate_hook_gate_decisions(&content) {
+                        self.gate_decisions = data;
+                        retire_hook_file(&gate_path);
+                        migrated = true;
+                    }
+                }
+            }
+        }
+
+        // Perception window — persisted across restarts (the retired hooks
+        // kept the last 100 task events in perception_window.json; the store's
+        // window was memory-only, so a restart emptied it).
+        let perc_path = path.join("perception_window.json");
+        if let Ok(content) = std::fs::read_to_string(&perc_path) {
+            match serde_json::from_str::<PerceptionWindow>(&content) {
+                Ok(window) => self.perception_window = window,
+                Err(_) => {
+                    if let Some(window) = migrate_hook_perception_window(&content) {
+                        self.perception_window = window;
+                        retire_hook_file(&perc_path);
+                        migrated = true;
+                    }
+                }
             }
         }
 
@@ -188,6 +261,21 @@ impl ConsciousnessStore {
             if let Ok(config) = serde_json::from_str(&content) {
                 self.config = config;
             }
+        }
+
+        if migrated {
+            self.save_to_disk();
+        }
+    }
+
+    /// Persist only the perception window (small, bounded to
+    /// `input_buffer_size` entries) — cheap enough to call on every task
+    /// lifecycle event, unlike `save_to_disk` which rewrites every store file.
+    pub fn save_perception(&self) {
+        let path = Path::new(&self.storage_path);
+        let _ = std::fs::create_dir_all(path);
+        if let Ok(content) = serde_json::to_string_pretty(&self.perception_window) {
+            let _ = std::fs::write(path.join("perception_window.json"), content);
         }
     }
 
@@ -224,6 +312,9 @@ impl ConsciousnessStore {
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.gate_decisions) {
             let _ = std::fs::write(path.join("gate_decisions.json"), content);
+        }
+        if let Ok(content) = serde_json::to_string_pretty(&self.perception_window) {
+            let _ = std::fs::write(path.join("perception_window.json"), content);
         }
         if let Ok(content) = serde_json::to_string_pretty(&self.config) {
             let _ = std::fs::write(path.join("config.json"), content);
@@ -266,12 +357,24 @@ impl ConsciousnessStore {
                 }
             };
             let store = store.clone();
-            tokio::spawn(async move {
-                match store.create_container(CONSCIOUSNESS_EXPERIENCE_ROOT_ID, value).await {
-                    Ok(_) => tracing::debug!("Experience {} persisted via store contract", id),
-                    Err(e) => tracing::warn!("Failed to persist experience {} to store: {}", id, e),
+            // `try_current` rather than a bare `tokio::spawn`: the JSON
+            // fast path above already succeeded, and a caller on a plain
+            // thread (no runtime) must not panic the whole store over the
+            // optional ZSEI mirror.
+            match tokio::runtime::Handle::try_current() {
+                Ok(handle) => {
+                    handle.spawn(async move {
+                        match store.create_container(CONSCIOUSNESS_EXPERIENCE_ROOT_ID, value).await {
+                            Ok(_) => tracing::debug!("Experience {} persisted via store contract", id),
+                            Err(e) => tracing::warn!("Failed to persist experience {} to store: {}", id, e),
+                        }
+                    });
                 }
-            });
+                Err(_) => tracing::debug!(
+                    "Experience {} kept in the JSON store only (no async runtime on this thread)",
+                    id
+                ),
+            }
         }
 
         id
@@ -496,15 +599,66 @@ impl ConsciousnessStore {
 // ========== Public API ==========
 
 pub fn is_consciousness_enabled() -> bool {
-    CONSCIOUSNESS_STORE
-        .lock()
-        .ok()
-        .map(|s| s.config.enabled)
-        .unwrap_or(false)
+    lock_store().config.enabled
+}
+
+/// Mark the I-Loop as mid-cycle (or finished). The task manager's observer
+/// waits (bounded) on `i_loop_busy()` before registering new work, so tasks
+/// are not front-run past an active reflection cycle.
+pub fn set_i_loop_active(active: bool) {
+    I_LOOP_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+/// True while the I-Loop is mid-cycle: the in-process flag, or (compat with
+/// the external I-Loop pipeline crates) `i_loop_state.json` with
+/// `"active": true` in the consciousness directory.
+pub fn i_loop_busy() -> bool {
+    if I_LOOP_ACTIVE.load(Ordering::SeqCst) {
+        return true;
+    }
+    let dir = std::env::var("OZONE_CONSCIOUSNESS_PATH")
+        .unwrap_or_else(|_| "./zsei_data/consciousness".to_string());
+    if let Ok(content) = std::fs::read_to_string(Path::new(&dir).join("i_loop_state.json")) {
+        if let Ok(state) = serde_json::from_str::<serde_json::Value>(&content) {
+            return state.get("active").and_then(|v| v.as_bool()).unwrap_or(false);
+        }
+    }
+    false
+}
+
+/// Wait up to `timeout_ms` for the I-Loop to finish (polls every 100 ms).
+/// Returns immediately when it is not busy. Never holds the store mutex.
+pub async fn wait_for_i_loop_completion(timeout_ms: u64) {
+    let check_interval_ms = 100u64;
+    let mut waited = 0u64;
+    while i_loop_busy() && waited < timeout_ms {
+        tokio::time::sleep(std::time::Duration::from_millis(check_interval_ms)).await;
+        waited += check_interval_ms;
+    }
+}
+
+/// Task-lifecycle perception: the task manager reports every lifecycle event
+/// (queued / step update / completed / failed / cancelled) so the perception
+/// window — consciousness's view of what the system is doing — stays current
+/// and survives a restart. Observe-only; a no-op when consciousness is
+/// disabled in config.
+pub fn observe_task_event(task_id: u64, task_type: &str, status: &str) {
+    let mut store = lock_store();
+    if !store.config.enabled {
+        return;
+    }
+    store.add_perception(PerceptionInput {
+        input_type: "task_event".to_string(),
+        content: format!("task {} ({}) {}", task_id, task_type, status),
+        timestamp: now(),
+        source: "task-manager".to_string(),
+        relevance_score: 0.8,
+    });
+    store.save_perception();
 }
 
 pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDecisionRecord {
-    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
+    let mut store = lock_store();
 
     if !store.config.enabled {
         return GateDecisionRecord {
@@ -546,6 +700,17 @@ pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDeci
             concerns.push(format!("Contains: {}", pattern));
         }
     }
+    // Ported from the retired task-manager hook gate (nothing dropped): a
+    // small penalty for requests that handle sensitive data. Union of both
+    // gates' pattern sets; decision semantics (score >= 0.7 proceeds) and the
+    // store's output shape are unchanged.
+    let sensitive_patterns = ["password", "credit card", "ssn", "private key"];
+    for pattern in sensitive_patterns {
+        if task_lower.contains(pattern) {
+            ethical_score -= 0.1;
+            concerns.push(format!("Involves sensitive data: {}", pattern));
+        }
+    }
     ethical_score = ethical_score.max(0.0).min(1.0);
 
     let decision = if ethical_score >= 0.7 {
@@ -577,43 +742,86 @@ pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDeci
     record
 }
 
+/// Record a task outcome as an experience and (by default) feed the
+/// emotional trigger. `error` carries the failure cause when the task failed
+/// (it used to be lost — the task manager's hook never received it).
 pub fn post_task_experience(
     task_id: u64,
     task_summary: &str,
     success: bool,
     user_id: Option<u64>,
+    error: Option<&str>,
 ) -> Option<u64> {
-    let mut store = CONSCIOUSNESS_STORE.lock().unwrap();
+    post_task_experience_with(task_id, task_summary, success, user_id, error, None, true)
+}
+
+/// Full form of `post_task_experience`. `tokens_used` is kept on the
+/// experience (the retired hook recorded it); `update_emotion = false`
+/// records the experience WITHOUT moving the emotional state — used by the
+/// task manager for loop-generated tasks (`source: "amt-loop"`,
+/// `kind: "loop-pass"`), whose frequent failures would otherwise pin
+/// valence at -1.0 permanently.
+pub fn post_task_experience_with(
+    task_id: u64,
+    task_summary: &str,
+    success: bool,
+    user_id: Option<u64>,
+    error: Option<&str>,
+    tokens_used: Option<u32>,
+    update_emotion: bool,
+) -> Option<u64> {
+    let mut store = lock_store();
 
     if !store.config.enabled || !store.config.experience_memory_enabled {
         return None;
     }
 
     let emotional_during = store.current_emotional_state.clone();
-    let trigger = EmotionalTrigger {
-        trigger_type: if success {
-            "task_success"
-        } else {
-            "task_failure"
-        }
-        .to_string(),
-        source: format!("task:{}", task_id),
-        intensity: 0.5,
+    let emotion_live = update_emotion && store.config.emotional_system_enabled;
+    let emotional_after = if emotion_live {
+        let trigger = EmotionalTrigger {
+            trigger_type: if success {
+                "task_success"
+            } else {
+                "task_failure"
+            }
+            .to_string(),
+            source: format!("task:{}", task_id),
+            intensity: 0.5,
+        };
+        store.process_emotional_trigger(trigger)
+    } else {
+        emotional_during.clone()
     };
-    let emotional_after = store.process_emotional_trigger(trigger);
     let emotional_change = (emotional_after.valence - emotional_during.valence).abs();
     let significance = if success { 0.5 } else { 0.7 } + emotional_change;
+
+    let error_text: Option<String> = error
+        .filter(|e| !e.is_empty())
+        .map(|e| e.chars().take(500).collect());
+    let mut detailed_record = format!(
+        "Task {} {}",
+        task_id,
+        if success { "completed" } else { "failed" }
+    );
+    if let Some(t) = tokens_used {
+        detailed_record.push_str(&format!("; tokens_used={}", t));
+    }
+    if let Some(e) = &error_text {
+        detailed_record.push_str(&format!("; error: {}", e));
+    }
+
+    let mut tags = vec!["task".to_string()];
+    if !emotion_live {
+        tags.push("no-emotion-update".to_string());
+    }
 
     let experience = ExperienceMemory {
         experience_id: 0,
         timestamp: now(),
         experience_type: if success { "success" } else { "failure" }.to_string(),
         summary: task_summary.to_string(),
-        detailed_record: format!(
-            "Task {} {}",
-            task_id,
-            if success { "completed" } else { "failed" }
-        ),
+        detailed_record,
         emotional_state_during: emotional_during,
         emotional_state_after: emotional_after,
         emotional_significance: significance,
@@ -626,18 +834,18 @@ pub fn post_task_experience(
             "task_failure"
         }
         .to_string()],
-        tags: vec!["task".to_string()],
+        tags,
         consolidation_status: "recent".to_string(),
         retrieval_count: 0,
+        tokens_used,
+        error: error_text,
     };
 
     Some(store.store_experience(experience))
 }
 
 pub fn get_relevant_experiences(context: &str, limit: usize) -> Vec<ExperienceMemory> {
-    CONSCIOUSNESS_STORE
-        .lock()
-        .unwrap()
+    lock_store()
         .search_experiences(context, limit)
         .into_iter()
         .cloned()
@@ -645,11 +853,7 @@ pub fn get_relevant_experiences(context: &str, limit: usize) -> Vec<ExperienceMe
 }
 
 pub fn get_current_emotional_state() -> EmotionalState {
-    CONSCIOUSNESS_STORE
-        .lock()
-        .unwrap()
-        .current_emotional_state
-        .clone()
+    lock_store().current_emotional_state.clone()
 }
 
 // ========== Data Types ==========
@@ -702,6 +906,13 @@ pub struct ExperienceMemory {
     pub tags: Vec<String>,
     pub consolidation_status: String,
     pub retrieval_count: u32,
+    /// Tokens the task consumed (the retired task-manager hook recorded
+    /// this). `serde(default)` keeps previously persisted experiences loadable.
+    #[serde(default)]
+    pub tokens_used: Option<u32>,
+    /// Failure cause for failed tasks (first 500 chars). Previously lost.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -842,8 +1053,208 @@ struct CoreMemoryStoreData {
 fn now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+// ========== One-time migration of retired task-manager hook files ==========
+//
+// The file-based `task::consciousness_hooks` (now thin delegates to this
+// store) wrote experiences.json / emotional_state.json / gate_decisions.json /
+// perception_window.json into the SAME directory in shapes the store cannot
+// parse. Each helper below recognizes the hook shape (and refuses store-shaped
+// files, so a merely corrupt store file is never "migrated"), converts it into
+// the store's types, and returns None for anything else.
+
+/// Rename a migrated hook file to `<name>.migrated.bak` (best effort, logged).
+fn retire_hook_file(path: &Path) {
+    let mut bak = path.as_os_str().to_owned();
+    bak.push(".migrated.bak");
+    let bak = std::path::PathBuf::from(bak);
+    match std::fs::rename(path, &bak) {
+        Ok(()) => tracing::info!(
+            "ConsciousnessStore: migrated hook-format {:?} into store format (original kept as {:?})",
+            path,
+            bak
+        ),
+        Err(e) => tracing::warn!(
+            "ConsciousnessStore: migrated hook-format {:?} but could not rename it to {:?}: {}",
+            path,
+            bak,
+            e
+        ),
+    }
+}
+
+fn migrate_hook_experiences(content: &str) -> Option<ExperienceStoreData> {
+    let v: serde_json::Value = serde_json::from_str(content).ok()?;
+    // Store-format files always carry `index_by_type`; the hook never wrote it.
+    if v.get("index_by_type").is_some() {
+        return None;
+    }
+    let exps = v.get("experiences")?.as_object()?;
+    let mut next_id = v.get("next_id").and_then(|n| n.as_u64()).unwrap_or(1);
+    let mut experiences: HashMap<u64, ExperienceMemory> = HashMap::new();
+    let mut index_by_task: HashMap<u64, Vec<u64>> = HashMap::new();
+    let mut index_by_type: HashMap<String, Vec<u64>> = HashMap::new();
+
+    for (key, e) in exps {
+        let Ok(id) = key.parse::<u64>() else { continue };
+        let success = e
+            .get("experience_type")
+            .and_then(|t| t.as_str())
+            .map(|t| t == "task_success" || t == "success")
+            .unwrap_or(true);
+        let task_id = e.get("task_id").and_then(|t| t.as_u64());
+        let experience_type = if success { "success" } else { "failure" }.to_string();
+        let tokens_used = e
+            .get("tokens_used")
+            .and_then(|t| t.as_u64())
+            .map(|t| t as u32);
+        let mem = ExperienceMemory {
+            experience_id: id,
+            timestamp: e.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
+            experience_type: experience_type.clone(),
+            summary: e
+                .get("summary")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string(),
+            detailed_record: format!(
+                "Task {} {} (migrated from task-manager hook record)",
+                task_id.map(|t| t.to_string()).unwrap_or_else(|| "?".to_string()),
+                if success { "completed" } else { "failed" }
+            ),
+            emotional_state_during: EmotionalState::default(),
+            emotional_state_after: EmotionalState::default(),
+            emotional_significance: e
+                .get("emotional_significance")
+                .and_then(|s| s.as_f64())
+                .unwrap_or(if success { 0.5 } else { 0.7 }) as f32,
+            task_id,
+            user_id: e.get("user_id").and_then(|u| u.as_u64()),
+            lessons_learned: Vec::new(),
+            categories: vec![if success { "task_success" } else { "task_failure" }.to_string()],
+            tags: vec!["task".to_string(), "migrated".to_string()],
+            consolidation_status: e
+                .get("consolidation_status")
+                .and_then(|s| s.as_str())
+                .unwrap_or("recent")
+                .to_string(),
+            retrieval_count: 0,
+            tokens_used,
+            error: None,
+        };
+        if let Some(t) = task_id {
+            index_by_task.entry(t).or_default().push(id);
+        }
+        index_by_type.entry(experience_type).or_default().push(id);
+        experiences.insert(id, mem);
+        if id >= next_id {
+            next_id = id + 1;
+        }
+    }
+
+    Some(ExperienceStoreData {
+        experiences,
+        index_by_task,
+        index_by_type,
+        next_id,
+    })
+}
+
+fn migrate_hook_emotional_state(content: &str) -> Option<EmotionalState> {
+    let v: serde_json::Value = serde_json::from_str(content).ok()?;
+    // Store-format states always carry `state_id`; the hook's never did.
+    if v.get("state_id").is_some() {
+        return None;
+    }
+    let valence = v.get("valence")?.as_f64()? as f32;
+    Some(EmotionalState {
+        state_id: 0,
+        timestamp: v.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
+        primary_emotion: v
+            .get("primary_emotion")
+            .and_then(|p| p.as_str())
+            .unwrap_or("neutral")
+            .to_string(),
+        valence,
+        arousal: v.get("arousal").and_then(|a| a.as_f64()).unwrap_or(0.3) as f32,
+        dominance: 0.0,
+        stability: 0.0,
+        triggers: Vec::new(),
+    })
+}
+
+fn migrate_hook_gate_decisions(content: &str) -> Option<Vec<GateDecisionRecord>> {
+    let arr: Vec<serde_json::Value> = serde_json::from_str(content).ok()?;
+    // Store-format records always carry `gate_id`; the hook's never did.
+    if arr.first().map(|f| f.get("gate_id").is_some()).unwrap_or(false) {
+        return None;
+    }
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, d) in arr.iter().enumerate() {
+        let ethical_score = d.get("ethical_score").and_then(|s| s.as_f64()).unwrap_or(1.0) as f32;
+        let decision = d
+            .get("decision")
+            .and_then(|s| s.as_str())
+            .unwrap_or("Proceed")
+            .to_lowercase();
+        let concerns: Vec<String> = d
+            .get("concerns")
+            .and_then(|c| c.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+            .unwrap_or_default();
+        let reasoning = if concerns.is_empty() {
+            format!("Ethical score: {:.2} (migrated from hook record)", ethical_score)
+        } else {
+            format!(
+                "Ethical score: {:.2}, concerns: {} (migrated from hook record)",
+                ethical_score,
+                concerns.join(", ")
+            )
+        };
+        out.push(GateDecisionRecord {
+            gate_id: i as u64 + 1,
+            task_id: 0, // the hook record never carried a task id
+            timestamp: d.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
+            decision,
+            reasoning,
+            confidence: ethical_score, // the hook's confidence WAS the ethical score
+            ethical_score,
+        });
+    }
+    Some(out)
+}
+
+fn migrate_hook_perception_window(content: &str) -> Option<PerceptionWindow> {
+    let v: serde_json::Value = serde_json::from_str(content).ok()?;
+    // Store-format windows always carry `input_buffer_size`.
+    if v.get("input_buffer_size").is_some() {
+        return None;
+    }
+    let inputs = v.get("active_inputs")?.as_array()?;
+    let mut window = PerceptionWindow::default();
+    for i in inputs {
+        let task_id = i.get("task_id").and_then(|t| t.as_u64()).unwrap_or(0);
+        let task_type = i.get("task_type").and_then(|t| t.as_str()).unwrap_or("task");
+        let status = i.get("status").and_then(|t| t.as_str()).unwrap_or("");
+        window.active_inputs.push(PerceptionInput {
+            input_type: i
+                .get("input_type")
+                .and_then(|t| t.as_str())
+                .unwrap_or("task_event")
+                .to_string(),
+            content: format!("task {} ({}) {}", task_id, task_type, status),
+            timestamp: i.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
+            source: "task-manager".to_string(),
+            relevance_score: i.get("relevance_score").and_then(|r| r.as_f64()).unwrap_or(0.8) as f32,
+        });
+    }
+    while window.active_inputs.len() > window.input_buffer_size {
+        window.active_inputs.remove(0);
+    }
+    Some(window)
 }
 
 fn default_i_loop_questions() -> Vec<ILoopQuestion> {
