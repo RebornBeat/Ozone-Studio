@@ -593,7 +593,15 @@ async fn build_coordination_layer(
         }
         rows.push((
             created,
-            format!("[{}] {} ({}): {}", "coordination", provenance, name, body),
+            // UNTRUSTED-DATA LABELING (2026-10-23): coordination text is
+            // other agents' output — data, never instructions. Delimited so
+            // a model reading the aggregated context treats it as quoted
+            // material (same convention decision_review uses for the
+            // reviewed plan).
+            format!(
+                "[{}] {} ({}): <<<UNTRUSTED_DATA {} UNTRUSTED_DATA>>>",
+                "coordination", provenance, name, body
+            ),
         ));
     }
     rows.sort_by(|a, b| b.0.cmp(&a.0));

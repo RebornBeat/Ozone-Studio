@@ -883,3 +883,66 @@ mod tests {
         assert!(candidates[0]["handled"] == false);
     }
 }
+
+// ============================= SENSOR TICK =============================
+
+/// SENSOR TICK (acting-loop wiring, 2026-10-23): the actors fire on
+/// tool_call ripples, but nothing ever CALLED the monitoring tools on a
+/// schedule — the instance monitored without ever looking (EU review:
+/// security-mcp alive-but-uncalled, zero candidates ever). Every 15 minutes
+/// this runs ONE read-only security-posture tool through `call_global`
+/// (metered, requirement-gated, no-panic when unregistered) and mirrors the
+/// result as a real tool_call CoordinationEvent — the same chain a human
+/// triggered call takes — so SecurityFindingActor sees real posture (and
+/// failures are data: a refused posture check IS a finding candidate).
+pub fn spawn_sensor_tick(
+    zsei: std::sync::Arc<tokio::sync::RwLock<crate::zsei::ZSEI>>,
+    data_dir: String,
+) {
+    tokio::spawn(async move {
+        let tools = ["firewall_status", "listening_ports", "process_top"];
+        let mut i = 0usize;
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(900));
+        tick.tick().await; // first tick fires now: boot is busy, so consume it
+        loop {
+            tick.tick().await;
+            let tool = tools[i % tools.len()];
+            i += 1;
+            let result = crate::mcp::call_global(crate::mcp::McpCall {
+                tool: tool.to_string(),
+                agent: "sensor-tick".to_string(),
+                input: serde_json::json!({}),
+                context: Some(serde_json::json!({ "source": "sensor-tick" })),
+                session_token: None,
+            })
+            .await;
+            let req = crate::context_mirror::MirrorRequest {
+                kind: "tool_call".to_string(),
+                agent: "sensor-tick".to_string(),
+                title: format!("Sensor tick: {tool}"),
+                body: String::new(),
+                files: Vec::new(),
+                detail: Some(serde_json::json!({
+                    "tool": tool,
+                    "success": result.success,
+                    "error": result.error,
+                    "source": "sensor-tick",
+                })),
+                scope: Some("global".to_string()),
+                workspace_id: None,
+                project_id: None,
+            };
+            {
+                let z = zsei.read().await;
+                let _ = crate::context_mirror::mirror(&z, &data_dir, &req).await;
+            }
+            if !result.success {
+                tracing::info!(
+                    tool,
+                    error = ?result.error,
+                    "sensor tick: posture tool unavailable/failed (mirrored as data — the actor chain decides what it means)"
+                );
+            }
+        }
+    });
+}

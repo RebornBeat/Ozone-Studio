@@ -530,6 +530,102 @@ async fn authenticate(
     }
 }
 
+
+/// STRICT SESSION MODE (perimeter review 2026-10-23): with
+/// `OZONE_REQUIRE_SESSION=1`, the mutating route families (`/config/`,
+/// `/mcp/tools`, `/network/`, `/task/`, `/context/mirror`,
+/// `/consciousness/reviews/resolve`, `/pipelines/register`) require a valid
+/// `Authorization: Bearer <token>` or `x-oz-session` header. Default OFF
+/// preserves the documented loopback posture; the operator flips it when
+/// their clients send headers. The routes that validate body tokens
+/// themselves (/orchestrate, /pipeline/execute) already do so and are not
+/// double-gated here.
+async fn session_gate(
+    State(state): State<Arc<AppState>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    const PROTECTED: &[&str] = &[
+        "/config/",
+        "/mcp/tools",
+        "/network/",
+        "/task/",
+        "/context/mirror",
+        "/consciousness/reviews/resolve",
+        "/pipelines/register",
+    ];
+    if std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1")
+        && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
+    {
+        let header_token = |name: &str| {
+            req.headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+        };
+        let bearer = header_token(axum::http::header::AUTHORIZATION.as_str())
+            .and_then(|v| v.strip_prefix("Bearer ").map(|t| t.to_string()));
+        let token = bearer
+            .or_else(|| header_token("x-oz-session"))
+            .unwrap_or_default();
+        let ok = {
+            let runtime = state.runtime.read().await;
+            let auth = runtime.auth.read().await;
+            auth.validate_session(&hex::decode(&token).unwrap_or_default())
+                .await
+                .is_ok()
+        };
+        if !ok {
+            return axum::http::StatusCode::UNAUTHORIZED.into_response();
+        }
+    }
+    next.run(req).await
+}
+
+/// GET /consciousness/reviews/pending — the operator's visibility half of the
+/// ReviewPending contract (the resolve half is POST /consciousness/reviews/
+/// resolve). "Needs a human" finally has a door: this lists every final S10
+/// row still sitting in review_pending / review-failed, newest first.
+async fn list_pending_reviews_route(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let data_dir = runtime.config.general.data_dir.clone();
+    let rows = crate::orchestrator::decision_review::list_pending_reviews(&data_dir);
+    let count = rows.len();
+    Json(serde_json::json!({ "rows": rows, "count": count }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct ResolveReviewRequest {
+    pub review_id: String,
+    /// "Proceed" or "Decline" (case-insensitive; anything else is refused).
+    pub decision: String,
+    #[serde(default)]
+    pub note: String,
+}
+
+/// POST /consciousness/reviews/resolve — record the operator's resolution of
+/// a pending review. The DecisionReviewExecutor consults the resolutions
+/// store before judging, so re-submitting the same request returns the
+/// operator's decision instead of halting again.
+async fn resolve_review_route(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ResolveReviewRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let data_dir = runtime.config.general.data_dir.clone();
+    match crate::orchestrator::decision_review::resolve_review(
+        &data_dir,
+        &req.review_id,
+        &req.decision,
+        &req.note,
+    ) {
+        Ok(record) => Json(serde_json::json!({ "success": true, "resolution": record })),
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
+    }
+}
+
 async fn execute_pipeline(
     State(state): State<Arc<AppState>>,
     Json(req): Json<PipelineRequest>,
@@ -2978,8 +3074,23 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         });
     }
 
+    // CORS (perimeter review 2026-10-23 — `allow_origin(Any)` meant any web
+    // page could read every loopback route from the operator's browser):
+    // only loopback browser contexts (localhost / 127.0.0.1 / [::1]) and the
+    // Electron file:// origin ("null") may read responses. Non-browser
+    // clients (curl, agents, the paired devices) send no Origin at all and
+    // are unaffected — CORS is a browser control.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
+        .allow_origin(tower_http::cors::AllowOrigin::predicate(|origin, _| {
+            let o = match origin.to_str() {
+                Ok(s) => s,
+                Err(_) => return false,
+            };
+            o == "null"
+                || o.contains("localhost")
+                || o.contains("127.0.0.1")
+                || o.contains("[::1]")
+        }))
         .allow_methods(Any)
         .allow_headers(Any);
 
@@ -2991,6 +3102,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/auth/challenge", post(request_challenge))
         .route("/auth/authenticate", post(authenticate))
         .route("/pipeline/execute", post(execute_pipeline))
+        .route("/consciousness/reviews/pending", get(list_pending_reviews_route))
+        .route("/consciousness/reviews/resolve", post(resolve_review_route))
         .route("/pipeline/registry", post(get_pipeline_registry))
         .route("/pipeline/ui-component", post(get_pipeline_ui_component))
         .route("/task/get", post(get_task))
@@ -3070,6 +3183,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         // its own work completed/failed).
         .route("/task/update", post(update_coordination_task))
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(state.clone(), session_gate))
         .with_state(state);
 
     tracing::info!("Starting HTTP server on {}", addr);

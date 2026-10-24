@@ -358,7 +358,21 @@ impl PromptOrchestrator {
             .and_then(|s| s.get("object_store_path"))
             .and_then(|p| p.as_str())?;
         let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-        let content = std::fs::read_to_string(std::path::Path::new(&base).join(rel)).ok()?;
+        // PATH-TRAVERSAL GUARD (perimeter review 2026-10-23): object_store_path
+        // is stored data — a reused/legacy blueprint carrying `../` must not
+        // read outside the data dir. Resolve and require the canonical path
+        // to stay under the base; anything else reads as absent.
+        let abs = std::path::Path::new(&base).join(rel);
+        let base_canon = std::fs::canonicalize(&base).unwrap_or_else(|_| std::path::PathBuf::from(&base));
+        let abs_canon = std::fs::canonicalize(&abs).unwrap_or(abs.clone());
+        if !abs_canon.starts_with(&base_canon) {
+            tracing::warn!(
+                requested = %rel,
+                "SECURITY: blueprint body path escapes the data dir — refused (reads as absent)"
+            );
+            return None;
+        }
+        let content = std::fs::read_to_string(&abs_canon).ok()?;
         serde_json::from_str::<serde_json::Value>(&content).ok()
     }
 
@@ -984,6 +998,41 @@ steps this AMT's branch count above actually requires, not necessarily two):
                         sub_step.pipeline_id
                     );
                     sub_step.pipeline_id = 9;
+                }
+            }
+            // MODEL_OVERRIDE WHITELIST (perimeter review 2026-10-23 — the
+            // model-text→executable path, closed at the walk boundary): a
+            // blueprint step's model_override is trusted ONLY for backend
+            // selection (identifier/type/endpoint-agnostic sizing fields).
+            // The executable/secret fields — bitnet_cli_path (pipeline 9
+            // RUNS it), local_model_path, api_endpoint, api_key(_env) — are
+            // model-authored text and are STRIPPED here: an injected or
+            // hallucinated blueprint must never choose what binary runs or
+            // where requests go. Loop counts are capped for the same reason
+            // (max_iterations came straight from the model, unbounded).
+            if let Some(mo) = step.model_override.as_mut() {
+                if mo.bitnet_cli_path.is_some() || mo.local_model_path.is_some() || mo.api_endpoint.is_some() {
+                    tracing::warn!(
+                        step = step.step_index,
+                        "SECURITY: blueprint model_override carried executable/endpoint fields (bitnet_cli_path/local_model_path/api_endpoint) — STRIPPED (walk-owned values apply)"
+                    );
+                }
+                mo.bitnet_cli_path = None;
+                mo.local_model_path = None;
+                mo.api_endpoint = None;
+                mo.api_key = None;
+                mo.api_key_env = None;
+            }
+            if let Some(lc) = step.loop_config.as_mut() {
+                const MAX_LOOP_ITERATIONS: u32 = 1_000;
+                if lc.max_iterations > MAX_LOOP_ITERATIONS {
+                    tracing::warn!(
+                        step = step.step_index,
+                        from = lc.max_iterations,
+                        capped = MAX_LOOP_ITERATIONS,
+                        "SECURITY: blueprint loop_config.max_iterations capped (model-authored, was unbounded)"
+                    );
+                    lc.max_iterations = MAX_LOOP_ITERATIONS;
                 }
             }
         }
@@ -2909,8 +2958,12 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             "tokens_used": state.tokens_used_so_far
         });
 
-        // Pipeline 41 = CoreMemoryFormation
-        let _ = self.executor.execute(41, experience_input).await;
+        // Pipeline 41 = CoreMemoryFormation — RESULT TRUTH (2026-10-23):
+        // these three calls used to be `let _ =` drops under a blanket
+        // "Experience stored..." success record (the no-invisible-failures
+        // violation). Each result is now captured and the stage detail
+        // reports the real per-pipeline outcome.
+        let experience_result = self.executor.execute(41, experience_input).await;
 
         // Update relationship if we know the user
         let relationship_input = serde_json::json!({
@@ -2922,7 +2975,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         });
 
         // Pipeline 47 = RelationshipDevelopment
-        let _ = self.executor.execute(47, relationship_input).await;
+        let relationship_result = self.executor.execute(47, relationship_input).await;
 
         // Update emotional state
         let emotion_input = serde_json::json!({
@@ -2934,14 +2987,39 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         });
 
         // Pipeline 43 = EmotionalBaselineUpdate
-        let _ = self.executor.execute(43, emotion_input).await;
+        let emotion_result = self.executor.execute(43, emotion_input).await;
 
+        // HONEST stage record: which of the three really ran, which failed
+        // (with the real error) — never a blanket success over dropped calls.
+        let outcomes = [
+            (41u64, "experience", &experience_result),
+            (47u64, "relationship", &relationship_result),
+            (43u64, "emotion", &emotion_result),
+        ];
+        let mut ok: Vec<String> = Vec::new();
+        let mut failed: Vec<String> = Vec::new();
+        for (pipeline, label, result) in &outcomes {
+            match result {
+                Ok(_) => ok.push(label.to_string()),
+                Err(e) => {
+                    failed.push(format!("{label}({pipeline}): {e}"));
+                    tracing::warn!(pipeline, stage = 12, error = %e, "post-execution consciousness call FAILED (recorded, not dropped)");
+                }
+            }
+        }
+        let detail = if failed.is_empty() {
+            format!("experience/relationship/emotion pipelines ok ({})", ok.join(", "))
+        } else if ok.is_empty() {
+            format!("ALL post-execution consciousness calls FAILED: {}", failed.join("; "))
+        } else {
+            format!("partial: ok=[{}] failed=[{}]", ok.join(", "), failed.join("; "))
+        };
         self.record_stage_timed(
             state,
             12,
             "Post-execution Consciousness",
-            true,
-            "Experience stored, relationship updated, emotions processed",
+            !failed.is_empty() && ok.is_empty(), // false only when everything failed
+            &detail,
             stage_start.elapsed().as_millis() as u64,
         );
 

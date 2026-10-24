@@ -1154,6 +1154,91 @@ impl OzoneRuntime {
             // boot-spawn convention as the two loops above.
             crate::file_beacon::spawn(store_adapter);
 
+            // SENSOR TICK (actors.rs): the actors' eyes — every 15 min one
+            // read-only security posture tool runs through call_global and
+            // mirrors as a real tool_call event. Honest no-op when the tool
+            // isn't registered; failures are mirrored as data.
+            crate::orchestrator::actors::spawn_sensor_tick(
+                runtime.read().await.zsei.clone(),
+                runtime.read().await.config.general.data_dir.clone(),
+            );
+
+            // APPROVAL-GATED TASK EXECUTOR: queued tasks never executed —
+            // deliberately (an un-gated executor is an unattended action
+            // path). Opt-in via OZONE_AUTO_EXECUTE_TASKS=1: one queued
+            // prompt task per pass runs the FULL gated walk (jurisdiction,
+            // consciousness, steps — every gate a chat request passes).
+            // Non-prompt queued tasks stay records: no un-gated action path.
+            if std::env::var("OZONE_AUTO_EXECUTE_TASKS").as_deref() == Ok("1") {
+                tracing::info!(
+                    "Task executor ENABLED (OZONE_AUTO_EXECUTE_TASKS=1): queued prompt tasks run through the full gated walk, one per pass"
+                );
+                let executor_runtime = runtime.clone();
+                tokio::spawn(async move {
+                    let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
+                    loop {
+                        tick.tick().await;
+                        let queued = {
+                            let rt = executor_runtime.read().await;
+                            let tm = rt.task_manager.read().await;
+                            tm.list_tasks(Some("queued"), None, 1, 0).await
+                        };
+                        let Some(task) = queued.into_iter().next() else {
+                            continue;
+                        };
+                        let Some(inputs) = task.inputs.as_ref() else {
+                            continue;
+                        };
+                        let Some(prompt) = inputs.get("prompt").and_then(|v| v.as_str()) else {
+                            continue;
+                        };
+                        let mut data = std::collections::HashMap::new();
+                        data.insert(
+                            "prompt".to_string(),
+                            crate::types::Value::String(prompt.to_string()),
+                        );
+                        if let Some(pid) = task.project_id {
+                            data.insert(
+                                "project_id".to_string(),
+                                crate::types::Value::Int(pid as i64),
+                            );
+                        }
+                        let pipeline_input = crate::types::pipeline::PipelineInput {
+                            data,
+                            context: std::default::Default::default(),
+                        };
+                        let task_id = task.task_id;
+                        let user_id = task.user_id;
+                        let device_id = task.device_id;
+                        tracing::info!(
+                            task = task_id,
+                            "task executor: running queued prompt task through the full gated walk"
+                        );
+                        let outcome = executor_runtime
+                            .read()
+                            .await
+                            .orchestrate(pipeline_input, user_id, device_id)
+                            .await;
+                        // Link the queued record to the real outcome.
+                        let rt = executor_runtime.read().await;
+                        let tm = rt.task_manager.read().await;
+                        let _ = tm.complete_task(
+                            task_id,
+                            Some(serde_json::json!({
+                                "executed_via": "auto-task-executor",
+                                "orchestration_task_id": outcome.task_id,
+                                "success": outcome.success,
+                            })),
+                            0,
+                        );
+                    }
+                });
+            } else {
+                tracing::info!(
+                    "Task executor disabled (OZONE_AUTO_EXECUTE_TASKS unset) — queued tasks remain records; set =1 to opt in"
+                );
+            }
+
             // P2P SYNC BRIDGE (2026-10-19): the real methodology/blueprint
             // broadcast chain (NetworkManager::on_methodology_created/etc.
             // -> trigger_hooks -> broadcast_high_priority -> send_to_peer)
@@ -1331,17 +1416,12 @@ impl OzoneRuntime {
             })
             .unwrap_or(100_000);
 
-        let consciousness_enabled = input
-            .data
-            .get("consciousness_enabled")
-            .and_then(|v| {
-                if let crate::types::Value::Bool(b) = v {
-                    Some(*b)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(false);
+        // SERVER POLICY (gate-semantics bundle, 2026-10-23): the stage-8
+        // gate is the SERVER's decision, not the caller's — any request
+        // used to be able to disable it with a field (and the chat hook
+        // hardcoded it off). The configured `[consciousness].enabled` wins;
+        // the request field is accepted for wire compatibility and ignored.
+        let consciousness_enabled = self.config.consciousness.enabled;
 
         // The orchestrator owns task creation (Stage: Task Creation) —
         // no pre-enqueue here. Adapters wire the orchestrator's abstract
@@ -1406,6 +1486,15 @@ impl OzoneRuntime {
                 fallback_free_only: self.config.models.fallback.free_only,
                 data_dir: self.config.general.data_dir.clone(),
             });
+        // FULL CALL INDEX (2026-10-23): every call the walk makes — step
+        // primaries, sub-steps, graph builders, strength-N votes, the sites
+        // the 28-row audit found unrecorded — is indexed (SHAPE only:
+        // pipeline, outcome, latency, trace ids) into capture/
+        // call_spans.jsonl by this decorator. Content stays in the existing
+        // sinks, joined by the same trace ids. Best-effort: can never fail
+        // or slow a real call.
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::InstrumentedExecutor::new(executor_adapter));
         let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
             zsei: self.zsei.clone(),
         });
