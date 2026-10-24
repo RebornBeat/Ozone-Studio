@@ -15,6 +15,8 @@ export {
   CrossLinkStrip,
   ModalityWheel,
 } from "./primitives";
+export { GraphCanvas } from "./GraphCanvas";
+export type { CanvasLayout, GraphCanvasProps } from "./GraphCanvas";
 export {
   ModalityBadge,
   TaskStateIcon,

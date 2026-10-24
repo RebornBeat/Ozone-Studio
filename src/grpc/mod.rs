@@ -3016,6 +3016,35 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     // crate::mcp::call_global without needing AppState threaded through.
     crate::mcp::install_global(mcp_registry.clone(), mcp_usage.clone());
 
+    // P2P-BRIDGE REGISTRATION (2026-10-23 — closes the "supervisor-known but
+    // registry-absent" two-books gap): when P2P is enabled, the operator's
+    // bridge tool gets its registry entry so /mcp/call's on-demand start can
+    // reach it. auto_start stays FALSE (operator opt-in per tool, per the
+    // standing ruling); the supervisor's requires_p2p_enabled gate still
+    // applies to every start path.
+    if enable_p2p {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let _ = mcp_registry
+            .register(crate::mcp::McpTool {
+                name: "p2p-bridge".to_string(),
+                transport: crate::mcp::McpTransport::Http,
+                endpoint: "http://127.0.0.1:3278/call".to_string(),
+                capabilities: vec![
+                    "p2p".to_string(),
+                    "tunnel".to_string(),
+                    "connect-peer".to_string(),
+                ],
+                server_version: Some("0.1.0".to_string()),
+                registered_at: now,
+                auto_start: false,
+            })
+            .await;
+        tracing::info!("p2p-bridge MCP registered (auto_start=false — on-demand start per supervisor gates)");
+    }
+
     // MCP TOOL-SERVER SUPERVISOR (2026-10-18): registration survives
     // restarts, but nothing ever started the backing processes — the
     // boot-time autostart pass + 30s crash-restart loop lives here,
@@ -3708,31 +3737,56 @@ async fn start_pairing(
         .start(req.device_hint.unwrap_or_else(|| "Device".into()))
         .await;
 
-    // The QR encodes the phone-reachable approve URL on the host itself.
+    // OUT-OF-BAND APPROVAL (perimeter review 2026-10-23 — the pairing flow
+    // used to hand its own approval code to whoever called /pairing/start,
+    // making sessions self-issuable): the API response now carries NO code.
+    // The QR/URL encodes only the pairing id; the CODE is delivered on the
+    // HOST — console log + a file under <data_dir>/pairing_pending/ — and
+    // the /pair/<pairing_id> page asks the operator to type what the host
+    // shows. Whoever can reach the API can START pairings; only whoever can
+    // read the host console can APPROVE them.
     let config = {
         let r = state.runtime.read().await;
         r.config.grpc.clone()
     };
     let host = crate::pairing::pairing_public_host(&config.address);
     let port = config.port;
-    let approve_url = format!("http://{}:{}/pair/{}", host, port, code);
-    let qr_payload = format!("ozone://pair/v1?host={}&code={}", host, code);
+    let approve_url = format!("http://{}:{}/pair/{}", host, port, pairing_id);
 
-    let runtime = state.runtime.read().await;
-    let registry = runtime.pipeline_registry.read().await;
-    registry.activity_hub().record(
-        crate::monitor::ActivityKind::Bridge,
-        crate::monitor::ActivityLevel::Info,
-        "pairing",
-        format!("Pairing started — code {} (device: waiting for scan)", code),
-        None,
+    // Host-side code delivery: console + file (the two out-of-band surfaces).
+    tracing::info!(
+        pairing_id = %pairing_id,
+        "PAIRING STARTED — approval code: {} (enter it on the /pair/{} page to approve; never share it over the API)",
+        code, pairing_id
     );
+    {
+        let runtime = state.runtime.read().await;
+        let dir = std::path::PathBuf::from(&runtime.config.general.data_dir)
+            .join("pairing_pending");
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::write(
+            dir.join(format!("{}.code", pairing_id)),
+            format!("{}\n", code),
+        );
+    }
+
+    {
+        let runtime = state.runtime.read().await;
+        let registry = runtime.pipeline_registry.read().await;
+        registry.activity_hub().record(
+            crate::monitor::ActivityKind::Bridge,
+            crate::monitor::ActivityLevel::Info,
+            "pairing",
+            format!("Pairing started (device: waiting for scan + host-console code)"),
+            None,
+        );
+    }
 
     Json(serde_json::json!({
         "pairing_id": pairing_id,
-        "code": code,
+        "code_delivery": "host-console",
         "approve_url": approve_url,
-        "qr_payload": qr_payload,
+        "qr_payload": approve_url,
         "expires_at": expires_at,
     }))
 }

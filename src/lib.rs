@@ -1163,6 +1163,18 @@ impl OzoneRuntime {
                 runtime.read().await.config.general.data_dir.clone(),
             );
 
+            // PEER SYNC REVIEW (network/mod.rs): drain envelopes received
+            // from PAIRED peers into real finding containers (bookkeeping
+            // only — no model calls, no content replication). This is the
+            // receive-side acting wire: a paired peer's signal becomes work.
+            if runtime.read().await.config.network.enable_p2p {
+                crate::network::spawn_peer_sync_review(
+                    runtime.read().await.zsei.clone(),
+                    runtime.read().await.config.general.data_dir.clone(),
+                );
+
+            }
+
             // APPROVAL-GATED TASK EXECUTOR: queued tasks never executed —
             // deliberately (an un-gated executor is an unattended action
             // path). Opt-in via OZONE_AUTO_EXECUTE_TASKS=1: one queued

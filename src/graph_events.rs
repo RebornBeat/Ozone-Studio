@@ -35,6 +35,15 @@ pub struct GraphEvent {
     /// scope-filter on these.
     pub scope_keywords: Vec<String>,
     pub timestamp: u64,
+    /// TRACE SPINE INCREMENT (2026-10-23, actor-causality join): when the
+    /// write happened inside a trace scope, its ids ride the event — so a
+    /// finding can be followed from its cause (the run/span that wrote the
+    /// container) to the actor/loop reacting to it. None = untraced write
+    /// (boot-time, or a caller outside any scope) — never an error.
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub span_id: Option<String>,
 }
 
 impl GraphEvent {
@@ -93,6 +102,35 @@ pub fn emit(
     source: &str,
     scope_keywords: Vec<String>,
 ) {
+    // Emit with the current trace attached when one is in scope (the spine
+    // increment): writes made inside a run carry their run's ids on the
+    // event, so actor-caused work links back to its cause. Untraced callers
+    // produce None fields — same shape, stable for consumers.
+    let ctx = crate::trace::current_trace();
+    emit_traced(
+        event,
+        container_id,
+        parent_id,
+        container_type,
+        source,
+        scope_keywords,
+        ctx.map(|c| c.trace_id),
+        ctx.map(|c| c.span_id),
+    );
+}
+
+/// Explicit-trace variant (a writer that holds a ctx outside the task-local
+/// scope can pass it directly).
+pub fn emit_traced(
+    event: &'static str,
+    container_id: u64,
+    parent_id: u64,
+    container_type: String,
+    source: &str,
+    scope_keywords: Vec<String>,
+    trace_id: Option<String>,
+    span_id: Option<String>,
+) {
     GraphEventHub::global().publish(GraphEvent {
         event,
         container_id,
@@ -104,6 +142,8 @@ pub fn emit(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs(),
+        trace_id,
+        span_id,
     });
 }
 

@@ -980,3 +980,84 @@ pub struct NetworkStatus {
     pub pending_high_priority: usize,
     pub pending_normal: usize,
 }
+
+// ========================= PEER SYNC REVIEW (receive side) =========================
+
+/// PEER SYNC REVIEW (guide §7.3 first version, 2026-10-23): drain
+/// `peer_sync_candidates.jsonl` — the append-only log of envelopes received
+/// from PAIRED peers — and surface each as a REAL finding container via
+/// context_mirror (kind "finding" → CoordinationEvent → the choke point →
+/// ripple → CoordinationFindingActor → a candidate the amt_loop can act on).
+/// Bookkeeping only: NO model call, NO container replicated from the peer
+/// (content stays the peer's; the finding cites it). Progress is an offset
+/// file, so a crash resumes where it left off and nothing is re-surfaced.
+pub fn spawn_peer_sync_review(
+    zsei: std::sync::Arc<tokio::sync::RwLock<crate::zsei::ZSEI>>,
+    data_dir: String,
+) {
+    tokio::spawn(async move {
+        let log_path = std::path::PathBuf::from(&data_dir).join("peer_sync_candidates.jsonl");
+        let offset_path = std::path::PathBuf::from(&data_dir).join("peer_sync_review.offset");
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(120));
+        tick.tick().await; // consume the immediate tick: first pass after 2 min
+        loop {
+            tick.tick().await;
+            let offset: u64 = std::fs::read_to_string(&offset_path)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0);
+            let Ok(content) = std::fs::read_to_string(&log_path) else {
+                continue; // nothing received yet — honest no-op
+            };
+            let byte_len = content.len() as u64;
+            if byte_len <= offset {
+                continue;
+            }
+            let fresh = &content[usize::try_from(offset).unwrap_or(0).min(content.len())..];
+            let mut processed: u64 = 0;
+            let mut surfaced = 0u64;
+            for line in fresh.lines() {
+                processed += line.len() as u64 + 1; // newline
+                let Ok(row) = serde_json::from_str::<serde_json::Value>(line) else {
+                    continue; // a malformed line is skipped, counted, not fatal
+                };
+                let from_peer = row
+                    .get("from_peer")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown-peer");
+                let envelope = row.get("envelope").cloned().unwrap_or(serde_json::json!({}));
+                let ctype = envelope
+                    .get("container_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown");
+                let cid = envelope.get("container_id").and_then(|v| v.as_u64()).unwrap_or(0);
+                let req = crate::context_mirror::MirrorRequest {
+                    kind: "finding".to_string(),
+                    agent: "peer-sync".to_string(),
+                    title: format!("P2P sync from peer: {ctype} #{cid}"),
+                    body: format!(
+                        "A PAIRED peer reported {ctype} #{cid}. This is a FINDING about the peer's activity, not replicated content — the peer's data stays the peer's."
+                    ),
+                    files: Vec::new(),
+                    detail: Some(serde_json::json!({
+                        "from_peer": from_peer,
+                        "envelope": envelope,
+                        "source": "peer-sync-review",
+                    })),
+                    scope: Some("global".to_string()),
+                    workspace_id: None,
+                    project_id: None,
+                };
+                {
+                    let z = zsei.read().await;
+                    let _ = crate::context_mirror::mirror(&z, &data_dir, &req).await;
+                }
+                surfaced += 1;
+            }
+            let _ = std::fs::write(&offset_path, (offset + processed).to_string());
+            if surfaced > 0 {
+                tracing::info!(surfaced, "peer sync review: surfaced paired-peer findings as containers (bookkeeping, no model calls)");
+            }
+        }
+    });
+}

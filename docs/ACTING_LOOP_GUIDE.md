@@ -1,5 +1,20 @@
 # The Acting Loop — what responds when something is seen
 
+> **STATUS CORRECTION 2026-10-23 (read before acting on this document):**
+> parts of this guide are stale relative to the tree. Verified current facts:
+> the I-Loop EXISTS and runs (`src/orchestrator/i_loop.rs`, boot-spawned,
+> live on the local + EU hosts); the ripple actors EXIST
+> (`src/orchestrator/actors.rs` — SecurityFinding / CoordinationFinding /
+> TaskFailed / CodeStaleness, boot-registered) and a sensor tick now feeds
+> them; the findings dedupe key is FIXED (finding-routes dedupe on
+> container+route+detail-digest — global findings no longer drop each other);
+> the P2P trust gate is BUILT and BIDIRECTIONAL in the tree (paired_peers.json,
+> default-deny both directions) with a peer-sync review pass surfacing
+> received signals as finding containers; the queue processor exists behind
+> OZONE_AUTO_EXECUTE_TASKS=1 (approval-gated). Authoritative status:
+> `CHECKLIST.md` (2026-10-23 entries) + `docs/STATE_CAPTURE.md`. This
+> document's prose below is retained as design history, not current state.
+
 > Twelfth doctrine doc. Operator correction, 2026-09-29, precise: **not**
 > "wire security-mcp into a dedicated consciousness review" — consciousness
 > is a windows-first observer (it sees through the monitor/heartbeat feed,
