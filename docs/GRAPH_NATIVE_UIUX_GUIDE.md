@@ -182,6 +182,7 @@ may sit behind these contracts later as leaf renderers only.
 | `<EdgeLine>` / `<EdgeInspector>` | Typed-edge rendering with the existing edgeClass honesty (real/derived/inferred) |
 | `<CrossLinkStrip entity={id}>` | THE silo-killer: for any node/container/file, lists its cross-links (SimilarTo/RelatedTo/DescribesX/FileRef) as clickable chips that navigate (4.3). Appears in every inspector, every engine, the file viewer |
 | `<ModalityWheel>` | The 27-modality radial switcher — one component, used by workspace header, GraphView filter, and Fabric (replaces per-view modality lists) |
+| `<GraphCanvas layout="grid\|radial\|tree">` | ✅ LANDED (`graphkit/GraphCanvas.tsx`): deterministic SVG layouts, MODALITY_COLOR fills, edgeClass dash honesty, selection ring; a physics lib may sit behind this contract later as a leaf renderer |
 | `<HonestState>` | The unified loading/error/empty contract every view already follows informally — codified (loading spine, error with real message, empty with WHY it's empty + how to make it non-empty) |
 
 ### 4.3 Layer 3 — Navigation spine (extend, never replace)
@@ -281,9 +282,9 @@ const codeLens = defineLens({
 | 3 | **GraphProvider** | ✅ CORE LANDED: `ui/src/graphkit/graphProvider.ts` (zustand; one fetch: project → ALL children partitioned modality-graph/file-ref/other → contents → cross-links from relationships + pairs, both-direction reverse index; ONE shared WS subscription; node-event pulse counter substrate-wide; selectors). Views keep `loadGraphData` (which shares the same now-fixed conversion path — no behavioral break); view migration onto the provider is the next wave (GraphView + FabricView first). |
 | 4 | **CrossLinkStrip + NodeCard** | ✅ PRIMITIVES LANDED (`graphkit/primitives.tsx` + `indicators.tsx`); retrofitting the 8 engine inspectors remains. |
 | 5 | **Indicator set** | ✅ LANDED: TaskStateIcon / StepPips / GateState / PeerState (honest "connected ≠ trusted") / ModalityBadge / EdgeRealismLegend / ActivityPulse — all lucide names verified against the installed version; retrofitting existing panels remains. |
-| 6 | **Engine lenses** | 🔶 registry + generic lens LANDED (`graphkit/lens.tsx`: defineLens, genericLensFor — all 27 covered day-one, `DEDICATED_ENGINE_MODALITIES` names the 9 with dedicated views); porting the 8 engines as lens bodies remains. |
-| 7 | **Workspace shell revamp** | ⬜ next wave (needs the view migrations of 3–4 first). |
-| 8 | **Files weaving** | 🔶 substrate-side LANDED (GKFileRef + linkedContainers in the provider); the UI chips both directions remain. |
+| 6 | **Engine lenses** | 🔶→✅ MOSTLY: registry + generic lens landed AND upgraded — genericLensFor now renders **GraphCanvas** (real canvas, selectable) above the typed table, and EnginesPanel gained an **All-modalities tab** (18 non-dedicated modalities reachable at this surface, honest per-modality table). Porting the 9 dedicated engines' bodies as lens renders remains (they keep working as-is meanwhile). |
+| 7 | **Workspace shell revamp** | ⬜ next wave (view migrations 3–4 land first). |
+| 8 | **Files weaving** | ✅ SUBSTANTIAL: substrate GKFileRef+linkedContainers (provider) + the **UI chip landed** — every WorkspaceBrowser file row carries a `graph →` chip (navigateTo container). Reverse direction (graph→files) rides CrossLinkStrip whenever views adopt it. |
 
 Steps 1–2 are tiny; 3–4 are the heart; 5–8 flourish. None require backend
 changes except consuming two existing routes.

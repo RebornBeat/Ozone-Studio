@@ -3180,6 +3180,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/monitor/summary", get(monitor_summary))
         // PAIRING — QR multi-device onboarding, the phone as authenticator.
         .route("/pairing/start", post(start_pairing))
+        .route("/pair/:pairing_id", get(pair_page))
         .route("/pairing/status", get(pairing_status))
         .route("/pairing/approve", post(approve_pairing))
         .route("/pair/:code", get(pair_page))
@@ -3789,6 +3790,46 @@ async fn start_pairing(
         "qr_payload": approve_url,
         "expires_at": expires_at,
     }))
+}
+
+/// GET /pair/<pairing_id> — the OUT-OF-BAND approval page (2026-10-23).
+/// The QR/URL no longer carries the secret: this page asks the operator to
+/// type the code the HOST shows (console log / pairing_pending/<id>.code).
+/// Standalone inline HTML — deliberately not part of the app bundle, so a
+/// phone scanning the QR gets a working page with zero UI-build coupling.
+async fn pair_page(axum::extract::Path(_pairing_id): axum::extract::Path<String>) -> axum::response::Html<&'static str> {
+    axum::response::Html(r#"<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ozone-Studio — approve device</title>
+<style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;max-width:380px;width:90%}
+h1{font-size:17px;margin:0 0 6px}p{font-size:13px;color:#8b949e;margin:4px 0 14px}
+input{width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:10px;font-size:16px;letter-spacing:2px;text-transform:uppercase}
+button{width:100%;margin-top:10px;background:#238636;color:#fff;border:none;border-radius:8px;padding:11px;font-size:15px;cursor:pointer}
+button:disabled{opacity:.5}
+#out{margin-top:12px;font-size:12.5px;white-space:pre-wrap;word-break:break-all}</style></head>
+<body><div class="box"><h1>Approve a device</h1>
+<p>Type the approval code shown on the Ozone-Studio <b>host console</b> (it is never sent over the API). Approving grants this device a session token.</p>
+<input id="code" placeholder="approval code" autocomplete="off">
+<button id="go" onclick="go()">Approve device</button>
+<div id="out"></div></div>
+<script>
+async function go(){
+  const code=document.getElementById('code').value.trim();
+  const out=document.getElementById('out'); const btn=document.getElementById('go');
+  if(!code){out.textContent='Enter the code from the host console.';return}
+  btn.disabled=true; out.textContent='Approving…';
+  try{
+    const r=await fetch('/pairing/approve',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:code,device_name:'paired device ('+new Date().toLocaleString()+')'})});
+    const j=await r.json();
+    if(j && j.success){out.textContent='APPROVED — device '+ (j.device_id||'') +'. Return to the app: pairing is complete (the app fetches its session via pairing status).';}
+    else{out.textContent='Not approved: '+((j && (j.error||j.status))||'unknown response');}
+  }catch(e){out.textContent='Request failed: '+e;}
+  btn.disabled=false;
+}
+document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+</script></body></html>"#)
 }
 
 async fn pairing_status(

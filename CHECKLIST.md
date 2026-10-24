@@ -5891,3 +5891,11 @@ Pairing out-of-band approval (needs the pairing UI flow), GraphCanvas + GraphKit
 - **Operator-gated chain (unchanged, now the ONLY blocker)**: free disk → push → build+test+fleet → the five acceptances → EU redeploy (10-21 binary).
 - **Open rulings**: #46 tool routing (safe to wire), national rules elevation, peer content-sharing/dialogue, data mutations.
 - **UI polish (not blockers)**: GraphKit 7–8 (engine ports onto GraphCanvas, workspace shell, files weaving chips), PairingPanel's /pair code-entry page.
+
+## 2026-10-23 (zcode, UI-FINALIZE) — GraphKit waves 6+8 UI-side complete; the /pair code-entry page live; last doc notice. Edits only; no builds/tests (balances + imports verified per file).
+1. **GraphCanvas → generic lens**: every one of the 18 non-dedicated modalities now renders a REAL selectable canvas above its typed table — no table-only second-class views (lens.tsx; div-balance verified 11/11 after a partial-apply caught and corrected).
+2. **EnginesPanel "All modalities" tab**: the 18 non-dedicated modalities (MODALITY_COLOR keys minus DEDICATED_ENGINE_MODALITIES) reachable at the Engines surface via the shared loadGraphData path — honest per-modality counts/table, empty-state reasons. The 27-modality fleet is reachable at every surface now.
+3. **/pair code-entry page (host-served)**: `GET /pair/:pairing_id` serves a standalone inline HTML form (code input → POST /pairing/approve → result); completes the out-of-band pairing loop — phone scans the QR (which carries only the pairing id), reads the code on the host console, approves from the phone. No app-build coupling by design.
+4. **Files-weaving chip**: every WorkspaceBrowser file row carries a `graph →` chip (navigateTo container) — file→graph direction done; graph→file rides CrossLinkStrip as views adopt it.
+5. **Last doc notice**: docs/guides/living-graph-field-guide.md status correction (file beacon is BUILT and running).
+Guide §5 status table updated (6 ✅mostly / 8 ✅substantial; 7 shell revamp remains the only open UI wave, deliberately — it needs the view migrations first and an operator look at the layout proposal).

@@ -12,6 +12,7 @@
 import React from "react";
 import type { Modality } from "../graphViewTypes";
 import { MODALITY_COLOR, modalityFromObjectStorePath } from "../graphRenderers/defaults";
+import { GraphCanvas } from "./GraphCanvas";
 
 export type LensLayout = "tree" | "force" | "radial" | "table";
 
@@ -61,7 +62,19 @@ export function genericLensFor(modality: Modality): LensDefinition {
       const outDegree = new Map<string, number>();
       for (const e of edges) outDegree.set(e.from, (outDegree.get(e.from) ?? 0) + 1);
       return (
-        <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, minWidth: 0 }}>
+          {/* GraphCanvas (wave 6): every generic lens gets the real canvas —
+              the modality's nodes/edges rendered, selectable, never a
+              table-only second-class view. */}
+          <GraphCanvas
+            nodes={nodes}
+            edges={edges}
+            layout="grid"
+            selectedId={selectedId}
+            onSelect={onSelect}
+            height={260}
+          />
+          <div style={{ display: "flex", gap: 12, minWidth: 0 }}>
           <div style={{ flex: "1 1 60%", minWidth: 0 }}>
             <div
               style={{
@@ -147,6 +160,7 @@ export function genericLensFor(modality: Modality): LensDefinition {
                 Select a node to inspect it.
               </div>
             )}
+          </div>
           </div>
         </div>
       );

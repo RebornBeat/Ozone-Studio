@@ -22,6 +22,7 @@ import {
 } from "../../data/workspaceData";
 import { setSelectedProject } from "../../projectSelection";
 import { setSelectedFile, useSelectedFile } from "../../fileSelection";
+import { navigateTo } from "../../navigation";
 
 export type WorkspaceBrowserProps = {
   projectId: number | null;
@@ -291,6 +292,33 @@ export const WorkspaceBrowser: React.FC<WorkspaceBrowserProps> = ({
                             {ref.modality}
                           </span>
                         )}
+                        {/* FILES-WEAVING CHIP (GraphKit wave 8, 2026-10-23):
+                            the graph direction of the fabric — every file row
+                            links to its own container in the graph views, so
+                            file -> graph needs no separate world. The reverse
+                            direction (graph node -> its files) rides the kit's
+                            CrossLinkStrip. */}
+                        <button
+                          type="button"
+                          title="Open this file's container in the graph"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigateTo({ kind: "container", containerId: ref.containerId });
+                          }}
+                          style={{
+                            background: "none",
+                            border: `1px solid ${C_BORDER}`,
+                            borderRadius: 4,
+                            color: C_MUTED,
+                            cursor: "pointer",
+                            fontSize: 11,
+                            lineHeight: 1,
+                            padding: "1px 6px",
+                            flexShrink: 0,
+                          }}
+                        >
+                          graph →
+                        </button>
                         {onUnlink && (
                           <button
                             type="button"

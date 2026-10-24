@@ -1,5 +1,10 @@
 # Living Graph Field Guide
 
+> **STATUS CORRECTION 2026-10-23:** the file beacon described here is BUILT
+> and running (`src/file_beacon.rs`, 45s poll, boot-spawned) — its writes ride
+> the single graph choke point and ripple like every other. Authoritative
+> status: `CHECKLIST.md` (2026-10-23 entries) + `docs/STATE_CAPTURE.md`.
+
 Everything found while wiring live visibility into the orchestration
 pipeline, chasing the MCP graph-ripple bug, and reviewing the UI/UX work
 this session shipped — written to work through by hand, with a real file
