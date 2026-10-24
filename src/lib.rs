@@ -1256,9 +1256,14 @@ impl OzoneRuntime {
             .as_ref()
             .ok_or_else(|| OzoneError::AuthError("Not authenticated".into()))?;
 
-        // Execute pipeline
+        // Execute pipeline — under the ENTRY GATE (gated-entry decorator,
+        // finalized design review 2026-10-23): external dispatches get a
+        // trace root (or a joined child when re-entering from a walk, e.g.
+        // file_link over HTTP) and one external-pipeline span row; the
+        // dispatch itself is unchanged.
         let registry = self.pipeline_registry.read().await;
-        registry.execute(pipeline_id, input, None).await
+        crate::orchestrator::entry_gate::gated(pipeline_id, registry.execute(pipeline_id, input, None))
+            .await
     }
 
     /// Query ZSEI

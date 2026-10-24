@@ -4,6 +4,24 @@
 
 ---
 
+## System Status (2026-10-23 — read this first)
+
+**What is real and running** (verified against the tree; full detail in `CHECKLIST.md` and `docs/STATE_CAPTURE.md`):
+
+- **Graph-native orchestration**: `/orchestrate` runs the 14-stage walk (jurisdiction → methodologies → modality graphs → AMT → blueprint → simulation → gates → steps → delivery), detached from the client, with multi-model fallback and per-call capture.
+- **27-modality pipeline fleet**, all writing real graphs into the ZSEI store; the UI now reaches **all 27** (single-source modality discriminator, 2026-10-23 — GeospatialEngine and 20 previously-invisible modalities unblocked).
+- **Living graph**: every write funnels through one choke point and ripples to the UI (WebSocket), the ripple actors, the loops, and (opt-in) P2P peers.
+- **P2P**: real host-to-host sync (finding signals) with a bidirectional trust gate (`paired_peers.json`, default-deny) — receive-side live-verified, send-side gated in the tree.
+- **Trace spine** (in tree, unbuilt): one trace id per run — including nested pipeline spawns — stamped on every capture row.
+- **GraphKit** (`ui/src/graphkit/`): our own graph-native UI library — one substrate (GraphProvider), CrossLinkStrip/NodeCard/ModalityWheel primitives, real-value-only indicators, and a lens registry covering every modality.
+- **Consciousness**: one implementation (the store), observed by the task manager; the emotion path feeds from the real TOML config.
+
+**Honest caveats**: several waves of edits are in the tree **awaiting the single build pass** (compile-clean is unproven until then — the tree is the record, `CHECKLIST.md` is the status); jurisdiction's national rules ship Log-only pending operator review; MCP tool routing is designed but not yet wired into blueprint steps (directive #46 ruling open); queued-task execution requires an operator approval gate before it is wired.
+
+**Documentation map**: `docs/STATE_CAPTURE.md` (authoritative state), `CHECKLIST.md` (living status record), `docs/GRAPH_NATIVE_UIUX_GUIDE.md` (the UI doctrine + GraphKit), `docs/P2P_AND_SHARED_MCP_COMMUNICATION_GUIDE.md` (the three communication subsystems), `docs/UNIVERSAL_ORDER_GUIDE.md` (ordering), `docs/TOP_DOWN_REVIEW_GUIDE.md` + `docs/CONTEXT_REGISTRY.md` (context doctrine).
+
+---
+
 ## What is Ozone Studio?
 
 Ozone Studio is a **systems-first platform** for omnidirectional, zero-shot data traversal, abstraction, and context compilation. Unlike traditional AI applications that treat models as the core, Ozone Studio inverts the stack: **data is structured first, intelligence emerges from traversal, and generation is the final step—not the foundation.**

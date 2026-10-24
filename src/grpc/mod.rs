@@ -1151,7 +1151,11 @@ async fn rerun_step(
         registry: runtime.pipeline_registry.clone(),
     };
     use crate::orchestrator::PipelineExecutor;
-    let result = adapter.execute(pipeline_id, exec_input).await;
+    // ENTRY GATE: a rerun is an external dispatch too — trace root (or
+    // joined child) + one external-pipeline span row; dispatch unchanged.
+    let result =
+        crate::orchestrator::entry_gate::gated(pipeline_id, adapter.execute(pipeline_id, exec_input))
+            .await;
 
     match result {
         Ok(output) => {
@@ -3157,6 +3161,15 @@ pub struct RemotePipelineRegisterRequest {
     /// observers only push/consume monitor activity. Absent = ["agent"].
     #[serde(default)]
     pub roles: Option<Vec<String>>,
+    /// Reserved-id reconciliation (2026-10-23): registering a BUILT-IN id is
+    /// refused by default (remote dispatch wins at the executor, so an
+    /// unauthenticated override = hijack). An authenticated operator MAY
+    /// override deliberately: this flag set AND a valid `session_token`.
+    /// Non-built-in ids ignore this flag entirely.
+    #[serde(default)]
+    pub allow_builtin_override: bool,
+    #[serde(default)]
+    pub session_token: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -3315,38 +3328,68 @@ async fn register_remote_pipeline(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RemotePipelineRegisterRequest>,
 ) -> Json<RemotePipelineRegisterResponse> {
-    // RESERVED-ID GUARD (perimeter review 2026-10-23): remote dispatch wins
-    // over built-ins at the executor, so a remote registration for an
-    // already-built-in pipeline id would silently REDIRECT that pipeline's
-    // every call to a caller-chosen URL (registering id 9 = hijack every
-    // prompt call). Registration refuses any id the built-in registry
-    // claims, consciousness ids included — remote entries may only ever
-    // occupy ids the host does not itself implement.
-    if crate::pipeline::registry::category_of(req.pipeline_id).is_some() {
+    // RESERVED-ID GUARD, reconciled (2026-10-23): remote dispatch wins over
+    // built-ins at the executor, so an override of a built-in id redirects
+    // that pipeline's every call — a hijack in unauthenticated hands, but a
+    // DELIBERATE FEATURE for an authenticated operator (e.g. serving
+    // pipeline 9 from a registered agent). Reconciliation: refuse by
+    // default; allow ONLY when the request sets `allow_builtin_override`
+    // AND carries a valid session token. Non-built-in ids are unaffected.
+    let runtime = state.runtime.read().await;
+    let is_builtin = crate::pipeline::registry::category_of(req.pipeline_id).is_some();
+    if is_builtin {
+        let authenticated = {
+            let auth = runtime.auth.read().await;
+            !req.session_token.is_empty()
+                && auth
+                    .validate_session(&hex::decode(&req.session_token).unwrap_or_default())
+                    .await
+                    .is_ok()
+        };
+        if !req.allow_builtin_override || !authenticated {
+            tracing::warn!(
+                pipeline_id = req.pipeline_id,
+                name = %req.name,
+                override_flag = req.allow_builtin_override,
+                authenticated,
+                "remote pipeline registration REFUSED: built-in id (override requires allow_builtin_override + a valid session)"
+            );
+            return Json(RemotePipelineRegisterResponse {
+                success: false,
+                error: Some(format!(
+                    "pipeline id {} is a built-in: override requires allow_builtin_override=true AND a valid session token",
+                    req.pipeline_id
+                )),
+            });
+        }
         tracing::warn!(
             pipeline_id = req.pipeline_id,
             name = %req.name,
-            "remote pipeline registration REFUSED: id belongs to the built-in registry (reserved-id guard)"
+            "built-in pipeline id OVERRIDE by authenticated operator — remote dispatch will shadow the built-in until deregistered"
         );
-        return Json(RemotePipelineRegisterResponse {
-            success: false,
-            error: Some(format!(
-                "pipeline id {} is a built-in and cannot be overridden by a remote registration",
-                req.pipeline_id
-            )),
-        });
     }
-    let runtime = state.runtime.read().await;
     let registry = runtime.pipeline_registry.read().await;
     let roles = req
         .roles
         .filter(|r| !r.is_empty())
         .unwrap_or_else(|| vec!["agent".to_string()]);
     let execute_url = req.execute_url.clone();
-    let entry = registry
+    let entry = match registry
         .remote_pipelines()
-        .register(req.pipeline_id, req.name, execute_url.clone(), roles)
-        .await;
+        .register_guarded(
+            req.pipeline_id,
+            req.name,
+            execute_url.clone(),
+            roles,
+            is_builtin && req.allow_builtin_override,
+        )
+        .await
+    {
+        Ok(entry) => entry,
+        Err(e) => {
+            return Json(RemotePipelineRegisterResponse { success: false, error: Some(e) });
+        }
+    };
     // BRIDGE GRAPH STATE (guide §4, Phase 2 — operator-approved): bridge-
     // range registrations (200-299) get a real container under /External
     // (keyword `bridge:<id>` for idempotent find-or-create) whose state
