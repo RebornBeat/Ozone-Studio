@@ -60,6 +60,10 @@ pub mod instrumented;
 /// Gated entry for EXTERNAL callers (`/pipeline/execute`, `rerun_step`,
 /// `/mcp/call`): jurisdiction + trace root, no walk. Owned by the stages fork.
 pub mod entry_gate;
+/// TOOL ROUTING (directive #46): simulation-selected tools may augment a
+/// step with budget-capped, untrusted-labeled real tool output — gated
+/// behind OZONE_TOOL_ROUTING=1. Owned by the rulings-finalize wave.
+pub mod tool_routing;
 /// Run/span containers for the background loops. Owned by the loops fork.
 pub mod run_spans;
 

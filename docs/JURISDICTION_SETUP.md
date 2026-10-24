@@ -114,3 +114,24 @@ timestamps above are placeholders; use real Unix timestamps in practice.
    disagree it stays unset (logged, both raw values shown) rather than
    guessing, since a wrong value here can BLOCK real requests — this is
    not IP geolocation and makes no network calls.
+
+## Elevating a rule from Log-only (the concrete how-to, 2026-10-23)
+
+Rules ship with national content at action `"Log"` deliberately — elevation
+is an operator policy act, never automatic. To elevate:
+
+1. Edit the rule's `action` in its JSON file (`assets/jurisdiction/<file>`)
+   to one of `Block` / `Warn` / `RequireConfirmation` (the three real
+   enforcement actions; `Log` records only).
+2. Re-seed the graph copy the same way the file was originally loaded
+   (registration-time derivation re-runs at boot; an already-seeded
+   JurisdictionRuleSet container needs its UpdateContainer to carry the new
+   action — rules load from the GRAPH at stage 0, rules_source tells you
+   which layer served).
+3. Verify: the stage-0 log line reports `rules_loaded` + `rules_source`;
+   the compiled global fallback fires (loudly) only when zero Global rules
+   exist. Only 7 rules act today (2 global Block, 3 global
+   RequireConfirmation, 2 Warn) — every elevation moves the real
+   enforcement boundary, so review the matcher behavior for the rule's
+   trigger words first (`contains_word` is word-boundary safe including
+   `_`, but English-only).

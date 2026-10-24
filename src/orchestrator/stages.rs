@@ -2541,6 +2541,19 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 full_context,
             );
 
+            // TOOL ROUTING (directive #46 wired, 2026-10-23): with
+            // OZONE_TOOL_ROUTING=1, simulation-selected tools may contribute
+            // budget-capped, untrusted-labeled REAL output to the step's
+            // prompt. Gate off (default) = byte-for-byte today's prompt.
+            let step_prompt = match crate::orchestrator::tool_routing::tool_context_for_step(
+                &step.description,
+                &state.applicable_tools,
+            )
+            .await
+            {
+                Some(block) => format!("{step_prompt}\n{block}"),
+                None => step_prompt,
+            };
             let mut exec_input = serde_json::json!({
                 "prompt": step_prompt,
                 "max_tokens": state.model_context_limit / 4,

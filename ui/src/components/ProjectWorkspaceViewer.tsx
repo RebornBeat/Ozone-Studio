@@ -45,6 +45,7 @@ import { ForkLineageView } from '../views/hierarchy/ForkLineageView';
 import { JurisdictionHierarchy } from '../views/hierarchy/JurisdictionHierarchy';
 import { GraphView } from './GraphView';
 import { ENGINES } from '../panels/EnginesPanel';
+import { WorkspaceStatusStrip } from './WorkspaceStatusStrip';
 import { useOzoneStore } from '../services/store';
 
 export interface ProjectWorkspaceViewerProps {
@@ -180,6 +181,11 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
     // ProjectChatPanel below this viewer, so the tab bar is the thing
     // sitting right on top of the chat title, not the content.
     <div className="project-insights-viewer">
+      {/* WORKSPACE STATUS STRIP (wave 7, additive): live P2P trust posture
+          (connected ≠ trusted) — indicators from the kit, real values only. */}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
+        <WorkspaceStatusStrip />
+      </div>
       {myActivity && (
         <div className="project-live-activity" key={myActivity.timestamp}>
           <span className="project-live-activity-dot" />

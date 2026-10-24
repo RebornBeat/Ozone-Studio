@@ -1061,3 +1061,139 @@ pub fn spawn_peer_sync_review(
         }
     });
 }
+
+// ========================= PEER DIALOGUE PRIMITIVES =========================
+
+/// PEER DIALOGUE (2026-10-23, primitives-with-caps per the cross-instance
+/// dialogue plan): the typed envelope two instances would exchange to hold
+/// an ongoing conversation about a shared topic (e.g. self-improvement),
+/// and the ONE send path every future caller must use. The caps and the
+/// kill switch are enforced INSIDE the send path, so no caller — loop,
+/// actor, or a future dialogue process — can bypass them.
+///
+/// Deliberately NOT auto-spawned: nothing in this pass starts a dialogue,
+/// replies automatically, or shares content. What exists is the safe
+/// substrate: typed turns, a shared-thread key, hop limiting, a daily
+/// budget, a size cap, trace linkage, and the paired-only + env-gated
+/// send path (dialogue rides the same trust gate as every other send).
+pub const DIALOGUE_ENV: &str = "OZONE_PEER_DIALOGUE";
+pub const DIALOGUE_MAGIC: &str = "ozone-dialogue/v1";
+pub const DIALOGUE_MAX_TURNS_PER_DAY: u32 = 20;
+pub const DIALOGUE_MAX_HOP: u32 = 3;
+pub const DIALOGUE_MAX_BODY_CHARS: usize = 4_000;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PeerDialogueTurn {
+    /// Shared topic key (both instances derive it from the same topic the
+    /// same way — see new_thread_id) so turns group into one conversation.
+    pub thread_id: String,
+    pub turn: u32,
+    /// Turn id this turn answers, when it is a reply.
+    pub reply_to: Option<String>,
+    /// Relay guard: a turn forwarded by an intermediate instance dies here.
+    pub hop_count: u32,
+    /// The sender's trace id — a conversation is joinable to both sides'
+    /// capture stores through it.
+    pub trace_id: Option<String>,
+    /// Filled by the RECEIVER (the sender cannot know its own peer id as
+    /// seen remotely); never trusted, only displayed/logged.
+    #[serde(default)]
+    pub from_peer: Option<String>,
+    pub body: String,
+    pub ts: u64,
+}
+
+/// Derive the shared thread id for a topic: both instances hash the same
+/// normalized topic to the same key without transmitting it in the clear.
+pub fn new_thread_id(topic: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let normalized: String = topic
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let mut h = DefaultHasher::new();
+    normalized.hash(&mut h);
+    format!("{:016x}", h.finish())
+}
+
+fn dialogue_enabled() -> bool {
+    std::env::var(DIALOGUE_ENV).as_deref() == Ok("1")
+}
+
+/// Day-key for the daily budget (UTC date).
+fn dialogue_day() -> String {
+    // Days since epoch — no chrono dependency here.
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() / 86_400)
+        .unwrap_or(0)
+        .to_string()
+}
+
+static DIALOGUE_BUDGET: std::sync::Mutex<Option<(String, u32)>> = std::sync::Mutex::new(None);
+
+fn take_dialogue_budget() -> Result<(), String> {
+    let mut g = DIALOGUE_BUDGET.lock().unwrap();
+    let day = dialogue_day();
+    match g.as_mut() {
+        Some((d, n)) if *d == day => {
+            if *n >= DIALOGUE_MAX_TURNS_PER_DAY {
+                return Err(format!(
+                    "peer dialogue daily budget exhausted ({DIALOGUE_MAX_TURNS_PER_DAY}/day) — the kill switch is the env var, the budget is the brake"
+                ));
+            }
+            *n += 1;
+            Ok(())
+        }
+        _ => {
+            *g = Some((day, 1));
+            Ok(())
+        }
+    }
+}
+
+impl NetworkManager {
+    /// Send one dialogue turn to a PAIRED peer. Caps + kill switch are
+    /// enforced here so no caller can bypass them: env-gated
+    /// (OZONE_PEER_DIALOGUE=1), hop-limited, size-capped, daily-budgeted,
+    /// and default-deny on pairing (send_to_peer's own gate).
+    pub async fn send_dialogue_turn(
+        &self,
+        peer_id: &libp2p::PeerId,
+        mut turn: PeerDialogueTurn,
+    ) -> OzoneResult<()> {
+        if !dialogue_enabled() {
+            return Err(OzoneError::NetworkError(
+                "peer dialogue disabled (set OZONE_PEER_DIALOGUE=1 to enable)".into(),
+            ));
+        }
+        if turn.hop_count >= DIALOGUE_MAX_HOP {
+            return Err(OzoneError::NetworkError(format!(
+                "dialogue turn exceeded hop limit ({DIALOGUE_MAX_HOP}) — not relayed"
+            )));
+        }
+        if turn.body.chars().count() > DIALOGUE_MAX_BODY_CHARS {
+            turn.body = turn.body.chars().take(DIALOGUE_MAX_BODY_CHARS).collect();
+        }
+        take_dialogue_budget()?;
+        turn.ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let wire = serde_json::json!({
+            "magic": DIALOGUE_MAGIC,
+            "turn": turn,
+        });
+        let data = serde_json::to_vec(&wire)
+            .map_err(|e| OzoneError::NetworkError(format!("dialogue serialize: {e}")))?;
+        tracing::info!(
+            thread = %turn.thread_id,
+            turn = turn.turn,
+            "peer dialogue: sending turn (budgeted, paired-only)"
+        );
+        self.send_to_peer(peer_id, &data).await
+    }
+}
