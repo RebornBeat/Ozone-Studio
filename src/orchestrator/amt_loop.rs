@@ -1034,6 +1034,8 @@ mod tests {
             source: "test".into(),
             scope_keywords: keywords,
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         }
     }
 
@@ -1089,6 +1091,8 @@ mod tests {
             source: "test".into(),
             scope_keywords: vec!["scope:global".into()],
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         };
         let got = process_graph_event(&store, &path, &evt).await.unwrap();
         assert_eq!(got, None);

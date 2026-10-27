@@ -7,7 +7,7 @@ import React from "react";
 import {
   Folder, CalendarClock, ListTodo, Library, Settings, Radio, Wrench,
   Smartphone, Share2, Compass, GitBranch, Brain, Files, Puzzle, Handshake,
-  Globe,
+  Globe, type LucideIcon,
 } from "lucide-react";
 
 // Real Lucide icons for the core tab bar (ZCode's UI/UX review, R3 —
@@ -21,7 +21,7 @@ import {
 // emoji usage elsewhere (MetaPortion.tsx/ModelSwitchTimeline.tsx's
 // interpolated `${icon} switched to...` text) can't take a React element
 // the same way a string can — left out of scope for the same reason.
-const CORE_TAB_ICONS: Record<string, React.ComponentType<{ size?: number }>> = {
+const CORE_TAB_ICONS: Record<string, React.ComponentType<{ size?: number | string }> | LucideIcon> = {
   workspace: Folder,
   order: CalendarClock,
   tasks: ListTodo,

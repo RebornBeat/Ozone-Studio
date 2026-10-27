@@ -34,7 +34,7 @@ import type { GKContainerRef, GKCrossLink, GKFileRef, GKStatus } from "./types";
 
 const FILE_KINDS = new Set(["FileReference", "URLReference", "PackageReference"]);
 
-interface GraphKitState {
+export interface GraphKitState {
   projectId: number | null;
   status: GKStatus;
   nodes: GraphViewNode[];

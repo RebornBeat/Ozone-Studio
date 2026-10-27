@@ -64,3 +64,4 @@ export function edgeVisual(edge: GraphViewEdge, modality: Modality | "container"
   return EDGE_RENDERERS[modality]?.visual(edge) ?? defaultEdgeVisual();
 }
 export { defaultEdgeClassification };
+export { modalityFromObjectStorePath } from "./defaults";

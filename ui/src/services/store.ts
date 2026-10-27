@@ -60,6 +60,9 @@ interface Task {
 }
 
 interface UIState {
+  /** ThemeArea is fixed-dark today; the field exists for the config round-trip
+   * (window.ozone.config.set ui.theme) and future themes. */
+  currentTheme: string;
   // Connection state
   isConnected: boolean;
   isAuthenticated: boolean;
@@ -140,7 +143,7 @@ interface UIActions {
   logout: () => void;
 
   // Pipeline execution
-  executePipeline: (pipelineId: number, input: object) => Promise<number>;
+  executePipeline: (pipelineId: number, input: object) => Promise<any>;
 
   // Orchestration (full 14-stage flow)
   orchestratePrompt: (
@@ -207,7 +210,7 @@ const defaultSystemStats: SystemStats = {
 
 export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
   // Initial state - NO mock data
-  isConnected: false,
+  currentTheme: "dark",isConnected: false,
   isAuthenticated: false,
   sessionToken: null,
   systemStats: defaultSystemStats,
@@ -470,7 +473,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
           // output fields directly — real data is under .output.* (same
           // bug class found + fixed in workspace_tab/component.js this
           // session: contextResult.context was always undefined here).
-          const contextResult = await window.ozone.pipeline.execute(21, {
+          const contextResult: any = await window.ozone.pipeline.execute(21, {
             action: "ForProject",
             project_id: projectId,
             token_budget: 50000,

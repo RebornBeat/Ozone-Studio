@@ -441,7 +441,7 @@ impl PromptOrchestrator {
             }
         }
 
-        resolve_confirmation_reviews(
+        resolve_confirmation_reviews_kind(
             &self.executor,
             &confirmation_matches,
             &state.request.prompt,
@@ -449,6 +449,7 @@ impl PromptOrchestrator {
             state.request.user_id,
             &mut result,
             &standing_context,
+            "jurisdiction-intake",
         )
         .await;
 
@@ -691,6 +692,39 @@ pub(crate) fn categorize_jurisdiction_matches(
 /// per request). Takes only what it needs (executor + matches + a few
 /// scalars), not the full OrchestrationState/store, specifically so this is
 /// unit-testable without mocking the whole rule-loading chain (see T-62b).
+/// KIND-SCOPED wrapper (2026-10-23 — the plan-level confirmation pass): the
+/// identical real review mechanics, with `review_kind` threaded into the
+/// pipeline-39 input so plan-level reviews derive their own review_ids and
+/// land as their own S10 rows (distinct from intake-level reviews of the
+/// same rule). No review is skipped or duplicated by the scoping.
+pub(crate) async fn resolve_confirmation_reviews_kind(
+    executor: &Arc<dyn PipelineExecutor>,
+    confirmation_matches: &[JurisdictionRule],
+    prompt: &str,
+    blueprint_id: u64,
+    user_id: u64,
+    result: &mut JurisdictionGateResult,
+    standing_context: &str,
+    review_kind: &str,
+) {
+    tracing::info!(
+        kind = review_kind,
+        rules = confirmation_matches.len(),
+        "plan-level jurisdiction confirmation review (kind-scoped review ids)"
+    );
+    resolve_confirmation_reviews(
+        executor,
+        confirmation_matches,
+        prompt,
+        blueprint_id,
+        user_id,
+        result,
+        standing_context,
+        review_kind,
+    )
+    .await;
+}
+
 pub(crate) async fn resolve_confirmation_reviews(
     executor: &Arc<dyn PipelineExecutor>,
     confirmation_matches: &[JurisdictionRule],
@@ -699,6 +733,7 @@ pub(crate) async fn resolve_confirmation_reviews(
     user_id: u64,
     result: &mut JurisdictionGateResult,
     standing_context: &str,
+    review_kind: &str,
 ) {
     for rule in confirmation_matches {
         let standing_block = if standing_context.is_empty() {
@@ -709,6 +744,12 @@ pub(crate) async fn resolve_confirmation_reviews(
         let input = serde_json::json!({
             "action": "Evaluate",
             "task_id": 0,
+            // KIND + REQUEST TEXT feed the executor's review_id derivation
+            // (compute_review_id hashes review_kind + request_text): a
+            // plan-level review gets its own review id, distinct from the
+            // intake-level review of the same rule.
+            "review_kind": review_kind,
+            "request_text": format!("{} | {}", rule.condition, prompt),
             "task_summary": format!(
                 "A user request matched a jurisdiction rule requiring confirmation before proceeding. Matched condition: \"{}\". Legal source: {}. Original request: {}{}",
                 rule.condition,
@@ -1329,7 +1370,7 @@ mod graph_tests {
             std::sync::Arc::new(DecisionExecutor { decision: "Decline" });
         let matches = vec![rule("self-harm", RuleAction::RequireConfirmation, "UDHR Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "", "jurisdiction-test")
             .await;
         assert!(result.blocked, "a genuine Decline must set blocked");
         assert_eq!(result.confirmations.len(), 1);
@@ -1343,7 +1384,7 @@ mod graph_tests {
             std::sync::Arc::new(DecisionExecutor { decision: "Proceed" });
         let matches = vec![rule("self-harm", RuleAction::RequireConfirmation, "UDHR Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "", "jurisdiction-test")
             .await;
         assert!(!result.blocked, "a Proceed decision must not block");
         assert_eq!(result.confirmations[0].1.decision, "Proceed");
@@ -1358,7 +1399,7 @@ mod graph_tests {
         let executor: std::sync::Arc<dyn super::PipelineExecutor> = std::sync::Arc::new(FailingExecutor);
         let matches = vec![rule("child", RuleAction::RequireConfirmation, "CRC Article 3")];
         let mut result = super::JurisdictionGateResult::default();
-        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "")
+        super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "", "jurisdiction-test")
             .await;
         assert!(!result.blocked);
         assert_eq!(result.confirmations[0].1.decision, "ReviewFailed");

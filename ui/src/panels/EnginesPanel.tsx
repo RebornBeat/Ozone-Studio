@@ -44,7 +44,7 @@ const AllModalitiesView: React.FC<{ projectId: number | null }> = ({ projectId }
   const dedicated = new Set(DEDICATED_ENGINE_MODALITIES);
   const all = (Object.keys(MODALITY_COLOR) as Modality[]).filter((m) => !dedicated.has(m));
   const [modality, setModality] = useState<Modality>(all[0]);
-  const [status, setStatus] = useState<GraphViewStatus>({ kind: "idle" });
+  const [status, setStatus] = useState<GraphViewStatus>({ kind: "loading" });
   useEffect(() => {
     if (projectId === null) return;
     setStatus({ kind: "loading" });
@@ -75,7 +75,7 @@ const AllModalitiesView: React.FC<{ projectId: number | null }> = ({ projectId }
           ))}
         </select>
         <span style={{ fontSize: 11, color: "var(--color-text-muted)" }}>
-          {status.kind === "ready" ? `${nodes.length} nodes · ${edges.length} edges` : status.kind === "empty" ? "no graph for this project yet" : status.kind}
+          {status.kind === "ready" ? `${nodes.length} nodes · ${edges.length} edges` : status.kind === "empty" ? "no graph for this project yet" : String(status.kind)}
         </span>
       </div>
       {status.kind === "loading" && <div style={{ color: "var(--color-text-muted)", fontSize: 12 }}>Loading…</div>}

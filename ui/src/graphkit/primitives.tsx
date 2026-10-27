@@ -92,7 +92,7 @@ export const CrossLinkStrip: React.FC<{
           <button
             key={`${link.targetContainer}:${link.relationType}:${i}`}
             onClick={() => onNavigate(link.targetContainer)}
-            title={`${link.relationType} → ${link.targetLabel ?? `container ${link.targetContainer}`} (via ${link.discovered_via}, confidence ${link.confidence.toFixed(2)})`}
+            title={`${link.relationType} → ${link.targetLabel ?? `container ${link.targetContainer}`} (via ${link.discoveredVia}, confidence ${link.confidence.toFixed(2)})`}
             style={{
               display: "inline-flex",
               alignItems: "center",

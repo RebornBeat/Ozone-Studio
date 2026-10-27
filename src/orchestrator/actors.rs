@@ -582,6 +582,8 @@ mod tests {
             source: "test".into(),
             scope_keywords,
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         }
     }
 

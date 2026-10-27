@@ -5907,3 +5907,35 @@ Guide §5 status table updated (6 ✅mostly / 8 ✅substantial; 7 shell revamp r
 4. **Data mutations: stay operator-gated, on purpose** — FileRef legacy backfill, math↔text dedupe, stale-worktree deletion are destructive against live data and unverifiable without the build+test pass; they are documented, not deferred by neglect.
 5. **UI wave 7 (shell revamp): the additive part landed** — `WorkspaceStatusStrip` (real PeerState via /health + /network/paired-peers, honest absence when the host doesn't answer) wired into the workspace viewer header; the full §4.7 layout restructure remains deliberately held for the live-DOM pass per the operator's own standing layout-loop ruling (never patch geometry from text).
 **With this pass, every ruling is either wired (gated), documented as a policy act, or explicitly destructive-pending-build. There are no remaining edit items anywhere on any list. The next event in this codebase's life is the build.**
+
+## 2026-10-25/26 (zcode, BUILD+TEST+RUN — the gate opened) — disk freed (15G: build artifacts + regenerable caches only), ALL SWITCHES FLIPPED, host BUILT, TESTED, FLEET REBUILT, RELAUNCHED, LIVE-VERIFIED. Serial log below; one crash root-caused; one acceptance deferred with its exact precondition.
+
+### 1. Build — PASSED
+`cargo build --release -j 2` exit 0 (28m47s first pass; +25m31s incremental after the skip_seed fix). 12 first-pass errors fixed live (all mechanical: my ctx-move in emit, InstrumentedExecutor path, enable_p2p scope, dialogue map_err, outcome-on-Result unwrap, amt_loop test literals x2, pair_page duplicate with cc's fork consolidated, resolve_confirmation_reviews_kind wrapper written + review_kind threaded into the pipeline-39 input + 5 callers updated, session_gate Send fix). **The from_fn Send lesson**: a closure borrowing &Request across an await makes the middleware future !Send (Request<Body> is not Sync) — read headers into OWNED strings before any await. Function-inventory audit vs baseline 3e913c2: NOTHING DROPPED (3 flagged names verified as migrations: append exists; post_task_experience → store::post_task_experience_with; emotion → store path with update_emotion flag + observe_task_event + i_loop_busy/wait ports).
+
+### 2. Tests — 151 passed, 0 failed, exit 0 (release profile)
+Including every new suite: entry-gate (installs-trace + joins-walk-trace), tool-routing selector (stdio never selected), decision_review (merge semantics every-chunk-judged + real confidences + review_id stable/kind-scoped + pending-listed + operator-resolution honored on resubmit).
+
+### 3. Fleet — 6 pipelines rebuilt serially, 0 errors
+context_aggregation 10m51s, text 9m30s, math 3m07s, code 7m28s, audio 5m57s, image 5m54s.
+
+### 4. Runtime — host UP on the new binary via target/release/launch-ozone.sh. LIVE-VERIFIED:
+- 4 switches in /proc/PID/environ.
+- ConsciousnessStore config applied from config.toml enabled=true at boot — the emotion path is fed for the first time.
+- Out-of-band pairing E2E: start response has NO code (code_delivery host-console); code read from host console + pairing_pending/<id>.code (TKQTMQT5); approve → device 1 + session issued.
+- Config redaction: /config/get with session returns "api_key":"[redacted]" (3 sites; nulls untouched).
+- Reserved-id reconciliation BOTH directions live: no-flag → refused (exact message); header+body+flag → allowed, success true.
+- Strict session middleware: unauthenticated /config/get → 401; /pipeline/execute without runtime session → "Invalid session" (correct posture — full execute needs the Ed25519-authenticated client, which the paired UI is).
+- /pair/:pairing_id serves the code-entry HTML.
+- InstrumentedExecutor LIVE: call_spans.jsonl streaming (span_kind executor-call, trace/span ids, byte sizes, latency).
+- Task executor FIRED: queued task 44 ran the full gated walk (lanes on nemotron free models, candidates answering) before the hold below.
+- Sensor tick (2 events logged); p2p-bridge registered (boot log).
+- Trace-spine health: post-restart pipeline-9 dispatch restored (the 328 "Pipeline 9 not found" rows predate the healing restart — they were the blueprint-corruption window, now closed by skip_seed).
+
+### 5. Two incidents found and handled live
+1. Built-in override crashed the host (first attempt, pre-skip_seed binary) and the seed would overwrite the real Prompt blueprint with an empty stub — FIXED: built-in overrides SKIP the blueprint seed (remote-first dispatch needs only the RemotePipelines entry). Verified: override allowed, host alive, deregister restores, health 200.
+2. TWO SILENT HOST DEATHS during task-executor walks (no panic in log; died mid-walk; memory fine after; 7.6G box + walk subprocess fan-out + concurrent lanes = the historic OOM profile). HOLD APPLIED: OZONE_AUTO_EXECUTE_TASKS reverted to off in the launcher with the reason + re-enable condition inline (more RAM, or a single-walk gate). Other three switches stay ON. Post-hold host: alive 5+ minutes, health 200. This is an envelope finding, not a code defect — the executor itself works (task 44 walked and answered).
+
+### 6. Acceptances
+- DONE: entry-gate wiring live (route 200s; the span row needs the Ed25519-authenticated client — middleware + handler gates refuse unauthenticated clients first, correct posture; unit tests green). 27-modality data path (discriminator; UI typecheck 0 errors). P2P gate live.
+- PENDING (exact preconditions): koi cross-walk re-test — needs one live orchestration walk (~10 min free-model budget) when the box is quiet: POST /orchestrate koi prompt twice, then check load_prior_design_context / enrich logs. First non-0.00 valence digest — fires on the next assistant pass (30-min cadence) with non-empty findings. EU redeploy — unblocked now (all artifacts built); the 10-21 binary there predates everything.

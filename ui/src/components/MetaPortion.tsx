@@ -467,10 +467,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
         });
 
         if (transcribeResult?.transcription && transcribeResult.is_final) {
-          setPromptInput((prev: string) => {
-            const space = prev && !prev.endsWith(' ') ? ' ' : '';
-            return prev + space + transcribeResult.transcription;
-          });
+          const prev = typeof promptInput === 'string' ? promptInput : '';
+          const space = prev && !prev.endsWith(' ') ? ' ' : '';
+          setPromptInput(prev + space + transcribeResult.transcription);
         }
       }
     } catch (err) {

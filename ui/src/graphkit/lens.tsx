@@ -112,7 +112,7 @@ export function genericLensFor(modality: Modality): LensDefinition {
                     }}
                   >
                     <span style={{ color: n.id === selectedId ? MODALITY_COLOR[modality] : undefined }}>
-                      {raw.node_type ?? n.nodeType}
+                      {String(raw.node_type ?? n.nodeType)}
                     </span>
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {n.label}

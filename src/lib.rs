@@ -1231,15 +1231,22 @@ impl OzoneRuntime {
                             .await
                             .orchestrate(pipeline_input, user_id, device_id)
                             .await;
-                        // Link the queued record to the real outcome.
+                        // Link the queued record to the real outcome — the
+                        // walk itself is Result-typed: an Err IS the failure
+                        // outcome (recorded honestly, never unwrapped).
+                        let (success, orch_task, err_text) = match outcome {
+                            Ok(o) => (o.success, o.task_id, None),
+                            Err(e) => (false, None, Some(e.to_string())),
+                        };
                         let rt = executor_runtime.read().await;
                         let tm = rt.task_manager.read().await;
                         let _ = tm.complete_task(
                             task_id,
                             Some(serde_json::json!({
                                 "executed_via": "auto-task-executor",
-                                "orchestration_task_id": outcome.task_id,
-                                "success": outcome.success,
+                                "orchestration_task_id": orch_task,
+                                "success": success,
+                                "error": err_text,
                             })),
                             0,
                         );
@@ -1506,7 +1513,7 @@ impl OzoneRuntime {
         // sinks, joined by the same trace ids. Best-effort: can never fail
         // or slow a real call.
         let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
-            Arc::new(crate::orchestrator::InstrumentedExecutor::new(executor_adapter));
+            Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(executor_adapter));
         let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
             zsei: self.zsei.clone(),
         });

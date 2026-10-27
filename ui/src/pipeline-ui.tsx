@@ -154,7 +154,7 @@ export async function loadPipelineUIModule(
   try {
     if (window.ozone?.pipeline?.getUIComponent) {
       console.log(`[PipelineUI ${pipelineId}] fetching component.js via bridge…`);
-      const result = await withTimeout(
+      const result: any = await withTimeout(
         window.ozone.pipeline.getUIComponent(pipelineId),
         8000,
         `UI component fetch (pipeline ${pipelineId})`,
@@ -415,7 +415,7 @@ export function DynamicPipelineUI({
     return subscribeToState(apply);
   }, [pipelineId]);
 
-  const executePipeline = useCallback(async (pid: number, input: any) => {
+  const executePipeline = useCallback(async (pid: number, input: any): Promise<any> => {
     if (window.ozone?.pipeline?.execute) {
       return await window.ozone.pipeline.execute(pid, input);
     }

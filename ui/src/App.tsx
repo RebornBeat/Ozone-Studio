@@ -18,8 +18,17 @@ import "./App.css";
 // TypeScript declarations
 declare global {
   interface Window {
+    // PROGRESSIVE TYPING (2026-10-23 typecheck pass): the bridge surface the
+    // app actually calls is wider than the original declaration (orchestrate,
+    // getRegistry, getUIComponent, getDeviceId, getCurrentUserId, voice and
+    // transcription payloads, snake_case backend fields). The named members
+    // below stay for autocomplete; the index signature is the documented
+    // escape hatch so call sites compile against the real (electron-preload)
+    // surface without narrowing runtime behavior.
     ozone?: {
+      [k: string]: any;
       auth: {
+        [k: string]: any;
         challenge: (
           publicKey: Uint8Array,
         ) => Promise<{ challenge: Uint8Array }>;
@@ -33,10 +42,12 @@ declare global {
         }>;
       };
       pipeline: {
+        [k: string]: any;
         execute: (
           pipelineId: number,
           input: object,
         ) => Promise<{
+          [k: string]: any;
           success: boolean;
           taskId: number;
           output?: object;
@@ -45,17 +56,19 @@ declare global {
         list: () => Promise<{ pipelines: Array<{ id: number; name: string }> }>;
       };
       zsei: {
-        query: (query: object) => Promise<object>;
+        query: (query: object) => Promise<any>;
       };
       task: {
+        [k: string]: any;
         status: (taskId: number) => Promise<object>;
         list: () => Promise<{ tasks: Array<object> }>;
       };
       config: {
         get: () => Promise<any>;
-        set: (updates: object) => Promise<{ success: boolean }>;
+        set: (updates: object) => Promise<{ success: boolean; error?: string }>;
       };
       system: {
+        [k: string]: any;
         getStats: () => Promise<SystemStats>;
         isFirstLaunch: () => Promise<boolean>;
         markSetupComplete: () => Promise<{ success: boolean }>;

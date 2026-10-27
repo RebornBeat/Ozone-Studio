@@ -40,9 +40,7 @@ pub struct GraphEvent {
     /// finding can be followed from its cause (the run/span that wrote the
     /// container) to the actor/loop reacting to it. None = untraced write
     /// (boot-time, or a caller outside any scope) — never an error.
-    #[serde(default)]
     pub trace_id: Option<String>,
-    #[serde(default)]
     pub span_id: Option<String>,
 }
 
@@ -114,8 +112,8 @@ pub fn emit(
         container_type,
         source,
         scope_keywords,
-        ctx.map(|c| c.trace_id),
-        ctx.map(|c| c.span_id),
+        ctx.as_ref().map(|c| c.trace_id.clone()),
+        ctx.as_ref().map(|c| c.span_id.clone()),
     );
 }
 
@@ -162,6 +160,8 @@ mod tests {
             source: "test".into(),
             scope_keywords: vec!["ws:3".into()],
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         };
         assert!(evt.visible_to(&["scope:global".into()]));
         assert!(evt.visible_to(&["ws:3".into()])); // exact scope match
@@ -178,6 +178,8 @@ mod tests {
             source: "test".into(),
             scope_keywords: vec!["scope:global".into()],
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         };
         assert!(evt.visible_to(&["scope:global".into()]));
         assert!(evt.visible_to(&["ws:3".into()]));
@@ -194,6 +196,8 @@ mod tests {
             source: "test".into(),
             scope_keywords: vec!["ws:3".into(), "proj:7".into()],
             timestamp: 0,
+            trace_id: None,
+            span_id: None,
         };
         assert!(evt.visible_to(&["ws:3".into()]));
         assert!(evt.visible_to(&["proj:7".into()]));

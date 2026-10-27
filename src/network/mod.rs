@@ -1178,7 +1178,7 @@ impl NetworkManager {
         if turn.body.chars().count() > DIALOGUE_MAX_BODY_CHARS {
             turn.body = turn.body.chars().take(DIALOGUE_MAX_BODY_CHARS).collect();
         }
-        take_dialogue_budget()?;
+        take_dialogue_budget().map_err(OzoneError::NetworkError)?;
         turn.ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())

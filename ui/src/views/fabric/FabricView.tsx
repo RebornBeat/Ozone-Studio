@@ -218,7 +218,9 @@ const ALL_MODALITIES: readonly Modality[] = [
   "IMU", "kinematics", "network", "proteomics", "radar", "sonar", "sound",
   "thermal", "video",
 ];
-const CENTERS: Record<Modality, { x: number; y: number }> = {
+// Layout anchors for the 6 dedicated cluster rings; other modalities fall
+// back to a deterministic ring position at render time (Partial on purpose).
+const CENTERS: Partial<Record<Modality, { x: number; y: number }>> = {
   code: { x: 130, y: 110 },
   math: { x: 510, y: 110 },
   text: { x: 320, y: 290 },
@@ -368,8 +370,8 @@ export const FabricView: React.FC<FabricViewProps> = ({ projectId }) => {
         >
           <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block", maxHeight: 420 }} role="img" aria-label="Modality fabric">
             {model.links.map((l) => {
-              const a = CENTERS[l.a];
-              const b = CENTERS[l.b];
+              const a = CENTERS[l.a] ?? { x: 320, y: 290 };
+              const b = CENTERS[l.b] ?? { x: 320, y: 290 };
               return (
                 <g key={`${l.a}-${l.b}`}>
                   <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#c58bff" strokeWidth={1 + Math.min(l.count, 8)} opacity={0.75} />
@@ -380,7 +382,7 @@ export const FabricView: React.FC<FabricViewProps> = ({ projectId }) => {
               );
             })}
             {model.perModality.map((p) => {
-              const c = CENTERS[p.modality];
+              const c = CENTERS[p.modality] ?? { x: 320, y: 290 };
               const empty = p.nodes === 0;
               const r = clusterRadius(p.nodes, model.maxNodes);
               const isSel = selected === p.modality;

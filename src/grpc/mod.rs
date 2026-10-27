@@ -557,17 +557,20 @@ async fn session_gate(
     if std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1")
         && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
     {
-        let header_token = |name: &str| {
-            req.headers()
-                .get(name)
-                .and_then(|v| v.to_str().ok())
-                .map(|s| s.to_string())
-        };
-        let bearer = header_token(axum::http::header::AUTHORIZATION.as_str())
-            .and_then(|v| v.strip_prefix("Bearer ").map(|t| t.to_string()));
-        let token = bearer
-            .or_else(|| header_token("x-oz-session"))
-            .unwrap_or_default();
+        // Read headers into OWNED strings BEFORE any await: a closure holding
+        // &Request across an await makes the future !Send (the body is not
+        // Sync) — exactly the FromFn Service failure the first compile hit.
+        let bearer = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.strip_prefix("Bearer ").map(|t| t.to_string()));
+        let alt = req
+            .headers()
+            .get("x-oz-session")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+        let token = bearer.or(alt).unwrap_or_default();
         let ok = {
             let runtime = state.runtime.read().await;
             let auth = runtime.auth.read().await;
@@ -3022,6 +3025,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
     // reach it. auto_start stays FALSE (operator opt-in per tool, per the
     // standing ruling); the supervisor's requires_p2p_enabled gate still
     // applies to every start path.
+    let enable_p2p = runtime.read().await.config.network.enable_p2p;
     if enable_p2p {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -3183,7 +3187,6 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/pair/:pairing_id", get(pair_page))
         .route("/pairing/status", get(pairing_status))
         .route("/pairing/approve", post(approve_pairing))
-        .route("/pair/:code", get(pair_page))
         .route("/devices", get(list_devices))
         // MCP TOOLS — external tool registration (the 90+ tool surface).
         .route("/mcp/tools", get(mcp_list_tools))
@@ -3566,6 +3569,13 @@ async fn register_remote_pipeline(
     // populated at boot from the compile-time PIPELINE_INFO table (ids
     // 1-55) — a fresh remote id like 9001 would otherwise 404 here even
     // though RemotePipelines itself is ready to serve it.
+    // BUILT-IN OVERRIDE: skip the blueprint seed — the compile-time map
+    // already holds the real blueprint for this id, and overwriting it with
+    // an empty remote stub would corrupt built-in dispatch. The override
+    // works at the EXECUTOR (remote-first check) which needs only the
+    // RemotePipelines entry above. Fresh (non-built-in) ids still seed.
+    let skip_seed = is_builtin;
+    if !skip_seed {
     let _ = registry
         .register_custom(crate::types::pipeline::PipelineBlueprint {
             pipeline_id: entry.pipeline_id,
@@ -3591,6 +3601,7 @@ async fn register_remote_pipeline(
             verified_by: 0,
         })
         .await;
+    } // end !skip_seed
     // Capture the landing in the monitor feed — one observable registry.
     registry.activity_hub().record(
         crate::monitor::ActivityKind::Agent,
@@ -3792,46 +3803,6 @@ async fn start_pairing(
     }))
 }
 
-/// GET /pair/<pairing_id> — the OUT-OF-BAND approval page (2026-10-23).
-/// The QR/URL no longer carries the secret: this page asks the operator to
-/// type the code the HOST shows (console log / pairing_pending/<id>.code).
-/// Standalone inline HTML — deliberately not part of the app bundle, so a
-/// phone scanning the QR gets a working page with zero UI-build coupling.
-async fn pair_page(axum::extract::Path(_pairing_id): axum::extract::Path<String>) -> axum::response::Html<&'static str> {
-    axum::response::Html(r#"<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Ozone-Studio — approve device</title>
-<style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
-.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;max-width:380px;width:90%}
-h1{font-size:17px;margin:0 0 6px}p{font-size:13px;color:#8b949e;margin:4px 0 14px}
-input{width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:10px;font-size:16px;letter-spacing:2px;text-transform:uppercase}
-button{width:100%;margin-top:10px;background:#238636;color:#fff;border:none;border-radius:8px;padding:11px;font-size:15px;cursor:pointer}
-button:disabled{opacity:.5}
-#out{margin-top:12px;font-size:12.5px;white-space:pre-wrap;word-break:break-all}</style></head>
-<body><div class="box"><h1>Approve a device</h1>
-<p>Type the approval code shown on the Ozone-Studio <b>host console</b> (it is never sent over the API). Approving grants this device a session token.</p>
-<input id="code" placeholder="approval code" autocomplete="off">
-<button id="go" onclick="go()">Approve device</button>
-<div id="out"></div></div>
-<script>
-async function go(){
-  const code=document.getElementById('code').value.trim();
-  const out=document.getElementById('out'); const btn=document.getElementById('go');
-  if(!code){out.textContent='Enter the code from the host console.';return}
-  btn.disabled=true; out.textContent='Approving…';
-  try{
-    const r=await fetch('/pairing/approve',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({code:code,device_name:'paired device ('+new Date().toLocaleString()+')'})});
-    const j=await r.json();
-    if(j && j.success){out.textContent='APPROVED — device '+ (j.device_id||'') +'. Return to the app: pairing is complete (the app fetches its session via pairing status).';}
-    else{out.textContent='Not approved: '+((j && (j.error||j.status))||'unknown response');}
-  }catch(e){out.textContent='Request failed: '+e;}
-  btn.disabled=false;
-}
-document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
-</script></body></html>"#)
-}
-
 async fn pairing_status(
     State(state): State<Arc<AppState>>,
     axum::extract::Query(q): axum::extract::Query<PairingStatusQuery>,
@@ -3879,17 +3850,44 @@ async fn approve_pairing(
 
 /// Phone-facing approve page (scanned from the QR).
 async fn pair_page(
-    State(state): State<Arc<AppState>>,
-    axum::extract::Path(code): axum::extract::Path<String>,
-) -> axum::response::Html<String> {
-    let config = {
-        let r = state.runtime.read().await;
-        r.config.grpc.clone()
-    };
-    axum::response::Html(crate::pairing::approve_page_html(
-        &code,
-        &format!("{}:{}", config.address, config.port),
-    ))
+    axum::extract::Path(_pairing_id): axum::extract::Path<String>,
+) -> axum::response::Html<&'static str> {
+    // OUT-OF-BAND APPROVAL PAGE (2026-10-23): the URL carries ONLY the
+    // pairing id — never the code. The operator types the code the HOST
+    // shows (console log / pairing_pending/<pairing_id>.code). Standalone
+    // inline HTML so a phone scanning the QR needs no app build.
+    axum::response::Html(r#"<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Ozone-Studio — approve device</title>
+<style>body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0}
+.box{background:#161b22;border:1px solid #30363d;border-radius:12px;padding:28px;max-width:380px;width:90%}
+h1{font-size:17px;margin:0 0 6px}p{font-size:13px;color:#8b949e;margin:4px 0 14px}
+input{width:100%;box-sizing:border-box;background:#0d1117;color:#e6edf3;border:1px solid #30363d;border-radius:8px;padding:10px;font-size:16px;letter-spacing:2px;text-transform:uppercase}
+button{width:100%;margin-top:10px;background:#238636;color:#fff;border:none;border-radius:8px;padding:11px;font-size:15px;cursor:pointer}
+button:disabled{opacity:.5}
+#out{margin-top:12px;font-size:12.5px;white-space:pre-wrap;word-break:break-all}</style></head>
+<body><div class="box"><h1>Approve a device</h1>
+<p>Type the approval code shown on the Ozone-Studio <b>host console</b> (it is never sent over the API). Approving grants this device a session token.</p>
+<input id="code" placeholder="approval code" autocomplete="off">
+<button id="go" onclick="go()">Approve device</button>
+<div id="out"></div></div>
+<script>
+async function go(){
+  const code=document.getElementById('code').value.trim();
+  const out=document.getElementById('out'); const btn=document.getElementById('go');
+  if(!code){out.textContent='Enter the code from the host console.';return}
+  btn.disabled=true; out.textContent='Approving…';
+  try{
+    const r=await fetch('/pairing/approve',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({code:code,device_name:'paired device ('+new Date().toLocaleString()+')'})});
+    const j=await r.json();
+    if(j && j.success){out.textContent='APPROVED — device '+(j.device_id||'')+'. Return to the app: pairing is complete (the app fetches its session via pairing status).';}
+    else{out.textContent='Not approved: '+((j && (j.error||j.status))||'unknown response');}
+  }catch(e){out.textContent='Request failed: '+e;}
+  btn.disabled=false;
+}
+document.getElementById('code').addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+</script></body></html>"#)
 }
 
 /// Multi-device registry — every paired device on this host.
@@ -4237,6 +4235,7 @@ async fn mcp_call(
                 0,
                 &mut jr,
                 "MCP tool call — no project standing context (not a chat request)",
+                "mcp-call",
             )
             .await;
         }
