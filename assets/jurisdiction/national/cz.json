@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Czech national law, retrieved via live web search on 2026-10-27 (domains: szpi.gov.cz, policie.gov.cz, businessinfo.cz, ochrance.cz, fau.gov.cz and mfcr.cz - Czech government / authority sites - plus the secondary site statnisprava.cz where an official page was not returned). Rule snippets paraphrase what the search results reported; the official e-Sbirka consolidated texts were not independently fetched, so paragraph numbers, amendment dates and current wording must be re-verified on e-Sbirka. Covers Czech NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "CZ"},
+      "condition": "personal data",
+      "aliases": ["osobní údaje", "ochrana osobních údajů", "zpracování osobních údajů"],
+      "action": "Log",
+      "source": "Zákon č. 110/2019 Sb., o zpracování osobních údajů (Act on Personal Data Processing) - copy hosted by a Czech government authority: https://www.szpi.gov.cz/soubor/zakon-c-110-2019-sb-o-zpracovani-osobnich-udaju.aspx",
+      "retrieved_snippet": "Act No. 110/2019 Coll. is dated 12 March 2019 and took effect on 24 April 2019; it replaced Act No. 101/2000 Coll., adapts the GDPR into Czech law, transposes Directive 2016/680 and sets out the status and powers of the Office for Personal Data Protection (UOOU). One copy lists later amendments 448/2024, 218/2025 and 230/2025 Sb. (unverified against the official Collection of Laws).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "cybercrime",
+      "aliases": ["kybernetická kriminalita", "neoprávněný přístup", "hacking"],
+      "action": "Log",
+      "source": "Zákon č. 40/2009 Sb., trestní zákoník, sections 230-232 (data offences) - Czech Police: https://policie.gov.cz/clanek/nejcastejsi-projevy-kyberneticke-kriminality-s-odkazem-na-trestni-zakonik.aspx",
+      "retrieved_snippet": "The Czech Police list sections 230-232 of the Criminal Code among cyber/data offences; section 231 covers making, possessing or distributing access tools or passwords intended for offences under section 230 or 182. A secondary source reports a 2022 amending act reworded the opening of section 230 from 'gaining access' to 'interfering with' a system - current wording and effective date not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "consumer",
+      "aliases": ["ochrana spotřebitele", "spotřebitel"],
+      "action": "Log",
+      "source": "Zákon č. 634/1992 Sb., o ochraně spotřebitele (Consumer Protection Act), supervised by the Czech Trade Inspection (ČOI) - Business Info (Czech government business portal): https://www.businessinfo.cz/navody/pravni-predpisy-pro-ochranu-spotrebitele/",
+      "retrieved_snippet": "Business Info states that the consumer protection act transposes the relevant EU rules and regulates business conditions relevant to consumer protection, consumers' rights and out-of-court dispute resolution (fair dealing, ban on unfair commercial practices, information and labelling duties); ČOI is one of the supervising bodies; Act No. 387/2024 Sb. on general product safety is a separate related law. Current amendment list not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "hate speech",
+      "aliases": ["podněcování k nenávisti", "nenávist vůči skupině osob"],
+      "action": "Log",
+      "source": "Zákon č. 40/2009 Sb., trestní zákoník, section 356 (incitement to hatred against a group of persons) - Czech Public Defender of Rights PDF copy: https://www.ochrance.cz/uploads-import/DISKRIMINACE/pravni_predpisy/Trestni_zakonik.pdf",
+      "retrieved_snippet": "Section 356 punishes publicly inciting hatred toward a nation, race, ethnic group, religion, class or other group of people, or inciting restriction of their rights and freedoms, with up to two years' imprisonment; commission through publicly accessible computer networks or a comparably effective method raises the range to six months to three years. Section 355 (defamation of a group) was referenced but its wording was not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "gambling",
+      "aliases": ["hazardní hry", "hazard"],
+      "action": "Log",
+      "source": "Zákon č. 186/2016 Sb., o hazardních hrách (Gambling Act) - Ministry of Finance FAQ on the register of excluded persons: https://www.mfcr.cz/assets/cs/media/Material_FAQ-RVO-verejnost_v04.pdf",
+      "retrieved_snippet": "The Ministry of Finance keeps the register of natural persons excluded from gambling under section 16 and related provisions of Act No. 186/2016 Sb.; a person may enter themselves voluntarily, after which no operator may let them play or enter the gaming area; under section 69 operators may not admit anyone under 18.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "money laundering",
+      "aliases": ["praní špinavých peněz", "legalizace výnosů z trestné činnosti"],
+      "action": "Log",
+      "source": "Zákon č. 253/2008 Sb., o některých opatřeních proti legalizaci výnosů z trestné činnosti a financování terorismu (AML Act), Financial Analytical Office (FAÚ): https://fau.gov.cz/files/skupina-sdileni-informaci.pdf",
+      "retrieved_snippet": "The AML Act (253/2008 Sb.) implements Directive (EU) 2015/849; the Financial Analytical Office (FAÚ) is the Czech financial intelligence unit, receives and analyses suspicious-transaction reports, supervises obliged entities and issues methodological opinions; a secondary source reports an amendment published as Sb. 107/2024 effective 1 May 2024 extending the list of obliged persons.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "CZ"},
+      "condition": "cybersecurity",
+      "aliases": ["kybernetická bezpečnost", "zákon o kybernetické bezpečnosti", "nis2"],
+      "action": "Log",
+      "source": "Zákon č. 264/2025 Sb., o kybernetické bezpečnosti (Czech NIS2 transposition; replaces Act 181/2014 Sb.), regulator NÚKIB - secondary source: https://www.statnisprava.cz/rstsp/clanky.nsf/i/novy_zakon_o_kyberneticke_bezpecnosti_vysel_ve_sbirce_zakonu_ucinny_bude_od_listopadu_25080520_94183261",
+      "retrieved_snippet": "Secondary sources report Act No. 264/2025 Sb. was adopted 11 June 2025, published 4 August 2025 and took effect on 1 November 2025, replacing Act 181/2014 Sb. and covering several thousand entities; entities had 60 days to self-identify to NÚKIB and a one-year transitional period applies to security controls; incident reporting stages are 24 hours, 72 hours and one month. The official text was not retrieved.",
+      "official_source": false
+    }
+  ]
+}

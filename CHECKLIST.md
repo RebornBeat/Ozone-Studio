@@ -5962,3 +5962,24 @@ build-and-deploy-memory-envelope (MemAvailable gating, serial compile fronts, 10
 
 ### 7. Switches final state
 LOCAL: TOOL_ROUTING=1, REQUIRE_SESSION=1, PEER_DIALOGUE=1, AUTO_EXECUTE=HELD (silent-death envelope; re-enable condition inline in launcher). EU: ALL FOUR ON + memory floor. Re-verify EU walk stability over its first queued task before trusting long-run.
+
+## 2026-10-27 (zcode, WIZARD+EU-FINAL) — the operator's wizard complaints root-caused and fixed; 42209 reviewed + tombstoned; both hosts restarted on the final binary. Edits + deploy; NO builds were skipped (two rebuild cycles completed).
+
+### 1. Wizard re-show + confirm error — root-caused and FIXED (three interacting causes)
+1. The strict-session middleware 401'd the wizard's own empty-token `/config/get` — so `isFirstLaunch`'s catch returned `true` and the wizard re-showed on every launch even though `user_setup_complete = true` in config.toml. FIXED by splitting `/config/` out of the PROTECTED list: `/config/get` is now reachable unauthenticated (safe — api_key redacted since the RULINGS wave), `/config/set` remains gated.
+2. The confirm's `config/set` also 401'd — pre-pairing there is no session. FIXED by the FIRST-RUN EXEMPTION: while `general.setup_complete && general.user_setup_complete` are both false, the strict gate stands down entirely (the setup wizard must be able to write config before any pairing exists). Completing setup arms the gate. On this host both are already true → gate is armed → wizard won't re-show.
+3. The operator also saw a confirm error — same root (the gate 401'd config/set during the wizard's own save). With the first-run exemption + the split, the wizard's full flow (config/set with `setup_complete:true` → markSetupComplete) works unauthenticated pre-setup and the gate arms after.
+
+### 2. Jurisdiction question REMOVED from SetupWizard
+Per operator: "we never ask — it's automatic, if it detects it detects." The wizard's jurisdiction checkbox, free-text region input, the `jurisdictionEnabled`/`instanceRegion` fields, the config write for `jurisdiction.enabled`/`instance_region`, the step-2 "and jurisdiction" text, and the summary-screen Jurisdiction row are ALL REMOVED. Replaced with a display-only note: "Jurisdiction is AUTO-DETECTED from this machine's timezone/locale/IP (when at least two signals agree) — we never ask." The server-side auto-detection (`apply_hardware_region_detection`) runs at config load regardless. The jurisdiction config section in the wizard's configUpdates payload is removed — the gate stays always-on server-side with whatever region auto-detection provides.
+
+### 3. 42209 reviewed + tombstoned (recoverability confirmed)
+**What it was meant to be**: a CreateContainer from the task-executor's queued-task-44 walk ("CHECKLIST retirement half") — the walk was active when the first silent-death kill hit mid-write, tearing the container (global record written, local file never landed).
+**Recoverability**: the CONTENT is unrecoverable (the walk was building new analysis, not modifying existing data), but it is fully REGENERABLE — re-running the same orchestration reproduces equivalent containers (and task 44 is still queued, so the task executor will re-run it when re-enabled with adequate memory).
+**Tombstoned**: 42209 + two more torn writes (42210, 42211) found by the same scan loop. All three now load as valid Derived containers with provenance="tombstone-2026-10-27 (torn CreateContainer write — silent-death kill mid-walk)". Keyword searches unblocked (verified: memory-envelope/out-of-band/reserved-id searches all return success:true).
+
+### 4. EU redeployed with the session_gate fix
+The skip_seed fix (blueprint-corruption crash closed) was deployed earlier; this pass adds the session_gate first-run exemption + jurisdiction removal + the /config/get split. EU restarted, active, health 200, all 5 env vars confirmed. EU config/get with session → api_key [redacted] ×3. EU /pair page serving.
+
+### 5. CC jurisdiction-expansion assignment written (handoff mvr5cdvrx935)
+7/161 rules act; 154 national Log-only; expansion direction + infrastructure notes + the 42209 id-range caution for CC's resumed forks.

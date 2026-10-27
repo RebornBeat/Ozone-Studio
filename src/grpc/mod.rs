@@ -546,7 +546,7 @@ async fn session_gate(
     next: axum::middleware::Next,
 ) -> axum::response::Response {
     const PROTECTED: &[&str] = &[
-        "/config/",
+        "/config/set",
         "/mcp/tools",
         "/network/",
         "/task/",
@@ -554,7 +554,18 @@ async fn session_gate(
         "/consciousness/reviews/resolve",
         "/pipelines/register",
     ];
+    // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
+    // gate stands down entirely — the setup wizard must be able to write
+    // config BEFORE any pairing/session exists (previously the gate 401'd
+    // the wizard's own confirm, which left user_setup_complete never
+    // persisted and re-showed the wizard on every launch). Completing setup
+    // arms the gate.
+    let first_run = {
+        let rt = state.runtime.read().await;
+        !(rt.config.general.setup_complete && rt.config.general.user_setup_complete)
+    };
     if std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1")
+        && !first_run
         && PROTECTED.iter().any(|p| req.uri().path().starts_with(p))
     {
         // Read headers into OWNED strings BEFORE any await: a closure holding

@@ -1,25 +1,274 @@
 {
-  "disclaimer": "Drafted from real UK legislation (UK GDPR + Data Protection Act 2018 — the retained/adapted form of EU GDPR incorporated into UK law after Brexit via the European Union (Withdrawal) Act 2018), retrieved via web search against summaries of the official legislation.gov.uk text, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UK legal counsel. Scope: National(\"GB\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real UK legislation (UK GDPR + Data Protection Act 2018 — the retained/adapted form of EU GDPR incorporated into UK law after Brexit via the European Union (Withdrawal) Act 2018), retrieved via web search against summaries of the official legislation.gov.uk text, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UK legal counsel. Scope: National(\"GB\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it. ENRICHED 2026-10-27: additional rules below were verified by retrieving the official legislation.gov.uk contents pages on 2026-10-27 (pages state they are up to date with changes known to be in force on or before 27 October 2026); snippets quote only the Act titles, chapter numbers and section headings actually retrieved. Every added rule's action is Log only.",
   "rules": [
     {
-      "scope": { "National": "GB" },
+      "scope": {
+        "National": "GB"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "UK GDPR + Data Protection Act 2018 — gives individuals rights over personal data (access, rectification, erasure, restriction, portability, objection, and rights around automated decision-making), broadly mirroring EU GDPR post-Brexit. Official text: https://www.legislation.gov.uk/ukpga/2018/12/contents"
     },
     {
-      "scope": { "National": "GB" },
+      "scope": {
+        "National": "GB"
+      },
       "condition": "data breach",
       "action": "Log",
       "source": "UK GDPR (retained EU law) — notification obligations to the Information Commissioner's Office (ICO) mirror the EU GDPR 72-hour breach-notification standard. Official text: https://www.legislation.gov.uk/ukpga/2018/12/contents"
     },
     {
-      "scope": { "National": "GB" },
+      "scope": {
+        "National": "GB"
+      },
       "condition": "accessibility",
       "action": "Log",
       "source": "Public Sector Bodies (Websites and Mobile Applications) Accessibility Regulations 2018 — requires public sector websites/apps to meet WCAG 2.2 AA and publish an accessibility statement; in force since 23 September 2018 (websites) / 23 June 2021 (mobile apps). Scope: public sector bodies (central/local government, certain publicly-funded charities/NGOs), not general private-sector services. Official: https://www.gov.uk/guidance/accessibility-requirements-for-public-sector-websites-and-apps",
       "retrieved_snippet": "The Public Sector Bodies (Websites and Mobile Applications) Accessibility Regulations of 2018 require public sector websites and mobile apps to meet WCAG 2.2 AA and publish an accessibility statement explaining how accessible their website or app is. Came into force 23 September 2018 for websites and 23 June 2021 for mobile applications.",
       "official_source": false
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "online safety",
+      "aliases": [
+        "online safety act"
+      ],
+      "action": "Log",
+      "source": "Online Safety Act 2023 (c. 50) — https://www.legislation.gov.uk/ukpga/2023/50/contents",
+      "retrieved_snippet": "Online Safety Act 2023, 2023 c. 50; legislation.gov.uk shows the Act as enacted and up to date with changes known to be in force on or before 27 October 2026 (some changes may take effect at a future date).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "unauthorised access",
+        "computer misuse"
+      ],
+      "action": "Log",
+      "source": "Computer Misuse Act 1990 (c. 18) — https://www.legislation.gov.uk/ukpga/1990/18/contents",
+      "retrieved_snippet": "Computer Misuse Act 1990, 1990 c. 18. Section headings: s.1 'Unauthorised access to computer material'; s.2 'Unauthorised access with intent to commit or facilitate commission of further offences'; s.3 'Unauthorised acts with intent to impair, or with recklessness as to impairing, operation of computer, etc.'; s.3ZA 'Unauthorised acts causing, or creating risk of, serious damage'; s.3A 'Making, supplying or obtaining articles for use in offence under section 1, 3 or 3ZA'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "discrimination",
+      "aliases": [
+        "protected characteristic"
+      ],
+      "action": "Log",
+      "source": "Equality Act 2010 (c. 15), Part 2 Chapter 1 'Protected characteristics' — https://www.legislation.gov.uk/ukpga/2010/15/contents",
+      "retrieved_snippet": "Equality Act 2010, 2010 c. 15. Section 4 'The protected characteristics' with ss.5-12 headed Age; Disability; Gender reassignment; Marriage and civil partnership; Race; Religion or belief; Sex; Sexual orientation.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "terrorist"
+      ],
+      "action": "Log",
+      "source": "Terrorism Act 2000 (c. 11) — https://www.legislation.gov.uk/ukpga/2000/11/contents",
+      "retrieved_snippet": "Terrorism Act 2000, 2000 c. 11. Part I 'Introductory' with s.1 'Terrorism: interpretation'; under Part II offences, s.12 'Support'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "consumer rights"
+      ],
+      "action": "Log",
+      "source": "Consumer Rights Act 2015 (c. 15), Part 1 — https://www.legislation.gov.uk/ukpga/2015/15/contents",
+      "retrieved_snippet": "Consumer Rights Act 2015, 2015 c. 15. Part 1 'Consumer contracts for goods, digital content and services' with Chapter 1 Introduction, Chapter 2 Goods, Chapter 3 Digital content, Chapter 4 Services, Chapter 5 General and supplementary provisions.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "defamation",
+      "aliases": [
+        "libel"
+      ],
+      "action": "Log",
+      "source": "Defamation Act 2013 (c. 26) — https://www.legislation.gov.uk/ukpga/2013/26/contents",
+      "retrieved_snippet": "Defamation Act 2013, 2013 c. 26. Section 1 is headed 'Serious harm'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "betting"
+      ],
+      "action": "Log",
+      "source": "Gambling Act 2005 (c. 19) — https://www.legislation.gov.uk/ukpga/2005/19/contents",
+      "retrieved_snippet": "Gambling Act 2005, 2005 c. 19. Part 1 section 1 is headed 'The licensing objectives'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "intellectual property"
+      ],
+      "action": "Log",
+      "source": "Copyright, Designs and Patents Act 1988 (c. 48) — https://www.legislation.gov.uk/ukpga/1988/48/contents",
+      "retrieved_snippet": "Copyright, Designs and Patents Act 1988, 1988 c. 48. Part I 'Copyright' with s.1 'Copyright and copyright works.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "data protection",
+      "aliases": [
+        "data (use and access)"
+      ],
+      "action": "Log",
+      "source": "Data (Use and Access) Act 2025 (c. 18), Part 5 Chapter 1 'Data protection' — https://www.legislation.gov.uk/ukpga/2025/18/contents",
+      "retrieved_snippet": "Data (Use and Access) Act 2025, 2025 c. 18. legislation.gov.uk lists 'Part 5 Data protection and privacy' with 'Chapter 1 Data protection'; the page shown was the latest revised version (the as-enacted version was linked but not read).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "proceeds of crime"
+      ],
+      "action": "Log",
+      "source": "Proceeds of Crime Act 2002 (c. 29), Part 7 — https://www.legislation.gov.uk/ukpga/2002/29/part/7",
+      "retrieved_snippet": "Proceeds of Crime Act 2002, 2002 c. 29. Part 7 'Money Laundering': s.327 'Concealing etc'; s.328 'Arrangements'; s.329 'Acquisition, use and possession'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "bribery",
+      "aliases": [
+        "bribe",
+        "corruption"
+      ],
+      "action": "Log",
+      "source": "Bribery Act 2010 (c. 23) — https://www.legislation.gov.uk/ukpga/2010/23/contents",
+      "retrieved_snippet": "Bribery Act 2010, 2010 c. 23. s.1 'Offences of bribing another person'; s.2 'Offences relating to being bribed'; s.6 'Bribery of foreign public officials'; s.7 'Failure of commercial organisations to prevent bribery'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "fraud",
+      "aliases": [
+        "false representation"
+      ],
+      "action": "Log",
+      "source": "Fraud Act 2006 (c. 35) — https://www.legislation.gov.uk/ukpga/2006/35/contents",
+      "retrieved_snippet": "Fraud Act 2006, 2006 c. 35. s.1 'Fraud'; s.2 'Fraud by false representation'; s.3 'Fraud by failing to disclose information'; s.4 'Fraud by abuse of position'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "interception",
+      "aliases": [
+        "unlawful interception",
+        "communications data"
+      ],
+      "action": "Log",
+      "source": "Investigatory Powers Act 2016 (c. 25), Part 1 — https://www.legislation.gov.uk/ukpga/2016/25/contents",
+      "retrieved_snippet": "Investigatory Powers Act 2016, 2016 c. 25. Part 1 'General privacy protections': s.3 'Offence of unlawful interception'; s.11 'Offence of unlawfully obtaining communications data'; s.13 'Mandatory use of equipment interference warrants'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "human trafficking",
+      "aliases": [
+        "slavery",
+        "forced labour"
+      ],
+      "action": "Log",
+      "source": "Modern Slavery Act 2015 (c. 30) — https://www.legislation.gov.uk/ukpga/2015/30/contents",
+      "retrieved_snippet": "Modern Slavery Act 2015, 2015 c. 30. s.1 'Slavery, servitude and forced or compulsory labour'; s.2 'Human trafficking'; s.3 'Meaning of exploitation'; and a section headed 'Transparency in supply chains etc'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "racial hatred",
+        "religious hatred",
+        "stirring up hatred"
+      ],
+      "action": "Log",
+      "source": "Public Order Act 1986 (c. 64), Parts III and 3A — https://www.legislation.gov.uk/ukpga/1986/64/contents",
+      "retrieved_snippet": "Public Order Act 1986, 1986 c. 64. Part III 'Racial Hatred' (ss.17-29, incl. s.18 'Use of words or behaviour or display of written material', s.19 'Publishing or distributing written material', s.23 'Possession of racially inflammatory material'); Part 3A 'Hatred against persons on religious grounds or grounds of sexual orientation' (ss.29A-29N).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "indecent images of children",
+      "aliases": [
+        "child sexual abuse material",
+        "csam"
+      ],
+      "action": "Log",
+      "source": "Protection of Children Act 1978 (c. 37) — https://www.legislation.gov.uk/ukpga/1978/37/contents",
+      "retrieved_snippet": "Protection of Children Act 1978, 1978 c. 37. s.1 'Indecent photographs of children.'; s.1A 'Marriage and other relationships'; s.1B 'Exception for criminal proceedings, investigations etc.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "direct marketing",
+      "aliases": [
+        "cookies",
+        "unsolicited communications"
+      ],
+      "action": "Log",
+      "source": "Privacy and Electronic Communications (EC Directive) Regulations 2003 (SI 2003/2426) — https://www.legislation.gov.uk/uksi/2003/2426/contents",
+      "retrieved_snippet": "SI 2003 No. 2426. reg.6 'Storing information in the terminal equipment of a subscriber or user'; reg.21 'Calls for direct marketing purposes'; reg.22 'Use of electronic mail for direct marketing purposes'; reg.5 'Security of public electronic communications services'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GB"
+      },
+      "condition": "critical infrastructure",
+      "aliases": [
+        "essential services",
+        "network and information systems"
+      ],
+      "action": "Log",
+      "source": "Network and Information Systems Regulations 2018 (SI 2018/506) — https://www.legislation.gov.uk/uksi/2018/506/contents",
+      "retrieved_snippet": "SI 2018 No. 506. reg.10 'The security duties of operators of essential services'; reg.11 'The duty to notify incidents'.",
+      "official_source": true
     }
   ]
 }

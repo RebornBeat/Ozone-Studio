@@ -1,0 +1,59 @@
+{
+  "disclaimer": "Drafted from Danish national law, retrieved via live web search on 2026-10-27 (domains: retsinformation.dk - the official Danish legal database, forbrugerombudsmanden.dk, erhvervsstyrelsen.dk; plus secondary sources danskelove.dk, gaming.net and lovguiden.dk where an official page was not returned). Rule snippets paraphrase what the search results reported; the consolidated official texts were not independently fetched, so section numbers, amendment dates and current wording must be re-verified on retsinformation.dk. Covers Danish NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. Pending bills (e.g. the deepfake / likeness-protection bill L 49, introduced October 2026) and provisions whose text was not retrieved (racism provision section 266 b, defamation) are deliberately omitted. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "DK"},
+      "condition": "personal data",
+      "aliases": ["databeskyttelse", "personoplysninger", "persondata"],
+      "action": "Log",
+      "source": "Lov nr. 502 af 23. maj 2018 (databeskyttelsesloven) as amended - amending act lov nr. 1784 af 28. december 2023, retsinformation.dk: https://www.retsinformation.dk/eli/lta/2023/1784/pdf",
+      "retrieved_snippet": "Lov nr. 502 of 23 May 2018 is the Danish Data Protection Act, supplementing the GDPR; a consolidated version (LBK nr 289 of 8 March 2024) was reported as in force on retsinformation.dk, and lov nr. 1784 of 28 December 2023 amended provisions including parts of section 13 and section 22, effective 1 January 2024. Later amendments were not seen.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DK"},
+      "condition": "cybercrime",
+      "aliases": ["hacking", "dataindtrængen", "it-kriminalitet"],
+      "action": "Log",
+      "source": "Straffeloven (Danish Criminal Code) section 263 - secondary source: https://danskelove.dk/straffeloven/263",
+      "retrieved_snippet": "Section 263(1) covers unlawfully gaining access to another person's data system, punishable by a fine or up to 1 year 6 months' imprisonment; subsection 3 allows up to 6 years for aggravating circumstances such as intent to obtain trade secrets. A 2018 amendment added section 263 a on trafficking in access codes.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "DK"},
+      "condition": "consumer",
+      "aliases": ["forbruger", "forbrugerbeskyttelse", "markedsføring"],
+      "action": "Log",
+      "source": "Markedsføringsloven (Danish Marketing Practices Act), enforced by the Consumer Ombudsman (Forbrugerombudsmanden): https://forbrugerombudsmanden.dk/consumer-ombudsman",
+      "retrieved_snippet": "The Consumer Ombudsman is an independent authority set up in 1975 whose key task is to ensure that trade and business comply with the Danish Marketing Practices Act and fair marketing principles; the Act prohibits misleading actions and omissions and aggressive marketing, and enforcement is mainly by negotiation with court action as fallback. Specific current section numbers were not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DK"},
+      "condition": "gambling",
+      "aliases": ["spil", "spilleloven", "onlinecasino"],
+      "action": "Log",
+      "source": "Lov om spil (Danish Gambling Act), licensing by Spillemyndigheden (Danish Gambling Authority) - secondary source: https://www.gaming.net/da/danish-gambling-authority/",
+      "retrieved_snippet": "Secondary sources report that Denmark's online gambling market is regulated under the Lov om spil, with licences issued by Spillemyndigheden under the Ministry of Finance; sources disagree on the start year (2010 adoption vs 2012 in force) and the official statute text and authority site were not returned - verify on retsinformation.dk / spillemyndigheden.dk.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "DK"},
+      "condition": "money laundering",
+      "aliases": ["hvidvask", "terrorfinansiering"],
+      "action": "Log",
+      "source": "Hvidvaskloven (lov om forebyggende foranstaltninger mod hvidvask og finansiering af terrorisme), supervised by Erhvervsstyrelsen and Finanstilsynet: https://erhvervsstyrelsen.dk/amvab-maling-hvidvaskloven",
+      "retrieved_snippet": "The Danish anti-money-laundering act was adopted as lov nr. 651 of 8 June 2017 implementing the EU 4th and 5th AML directives; a 2023 decision cites LBK nr. 316 of 11 March 2022 'with later amendments'; Erhvervsstyrelsen supervises auditors and other covered businesses and its decisions can be appealed to Nævnenes Hus. Changes after 2022 were not checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "DK"},
+      "condition": "cybersecurity",
+      "aliases": ["cybersikkerhed", "nis2", "it-sikkerhed"],
+      "action": "Log",
+      "source": "Lov om foranstaltninger til sikring af et højt cybersikkerhedsniveau (Danish NIS2 act), lov nr. 434 af 6. maj 2025 - secondary source: https://lovguiden.dk/det-offentlige/trafikstyrelsen/2025-06-30-nyt-om-nis-2-loven-traeder-i-kraft",
+      "retrieved_snippet": "Reported sources state the Danish NIS2 act is lov nr. 434 of 6 May 2025, in force 1 July 2025, covering roughly 6,000 entities (including municipalities) with supervision coordinated by the Agency for Societal Security (SAMSIK) and sector authorities; affected entities had to register via virk.dk by 1 October 2025. The official text was not returned.",
+      "official_source": false
+    }
+  ]
+}

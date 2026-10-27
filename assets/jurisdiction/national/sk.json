@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Slovak national law, retrieved via live web search on 2026-10-27 (domains: static.slov-lex.sk - the official Slovak e-Collection of Laws, hatecrime.osce.org, genpro.gov.sk - Slovak Prosecutor General, plus secondary sources linklaters.com, najpravo.sk and lexmundi.com where an official text was not returned). Rule snippets paraphrase what the search results reported; the consolidated slov-lex texts were not independently fetched, so paragraph numbers, amendment dates and current wording must be re-verified on slov-lex.sk. Covers Slovak NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. Criminal Code section 359 was not confirmed and is deliberately not cited. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "SK"},
+      "condition": "personal data",
+      "aliases": ["osobné údaje", "ochrana osobných údajov", "osobných údajov"],
+      "action": "Log",
+      "source": "Zákon č. 18/2018 Z. z. o ochrane osobných údajov (Personal Data Protection Act) - secondary source: https://www.linklaters.com/en/insights/data-protected/data-protected---slovakia",
+      "retrieved_snippet": "Linklaters reports Act No. 18/2018 Coll. implements the GDPR, was adopted by Parliament on 29 November 2017 and entered into force on 25 May 2018, defining the local derogations permitted by the GDPR; the Office for Personal Data Protection of the Slovak Republic is the supervisory authority; the earlier Act 122/2013 is repealed; Decree 158/2018 covers impact assessments. The official consolidated text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "cybercrime",
+      "aliases": ["počítačová kriminalita", "neoprávnený prístup do počítačového systému", "kyberkriminalita"],
+      "action": "Log",
+      "source": "Zákon č. 300/2005 Z. z. Trestný zákon (Criminal Code) sections 247-247b (unauthorised access to a computer system; interference with a computer system; interference with computer data) - Slovak Prosecutor General decision: https://genpro.gov.sk//download/uznesenie/2024/06/ba_1104_133_03_2023_a_cf9c651334.pdf",
+      "retrieved_snippet": "Slovak prosecutorial decisions charge 'neoprávnený prístup do počítačového systému podľa § 247 odsek 1' (unauthorised access), '§ 247a ods. 1 písm. a)' (unauthorised interference with a computer system, e.g. an employee deleting company data) and '§ 247b odsek 1' (interference with computer data); the provisions track Articles 4 and 5 of the Budapest Convention, but Slovakia's ratification date and the current consolidated wording and penalties were not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "consumer",
+      "aliases": ["ochrana spotrebiteľa", "spotrebiteľ", "spotrebiteľa"],
+      "action": "Log",
+      "source": "Zákon č. 250/2007 Z. z. o ochrane spotrebiteľa (Consumer Protection Act), enforced by the Slovak Trade Inspection (SOI) - slov-lex: https://static.slov-lex.sk/static/SK/ZZ/2007/250/20230725.html",
+      "retrieved_snippet": "Act 250/2007 regulates consumer rights and the duties of producers, sellers, importers and suppliers, the powers of public bodies in consumer protection, consumer associations and price labelling; it took effect on 1 July 2007 and the SOI supervises the internal market under Act 128/2002; an amendment list also shows a 2024 law titled 'Zákon o ochrane spotrebiteľa a o zmene a doplnení niektorých zákonov' (Act 108/2024 Z. z.) which may indicate a replacement - whether 250/2007 is still the operative act could not be confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "cybersecurity",
+      "aliases": ["kybernetická bezpečnosť", "kybernetickej bezpečnosti", "zákon o kybernetickej bezpečnosti"],
+      "action": "Log",
+      "source": "Zákon č. 69/2018 Z. z. o kybernetickej bezpečnosti as amended by Zákon č. 366/2024 Z. z. (Slovak NIS2 transposition), regulator NBÚ - secondary source: https://www.lexmundi.com/guides/status-of-the-nis2-implementation-act-in-the-european-union/jurisdictions/europe/slovak-republic/",
+      "retrieved_snippet": "Secondary sources report that Slovakia transposed NIS2 by amending Act 69/2018 through Act 366/2024 (adopted 19 December 2024, in force 1 January 2025), that the National Security Authority (NBÚ) is the competent authority with SK-CERT as national CSIRT, and that implementing Decrees 226/2025 (reporting) and 227/2025 (security measures) took effect on 1 September 2025; estimates of entities in scope differ (about 3,500 vs about 6,000). The slov-lex text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "money laundering",
+      "aliases": ["legalizácia príjmov z trestnej činnosti", "pranie špinavých peňazí", "financovanie terorizmu"],
+      "action": "Log",
+      "source": "Zákon č. 297/2008 Z. z. o ochrane pred legalizáciou príjmov z trestnej činnosti a o ochrane pred financovaním terorizmu (AML Act) - slov-lex consolidated version effective 1 June 2026: https://static.slov-lex.sk/static/SK/ZZ/2008/297/20260601.html",
+      "retrieved_snippet": "Act 297/2008 Z. z. governs the duties of legal and natural persons in preventing and detecting money laundering and terrorist financing (section 2 defines legalisation; section 5(1) lists obliged persons including banks and non-bank financial institutions); slov-lex lists a version effective 1 June 2026 and 73/2026 Z. z. as the most recent amending law found. The FIU's role under the act was not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "hate speech",
+      "aliases": ["podnecovanie k nenávisti", "nenávisť", "extrémizmus"],
+      "action": "Log",
+      "source": "Zákon č. 300/2005 Z. z. Trestný zákon section 424 (incitement to racial, national and ethnic hatred) and section 140(e) (specific motivation) - OSCE/ODIHR hate crime reporting: https://hatecrime.osce.org/node/1744",
+      "retrieved_snippet": "Slovak court rulings (reported in the FRA database) apply section 424 as the offence of incitement to racial, national and ethnic hatred (e.g. a 2022 Specialized Criminal Court conviction for Facebook posts, with section 423(1)(b)); OSCE records that section 140(e) defines 'specific motivation' as hatred toward a group or person on grounds such as race, nation or ethnic group, giving enhanced penalties for listed offences. The Constitutional Court struck down several extremism-related Criminal Code provisions in January 2019 - which ones was not retrieved, so current wording must be checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "SK"},
+      "condition": "gambling",
+      "aliases": ["hazardné hry", "hazard", "zákon o hazardných hrách"],
+      "action": "Log",
+      "source": "Zákon č. 30/2019 Z. z. o hazardných hrách (Gambling Act), regulator Úrad pre reguláciu hazardných hier - slov-lex consolidated version effective 1 March 2026: https://static.slov-lex.sk/static/SK/ZZ/2019/30/20260301.html",
+      "retrieved_snippet": "Act 30/2019 took effect on 1 March 2019, replacing Act 171/2005, and created the Gambling Regulatory Authority that licenses operators and supervises compliance; foreign operators need a representative office in Slovakia; the act introduced the concept of a prohibited offer (gambling available in Slovakia without a licence) and ended the Tipos monopoly on online casinos (per a law-firm briefing); slov-lex lists a version effective 1 March 2026, text not opened.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Bulgarian national law, retrieved via live web search on 2026-10-27 (domains: kzp.bg - Commission for Consumer Protection, fsc.bg - Financial Supervision Commission, coe.int, plus secondary sources linklaters.com, wolftheiss.com, bghelsinki.org and cms.law where the official State Gazette / lex.bg texts were not returned). Rule snippets paraphrase what the search results reported; the official State Gazette and lex.bg consolidated texts were not independently fetched, so article numbers, amendment dates and current wording must be re-verified there. Covers Bulgarian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "BG"},
+      "condition": "personal data",
+      "aliases": ["лични данни", "защита на личните данни"],
+      "action": "Log",
+      "source": "Закон за защита на личните данни (Personal Data Protection Act), supervised by the Commission for Personal Data Protection (CPDP) - secondary source: https://linklaters.com/insights/data-protected/data-protected---bulgaria",
+      "retrieved_snippet": "Linklaters reports the PDPA, adopted in 2002 and amended several times, was last amended on 6 October 2023 and the version aligning with the GDPR took effect on 1 March 2019; it includes a six-month limit on storing job applicants' data without consent and a journalistic/academic exemption; the CPDP (a chairman and four members elected by the National Assembly for five years) is the supervisor. The official text and cpdp.bg were not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "cybercrime",
+      "aliases": ["компютърни престъпления", "киберпрестъпност", "компютърни данни"],
+      "action": "Log",
+      "source": "Наказателен кодекс (Criminal Code) Chapter IX 'a' (computer crimes), Articles 319a-319e - Council of Europe legal profile: https://rm.coe.int/octocom-legal-profile-bulgaria/16809e5979",
+      "retrieved_snippet": "The Council of Europe states Bulgaria ratified the Budapest Convention in 2005 and that the Criminal Code addresses all Convention offences, with Article 319a for illegal access and Articles 319b and 319c for data and system interference; the 2007 text of 319a set a fine up to BGN 3,000 and a 2022 amendment raised penalties across the computer-crime provisions (current text quoted by a news source sets four to eight years for attacks on state secrets or critical infrastructure). The text of 319b/319c was not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "consumer",
+      "aliases": ["защита на потребителите", "потребител", "потребителите"],
+      "action": "Log",
+      "source": "Закон за защита на потребителите (Consumer Protection Act), enforced by the Commission for Consumer Protection (КЗП) - https://www.kzp.bg/en",
+      "retrieved_snippet": "The Commission for Consumer Protection describes itself as the specialised administration enforcing consumer protection rules and administrative control of the domestic market; it is competent under 11 laws (the Consumer Protection Act plus 10 sectoral laws), covering dangerous goods, unfair commercial practices, unfair contract terms and distance sales, with complaints, inspections and sanctions; a 2020 amendment named 11 sector regulators as enforcers with the CCP as single liaison office. A 2024 draft bill to align with GPSR and the Class Action Directive had unconfirmed status.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "cybersecurity",
+      "aliases": ["киберсигурност", "закон за киберсигурност"],
+      "action": "Log",
+      "source": "Закон за киберсигурност (Cybersecurity Act) as amended to transpose NIS2 - secondary source: https://www.wolftheiss.com/insights/bulgarias-implementation-of-nis-2-what-businesses-need-to-know/",
+      "retrieved_snippet": "Secondary sources dated 2026 report that amendments to the existing Cybersecurity Act transposing NIS2 were adopted on 5 February 2026, published 13 February 2026 and in force from 17 February 2026 (a January 2026 tracker still listed the bill as pending); the Ministry of e-Government is the competent authority and the State e-Government Agency the single point of contact; scope widens to 18 sectors with 24-hour incident reporting and personal responsibility for senior management. One source says EU transposition is still incomplete (Commission reasoned opinion 7 May 2025). The State Gazette text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "money laundering",
+      "aliases": ["изпиране на пари", "мерките срещу изпирането на пари"],
+      "action": "Log",
+      "source": "Закон за мерките срещу изпирането на пари (Measures against Money Laundering Act) - English translation hosted by the Financial Supervision Commission: https://www.fsc.bg/wp-content/uploads/2026/02/measures_against_money_laundering_act.pdf",
+      "retrieved_snippet": "The FSC hosts an informational English translation (the Bulgarian original prevails) of the Measures against Money Laundering Act, with amendments listed through SG No. 54/4.07.2025; the Financial Intelligence Directorate of the State Agency for National Security (FID-SANS) is the FIU; a 2026 technical assistance brief says Bulgaria is working through a FATF Action Plan.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "hate speech",
+      "aliases": ["език на омразата", "подбуждане към омраза", "омраза"],
+      "action": "Log",
+      "source": "Наказателен кодекс (Criminal Code) Article 162 (propaganda/incitement to discrimination, violence or hatred) - reporting by the Bulgarian Helsinki Committee (secondary): https://bghelsinki.org/en/?p=10678",
+      "retrieved_snippet": "Reports describe Article 162(1) as punishing propagation or incitement of discrimination, violence or hatred on grounds of race, nationality or ethnic identity (one account gives one to four years' imprisonment, a fine of BGN 5,000-10,000 and public censure) and 162(2) as covering violence or property damage because of nationality, race, religion or political convictions; sources disagree on the full list of protected grounds, and gender is reported as not covered (EU Directive 2024/1385 obligation by 14 June 2027). The official English text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BG"},
+      "condition": "gambling",
+      "aliases": ["хазарт", "хазартни игри", "закон за хазарта"],
+      "action": "Log",
+      "source": "Закон за хазарта (Gambling Act), regulator National Revenue Agency - secondary source: https://cms.law/en/bgr/legal-updates/bulgaria-introduces-mandatory-licensing-for-affiliate-operators-promoting-gambling",
+      "retrieved_snippet": "Secondary sources report that in 2020 the State Commission on Gambling was abolished and its functions transferred to the National Revenue Agency, which issues licences, supervises operators and keeps the public registers, that any EU/EEA/Swiss-registered company can apply for an online gambling licence, and that the State Budget Act for 2026 added a licence for affiliate operators promoting gambling. Fee and tax figures conflict between sources and are not recorded here.",
+      "official_source": false
+    }
+  ]
+}

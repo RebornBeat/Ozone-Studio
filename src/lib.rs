@@ -108,6 +108,49 @@ pub const JURISDICTION_EU_MEMBER_CODES: &[&str] = &[
     "pl", "pt", "ro", "sk", "si", "es", "se",
 ];
 
+/// Sync ONE shipped jurisdiction content file into the data dir without ever
+/// silently clobbering an operator's edit. Returns a short status:
+/// `copied-new`, `unchanged`, `upgraded`, or `kept-newer-available`.
+/// `manifest` maps a relative key to the blake3 hex of the version this sync
+/// last wrote; an existing copy is upgraded only if it still matches that
+/// hash (unmodified since) or `force` is set (old copy saved as `<name>.bak`).
+pub fn sync_jurisdiction_file(
+    src: &std::path::Path,
+    dst: &std::path::Path,
+    manifest: &mut std::collections::HashMap<String, String>,
+    key: &str,
+    force: bool,
+) -> std::io::Result<&'static str> {
+    let src_bytes = std::fs::read(src)?;
+    let src_hash = blake3::hash(&src_bytes).to_hex().to_string();
+    if !dst.exists() {
+        if let Some(parent) = dst.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::write(dst, &src_bytes)?;
+        manifest.insert(key.to_string(), src_hash);
+        return Ok("copied-new");
+    }
+    let dst_bytes = std::fs::read(dst)?;
+    let dst_hash = blake3::hash(&dst_bytes).to_hex().to_string();
+    if dst_hash == src_hash {
+        manifest.insert(key.to_string(), src_hash);
+        return Ok("unchanged");
+    }
+    let unmodified_since_last_sync = manifest.get(key).map_or(false, |h| *h == dst_hash);
+    if force || unmodified_since_last_sync {
+        if force && !unmodified_since_last_sync {
+            let mut bak = dst.as_os_str().to_owned();
+            bak.push(".bak");
+            let _ = std::fs::write(std::path::PathBuf::from(bak), &dst_bytes);
+        }
+        std::fs::write(dst, &src_bytes)?;
+        manifest.insert(key.to_string(), src_hash);
+        return Ok("upgraded");
+    }
+    Ok("kept-newer-available")
+}
+
 /// Pure logic for the jurisdiction container self-heal registration —
 /// extracted from the boot-time block in `OzoneRuntime::new` so its
 /// idempotency guarantee is independently testable without a real ZSEI
@@ -485,6 +528,26 @@ impl OzoneRuntime {
                 crate::bootstrap::BootstrapManager::resolve_assets_dir().join("jurisdiction");
             if let Ok(entries) = std::fs::read_dir(&real_assets_jurisdiction_dir) {
                 let _ = std::fs::create_dir_all(&jurisdiction_dir);
+                // Upgrade-safe sync (2026-10-27): the old copy was
+                // `if !dst.exists()`, so enriched shipped content (new rules in
+                // an existing file) NEVER reached an already-seeded data dir.
+                // Now each file is synced through `sync_jurisdiction_file`:
+                // new files are copied; an existing copy is upgraded only when
+                // it is byte-identical to what this sync last wrote (i.e. not
+                // operator-edited), or when OZONE_JURISDICTION_FORCE_SYNC=1
+                // (the old copy is kept as `<name>.bak`). Anything else is kept
+                // and logged. Additive: never deletes a data-dir-only file.
+                let force = std::env::var("OZONE_JURISDICTION_FORCE_SYNC")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                let manifest_path = jurisdiction_dir.join(".shipped_manifest.json");
+                let mut manifest: std::collections::HashMap<String, String> =
+                    std::fs::read_to_string(&manifest_path)
+                        .ok()
+                        .and_then(|raw| serde_json::from_str(&raw).ok())
+                        .unwrap_or_default();
+                let mut counts: std::collections::HashMap<&'static str, usize> =
+                    std::collections::HashMap::new();
                 for entry in entries.flatten() {
                     let src_path = entry.path();
                     let file_name = entry.file_name();
@@ -494,21 +557,35 @@ impl OzoneRuntime {
                         if let Ok(sub_entries) = std::fs::read_dir(&src_path) {
                             for sub in sub_entries.flatten() {
                                 let dst = dst_subdir.join(sub.file_name());
-                                if !dst.exists() {
-                                    if let Err(e) = std::fs::copy(sub.path(), &dst) {
-                                        tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy");
-                                    }
+                                let key = format!(
+                                    "{}/{}",
+                                    file_name.to_string_lossy(),
+                                    sub.file_name().to_string_lossy()
+                                );
+                                match sync_jurisdiction_file(&sub.path(), &dst, &mut manifest, &key, force) {
+                                    Ok(status) => *counts.entry(status).or_insert(0) += 1,
+                                    Err(e) => tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy"),
                                 }
                             }
                         }
                     } else {
                         let dst = jurisdiction_dir.join(&file_name);
-                        if !dst.exists() {
-                            if let Err(e) = std::fs::copy(&src_path, &dst) {
-                                tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy");
-                            }
+                        let key = file_name.to_string_lossy().to_string();
+                        match sync_jurisdiction_file(&src_path, &dst, &mut manifest, &key, force) {
+                            Ok(status) => *counts.entry(status).or_insert(0) += 1,
+                            Err(e) => tracing::warn!(path = %dst.display(), error = %e, "Failed to self-heal jurisdiction content copy"),
                         }
                     }
+                }
+                if let Ok(raw) = serde_json::to_string_pretty(&manifest) {
+                    let _ = std::fs::write(&manifest_path, raw);
+                }
+                tracing::info!(?counts, force, "Jurisdiction content sync (assets -> data dir)");
+                if counts.get("kept-newer-available").copied().unwrap_or(0) > 0 {
+                    tracing::warn!(
+                        "{} jurisdiction file(s) differ from the shipped version and were NOT overwritten (edited, or first sync without a manifest). Set OZONE_JURISDICTION_FORCE_SYNC=1 once and restart to adopt the shipped content (old copies are kept as .bak).",
+                        counts.get("kept-newer-available").copied().unwrap_or(0)
+                    );
                 }
             }
 

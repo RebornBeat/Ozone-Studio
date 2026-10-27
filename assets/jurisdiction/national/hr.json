@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Croatian national law, retrieved via live web search on 2026-10-27 (domains: narodne-novine.nn.hr - the Croatian official gazette, porezna-uprava.gov.hr - the Tax Administration, coe.int, plus secondary sources lexmundi.com and melaproject.org where an official text was not returned). Rule snippets paraphrase what the search results reported; the consolidated Narodne novine texts were not independently fetched, so article numbers, amendment dates and current wording must be re-verified there. Covers Croatian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "HR"},
+      "condition": "personal data",
+      "aliases": ["osobni podaci", "zaštita osobnih podataka", "osobnih podataka"],
+      "action": "Log",
+      "source": "Zakon o provedbi Opće uredbe o zaštiti podataka (Act on the Implementation of the GDPR), NN 42/2018 - Narodne novine: https://narodne-novine.nn.hr/clanci/sluzbeni/full/2018_05_42_805.html",
+      "retrieved_snippet": "The act was published in Narodne novine 42/18 and entered into force on 25 May 2018, the day the GDPR began applying; it sets national rules for specific processing (genetic and biometric data, video surveillance, parental consent for children's use of information society services), designates the Personal Data Protection Agency (AZOP) as supervisory authority and sets out its powers, remedies and administrative fines. A 2025 AZOP decision still cites it; later amendments were not checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "cybercrime",
+      "aliases": ["računalni kriminalitet", "kibernetički kriminal", "nezakonit pristup"],
+      "action": "Log",
+      "source": "Kazneni zakon (Criminal Code) Articles 266-273 (computer offences, incl. Article 266 unauthorised access) - Council of Europe legal profile: https://rm.coe.int/octocom-legal-profile-croatia-reviewed/16809e6acf",
+      "retrieved_snippet": "The Council of Europe profile (May 2020 version) says Article 266 penalises unauthorised access to all or part of a computer system or its data with up to two years' imprisonment (up to three years where the target is a state authority, local or regional body or public institution; attempt punishable) and that Articles 266 to 273 cover the core computer offences; another profile gives a lower base penalty, so the figure must be checked in the current Narodne novine text.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "consumer",
+      "aliases": ["zaštita potrošača", "potrošač", "potrošača"],
+      "action": "Log",
+      "source": "Zakon o zaštiti potrošača (Consumer Protection Act), NN 19/2022 - Narodne novine: https://narodne-novine.nn.hr/clanci/sluzbeni/2022_02_19_203.html",
+      "retrieved_snippet": "The Consumer Protection Act was published as NN 19/22 on 11 February 2022 and entered into force on 28 May 2022, largely implementing Directive (EU) 2019/2161 and extending scope to digital services; per UNEP LEAP it has eight parts and 160 articles; the Market Inspection of the State Inspectorate receives consumer reports. A proposal to strengthen the Inspectorate's powers and raise fines was reported without a confirmed adoption.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "cybersecurity",
+      "aliases": ["kibernetička sigurnost", "kibernetičkoj sigurnosti", "zakon o kibernetičkoj sigurnosti"],
+      "action": "Log",
+      "source": "Zakon o kibernetičkoj sigurnosti (Cybersecurity Act, Croatian NIS2 transposition), NN 14/2024, with Uredba o kibernetičkoj sigurnosti NN 135/2024 - secondary source: https://www.lexmundi.com/guides/status-of-the-nis2-implementation-act-in-the-european-union/jurisdictions/europe/croatia/",
+      "retrieved_snippet": "Secondary sources report the Act was adopted in January 2024 and has been in force since 15 February 2024 (Croatia transposed NIS2 before the 17 October 2024 deadline), repealing the 2018 NIS act (NN 64/18), covering 19 sectors and adding a self-assessment duty; the detailed regulation is NN 135/2024 (November 2024); SOA hosts NCSC-HR as central competent authority and UVNS is the single point of contact; sources disagree on the national CSIRT body (CARNET vs CERT.hr).",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "money laundering",
+      "aliases": ["pranje novca", "sprječavanje pranja novca", "financiranje terorizma"],
+      "action": "Log",
+      "source": "Zakon o sprječavanju pranja novca i financiranja terorizma (Anti-Money Laundering and Terrorist Financing Act), NN 108/2017 - Narodne novine: https://narodne-novine.nn.hr/clanci/sluzbeni/2017_11_108_2488.html",
+      "retrieved_snippet": "The act was published as NN 108/2017 on 8 November 2017 and took effect on 1 January 2018, replacing the 2008 law; it transposed Directive (EU) 2015/849; an amending law (NN 39/19, in force 25 April 2019, with some provisions from 1 January 2020) transposed the 5th AML Directive including the beneficial ownership register and virtual currency providers; the Anti-Money Laundering Office is the financial intelligence unit. A consolidated version listed on zakon.hr runs through NN 54/26 but its contents were not verified.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "hate speech",
+      "aliases": ["govor mržnje", "javno poticanje na nasilje i mržnju", "poticanje na mržnju"],
+      "action": "Log",
+      "source": "Kazneni zakon (Criminal Code) Article 325 (public incitement to violence and hatred) - unofficial English translation (MELA project): https://melaproject.org/sites/default/files/2019-07/Croatian%20Criminal%20Code%20-%20Article%20325.pdf",
+      "retrieved_snippet": "An unofficial English translation of Article 325 covers publicly inciting violence or hatred against a group or a member of one on grounds such as race, religion, national or ethnic origin, colour, gender and sexual orientation, including through print, broadcast, computer networks and public gatherings; paragraph 2 reportedly covers negationism of international crimes where likely to incite violence and hatred; OSCE data uses a category for this offence. The current official text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "HR"},
+      "condition": "gambling",
+      "aliases": ["igre na sreću", "kockanje", "online igre na sreću"],
+      "action": "Log",
+      "source": "Zakon o igrama na sreću (Act on Games of Chance), NN 87/09 as amended - Croatian Tax Administration: https://porezna-uprava.gov.hr/en/unauthorized-performing-of-economic-activity-online/7393",
+      "retrieved_snippet": "The Tax Administration (Ministry of Finance) cites the Act on Games of Chance as Official Gazette 87/09 with later amendments 35/13, 158/13, 41/14, 143/14 and 114/22, and states it acts against online gambling offered without authorisation under the Act, including by foreign operators; a March 2025 trade article reports stricter licensing and a self-exclusion register expected to be fully operational by 2026. The current consolidated text and licence terms were not confirmed.",
+      "official_source": true
+    }
+  ]
+}

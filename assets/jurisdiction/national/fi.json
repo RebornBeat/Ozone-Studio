@@ -1,0 +1,59 @@
+{
+  "disclaimer": "Drafted from Finnish national law, retrieved via live web search on 2026-10-27 (domains: finlex.fi / data.finlex.fi - the official Finnish legal database, korkeinoikeus.fi - the Supreme Court, traficom.fi, coe.int). Rule snippets paraphrase what the search results reported; the Finnish/Swedish consolidated texts (the only legally binding versions) were not independently fetched, so section numbers, amendment dates and current wording must be re-verified on Finlex. Covers Finnish NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. The Lotteries Act reform (ending the Veikkaus online monopoly, licensing from 2027) is deliberately omitted because only news coverage of the reform bill, not the enacted statute, was retrieved. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "FI"},
+      "condition": "personal data",
+      "aliases": ["tietosuoja", "henkilötiedot", "dataskydd", "personuppgifter"],
+      "action": "Log",
+      "source": "Tietosuojalaki (Data Protection Act) 1050/2018 - Finlex: https://finlex.fi/api/media/statute/46838/mainPdf/main.pdf",
+      "retrieved_snippet": "Finlex holds the Data Protection Act 1050/2018, published in Helsinki on 10 December 2018; section 1 says the Act specifies and supplements the GDPR in Finland. It repealed the Personal Data Act (523/1999), applies from 1 January 2019, and the Office of the Data Protection Ombudsman is the national supervisory authority. The Ministry of Justice's English translation (data.finlex.fi) is unofficial and covers amendments up to 29/2024.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "FI"},
+      "condition": "cybercrime",
+      "aliases": ["tietomurto", "kyberrikollisuus", "dataintrång"],
+      "action": "Log",
+      "source": "Rikoslaki (Criminal Code 39/1889) chapter 38 (data and communications offences), incl. section 8 computer break-in - Council of Europe legal profile: https://rm.coe.int/octocom-legal-profile-finland/16809e5996",
+      "retrieved_snippet": "Chapter 38 of the Criminal Code, 'Data and communications offences', is the main home of Finland's cybercrime provisions; section 8 criminalises unlawfully breaking into an information system using another's access code or by breaking protection, and the section 13 definition of 'data' aligns with Article 2(a) of Directive 2013/40/EU. Chapter 38 was amended several times (e.g. 368/2015).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "FI"},
+      "condition": "consumer",
+      "aliases": ["kuluttajansuoja", "kuluttaja", "konsumentskydd"],
+      "action": "Log",
+      "source": "Kuluttajansuojalaki (Consumer Protection Act) 38/1978 - Finlex English translation page: https://www.finlex.fi/fi/laki/kaannokset/1978/en19780038",
+      "retrieved_snippet": "The Consumer Protection Act 38/1978 was enacted on 20 January 1978 and took effect on 1 September 1978; Finlex's English translation is marked outdated (current to amendment 740/2022) and the edilex listing shows later amending acts (e.g. 835/2026 effective 1 October 2026), so the current Finnish text must be checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "FI"},
+      "condition": "hate speech",
+      "aliases": ["kiihottaminen kansanryhmää vastaan", "vihapuhe", "hets mot folkgrupp"],
+      "action": "Log",
+      "source": "Rikoslaki chapter 11 sections 10-10a (agitation against a population group) - Supreme Court of Finland, KKO:2026:27: https://www.korkeinoikeus.fi/?p=6099",
+      "retrieved_snippet": "Criminal Code chapter 11 section 10 makes it an offence to publicly spread a message that threatens, defames or insults a group based on characteristics such as race, national or ethnic origin, religion, sexual orientation or disability (fine or imprisonment up to two years); section 10a covers aggravated agitation (imprisonment at least four months, at most four years). A proposed section 10b on denial/trivialisation of international crimes was reported as pending - its enactment was not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "FI"},
+      "condition": "money laundering",
+      "aliases": ["rahanpesu", "penningtvätt"],
+      "action": "Log",
+      "source": "Laki rahanpesun ja terrorismin rahoittamisen estämisestä (Act on Preventing Money Laundering and Terrorist Financing) 444/2017 and Act on the Financial Intelligence Unit 445/2017 - Finlex: https://data.finlex.fi/en/legislation/2017/444",
+      "retrieved_snippet": "Acts 444/2017 and 445/2017 implemented the EU Fourth AML Directive and principally entered into force on 3 July 2017; the FIU sits within the National Bureau of Investigation (police) and receives suspicious-transaction reports from obliged entities, who must do customer due diligence, risk assessment and record keeping. Finlex carries the up-to-date text with a publication delay.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "FI"},
+      "condition": "cybersecurity",
+      "aliases": ["kyberturvallisuus", "kyberturvallisuuslaki", "cybersäkerhet"],
+      "action": "Log",
+      "source": "Kyberturvallisuuslaki (Cybersecurity Act, Finnish NIS2 transposition) 124/2025 - Traficom: https://www.traficom.fi/en/news/cybersecurity-act-passed-parliament-obligations-under-nis-2-directive-enter-force-8-april-2025",
+      "retrieved_snippet": "Parliament adopted the Cybersecurity Act on 11 March 2025 and it entered into force on 8 April 2025, implementing NIS2 at the minimum level required; Traficom (hosting NCSC-FI as national CSIRT and single point of contact) supervises the largest group of sectors alongside sector authorities, with risk-management, incident-reporting and registration duties; banking and financial market infrastructure fall under DORA instead.",
+      "official_source": true
+    }
+  ]
+}

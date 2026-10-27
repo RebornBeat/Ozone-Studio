@@ -1,0 +1,59 @@
+{
+  "disclaimer": "Drafted from Austrian federal law, retrieved via live web search on 2026-10-27 (domains: ris.bka.gv.at - the official Rechtsinformationssystem des Bundes, dsb.gv.at - the Austrian Data Protection Authority, plus the secondary site gesetzefinden.at where the official page was not returned). Rule snippets paraphrase what the search results reported; the consolidated RIS texts were not independently fetched, so section numbers, amendment dates and current wording must be re-verified on RIS. Covers Austrian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. Austria's NIS2 implementing act (NISG 2024) is deliberately omitted: sources reported that the 2024 bill was rejected by the National Council in July 2024 and the later status could not be verified. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "AT"},
+      "condition": "personal data",
+      "aliases": ["datenschutz", "personenbezogene daten"],
+      "action": "Log",
+      "source": "Datenschutzgesetz (DSG), BGBl. I Nr. 165/1999 idgF - Austrian RIS consolidated text: https://www.ris.bka.gv.at/GeltendeFassung.wxe?Abfrage=bundesnormen&Gesetzesnummer=10001597",
+      "retrieved_snippet": "The Austrian Data Protection Authority (dsb.gv.at/rechte-pflichten/rechtsquellen) names the DSG, BGBl. 165/1999 idgF, as the Austrian data protection act supplementing the GDPR; the DSB is the national supervisory authority under section 18 DSG. Section 9 DSG was re-drafted by BGBl. I Nr. 62/2024 after the Constitutional Court repealed section 9(1) effective 30 June 2024.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AT"},
+      "condition": "cybercrime",
+      "aliases": ["cyberkriminalität", "computerkriminalität", "hacking"],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) sections 118a (unlawful access to a computer system), 126a (damage to data), 126c (misuse of computer programs or access data) - RIS consolidated StGB: https://ris.bka.gv.at/Dokumente/Bundesnormen/NOR40254204/NOR40254204.pdf",
+      "retrieved_snippet": "RIS consolidated StGB shows section 126c (misuse of computer programs or access data) raising the penalty to up to two years where the offence relates to sections 118a, 119, 119a or 126a(2)-(4), in force since 1 September 2023 (BGBl. I Nr. 99/2023). The wording of sections 118a and 126a was only seen in older versions - check RIS.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AT"},
+      "condition": "consumer",
+      "aliases": ["konsumentenschutz", "verbraucherschutz", "verbraucher"],
+      "action": "Log",
+      "source": "Konsumentenschutzgesetz (KSchG), BGBl. Nr. 140/1979 - RIS: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR11002485/NOR11002485.html",
+      "retrieved_snippet": "The KSchG is a federal law of 8 March 1979 (BGBl. Nr. 140/1979), in force from 1 October 1979, regulating contracts between consumers and businesses; section 1 distinguishes Unternehmer and Verbraucher. A RIS copy shows it last amended by BGBl. I Nr. 175/2021 (later changes not checked).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AT"},
+      "condition": "hate speech",
+      "aliases": ["verhetzung", "hass im netz", "hasspostings"],
+      "action": "Log",
+      "source": "Strafgesetzbuch section 283 (Verhetzung) and Verbotsgesetz 1947 sections 3g/3h - RIS: https://www.ris.bka.gv.at/eli/bgbl/1974/60/P283/NOR12039063",
+      "retrieved_snippet": "Section 283 StGB (Verhetzung), comprehensively amended effective 1 January 2016 (StRAeG 2015), criminalises public acts, made accessible to many people, that call for violence or incite hatred against protected groups defined by race, skin colour, language, religion, nationality, descent, sex, disability, age or sexual orientation (version in force from 1 January 2021, BGBl. I Nr. 148/2020). Where the conduct is National Socialist activity under sections 3g/3h Verbotsgesetz 1947, that law applies instead.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AT"},
+      "condition": "gambling",
+      "aliases": ["glücksspiel", "glückspiel"],
+      "action": "Log",
+      "source": "Glücksspielgesetz (GSpG), BGBl. Nr. 620/1989 - RIS: https://www.ris.bka.gv.at/Dokumente/Bundesnormen/NOR11004660/NOR11004660.html",
+      "retrieved_snippet": "RIS lists the GSpG as BGBl. 620/1989 (federal law of 28 November 1989 regulating gambling), in force from 1 January 1990; the most recent amendment listed in the retrieved result is BGBl. I 151/2024. The Finance Minister holds the concession-granting role under the Act. Current consolidated status was not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "AT"},
+      "condition": "money laundering",
+      "aliases": ["geldwäsche", "geldwäscherei"],
+      "action": "Log",
+      "source": "Finanzmarkt-Geldwäschegesetz (FM-GwG), BGBl. I Nr. 118/2016 - secondary source (consolidated text on gesetzefinden.at): https://gesetzefinden.at/bundesrecht/bundesgesetze/fm-gwg/para-33",
+      "retrieved_snippet": "The FM-GwG (BGBl. I Nr. 118/2016) bundles the money-laundering and terrorist-financing rules for credit and financial institutions in one law, based on Directive (EU) 2015/849; the Financial Market Authority (FMA) supervises and may impose administrative penalties; suspicious transaction reports go to the money-laundering reporting office in the Federal Criminal Police Office. Latest amendment seen: BGBl. I Nr. 151/2024.",
+      "official_source": false
+    }
+  ]
+}

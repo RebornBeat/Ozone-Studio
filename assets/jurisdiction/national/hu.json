@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Hungarian national law, retrieved via live web search on 2026-10-27 (domains: naih.hu - the Hungarian data protection authority, njt.hu / njt.jog.gov.hu - the official Hungarian legal database, mnb.hu - the central bank, sherloc.unodc.org - UNODC, coe.int, hatecrime.osce.org, plus the secondary source cms.law where an official page was not returned). Rule snippets paraphrase what the search results reported; several English translations referenced are dated and the current consolidated Hungarian texts were not independently fetched, so section numbers, amendment dates and current wording must be re-verified on njt.hu. Covers Hungarian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "HU"},
+      "condition": "personal data",
+      "aliases": ["személyes adat", "adatvédelem"],
+      "action": "Log",
+      "source": "Act CXII of 2011 on the Right of Informational Self-Determination and on Freedom of Information (Infotv.), amended by Act XXXVIII of 2018 - NAIH English translation (dated 2016): https://naih.hu/files/Act-CXII-of-2011_EN_15.11.2016-003-.pdf",
+      "retrieved_snippet": "The English translation published on NAIH's site covers protection of personal data and access to data of public interest; the Act was amended by Act XXXVIII of 2018 to implement the GDPR; NAIH (the National Authority for Data Protection and Freedom of Information) handles complaints, investigations and fines and replaced the former Parliamentary Commissioner on 1 January 2012. The translation is dated 2016, so the amended text must be checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "cybercrime",
+      "aliases": ["kiberbűnözés", "információs rendszer elleni bűncselekmény", "hacking"],
+      "action": "Log",
+      "source": "Act C of 2012 (Criminal Code) section 423 (breach of information system or data) - UNODC SHERLOC database: https://sherloc.unodc.org/cld/zh/legislation/hun/criminal_code/chapter_xliii/section_423/section_423.html",
+      "retrieved_snippet": "Section 423(1) covers gaining unauthorised entry to an information system by compromising the technical means protecting it (misdemeanour, up to two years' imprisonment); paragraph 2 covers unlawful disruption of a system and altering, deleting or blocking data (felony, up to three years). Sources conflict on the content of section 422 (illegal interception vs illegal data acquisition) - check the official text.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "consumer",
+      "aliases": ["fogyasztóvédelem", "fogyasztó"],
+      "action": "Log",
+      "source": "Act CLV of 1997 on Consumer Protection (Fgytv.) - njt.hu English version (in force 1 September 2019): https://njt.hu/jogszabaly/en/1997-155-00-00",
+      "retrieved_snippet": "Act CLV of 1997 is Hungary's core consumer protection statute; it covers business activities affecting consumers (excluding activities supervised by the MNB), defines a consumer as a natural person acting outside their profession or economy, and lets the consumer protection authority impose cease-and-desist orders, remedy deadlines, supply restrictions and seizure; it was amended by Act LXXVI of 2018 and again to implement the Omnibus Directive. The Hungarian database shows a newer consolidated version (valid from 1 October 2026) than the English text.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "cybersecurity",
+      "aliases": ["kiberbiztonság", "kiberbiztonsági törvény"],
+      "action": "Log",
+      "source": "Act LXIX of 2024 on the Cybersecurity of Hungary (Hungarian NIS2 transposition) - secondary source: https://cms.law/en/hun/legal-updates/hungary-introduces-new-comprehensive-laws-for-nis2-transposition",
+      "retrieved_snippet": "Secondary sources report Act LXIX of 2024 (adopted December 2024, in force 1 January 2025) repealed the partial NIS2 transposition Act XXIII of 2023; entities in scope must register with their authority within 30 days; the SZTFH is the competent supervisory authority and the National Cyber Defence Institute (NKI) the national CSIRT; fines and audits are to be set by later decrees. The official njt.hu text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "money laundering",
+      "aliases": ["pénzmosás", "terrorizmus finanszírozása"],
+      "action": "Log",
+      "source": "Act LIII of 2017 on the Prevention and Combating of Money Laundering and Terrorist Financing (Pmt.) - Hungarian National Bank English copy (2020): https://www.mnb.hu/letoltes/aml-cft-act-hungary2020.pdf",
+      "retrieved_snippet": "The Act aims to prevent and combat laundering of money or things of value originating from criminal offences; it covers credit institutions, financial service providers, retirement and mutual insurance funds, international post money orders, real estate businesses and auditors, and reaches the MNB only for its supervisory activity and where it is expressly named. The MNB English copy dates from 2020 - the current Hungarian consolidated text (including 2023 amendments) must be checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "hate speech",
+      "aliases": ["közösség elleni izgatás", "gyűlöletbeszéd", "izgatás"],
+      "action": "Log",
+      "source": "Act C of 2012 (Criminal Code) section 332 (incitement against a community) - OSCE/ODIHR hate crime reporting: https://hatecrime.osce.org/node/1760",
+      "retrieved_snippet": "Hungarian law has no single hate crime definition; section 332 criminalises public incitement against a community (covering national, ethnic, racial and religious groups and certain societal groups including disability, gender identity and sexual orientation), alongside section 216 (violence against a community member), section 333 (denial of Nazi and Communist crimes) and section 335 (use of totalitarian symbols); a secondary source gives up to three years for the basic offence. Translations differ on 'hatred' vs 'violence or hatred' - check the official text.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "HU"},
+      "condition": "gambling",
+      "aliases": ["szerencsejáték", "szerencsejáték-szervezés"],
+      "action": "Log",
+      "source": "Act XXXIV of 1991 on the Organisation of Gambling (Szjtv.), supervised by SZTFH - njt.hu: https://njt.jog.gov.hu/jogszabaly/1991-34-00-00",
+      "retrieved_snippet": "The Szjtv. treats gambling as a state prerogative that private firms can enter only through a state concession or licence; secondary sources report that 2022 amendments ended the monopoly on remote gambling on 1 January 2023 and that the regulator is the SZTFH (Supervisory Authority for Regulated Activities), which can block unlicensed sites; the njt database lists a consolidated version effective 1 January 2026 that was not opened.",
+      "official_source": true
+    }
+  ]
+}

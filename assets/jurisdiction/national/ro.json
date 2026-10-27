@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Romanian national law, retrieved via live web search on 2026-10-27 (domains: legislatie.just.ro - the official Romanian legislation portal, onpcsb.ro - the national FIU, coe.int, plus secondary sources dataguidance.com, cms.law and melaproject.org where an official text was not returned). Rule snippets paraphrase what the search results reported; the official Monitorul Oficial / legislatie.just.ro consolidated texts were not independently fetched, so article numbers, amendment dates and current wording must be re-verified on legislatie.just.ro. Covers Romanian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. Penal Code article numbers for illegal access (art. 360) and incitement to hatred (art. 369) could not be confirmed and are deliberately not cited. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "RO"},
+      "condition": "personal data",
+      "aliases": ["date cu caracter personal", "protecția datelor"],
+      "action": "Log",
+      "source": "Legea nr. 190/2018 privind măsuri de punere în aplicare a Regulamentului (UE) 2016/679 (Romanian GDPR implementing law; Monitorul Oficial nr. 651 of 26 July 2018) - secondary source: https://www.dataguidance.com/jurisdiction/romania",
+      "retrieved_snippet": "Law 190/2018 was published in Monitorul Oficial no. 651 on 26 July 2018; ANSPDCP is the competent supervisory authority; the law sets derogatory rules for particular types of data and purposes (employee, biometric and health data, national identification numbers, journalistic/academic/artistic processing), certification bodies and corrective measures and sanctions. The official text from legislatie.just.ro was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "cybercrime",
+      "aliases": ["criminalitate informatică", "acces ilegal la un sistem informatic", "infracțiuni informatice"],
+      "action": "Log",
+      "source": "Legea nr. 161/2003, Title III (prevention and fighting of cybercrime), incl. Article 42 (access without right to a computer system) - Council of Europe Octopus country page: https://www.coe.int/en/web/octopus/-/romania",
+      "retrieved_snippet": "The Council of Europe states Title III of Law 161/2003 implemented the Budapest Convention accurately and Romania ratified the Convention in 2004 (Law 64/2004); an EDRi summary lists Article 42 (access without right, with aggravated forms), 43 (illegal interception), 44 (data interference), 45 (system hindering) and 51 (child pornography through computer systems). Some offences were later moved into the Criminal Code - current article numbering must be checked.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "consumer",
+      "aliases": ["protecția consumatorilor", "consumator", "practici comerciale incorecte"],
+      "action": "Log",
+      "source": "Ordonanța Guvernului nr. 21/1992 (consumer protection) and Legea nr. 363/2007 (unfair commercial practices), as amended by OG nr. 37/2015 - legislatie.just.ro: https://legislatie.just.ro/Public/DetaliiDocumentAfis/170956",
+      "retrieved_snippet": "OG 21/1992, republished in Monitorul Oficial no. 208 of 28 March 2007, is described as the oldest national consumer protection act still in force (banning counterfeit or falsified products); Law 363/2007 on unfair trader practices (Monitorul Oficial no. 899 of 28 December 2007) largely took over Directive 2005/29/EC; OG 37/2015 made the Article 4(1) conditions cumulative and set fines of 2,000-100,000 lei (per secondary sources), and OUG 58/2022 added practices deemed unfair in any event.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "cybersecurity",
+      "aliases": ["securitate cibernetică", "securitatea cibernetică"],
+      "action": "Log",
+      "source": "Ordonanța de urgență a Guvernului nr. 155/2024 (Romanian NIS2 transposition), approved and amended by Legea nr. 124/2025, regulator DNSC - secondary source: https://cms.law/en/rou/legal-updates/romania-launches-orders-to-implement-the-nis2-framework-30-day-registration-deadline-in-effect",
+      "retrieved_snippet": "Secondary sources report GEO 155/2024 entered into force on 1 January 2025 (confirmed by Law 124/2025, in force 10 July 2025), fully transposing NIS2 and extending its scope to some additional entities; the National Cybersecurity Directorate (DNSC) is the competent authority with CSIRT.ro inside it; DNSC Orders 1/2025 (registration) and 2/2025 (impact and risk criteria) were published on 20 August 2025, with a 30-day registration window.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "money laundering",
+      "aliases": ["spălare de bani", "spălarea banilor"],
+      "action": "Log",
+      "source": "Legea nr. 129/2019 on preventing and combating money laundering and terrorist financing, enforced with the National Office for Prevention and Control of Money Laundering (ONPCSB / FIU Romania): https://onpcsb.ro/en/a/90/onpcsb-mission",
+      "retrieved_snippet": "Law 129/2019 is Romania's main AML/CTF statute (published in the Official Gazette on 18 July 2019, implementing Directive (EU) 2015/849 per a law-firm briefing); ONPCSB describes itself as the Financial Intelligence Unit of Romania, organised under Government Decision no. 491/2021. A 2024-25 amendment bill strengthening the Office was reported but its enactment was not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "hate speech",
+      "aliases": ["incitare la ură", "discurs de ură", "simboluri fasciste"],
+      "action": "Log",
+      "source": "Ordonanța de urgență nr. 31/2002 banning fascist, racist or xenophobic organisations and symbols, as updated by Legea nr. 241/2025 - original text (MELA project): https://www.melaproject.org/node/226",
+      "retrieved_snippet": "The 2002 ordinance's stated purpose is preventing and combating incitement to national, racial or religious hatred and discrimination and crimes against peace and humanity; press reports state that Law 241/2025 (published 23 December 2025) updated its title and criminalises public denial, justification or minimisation of the Holocaust (six months to three years) and that the Constitutional Court rejected a challenge in July 2025. Penal Code article 369 could not be confirmed from these results.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "RO"},
+      "condition": "gambling",
+      "aliases": ["jocuri de noroc", "jocuri de noroc online"],
+      "action": "Log",
+      "source": "Ordonanța de urgență a Guvernului nr. 77/2009 on the organisation and operation of gambling and Government Decision 111/2016, regulator ONJN - secondary source: https://cms.law/en/int/expert-guides/cms-expert-guide-to-gambling-laws-in-cee/romania?format=pdf",
+      "retrieved_snippet": "A CMS guide states online gambling is governed through Emergency Government Ordinance 77/2009 and its methodological norms, with Government Decision 111/2016 as secondary legislation on licensing and operations; the National Office for Gambling (ONJN) grants licences and authorisations, keeps a public register of licensed operators updated at least every 24 hours, and a 2016 report gives a 10-year individual non-transferable licence term. Sources date from 2016 to 2025 and the current regime was not confirmed.",
+      "official_source": false
+    }
+  ]
+}

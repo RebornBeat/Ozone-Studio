@@ -70,6 +70,13 @@ pub struct JurisdictionRule {
     /// hand-curated rules).
     #[serde(default)]
     pub official_source: Option<bool>,
+    /// Optional local-language / official-terminology equivalents of
+    /// `condition` (e.g. "datos personales" for "personal data"), taken from
+    /// the cited law's own terms. The matcher is English-only on `condition`
+    /// alone; a rule fires when the condition OR any alias is present.
+    /// Absent in older content files (serde default = no aliases).
+    #[serde(default)]
+    pub aliases: Vec<String>,
 }
 
 /// Result of evaluating all loaded rules against one request. Previously
@@ -139,6 +146,7 @@ pub(crate) fn compiled_global_fallback_rules() -> Vec<JurisdictionRule> {
         source: source.to_string(),
         retrieved_snippet: None,
         official_source: None,
+        aliases: Vec::new(),
     };
     vec![
         mk("discriminate", RuleAction::Warn, "UDHR Articles 1-2 (dignity, equality, non-discrimination)"),
@@ -660,6 +668,49 @@ fn contains_word(haystack: &str, needle: &str) -> bool {
     false
 }
 
+/// Scripts written without spaces between words (Han, kana, Thai, Lao, Khmer,
+/// Myanmar, Tibetan): a whole-word boundary test can never succeed inside a
+/// normal sentence in these scripts, so aliases containing them are matched
+/// as plain substrings instead.
+fn is_unsegmented_script_char(c: char) -> bool {
+    matches!(c as u32,
+        0x3040..=0x30FF   // Hiragana, Katakana
+        | 0x3400..=0x4DBF // CJK Extension A
+        | 0x4E00..=0x9FFF // CJK Unified Ideographs
+        | 0xF900..=0xFAFF // CJK Compatibility Ideographs
+        | 0x0E00..=0x0EFF // Thai, Lao
+        | 0x1000..=0x109F // Myanmar
+        | 0x1780..=0x17FF // Khmer
+        | 0x0F00..=0x0FFF // Tibetan
+        | 0x20000..=0x2A6DF // CJK Extension B
+    )
+}
+
+/// The first term of `rule` (its `condition`, else one of its `aliases`) that
+/// appears in the already-lowercased `haystack`, if any. English condition
+/// and segmented-script aliases use whole-word matching (`contains_word`);
+/// aliases in unsegmented scripts use substring matching.
+pub(crate) fn rule_match_term(rule: &JurisdictionRule, haystack: &str) -> Option<String> {
+    if !rule.condition.is_empty() && contains_word(haystack, &rule.condition.to_lowercase()) {
+        return Some(rule.condition.clone());
+    }
+    for alias in &rule.aliases {
+        let a = alias.trim().to_lowercase();
+        if a.is_empty() {
+            continue;
+        }
+        let hit = if a.chars().any(is_unsegmented_script_char) {
+            haystack.contains(&a)
+        } else {
+            contains_word(haystack, &a)
+        };
+        if hit {
+            return Some(alias.clone());
+        }
+    }
+    None
+}
+
 pub(crate) fn categorize_jurisdiction_matches(
     rules: &[JurisdictionRule],
     haystack: &str,
@@ -667,12 +718,12 @@ pub(crate) fn categorize_jurisdiction_matches(
 ) -> Vec<JurisdictionRule> {
     let mut confirmation_matches: Vec<JurisdictionRule> = Vec::new();
     for rule in rules {
-        if !rule.condition.is_empty() && contains_word(haystack, &rule.condition.to_lowercase()) {
+        if let Some(matched_term) = rule_match_term(rule, haystack) {
             match rule.action {
                 RuleAction::Block => result.blocked = true,
                 RuleAction::Warn => result.warnings.push(format!(
                     "Request content touches a flagged area (matched \"{}\"): {}",
-                    rule.condition, rule.source
+                    matched_term, rule.source
                 )),
                 RuleAction::RequireConfirmation => confirmation_matches.push(rule.clone()),
                 RuleAction::Log => {}
@@ -1291,7 +1342,67 @@ mod graph_tests {
             source: source.to_string(),
             retrieved_snippet: None,
             official_source: None,
+            aliases: Vec::new(),
         }
+    }
+
+    #[test]
+    fn sync_jurisdiction_file_upgrades_only_when_safe() {
+        let base = std::env::temp_dir().join(format!(
+            "ozone_jur_sync_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&base).unwrap();
+        let src = base.join("src.json");
+        let dst = base.join("dst.json");
+        let mut manifest = std::collections::HashMap::new();
+
+        // New file is copied and recorded.
+        std::fs::write(&src, b"{\"v\":1}").unwrap();
+        assert_eq!(crate::sync_jurisdiction_file(&src, &dst, &mut manifest, "k", false).unwrap(), "copied-new");
+        // Same content: unchanged.
+        assert_eq!(crate::sync_jurisdiction_file(&src, &dst, &mut manifest, "k", false).unwrap(), "unchanged");
+        // Shipped content grows; dst unmodified since last sync -> upgraded.
+        std::fs::write(&src, b"{\"v\":2}").unwrap();
+        assert_eq!(crate::sync_jurisdiction_file(&src, &dst, &mut manifest, "k", false).unwrap(), "upgraded");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"{\"v\":2}");
+        // Operator edits dst; a newer shipped version must NOT clobber it...
+        std::fs::write(&dst, b"{\"v\":\"operator\"}").unwrap();
+        std::fs::write(&src, b"{\"v\":3}").unwrap();
+        assert_eq!(crate::sync_jurisdiction_file(&src, &dst, &mut manifest, "k", false).unwrap(), "kept-newer-available");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"{\"v\":\"operator\"}");
+        // ...unless forced, in which case the old copy is kept as .bak.
+        assert_eq!(crate::sync_jurisdiction_file(&src, &dst, &mut manifest, "k", true).unwrap(), "upgraded");
+        assert_eq!(std::fs::read(&dst).unwrap(), b"{\"v\":3}");
+        let mut bak = dst.as_os_str().to_owned();
+        bak.push(".bak");
+        assert_eq!(std::fs::read(std::path::PathBuf::from(bak)).unwrap(), b"{\"v\":\"operator\"}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn alias_matches_in_other_languages_and_unsegmented_scripts() {
+        let mut r = rule("personal data", RuleAction::Log, "x");
+        r.aliases = vec!["datos personales".to_string(), "个人信息".to_string()];
+        // English condition still works.
+        assert!(super::rule_match_term(&r, "store personal data safely").is_some());
+        // Spanish alias, whole-word.
+        assert_eq!(
+            super::rule_match_term(&r, "guardar datos personales de clientes"),
+            Some("datos personales".to_string())
+        );
+        // Han-script alias matches inside an unsegmented sentence.
+        assert_eq!(
+            super::rule_match_term(&r, "请保护个人信息的安全"),
+            Some("个人信息".to_string())
+        );
+        // No match, and no substring false-positive for segmented scripts.
+        assert!(super::rule_match_term(&r, "nothing relevant here").is_none());
+        assert!(super::rule_match_term(&r, "xdatos personalesx").is_none());
     }
 
     #[test]

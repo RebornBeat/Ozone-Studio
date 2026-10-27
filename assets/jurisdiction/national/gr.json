@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Greek national law, retrieved via live web search on 2026-10-27 (domains: dpa.gr - the Hellenic Data Protection Authority, coe.int, hatecrime.osce.org - OSCE/ODIHR, plus secondary sources wipo.int, ey.com, cms.law where an official gazette (FEK) page was not returned). Rule snippets paraphrase what the search results reported; the Greek Government Gazette texts were not independently fetched, so article numbers, amendment dates and current wording must be re-verified in the FEK / official codifications. Covers Greek NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. Items whose number or status could not be confirmed (e.g. a claimed Law 5002/2022 on gambling and a claimed Law 4960/2022) are deliberately omitted. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "GR"},
+      "condition": "personal data",
+      "aliases": ["προσωπικά δεδομένα", "προστασία δεδομένων"],
+      "action": "Log",
+      "source": "Law 4624/2019 (Greek GDPR implementing law) - English translation by the HDPA: https://dpa.gr/sites/default/files/2020-08/LAW%204624_2019_EN_TRANSLATED%20BY%20THE%20HDPA.PDF",
+      "retrieved_snippet": "Law 4624/2019 sets measures implementing the GDPR and transposes Directive (EU) 2016/680; the Hellenic Data Protection Authority (an independent authority under Article 9A of the Constitution) states the law applies from 29/8/2019 and that Law 2472/1997 is repealed except for provisions referred to in Article 84; the HDPA also applies Law 3471/2006 (ePrivacy). The Greek text governs over the English translation.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "cybercrime",
+      "aliases": ["κυβερνοεγκληματικότητα", "ηλεκτρονικό έγκλημα", "hacking"],
+      "action": "Log",
+      "source": "Law 4411/2016 (ratifying the Budapest Cybercrime Convention and transposing Directive 2013/40/EU) amending Penal Code articles on unauthorised access to information systems - Council of Europe legal profile: https://rm.coe.int/octocom-legal-profile-greece/16809e599a",
+      "retrieved_snippet": "The Council of Europe states Greece ratified the Budapest Convention and its Additional Protocol on 25 January 2017 and that the Greek Criminal Code covers nearly all the Convention's substantive offences except direct implementation of illegal interception; Law 4411/2016 introduced or amended offences protecting information systems and data. Sources disagree on the article number for unauthorised access (370C par. 2 vs 370Γ) - check the consolidated Penal Code.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "consumer",
+      "aliases": ["καταναλωτής", "προστασία καταναλωτή"],
+      "action": "Log",
+      "source": "Law 2251/1994 on consumer protection - WIPO Lex entry: https://www.wipo.int/wipolex/en/legislation/details/6909",
+      "retrieved_snippet": "Law 2251/1994 was adopted in November 1994 and took effect on 16 November 1994, covering service-provider liability, advertising and related matters; WIPO Lex's English version contains only parts of the law and its Greek text is an unofficial consolidation; a legal guide reports a recent amendment by Law 5111/2024 and administrative sanctions imposed via the General Secretariat for Consumers.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "cybersecurity",
+      "aliases": ["κυβερνοασφάλεια", "ασφάλεια δικτύων και πληροφοριών"],
+      "action": "Log",
+      "source": "Law 5160/2024 (Greek NIS2 transposition) - secondary source: https://www.ey.com/en_gr/technical/tax/tax-alerts/law-5160-2024-transposition-of-directive-nis-2",
+      "retrieved_snippet": "Secondary sources report Law 5160/2024 was published in the Government Gazette on 27 November 2024, transposes Directive (EU) 2022/2555 (NIS2) and replaces earlier cybersecurity rules such as Law 4577/2018; the National Cybersecurity Authority is the competent authority and national CSIRT; one source reports personal liability for management of in-scope entities. The official gazette text was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "money laundering",
+      "aliases": ["νομιμοποίηση εσόδων από εγκληματικές δραστηριότητες", "ξέπλυμα χρήματος"],
+      "action": "Log",
+      "source": "Law 4557/2018 (prevention of money laundering and terrorist financing; 4th AML Directive) as amended by Law 4734/2020 (5th AML Directive) - secondary source: https://www.ey.com/en_gr/tax/tax-alerts/greek-law-4734-2020--transposition-of-the-5th-aml-directive",
+      "retrieved_snippet": "Law 4557/2018 transposed the 4th AML Directive and entered into force on 30 July 2018; the Anti-Money Laundering Authority is defined in its Article 47; Law 4734/2020 amended it to transpose the 5th AML Directive and a further source reports Law 4990/2022 for the 6th directive; sanctions include administrative fines, licence suspension or revocation and criminal liability for intentional failure to report.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "hate speech",
+      "aliases": ["ρητορική μίσους", "ρατσισμός", "ρατσιστική βία"],
+      "action": "Log",
+      "source": "Law 927/1979 (racism/xenophobia), Article 1 as amended by Laws 1419/1984, 2910/2001, 4285/2014 and 4491/2017 - OSCE/ODIHR hate crime reporting: https://hatecrime.osce.org/node/1759",
+      "retrieved_snippet": "Article 1 as amended covers public incitement to violence or hatred based on race, colour, religion, descent, national or ethnic origin, sexual orientation, gender identity, sex characteristics or disability, with imprisonment of three months to three years and a fine of EUR 5,000-20,000 where public order is endangered; Law 4285/2014 aligned it with Framework Decision 2008/913/JHA, adds provisions on online commission and legal-person liability, and offences are prosecuted ex officio. Amendment numbers differ between sources (1419/1984 vs 1414/1984).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "GR"},
+      "condition": "gambling",
+      "aliases": ["τυχερά παίγνια", "στοίχημα", "διαδικτυακός τζόγος"],
+      "action": "Log",
+      "source": "Law 4002/2011 (online gambling) as overhauled by Law 4635/2019, licensing by the Hellenic Gaming Commission - secondary source: https://www.cms.law/en/int/expert-guides/cms-expert-guide-to-online-gambling-regulation-in-europe/greece",
+      "retrieved_snippet": "Trade and legal press report that Greece first permitted online gambling under Law 4002/2011 and Law 4635/2019 replaced tender-based licensing with fixed-term renewable licences issued by the Hellenic Gaming Commission, in two types (online betting; other online games of chance) with seven-year terms. The statute texts were not retrieved.",
+      "official_source": false
+    }
+  ]
+}

@@ -156,6 +156,7 @@ pub async fn populate_jurisdiction_content_for_region(
             source: url.to_string(),
             retrieved_snippet: Some(format!("{} — {}", title, snippet).trim().to_string()),
             official_source: Some(looks_official(url)),
+            aliases: Vec::new(),
         });
     }
 

@@ -1,0 +1,68 @@
+{
+  "disclaimer": "Drafted from Belgian national law, retrieved via live web search on 2026-10-27 (domains: dataprotectionauthority.be, coe.int, senate.be, ccb.belgium.be, ctif-cfi.be, plus reputable secondary sources lexgo.be and legal500.com where an official page was not returned). Rule snippets paraphrase what the search results reported; the official Moniteur belge / ejustice texts were not independently fetched, so citations and dates must be re-verified against the consolidated official text. Covers Belgian NATIONAL law only; EU-wide regulations (GDPR, DSA, AI Act etc.) are in eu.json. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified counsel. Every rule's action is Log only; elevation is an operator policy decision. Laws change - re-verify before relying on any entry.",
+  "rules": [
+    {
+      "scope": {"National": "BE"},
+      "condition": "personal data",
+      "aliases": ["gegevensbescherming", "persoonsgegevens", "protection des données", "données personnelles"],
+      "action": "Log",
+      "source": "Act of 30 July 2018 on the protection of natural persons with regard to the processing of personal data (Belgium; Moniteur belge 5 September 2018) — unofficial consolidated translation hosted by the Belgian Data Protection Authority: https://dataprotectionauthority.be/publications/act-of-30-july-2018.pdf",
+      "retrieved_snippet": "Belgian data protection act published in the Moniteur belge on 5 September 2018; it replaced the Privacy Act of 8 December 1992, supplements or specifies provisions of the GDPR, transposes the Police and Criminal Justice Directive, and sets the age of consent for information-society services at 13.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "cybercrime",
+      "aliases": ["computercriminaliteit", "criminalité informatique", "hacking"],
+      "action": "Log",
+      "source": "Act of 28 November 2000 on cybercrime (Belgium) inserting Articles 550bis (hacking) and 550ter (data/system interference) into the Criminal Code — Council of Europe Octopus country profile: https://www.coe.int/web/octopus/country-wiki/-/asset_publisher/wM2oCWukY7tM/content/belgium",
+      "retrieved_snippet": "The Act of 28 November 2000 on computer crime inserted new substantive and procedural cybercrime provisions into the Criminal Code and Code of Criminal Procedure; the hacking offence is Article 550bis, with data and system interference in Article 550ter. Sources disagree on the computer-fraud article number (504ter vs 504quater) - check the consolidated text.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "consumer",
+      "aliases": ["consument", "consommateur", "droit économique"],
+      "action": "Log",
+      "source": "Code of Economic Law, Book VI (market practices and consumer protection), in force 31 May 2014 — secondary source: https://www.lexgo.be/en/news-and-articles/2036-the-new-commercial-practices-act",
+      "retrieved_snippet": "Book VI of the Code of Economic Law replaced the 6 April 2010 Market Practices Act and entered into force on 31 May 2014; it transposed the Consumer Rights Directive 2011/83/EU, and the prohibition of misleading price information is in Article VI.97, 4°.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "hate speech",
+      "aliases": ["haatzaaien", "discours de haine", "incitement to hatred"],
+      "action": "Log",
+      "source": "Law of 30 July 1981 on punishing certain acts inspired by racism or xenophobia (Anti-Racism / Moureaux Law) — Belgian Senate document: https://www.senate.be/lexdocs/S0529/S05290419.pdf",
+      "retrieved_snippet": "The 1981 law makes incitement to discrimination, hatred or violence on grounds such as race and origin a criminal offence (penal sanctions including incitement to racial hatred or discrimination, publicising intent to discriminate, and participation in racist associations); a 2007 anti-discrimination act extended the grounds.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "gambling",
+      "aliases": ["kansspelen", "jeux de hasard"],
+      "action": "Log",
+      "source": "Federal Act of 7 May 1999 on games of chance, betting, gaming establishments and protection of players (Gaming Act), supervised by the Gaming Commission — secondary source: https://legal500.com/guides/chapter/belgium-gambling-law/",
+      "retrieved_snippet": "The Gaming Act of 7 May 1999 is the main gambling statute; the Gaming Commission grants licences and supervises compliance; online gaming licences are tied to holding an offline licence, and online gaming bonuses were banned by 2019 amendments.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "cybersecurity",
+      "aliases": ["cybersécurité", "cyberveiligheid"],
+      "action": "Log",
+      "source": "Act of 26 April 2024 establishing a framework for the cybersecurity of networks and information systems of general interest for public security (Belgian NIS2 transposition), regulator Centre for Cybersecurity Belgium — https://ccb.belgium.be/nl/node/412",
+      "retrieved_snippet": "The Act of 26 April 2024 implements Directive (EU) 2022/2555 (NIS2) and repeals the 2019 NIS1 law; published in the Belgian Official Journal on 17 May 2024; the CCB is the national cybersecurity authority. Entry into force 18 October 2024 is reported by secondary sources (Lexmundi, CMS).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BE"},
+      "condition": "money laundering",
+      "aliases": ["witwassen", "blanchiment"],
+      "action": "Log",
+      "source": "Law of 18 September 2017 on the prevention of money laundering and terrorist financing and on restricting the use of cash (Belgium), supervised via CTIF-CFI — https://ctif-cfi.be/index.php/en/belgian-system/aim-of-the-law",
+      "retrieved_snippet": "The Law of 18 September 2017 applies Directive (EU) 2015/849, adds preventive measures with administrative sanctions to the criminal offence in Article 505 of the Penal Code, requires covered parties to report suspicious transactions to CTIF-CFI, and replaced the law of 11 January 1993; published 6 October 2017.",
+      "official_source": true
+    }
+  ]
+}

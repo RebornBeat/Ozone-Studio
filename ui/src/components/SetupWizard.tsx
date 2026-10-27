@@ -32,13 +32,6 @@ interface SetupConfig {
   consciousnessEnabled: boolean;
   enableP2p: boolean;
   enableMdns: boolean;
-  /** Jurisdiction gate (src/orchestrator/jurisdiction.rs) — a real, always-on
-   * orchestration stage, but it ships with ZERO real legal content by
-   * design. This field only tells the gate which region's rule set to look
-   * for; it does not itself make the instance legally compliant with
-   * anything. */
-  jurisdictionEnabled: boolean;
-  instanceRegion: string;
 }
 
 /// Default local whisper model (ggml-base.en) — exists on this machine.
@@ -140,8 +133,6 @@ export function SetupWizard({ onComplete }: Props) {
     consciousnessEnabled: false,
     enableP2p: true,
     enableMdns: true,
-    jurisdictionEnabled: false,
-    instanceRegion: "",
   });
 
   // Live probe: which model-role agents are registered with the host right
@@ -351,10 +342,6 @@ export function SetupWizard({ onComplete }: Props) {
         },
         consciousness: {
           enabled: setupConfig.consciousnessEnabled,
-        },
-        jurisdiction: {
-          enabled: setupConfig.jurisdictionEnabled,
-          instance_region: setupConfig.instanceRegion.trim() || undefined,
         },
       };
 
@@ -863,10 +850,8 @@ export function SetupWizard({ onComplete }: Props) {
             <div className="setup-step">
               <h2>⚙️ Features</h2>
               <p>
-                Configure optional capabilities: consciousness, P2P
-                networking, and jurisdiction. Consciousness and P2P can be
-                changed later in Settings; jurisdiction cannot yet (see
-                below).
+                Configure optional capabilities: consciousness and P2P
+                networking. Both can be changed later in Settings.
               </p>
 
               <div className="consciousness-toggle">
@@ -958,70 +943,17 @@ export function SetupWizard({ onComplete }: Props) {
                 batches; pipeline results are shared only when explicitly
                 requested; your own user data never syncs. Peers you connect
                 to may be running in a different jurisdiction than this
-                instance — see the jurisdiction setting below. Turn P2P off
+                instance (each instance applies its own auto-detected
+                region's rules). Turn P2P off
                 for fully local, single-machine operation — all of this is
                 configurable later in Settings → Network.
               </p>
 
-              <h4
-                style={{
-                  marginTop: 18,
-                  marginBottom: 8,
-                  fontSize: "0.9rem",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                ⚖️ Jurisdiction
-              </h4>
-              <div className="consciousness-toggle">
-                <label className="toggle-label">
-                  <input
-                    type="checkbox"
-                    checked={setupConfig.jurisdictionEnabled}
-                    onChange={(e) =>
-                      setSetupConfig((prev) => ({
-                        ...prev,
-                        jurisdictionEnabled: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span className="toggle-text">
-                    Set instance location (jurisdiction hook)
-                  </span>
-                </label>
-              </div>
-              {setupConfig.jurisdictionEnabled && (
-                <div className="form-group">
-                  <input
-                    type="text"
-                    placeholder="e.g. us-ca, us, eu"
-                    value={setupConfig.instanceRegion}
-                    onChange={(e) =>
-                      setSetupConfig((prev) => ({
-                        ...prev,
-                        instanceRegion: e.target.value,
-                      }))
-                    }
-                  />
-                  <p className="config-hint">
-                    Free text — not validated against any real list of
-                    jurisdictions. A typo here (e.g. "use" instead of "us")
-                    will silently fail to match any rule set rather than
-                    showing an error. There's no Settings-panel control for
-                    this today; changing it later means editing config.toml
-                    directly.
-                  </p>
-                </div>
-              )}
               <p className="feature-note">
-                💡 This only tells the system which region's rule set to look
-                for later — it does not add any legal rules or make this
-                instance compliant with anything on its own. Real rules must
-                be sourced and loaded separately; this is a hook for that,
-                not compliance itself. Leave it off (or leave the region
-                blank) and the system will try to auto-detect a region from
-                this machine's timezone/locale/IP instead — only when at
-                least two of those signals agree.
+                💡 Jurisdiction is AUTO-DETECTED from this machine's
+                timezone/locale/IP (when at least two signals agree) — we
+                never ask. Nothing to configure here; rule sets load
+                separately from the jurisdiction content pack.
               </p>
 
               <div className="setup-buttons">
@@ -1084,10 +1016,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <div className="summary-item">
                   <span className="summary-label">Jurisdiction:</span>
                   <span className="summary-value">
-                    {setupConfig.jurisdictionEnabled
-                      ? setupConfig.instanceRegion.trim() ||
-                        "Enabled — no region entered (hardware auto-detect will fill this in)"
-                      : "Off"}
+                    Auto-detected from this machine (timezone/locale/IP)
                   </span>
                 </div>
               </div>
