@@ -5939,3 +5939,26 @@ context_aggregation 10m51s, text 9m30s, math 3m07s, code 7m28s, audio 5m57s, ima
 ### 6. Acceptances
 - DONE: entry-gate wiring live (route 200s; the span row needs the Ed25519-authenticated client — middleware + handler gates refuse unauthenticated clients first, correct posture; unit tests green). 27-modality data path (discriminator; UI typecheck 0 errors). P2P gate live.
 - PENDING (exact preconditions): koi cross-walk re-test — needs one live orchestration walk (~10 min free-model budget) when the box is quiet: POST /orchestrate koi prompt twice, then check load_prior_design_context / enrich logs. First non-0.00 valence digest — fires on the next assistant pass (30-min cadence) with non-empty findings. EU redeploy — unblocked now (all artifacts built); the 10-21 binary there predates everything.
+
+## 2026-10-27 (zcode, META+EU+ENVELOPE) — meta switched to OpenRouter (config, live-verified in ledger), memory-envelope gate wired into the task executor, EU DEPLOYED to the new binary + 6 pipelines + all switches, logs reviewed on both hosts, 3 new methodologies seeded both stores. One data defect found and captured (container 42209), fix operator-gated.
+
+### 1. Meta → OpenRouter (until further notice)
+target/release/config.toml + EU /opt/ozone-studio/config.toml: models.meta_fallback.order now ["openrouter/free", "bitnet-i2_s"] (revert = restore original order, captured inline as comment). Ledger-verified live: amt_reexpansion walked the OpenRouter free pool (cohere/liquid/nemotron candidates; content-safety model answered ok). BitNet stays the offline backstop.
+
+### 2. Memory-envelope gate (the silent-death guard, in code)
+lib.rs task-executor loop reads MemAvailable before every walk launch: below OZONE_MIN_AVAIL_MB (default 1536) the tick skips LOUDLY ("memory gate CLOSED"). Refuse-to-launch beats silent death; unreadable /proc/meminfo = gate closed. Rebuilt (29m20s, exit 0), local host restarted on it. EU: 12G RAM / 10.9G avail / 6 cores → AUTO_EXECUTE ON there, same floor via env.
+
+### 3. EU DEPLOYED
+Host binary (131MB) + 6 rebuilt pipelines uploaded; binaries swapped (.bak kept); meta config switched; systemd drop-in /etc/systemd/system/ozone-studio.service.d/overrides.conf with all 5 env vars (4 switches + memory floor — EU gets AUTO_EXECUTE=1 on 12G). Restart: active, health 200 fresh peer id; boot evidence: consciousness config applied + Task executor ENABLED + p2p-bridge registered. All env vars in /proc/PID/environ.
+
+### 4. Log review both hosts — expected actions confirmed
+LOCAL: task executor fired (queued task 44 "CHECKLIST retirement half" walked the full gated walk, lanes on nemotron free models, candidates answering 3-30s); sensor tick 2 events; p2p-bridge registered; consciousness config applied; meta ledger now openrouter-pool. EU: service active post-cutover, same boot-evidence set, peer id issued. EU meta direction shows in its ledger on first loop call.
+
+### 5. NEW DATA DEFECT found and captured (fix operator-gated)
+Container 42209: global record exists, local-state file missing — a CreateContainer write torn in half by one of the silent deaths (mid-walk). The store correctly REFUSES to load it ("Storage error: container 42209 has a global record but no local-state file"), which blocks GetMethodologiesByKeywords / SearchContainersByKeywords scans reaching its id range. Persists across restarts (boot self-heal does not clear it). Fix options (operator go required — data mutation): (a) write a minimal tombstone local/42209.json; (b) remove the global record. The 3 new methodology containers themselves registered successfully and are in the store; only the search path is blocked.
+
+### 6. Methodologies seeded (3, from this cycle's insights)
+build-and-deploy-memory-envelope (MemAvailable gating, serial compile fronts, 10G floor, silent-death forensics order oomd-then-code); out-of-band-approval-delivery (approval secrets never in API responses/URLs/QRs; host-console + root-only file; START is not APPROVE); reserved-id-override-reconciliation (remote shadows built-ins only as authenticated operator act; never seed/overwrite the compile-time blueprint map; deregister restores instantly). Files in assets/methodologies/ (boot-seeded) + shipped to EU /opt/ozone-studio/methodologies/ + live-registered in the local store (CreateContainer x3, parent 2). EU store seeds on next boot.
+
+### 7. Switches final state
+LOCAL: TOOL_ROUTING=1, REQUIRE_SESSION=1, PEER_DIALOGUE=1, AUTO_EXECUTE=HELD (silent-death envelope; re-enable condition inline in launcher). EU: ALL FOUR ON + memory floor. Re-verify EU walk stability over its first queued task before trusting long-run.

@@ -1,0 +1,35 @@
+{
+  "name": "build-and-deploy-memory-envelope",
+  "description": "Compile, test, and run heavy parallel work inside the box's real memory envelope. Two silent host deaths during task-executor walks on a 7.6G machine (kernel/oomd kill, no panic logged) set this doctrine.",
+  "principles": [
+    "Measure before parallelizing: MemAvailable (not free) is the launch signal; read /proc/meminfo at launch time.",
+    "One compile front at a time: release build, test suite, and per-pipeline fleets each own the machine serially; parallel fronts thrash CPU and blur the storage picture.",
+    "Disk floor 10G before ANY release link; prune build artifacts and regenerable caches only - never data islands (zsei_data, config, logs).",
+    "A silent death with no panic is memory until proven otherwise; dmesg/oomd first, code second."
+  ],
+  "heuristics": [
+    "Before launching any walk fan-out: if MemAvailable < floor (default 1536MB), skip the tick loudly and retry next tick - refuse-to-launch beats silent death.",
+    "After any unexplained process death: check kernel/oomd logs, measure concurrent subprocess count at death time, and only then read the last code touched.",
+    "Parallel lanes scale with cores, launches scale with memory - gate each separately."
+  ],
+  "decision_rules": [
+    {
+      "condition": "launching a full orchestration walk or multi-process fan-out",
+      "action": "Require MemAvailable >= floor; else skip loudly and retry next tick."
+    },
+    {
+      "condition": "disk free below 10G before a release link",
+      "action": "Stop; prune build artifacts and regenerable caches; never data islands."
+    }
+  ],
+  "keywords": [
+    "memory",
+    "envelope",
+    "oom",
+    "build",
+    "deploy",
+    "parallel",
+    "walk",
+    "task-executor"
+  ]
+}

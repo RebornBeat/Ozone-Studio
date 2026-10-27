@@ -1,0 +1,32 @@
+{
+  "name": "reserved-id-override-reconciliation",
+  "description": "Remote agent registrations may shadow a built-in pipeline id ONLY as a deliberate, authenticated operator act - and the override must never touch the compile-time blueprint map.",
+  "principles": [
+    "Remote dispatch wins at the executor, so an id-9 registration redirects every prompt call: default-deny, allow only with allow_builtin_override AND a valid session.",
+    "The override lives in the RemotePipelines entry alone; the compile-time blueprint map (PIPELINE_INFO) is never seeded, overwritten, or stubbed for built-in ids - seeding an empty blueprint there corrupts built-in dispatch and crashed the host.",
+    "Deregister restores built-in dispatch instantly because the blueprint was never touched.",
+    "Registration guards are three-key: id reserved?, flag set?, session valid? - all three decide; any refusal logs its real reason."
+  ],
+  "heuristics": [
+    "When wiring any override/escape-hatch path: enumerate what the normal path writes, and exclude destructive writes for the overridden entity.",
+    "Test the allowed path in isolation (kill competing walk load first): the first allowed-override test coincided with a memory-pressure death and needed a clean re-run."
+  ],
+  "decision_rules": [
+    {
+      "condition": "a remote registration names a built-in pipeline id",
+      "action": "Refuse unless allow_builtin_override AND valid session; if allowed, register the remote entry only - never seed or modify the blueprint map."
+    },
+    {
+      "condition": "an override is deregistered",
+      "action": "Built-in dispatch restores with no further action; verify via the remote list being empty for that id."
+    }
+  ],
+  "keywords": [
+    "security",
+    "pipelines",
+    "override",
+    "remote",
+    "reserved-id",
+    "reconciliation"
+  ]
+}

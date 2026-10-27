@@ -1,0 +1,33 @@
+{
+  "name": "out-of-band-approval-delivery",
+  "description": "Any approval secret (pairing code, confirmation code, one-time token) is delivered OUT of the API surface: host console + a root-readable file. API callers may START approval flows; only host-console readers may APPROVE them.",
+  "principles": [
+    "An approval code in an API response makes the approval self-issuable: START and APPROVE must never be reachable by the same credential-free caller.",
+    "Deliver secrets through a channel the caller cannot read: host console log + root-only file under the data dir.",
+    "The approval page asks the operator to TYPE what the host shows; it never echoes a secret from the URL.",
+    "URLs and QR payloads carry identifiers only (pairing ids), never codes."
+  ],
+  "heuristics": [
+    "Before shipping any approve/confirm endpoint: grep the response builder for the secret - if it appears anywhere in any response, the flow is self-issuable.",
+    "Prefer keying approvals by pairing id with the code side-channel-delivered; ids are addresses, not credentials.",
+    "Session-token transports stay dual (Bearer header for middleware, body field for legacy handlers) until all clients send headers; then the header-only flip is one env var."
+  ],
+  "decision_rules": [
+    {
+      "condition": "designing or reviewing an approve/confirm/pairing flow",
+      "action": "Verify the secret never appears in any API response, URL, or QR payload; deliver via host console + root-only file."
+    },
+    {
+      "condition": "a caller requests an approval action without presenting the host-delivered code",
+      "action": "Refuse; starting a flow is not approving it."
+    }
+  ],
+  "keywords": [
+    "security",
+    "pairing",
+    "approval",
+    "out-of-band",
+    "session",
+    "perimeter"
+  ]
+}

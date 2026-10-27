@@ -18,6 +18,8 @@
 
 **Honest caveats**: several waves of edits are in the tree **awaiting the single build pass** (compile-clean is unproven until then — the tree is the record, `CHECKLIST.md` is the status); jurisdiction's national rules ship Log-only pending operator review; MCP tool routing is designed but not yet wired into blueprint steps (directive #46 ruling open); queued-task execution requires an operator approval gate before it is wired.
 
+**Meta work runs on OpenRouter** (free pool leading, BitNet backstop — switched 2026-10-26, reversible in config.toml). **EU instance deployed** (2026-10-26 binary + pipelines + switches via systemd drop-in). **Walk launches are memory-gated** (MemAvailable floor — the silent-death guard).
+
 **Documentation map**: `docs/STATE_CAPTURE.md` (authoritative state), `CHECKLIST.md` (living status record), `docs/GRAPH_NATIVE_UIUX_GUIDE.md` (the UI doctrine + GraphKit), `docs/P2P_AND_SHARED_MCP_COMMUNICATION_GUIDE.md` (the three communication subsystems), `docs/UNIVERSAL_ORDER_GUIDE.md` (ordering), `docs/TOP_DOWN_REVIEW_GUIDE.md` + `docs/CONTEXT_REGISTRY.md` (context doctrine).
 
 ---

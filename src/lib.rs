@@ -1190,6 +1190,25 @@ impl OzoneRuntime {
                     let mut tick = tokio::time::interval(std::time::Duration::from_secs(60));
                     loop {
                         tick.tick().await;
+                        // RESOURCE GATE (2026-10-26 — the two silent-death
+                        // walks): a full walk fans out lane subprocesses; on
+                        // this box that spiked past the memory envelope and
+                        // the kernel/oomd killed the host silently. No walk
+                        // launches unless MemAvailable clears the floor
+                        // (OZONE_MIN_AVAIL_MB, default 1536). Skips are loud.
+                        let avail_mb = mem_available_mb();
+                        let floor: u64 = std::env::var("OZONE_MIN_AVAIL_MB")
+                            .ok()
+                            .and_then(|v| v.parse().ok())
+                            .unwrap_or(1536);
+                        if avail_mb < floor {
+                            tracing::warn!(
+                                avail_mb,
+                                floor,
+                                "task executor: memory gate CLOSED — walk skipped this tick (the silent-death guard)"
+                            );
+                            continue;
+                        }
                         let queued = {
                             let rt = executor_runtime.read().await;
                             let tm = rt.task_manager.read().await;
@@ -1582,4 +1601,20 @@ pub fn init_logging_with_level(level: &str) {
                 .with_file(false),
         )
         .init();
+}
+
+/// MemAvailable from /proc/meminfo (kB → MB) — the kernel's own estimate of
+/// allocatable memory (free + reclaimable caches), the right signal for
+/// "can this box survive another walk fan-out". 0 when unreadable (gate
+/// then stays CLOSED: refuse-to-launch beats silent death).
+fn mem_available_mb() -> u64 {
+    std::fs::read_to_string("/proc/meminfo")
+        .ok()
+        .and_then(|s| {
+            s.lines().find(|l| l.starts_with("MemAvailable:")).and_then(|l| {
+                l.split_whitespace().nth(1).and_then(|kb| kb.parse::<u64>().ok())
+            })
+        })
+        .map(|kb| kb / 1024)
+        .unwrap_or(0)
 }
