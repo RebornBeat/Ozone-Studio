@@ -1,44 +1,58 @@
 {
-  "disclaimer": "Drafted from real, current EU legislation (GDPR — Regulation (EU) 2016/679; Digital Services Act — Regulation (EU) 2022/2065; Unfair Commercial Practices Directive — Directive 2005/29/EC), retrieved via web search against official EUR-Lex summaries and the regulation texts themselves, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified EU legal counsel before relying on it for any real compliance purpose. Scope: National(\"EU\") applies this content to any EU member state's instance_region, since these are EU-wide regulations that apply uniformly across all 27 member states (national implementing/supplementary law, e.g. a specific member state's own data protection act, is NOT covered here and would need its own per-country file). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — EU law is amended and reinterpreted over time; re-verify before relying on it.",
+  "disclaimer": "Drafted from real, current EU legislation (GDPR — Regulation (EU) 2016/679; Digital Services Act — Regulation (EU) 2022/2065; Unfair Commercial Practices Directive — Directive 2005/29/EC), retrieved via web search against official EUR-Lex summaries and the regulation texts themselves, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified EU legal counsel before relying on it for any real compliance purpose. Scope: National(\"EU\") applies this content to any EU member state's instance_region, since these are EU-wide regulations that apply uniformly across all 27 member states (national implementing/supplementary law, e.g. a specific member state's own data protection act, is NOT covered here and would need its own per-country file). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — EU law is amended and reinterpreted over time; re-verify before relying on it. ENRICHMENT 2026-10-27: further EU-wide instruments (DMA, NIS2, Data Act, Data Governance Act, ePrivacy, Terrorist Content Online Regulation, DSM copyright Directive, AVMSD, AML Regulation, EU sanctions, MiCA, Product Liability Directive, political advertising Regulation, Directive 2011/93, Consumer Rights Directive, Framework Decision 2008/913/JHA, Directive 2013/40/EU, Cyber Resilience Act, GDPR Articles 9/17/22 and Chapter V, AI Act omnibus prohibition) were added from live web retrieval on 2026-10-27 against eur-lex.europa.eu, europa.eu, consilium.europa.eu, edpb.europa.eu and ec.europa.eu; summaries are close paraphrases of what those pages returned, not legal text. Bills and proposals (e.g. the CSA Regulation 2022/0155(COD)) are mentioned only to state they are NOT law. Every added rule's action is Log.",
   "rules": [
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "GDPR (Regulation (EU) 2016/679) Article 6 — lawful basis required (one of: consent, contract, legal obligation, vital interests, public task, legitimate interests) before processing personal data. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "data breach",
       "action": "Log",
       "source": "GDPR Article 33 — notify the supervisory authority within 72 hours of becoming aware of a personal data breach posing risk to individuals; Article 34 requires direct notification to affected individuals if the risk is high. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "child",
       "action": "Log",
       "source": "GDPR Article 8 — for information society services offered directly to a child, processing is lawful only if the child is at least 16, or (if a member state has lowered this, to no lower than 13) that state's own threshold; below that age, processing requires consent from the holder of parental responsibility. https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32016R0679"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "minor",
       "action": "Log",
       "source": "Digital Services Act (Regulation (EU) 2022/2065) — very large online platforms/search engines must maintain safeguards for children and are limited from using sensitive personal data of minors for targeted advertising. https://eur-lex.europa.eu/ENG/legal-content/summary/digital-services-act.html"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "illegal content",
       "action": "Log",
       "source": "Digital Services Act (Regulation (EU) 2022/2065) — online platforms must provide mechanisms to flag illegal content/products, cooperate with trusted flaggers, and act on notices; large platforms face additional risk-management and audit obligations. https://eur-lex.europa.eu/ENG/legal-content/summary/digital-services-act.html"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "unfair commercial practice",
       "action": "Log",
       "source": "Unfair Commercial Practices Directive (2005/29/EC) — prohibits misleading and aggressive commercial practices toward consumers; member states must provide individual remedies and dissuasive penalties (up to 4% of turnover or €2m in cross-border cases). https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex%3A32005L0029"
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "artificial intelligence",
       "action": "Log",
       "source": "EU AI Act (Regulation (EU) 2024/1689) — general provisions and prohibited-practices chapters (Chapters I-II) have applied since 2 February 2025; obligations for general-purpose AI models (Chapter V) have applied since 2 August 2025. Verified live (search, September 2026): https://artificialintelligenceact.eu/implementation-timeline/",
@@ -46,7 +60,9 @@
       "official_source": false
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "chatbot",
       "action": "Log",
       "source": "EU AI Act Article 50 (transparency obligations) — applies from 2 August 2026: AI systems that interact directly with people must make clear a person is dealing with a machine; deepfakes and manipulated audio/image/video must be disclosed as artificially generated. https://artificialintelligenceact.eu/implementation-timeline/",
@@ -54,12 +70,254 @@
       "official_source": false
     },
     {
-      "scope": { "National": "EU" },
+      "scope": {
+        "National": "EU"
+      },
       "condition": "high-risk ai",
       "action": "Log",
       "source": "EU AI Act — high-risk obligations for stand-alone systems (Annex III: hiring, credit scoring, education, critical infrastructure) are deferred to 2 December 2027; high-risk AI embedded in already-regulated products (Annex I) deferred to 2 August 2028 — NOT yet in force as of this content's verification date (September 2026), noted so this isn't mistaken for a current obligation. https://artificialintelligenceact.eu/implementation-timeline/",
       "retrieved_snippet": "High-risk obligations for stand-alone systems (Annex III, covering hiring, credit scoring, education, and critical infrastructure) are deferred to 2 December 2027, and high-risk AI embedded in already-regulated products (Annex I) is deferred to 2 August 2028.",
       "official_source": false
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "gatekeeper",
+      "action": "Log",
+      "source": "Digital Markets Act, Regulation (EU) 2022/1925 — https://eur-lex.europa.eu/EN/legal-content/summary/digital-markets-act.html",
+      "retrieved_snippet": "EUR-Lex summary: the regulation designates certain large online platforms as 'gatekeepers'; gatekeepers must meet a list of do's and don'ts (e.g. giving business users access to data they generate, not favouring their own products in rankings); the European Commission is the sole enforcer; a designated gatekeeper has 6 months to comply with Articles 5, 6 and 7.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "cybersecurity incident",
+      "action": "Log",
+      "source": "NIS2 Directive, Directive (EU) 2022/2555 — https://eur-lex.europa.eu/eli/dir/2022/2555/oj/eng ; Commission FAQ https://digital-strategy.ec.europa.eu/en/faqs/directive-measures-high-common-level-cybersecurity-across-union-nis2-directive-faqs",
+      "retrieved_snippet": "Essential and important entities that become aware of a significant incident must submit an early warning without undue delay and in any event within 24 hours, a notification within 72 hours, and a final report no later than one month later (Commission NIS2 FAQ). Member States had to establish the list of essential and important entities by 17 April 2025.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "connected product",
+      "action": "Log",
+      "source": "Data Act, Regulation (EU) 2023/2854 — https://eur-lex.europa.eu/EN/legal-content/summary/rules-on-fair-access-to-and-use-of-data-data-act.html ; https://eur-lex.europa.eu/eli/reg/2023/2854/oj/eng",
+      "retrieved_snippet": "EUR-Lex/Commission: the Data Act entered into force on 11 January 2024 and applies from 12 September 2025; Article 50 staggers some dates (design obligation for connected products placed on the market from 12 September 2026; unfair-contract-terms rules apply to contracts concluded after 12 September 2025, older long contracts from 12 September 2027). A Commission amendment proposal (COM(2025) 837) is pending.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "data intermediation",
+      "action": "Log",
+      "source": "Data Governance Act, Regulation (EU) 2022/868 — https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=LEGISSUM:data_governance ; https://digital-strategy.ec.europa.eu/en/policies/data-governance-act-explained",
+      "retrieved_snippet": "EUR-Lex summary: sets conditions for re-use of certain protected public-sector data, rules for data intermediation services (neutral third parties that cannot use the intermediated data for their own financial profit), a framework for voluntary data altruism and the European Data Innovation Board; intermediation providers must notify the competent authority before operating.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "terrorist content",
+      "action": "Log",
+      "source": "Terrorist Content Online Regulation, Regulation (EU) 2021/784 — https://eur-lex.europa.eu/eli/reg/2021/784/oj/eng ; https://eur-lex.europa.eu/EN/legal-content/summary/fight-against-terrorism-dissemination-of-content-online.html",
+      "retrieved_snippet": "Applies from 7 June 2022. National competent authorities may issue removal orders (Article 3(1)); hosting providers must remove or disable access to the content as soon as possible and in any event within one hour of receipt; removed content and related data must be preserved, generally for six months (Article 6).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "cookies",
+      "action": "Log",
+      "source": "ePrivacy Directive, Directive 2002/58/EC Article 5(3) — https://eur-lex.europa.eu/eli/dir/2002/58/oj/eng",
+      "retrieved_snippet": "Storing information, or gaining access to information already stored, in a user's terminal equipment is allowed only if the user is given clear and comprehensive information and the opportunity to refuse; strictly technical storage and services explicitly requested by the user are exempt. (A 2017 proposal for an ePrivacy Regulation to replace the directive was not confirmed as adopted in the retrieved sources.)",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "confidentiality of communications",
+      "action": "Log",
+      "source": "ePrivacy Directive, Directive 2002/58/EC Article 5(1) and Article 6 — https://eur-lex.europa.eu/eli/dir/2002/58/oj/eng",
+      "retrieved_snippet": "Member States must ensure the confidentiality of communications and related traffic data over public communications networks; listening, tapping, storage or other interception by persons other than users without their consent is prohibited unless legally authorised; traffic data must be erased or made anonymous when no longer needed for transmission or billing, subject to exceptions.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "copyright",
+      "action": "Log",
+      "source": "Directive (EU) 2019/790 on copyright and related rights in the Digital Single Market, Article 17 — https://eur-lex.europa.eu/eli/dir/2019/790/oj/eng ; Commission guidance COM(2021) 288 https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=celex:52021DC0288",
+      "retrieved_snippet": "Online content-sharing service providers need authorisation for communication to the public of works uploaded by users or must show best efforts to obtain it and act to remove notified works and prevent future uploads; quotation, criticism, review, caricature, parody and pastiche are user exceptions; Article 17 imposes no general monitoring obligation; a complaint mechanism and human review of removals are required. CJEU Case C-401/19 held the regime has appropriate safeguards for freedom of expression.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "video-sharing platform",
+      "action": "Log",
+      "source": "Audiovisual Media Services Directive 2010/13/EU as amended by Directive (EU) 2018/1808 — https://eur-lex.europa.eu/EN/legal-content/summary/audiovisual-media-services-directive-avmsd.html",
+      "retrieved_snippet": "EUR-Lex summary: the 2018 amendments extend audiovisual rules to video-sharing platforms; providers must take appropriate measures (e.g. age verification, parental controls, rating and reporting tools) to protect minors from content that could impair their development and the general public from incitement to violence or hatred; minors' data collected for these purposes may not be used for commercial purposes such as targeted advertising. Transposition deadline 19 September 2020.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Anti-money-laundering Regulation (EU) 2024/1624 — https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32024R1624 ; Commission overview https://finance.ec.europa.eu/financial-crime/anti-money-laundering-and-countering-financing-terrorism-eu-level_en",
+      "retrieved_snippet": "EUR-Lex: the regulation enters into effect 9 July 2024 and applies from 10 July 2027 (football clubs and agents from 10 July 2029); Directive (EU) 2015/849 is repealed with effect from 10 July 2027; the Anti-Money Laundering Authority (AMLA) is to issue guidelines and take over management of FIU.net by 10 July 2027.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "sanctions",
+      "action": "Log",
+      "source": "EU restrictive measures (sanctions) — Article 29 TEU and Article 215 TFEU; Council of the EU https://www.consilium.europa.eu/en/policies/sanctions-adoption-review-procedure/ ; Commission https://finance.ec.europa.eu/eu-and-world/sanctions-restrictive-measures/overview-sanctions-and-related-resources_en",
+      "retrieved_snippet": "The Council adopts CFSP decisions on sanctions regimes (Article 29 TEU) and implements economic and financial measures (asset freezes, trade restrictions) by regulation under Article 215 TFEU; the obligations bind EU nationals anywhere, companies incorporated under member-state law and anyone within the EU; on 12 April 2024 the Council adopted rules criminalising violation of restrictive measures; investigations of non-compliance are for Member States' competent authorities.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "crypto-asset",
+      "action": "Log",
+      "source": "Markets in Crypto-Assets Regulation (MiCA), Regulation (EU) 2023/1114 — https://eur-lex.europa.eu/eli/reg/2023/1114/oj/eng ; ESMA https://www.esma.europa.eu/esmas-activities/digital-finance-and-innovation/markets-crypto-assets-regulation-mica",
+      "retrieved_snippet": "Titles III and IV (asset-referenced tokens and e-money tokens) have applied since 30 June 2024 and the remaining provisions since 30 December 2024; existing crypto-asset service providers could continue under national law until 1 July 2026 or until authorised or refused under MiCA, whichever came first (member states could choose a shorter period).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "product liability",
+      "action": "Log",
+      "source": "Product Liability Directive, Directive (EU) 2024/2853 — https://eur-lex.europa.eu/EN/legal-content/summary/defective-products-liability.html ; https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX%3A32024L2853",
+      "retrieved_snippet": "EUR-Lex summary: the definition of product is clarified to cover software, including AI systems; transposition deadline 9 December 2026 and the directive applies to products placed on the market or put into service from that date, repealing Directive 85/374/EEC for later products. A EUR-Lex corrigendum dated 7 May 2026 concerns Article 2(1) and may change the exact cut-off date; verify against the corrigendum before relying on the date.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "political advertising",
+      "action": "Log",
+      "source": "Regulation (EU) 2024/900 on the transparency and targeting of political advertising — https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX:32024R0900 ; https://political-advertising.ec.europa.eu/political-advertising",
+      "retrieved_snippet": "Fully applicable from 10 October 2025 (Commission guidelines C/2025/5514): political ads must carry a clear label stating they are political, the sponsor and whether targeting or ad-delivery techniques were used; targeting with special categories of personal data is prohibited; in the three months before an election or referendum political ad services may only be provided to sponsors who are EU citizens, eligible third-country nationals or EU-established entities not controlled by third-country entities; penalties up to 6% of annual worldwide turnover (Council of the EU).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "child sexual abuse",
+      "action": "Log",
+      "source": "Directive 2011/93/EU on combating sexual abuse and sexual exploitation of children and child pornography — https://eur-lex.europa.eu/eli/dir/2011/93/oj/eng",
+      "retrieved_snippet": "EUR-Lex summary: criminalises a wide range of sexual abuse and exploitation offences against persons under 18, with minimum maximum-penalties from 1 to 10 years depending on the offence (acquisition or possession of child pornography: at least 1 year); Member States must ensure prompt removal of web pages hosting or disseminating child pornography in their territory and may block access with safeguards. A 2024 Commission recast proposal (COM(2024) 60) and the separate CSA Regulation proposal 2022/0155(COD) were still in negotiation in the retrieved sources and are NOT law.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "right of withdrawal",
+      "action": "Log",
+      "source": "Consumer Rights Directive 2011/83/EU — https://eur-lex.europa.eu/EN/legal-content/summary/consumer-information-right-of-withdrawal-and-other-consumer-rights.html",
+      "retrieved_snippet": "EUR-Lex summary: consumers have 14 days to withdraw from a distance or off-premises contract without giving a reason, unless an Article 16 exception applies; if the trader did not inform the consumer of the right the period is extended by up to 12 months; the trader must reimburse payments within 14 days of being informed of the withdrawal.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "hate speech",
+      "action": "Log",
+      "source": "Council Framework Decision 2008/913/JHA on combating certain forms and expressions of racism and xenophobia by means of criminal law — https://eur-lex.europa.eu/EN/legal-content/summary/framework-decision-on-combating-certain-forms-and-expressions-of-racism-and-xenophobia-by-means-of-criminal-law.html",
+      "retrieved_snippet": "EUR-Lex summary: Member States must criminalise public incitement to violence or hatred against a group or member defined by race, colour, religion, descent or national or ethnic origin, including dissemination of such material, and publicly condoning, denying or grossly trivialising genocide, crimes against humanity and war crimes when likely to incite violence or hatred; maximum penalty of at least one year; a 2021 Commission communication notes hate speech is criminalised in all Member States on those grounds.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Directive 2013/40/EU on attacks against information systems — https://eur-lex.europa.eu/EN/legal-content/summary/attacks-against-information-systems.html ; https://eur-lex.europa.eu/eli/dir/2013/40/oj/eng",
+      "retrieved_snippet": "EUR-Lex summary: criminalises illegal access, illegal system interference, illegal data interference and illegal interception (intent required), and inciting, aiding, abetting or attempting them; penalties must be effective, proportionate and dissuasive and legal persons can be liable; it also targets botnets and the supply of attack tools.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "actively exploited vulnerability",
+      "action": "Log",
+      "source": "Cyber Resilience Act, Regulation (EU) 2024/2847 — https://eur-lex.europa.eu/eli/reg/2024/2847/oj/eng ; Commission summary https://digital-strategy.ec.europa.eu/en/policies/cra-summary",
+      "retrieved_snippet": "Entered into force 10 December 2024; reporting obligations in Article 14 (actively exploited vulnerabilities and severe incidents) apply from 11 September 2026 to all in-scope products including those already on the market; full application from 11 December 2027 (Commission implementation page).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "nudification",
+      "action": "Log",
+      "source": "AI Act (Regulation (EU) 2024/1689) as amended by the Digital Omnibus on AI — https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai",
+      "retrieved_snippet": "Commission AI Act page: the Digital Omnibus on AI (entered into force 27 July 2026) added a ban on AI systems that generate non-consensual intimate content or CSAM, including nudification apps — 'Prohibition 9 comes into effect in December 2026'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "health data",
+      "action": "Log",
+      "source": "GDPR (Regulation (EU) 2016/679) Article 9 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; EDPB https://www.edpb.europa.eu/sme/learn-the-basics/data-protection-basics_en",
+      "retrieved_snippet": "Processing of genetic data, biometric data used to uniquely identify a person, and data concerning health is prohibited by default subject to an exhaustive list of exceptions in Article 9(2)(a)-(j) (e.g. explicit consent, substantial public interest); Article 9(4) lets Member States maintain or introduce further conditions for genetic, biometric and health data.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "automated decision",
+      "action": "Log",
+      "source": "GDPR Article 22 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; CJEU C-634/21 https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:62021CJ0634",
+      "retrieved_snippet": "Article 22 gives data subjects protection against decisions based solely on automated processing, including profiling, that produce legal or similarly significant effects; Article 22(3) requires suitable safeguards where an exception applies and Article 22(4) restricts decisions based on special categories of data. The CJEU read the article in light of its purpose of protecting people against risks of purely automated decisions (C-634/21).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "data transfer",
+      "action": "Log",
+      "source": "GDPR Chapter V (Articles 44-49) — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; EDPB https://www.edpb.europa.eu/sme/be-compliant/international-data-transfers_en",
+      "retrieved_snippet": "Transfers of personal data to a third country or international organisation may take place where the Commission has decided (adequacy decision, Article 45, with periodic review at least every four years) that it ensures an adequate level of protection; otherwise appropriate safeguards (Article 46) or the limited derogations of Article 49 are needed; Article 48 is not itself a ground for transfer (EDPB).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EU"
+      },
+      "condition": "right to erasure",
+      "action": "Log",
+      "source": "GDPR Article 17 — https://eur-lex.europa.eu/eli/reg/2016/679/oj/eng ; Commission https://commission.europa.eu/law/law-topic/data-protection/information-individuals_en",
+      "retrieved_snippet": "Commission: people can ask for their data to be deleted when it is no longer needed or was used unlawfully; the right (often called the 'right to be forgotten') is not absolute and exceptions include freedom of expression, legal obligations and legal claims.",
+      "official_source": true
     }
   ]
 }

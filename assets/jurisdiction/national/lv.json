@@ -1,0 +1,70 @@
+{
+  "disclaimer": "Drafted from Latvian law as described by live web search results retrieved 2026-10-27 (sources: dvi.gov.lv, linklaters.com, coe.int, ptac.gov.lv, better-internet-for-kids.europa.eu); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LV"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "personas dati"
+      ],
+      "action": "Log",
+      "source": "Personal Data Processing Law (Fizisko personu datu apstrādes likums) alongside Regulation (EU) 2016/679 — Data State Inspectorate https://www.dvi.gov.lv/en/departments and https://linklaters.com/insights/data-protected/data-protected---latvia",
+      "retrieved_snippet": "DVI page (fetched): the Inspectorate \"also serves as a supervisory authority for personal data processing, as defined by the General Data Protection Regulation\" and its status as a state administrative body is based on the Latvian personal data processing law; Linklaters: the GDPR and the Personal Data Processing Law are the primary legal acts and a separate law covers processing in criminal and administrative offence proceedings.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LV"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "patvaļīga piekļūšana"
+      ],
+      "action": "Log",
+      "source": "Criminal Law Section 241 (arbitrary access to automated data processing systems) — Council of Europe Octopus Latvia page — https://www.coe.int/en/web/octopus/-/latvia",
+      "retrieved_snippet": "Council of Europe Octopus profile lists section 241 (arbitrary access) with related offences in sections 243 and 245; Latvia signed the Budapest Convention on 05.05.2004 and ratified it on 14.04.2007. Current text and penalties of section 241 not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LV"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "patērētājs"
+      ],
+      "action": "Log",
+      "source": "Consumer Rights Protection Law (Patērētāju tiesību aizsardzības likums) — Consumer Rights Protection Centre https://ptac.gov.lv/en/about-us",
+      "retrieved_snippet": "The Centre operates under the Consumer Rights Protection Law, which implements Directives 2011/83, 93/13 and 1999/44; it investigates complaints, adopts decisions binding on traders and offers conciliation; the Saeima approved amendments on 14 September 2023 introducing consumer class actions under Directive 2020/1828 (entry into force not confirmed). Current consolidated text not verified.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LV"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "nacionālā naida"
+      ],
+      "action": "Log",
+      "source": "Criminal Law Section 78 (incitement to national, ethnic and racial hatred) — Council of Europe ECRI government comments https://rm.coe.int/government-comments-on-the-5th-report-on-latvia/1680934aa0",
+      "retrieved_snippet": "Government comments to ECRI describe Section 78 as criminalising acts directed towards inciting national, ethnic or racial hatred, with liability dependent on subjective attitude; secondary reports give a base penalty of up to three years' imprisonment, community service or a fine and up to 10 years for aggravated forms. Wording changed over time; current consolidated text not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LV"
+      },
+      "condition": "child",
+      "aliases": [
+        "bērns"
+      ],
+      "action": "Log",
+      "source": "Protection of the Rights of the Child Law (consolidated as of 6 March 2014) and Electronic Mass Media Law Article 232 — https://better-internet-for-kids.europa.eu/en/knowledge-hub/rules-guidelines/protection-rights-child-law-consolidated-amendments-6-march-2014",
+      "retrieved_snippet": "Better Internet for Kids lists the child-rights law (first enacted 1998) which defines abuse broadly (emotional cruelty, sexual abuse, neglect and other treatment endangering a child's health, life, development or self-respect); a Council of Europe mapping cites Article 232 of the Electronic Mass Media Law requiring video-sharing platforms to act against content that may harm minors. Machine-translated 2014 consolidation; current text not verified.",
+      "official_source": true
+    }
+  ]
+}

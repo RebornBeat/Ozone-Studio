@@ -1,33 +1,155 @@
 {
-  "disclaimer": "Drafted from real UAE federal legislation, retrieved via web search against official and near-official government sources (u.ae, uaelegislation.gov.ae, elaws.moj.gov.ae, khda.gov.ae) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UAE legal counsel. Scope: National(\"AE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real UAE federal legislation, retrieved via web search against official and near-official government sources (u.ae, uaelegislation.gov.ae, elaws.moj.gov.ae, khda.gov.ae) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified UAE legal counsel. Scope: National(\"AE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. MENA expansion 2026-10-27: additional rules retrieved via live web search (uaelegislation.gov.ae, u.ae, elaws.moj.gov.ae, government.ae, and law-firm commentary where an official page was unreachable — those rules carry official_source=false). Where the official text was not read in full, the snippet states only what the search result reported. Aliases are plain-language Arabic translations of the English condition keyword, not legal claims. All actions are Log only; UAE federal law is layered with emirate-level and free-zone regimes (DIFC, ADGM, VARA) that apply separately; laws are amended — re-verify before relying.",
   "rules": [
     {
-      "scope": { "National": "AE" },
+      "scope": {
+        "National": "AE"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Federal Decree-Law No. 45 of 2021 on the Protection of Personal Data (UAE PDPL) — in force since 2 January 2022, establishes rights/duties around processing personal data. Official text (Arabic PDF) at u.ae: https://u.ae/en/about-the-uae/digital-uae/data/data-protection-laws",
       "official_source": true
     },
     {
-      "scope": { "National": "AE" },
+      "scope": {
+        "National": "AE"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Federal Law No. 3 of 2016 on Child Rights (\"Wadeema's Law\") — Article 33 protects against all forms of physical, psychological, and sexual abuse/exploitation, including digital settings; applies to all children under 18 regardless of nationality/residency. Official English text hosted by KHDA (UAE government education authority): https://www.khda.gov.ae/CMS/WebParts/TextEditor/Documents/Children_Law_English.pdf",
       "official_source": true
     },
     {
-      "scope": { "National": "AE" },
+      "scope": {
+        "National": "AE"
+      },
       "condition": "cyberbully",
       "action": "Log",
       "source": "Federal Law No. 34 of 2021 Concerning the Fight Against Rumours and Cybercrime — criminalizes cyberbullying and online harassment; complements Wadeema's Law's child-protection scope for digital contexts.",
       "official_source": false
     },
     {
-      "scope": { "National": "AE" },
+      "scope": {
+        "National": "AE"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Federal Law No. (15) of 2020 on Consumer Protection — covers goods/services including e-commerce, requires suppliers to safeguard consumer data and not use it for marketing without consent. Official text at UAE Legislation portal: https://uaelegislation.gov.ae/en/legislations/1455/download and Ministry of Justice: https://elaws.moj.gov.ae/UAE-MOJ_LC-En/00_CONSUMER/UAE-LC-En_2020-11-10_00015_Kait.html",
       "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "جرائم إلكترونية"
+      ],
+      "action": "Log",
+      "source": "Federal Decree-Law No. 34 of 2021 on Countering Rumors and Cybercrimes (as amended; Lexis Middle East lists amendment by Federal Law No. 5 of 2024) — https://uaelegislation.gov.ae/en/legislations/1526/download",
+      "retrieved_snippet": "uaelegislation.gov.ae hosts the English text titled 'On Countering Rumors and Cybercrimes'; the u.ae portal states the law took effect on 2 January 2022; Lexis Middle East lists it as abrogating Federal Decree-Law No. 5/2012 and amended by Federal Law No. 5/2024 dated 04/04/2024.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "خطاب الكراهية"
+      ],
+      "action": "Log",
+      "source": "Federal Law by Decree No. 34 of 2023 Concerning Combating Discrimination, Hatred and Extremism (superseding Federal Decree-Law No. 2 of 2015) — https://uaelegislation.gov.ae/en/legislations/2131/download",
+      "retrieved_snippet": "The official legislation portal's 2015 decree (Gazette No. 582) defines 'hatred speech' as speech that could stir sedition or discrimination among individuals or communities and criminalises religious contempt; the UAE's own summary says that law was replaced by Federal Law by Decree No. 34 of 2023 Concerning Combating Discrimination, Hatred and Extremism, which adds extremism-risk provisions.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "حقوق المؤلف"
+      ],
+      "action": "Log",
+      "source": "Federal Decree-Law No. 38 of 2021 on Copyright and Neighbouring Rights — https://uaelegislation.gov.ae/en/legislations/1534/download",
+      "retrieved_snippet": "Published in the annex of Official Gazette No. 712; came into force on 2 January 2022, repealing and replacing Federal Decree-Law No. 7 of 2002; the Ministry of Economy is the governing authority and issued an executive regulation (reported as No. 47 of 2022).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "غسل الأموال"
+      ],
+      "action": "Log",
+      "source": "Federal Decree-Law No. 20 of 2018 on Anti-Money Laundering, Combating the Financing of Terrorism and Financing of Illegal Organisations (amended by Federal Decree-Law No. 26 of 2021) — https://elaws.moj.gov.ae/UAE-MOJ_LC-En/00_TERRORISM/UAE-LC-En_2018-09-23_00020_Markait.html?val=EL1",
+      "retrieved_snippet": "The official MOJ text dates the decree-law 23 September 2018 and notes an amendment by Federal Decree-Law No. 26 dated 13/09/2021; it repealed the earlier AML statute, Federal Law No. 4 of 2002. Article 2 treats knowingly dealing with proceeds of a felony or misdemeanour and concealing their illicit origin as the offence.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "health data",
+      "aliases": [
+        "بيانات صحية"
+      ],
+      "action": "Log",
+      "source": "Federal Law No. 2 of 2019 on the Use of Information and Communication Technology in Health Fields (Cabinet Decision 32/2020; Ministerial Decision 51 on exceptions) — law-firm commentary: https://www.tamimi.com/law-update-articles/the-federal-law-regulating-the-use-of-information-and-communication-technology-in-the-uae-healthcare-sector",
+      "retrieved_snippet": "Law-firm commentary (Tamimi, Latham & Watkins, Trowers) reports the law applies to ICT in health fields including free zones, and that by default health information may not be transferred outside the UAE or stored/processed outside it unless approved by the health authority or the Minister (Article 13); exceptions came via later ministerial decisions. Official gazette text was not read.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "difc",
+      "action": "Log",
+      "source": "DIFC Law No. 5 of 2020 Data Protection Law (consolidated March 2022, as amended by DIFC Law No. 2 of 2022 and listed by Lexis Middle East as amended through DIFC Law No. 1 of 2025) — https://government.ae/-/media/Documents-2022/Data_Protection_Law_final--DIFC.pdf",
+      "retrieved_snippet": "A consolidated English text hosted on government.ae; the law took effect on 1 July 2020, replacing DIFC Data Protection Law No. 1 of 2007, and applies to businesses incorporated in the DIFC and other controllers/processors processing personal data in the DIFC; commentators describe it as aligned with the GDPR.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "virtual assets",
+      "aliases": [
+        "أصول افتراضية"
+      ],
+      "action": "Log",
+      "source": "Dubai Law No. 4 of 2022 Regulating Virtual Assets (Dubai Virtual Assets Regulatory Authority, VARA) — law-firm commentary: https://www.tamimi.com/news/dubai-issues-first-law-regulating-virtual-assets",
+      "retrieved_snippet": "Law-firm commentary reports the law was issued on 28 February 2022 and took effect on 11 March 2022, creating VARA, covering Dubai including free zones but excluding the DIFC (regulated by the DFSA), and applying to fungible tokens and NFTs. No official Dubai/VARA text was found in the search.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "media content",
+      "aliases": [
+        "محتوى إعلامي"
+      ],
+      "action": "Log",
+      "source": "Federal Decree-Law No. 55 of 2023 on Media Regulation (Executive regulations in effect from 31 October 2024) — https://u.ae/en/Media/Media-In-The-UAE/Media-regulation",
+      "retrieved_snippet": "The u.ae portal states the decree-law organises media activities of individuals, organisations, media outlets and media free zones, and the UAE Media Council and local authorities regulate the sector; law-firm commentary reports it came into force 1 December 2023, covers digital platforms, requires permits for individuals advertising on social media, and replaced the 1980 Press and Publications Law.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AE"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "اختراق البيانات"
+      ],
+      "action": "Log",
+      "source": "Federal Decree-Law No. 45 of 2021 on the Protection of Personal Data (Article 9, reporting personal data breaches; UAE Data Office) — secondary summaries: https://www.klgates.com/New-UAE-Federal-Data-Protection-Law-2-10-2022",
+      "retrieved_snippet": "Secondary summaries describe Article 9 as the personal-data-breach reporting provision, with notifications going to the UAE Data Office (established under Federal Decree-Law No. 44 of 2021); the notification timeline is left to the Executive Regulation, which a 2026-dated framework summary says had not been issued. The statutory text was not read.",
+      "official_source": false
     }
   ]
 }

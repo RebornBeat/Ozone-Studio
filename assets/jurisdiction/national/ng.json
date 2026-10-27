@@ -1,19 +1,96 @@
 {
-  "disclaimer": "Drafted from real Nigerian federal legislation, retrieved via web search against official government sources (ndpc.gov.ng, cert.gov.ng) and the FCCPC's own site (fccpc.gov.ng) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Nigerian legal counsel. Scope: National(\"NG\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real Nigerian federal legislation, retrieved via web search against official government sources (ndpc.gov.ng, cert.gov.ng) and the FCCPC's own site (fccpc.gov.ng) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Nigerian legal counsel. Scope: National(\"NG\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Enriched 2026-10-27 via live web search (additional rules cite judy.legal, lawpadi.com, copyright.gov.ng, mondaq.com and law-firm summaries — mostly secondary sources). Rules added in this pass are Log only; laws change — re-verify against the Official Gazette.",
   "rules": [
     {
-      "scope": { "National": "NG" },
+      "scope": {
+        "National": "NG"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Nigeria Data Protection Act, 2023 (NDPA) — signed into law 12 June 2023, repeals the 2019 NDPR, establishes the Nigeria Data Protection Commission (NDPC). Official regulator: https://ndpc.gov.ng/ — official text PDF hosted at https://cert.gov.ng/ngcert/resources/Nigeria_Data_Protection_Act_2023.pdf",
       "official_source": true
     },
     {
-      "scope": { "National": "NG" },
+      "scope": {
+        "National": "NG"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Federal Competition and Consumer Protection Act, 2018 (FCCPA) — established the Federal Competition and Consumer Protection Commission (FCCPC), governs consumer rights and fair-market practices. Official regulator: https://fccpc.gov.ng/",
       "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Cybercrimes (Prohibition, Prevention, etc.) Act 2015, as amended by the Cybercrimes (Amendment) Act 2024 — https://www.judy.legal/legislation/akn/ng/act/2015/17",
+      "retrieved_snippet": "The consolidated 2015 Act, amended by the Cybercrimes (Prohibition, Prevention, etc.) (Amendment) Act, 2024 (assented and commenced 28 February 2024), remains Nigeria's comprehensive cybercrime legislation; the amendment's official text found only changes wording in s 17(2) while commentary describes broader changes and a cybercrimes levy — verify against the full gazetted text.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "Nigeria Data Protection Act 2023, s 40 — https://www.afriwise.com/blog/data-breaches-compliance-obligations-under-the-nigerian-data-protection-act-2023",
+      "retrieved_snippet": "Secondary sources describe a controller's duty to notify the Nigeria Data Protection Commission within 72 hours of becoming aware of a breach likely to risk individuals' rights and freedoms, and to tell affected individuals without undue delay where risk is high; official Act text not checked in this pass.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Money Laundering (Prevention and Prohibition) Act 2022 (Act No. 14 of 2022), Official Gazette No. 90, Vol. 109, 13 May 2022 — https://lawpadi.com/wp-content/uploads/2023/03/Money-Laundering-Prevention-and-Prohibition-Act-2022.pdf",
+      "retrieved_snippet": "Repeals the Money Laundering (Prohibition) Act 2011; five parts and thirty-one sections; establishes the Special Control Unit under the EFCC for designated non-financial businesses and requires reporting of cross-border transfers and cash declarations above US$10,000.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "terrorism",
+      "action": "Log",
+      "source": "Terrorism (Prevention and Prohibition) Act 2022 — https://www.judy.legal/legislation/akn/ng/act/2022/15",
+      "retrieved_snippet": "Assented 12 May 2022 and commenced the same day; repeals the 2011 Terrorism (Prevention) Act; commentary describes the National Counter-Terrorism Centre under the National Security Adviser, expanded investigation, search, seizure and freezing powers and a Nigeria Sanctions Committee.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "copyright",
+      "action": "Log",
+      "source": "Copyright Act 2022 (Nigeria) — https://www.copyright.gov.ng/CopyrightAct/CopyrightAct2023FinalPublication1.pdf",
+      "retrieved_snippet": "Repeals the Copyright Act Cap C28 LFN 2004; twelve parts and 109 sections; gazetted 27 March 2023; allows the Nigerian Copyright Commission to seek blocking of sites hosting infringing online content and expects service providers to take down infringing content within 48 hours of notice absent justification.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "online platform",
+      "aliases": [
+        "internet intermediary"
+      ],
+      "action": "Log",
+      "source": "NITDA Code of Practice for Interactive Computer Service Platforms / Internet Intermediaries (2022) — https://digitalpolicyalert.org/event/26426-issued-nitda-code-of-practice-for-interactive-computer-service-platformsinternet-intermediaries-including-local-representation-and-registration-requirement",
+      "retrieved_snippet": "Applies to social media, websites, blogs and streaming platforms in Nigeria; requires a complaints channel for unlawful or harmful content with tracking codes, risk assessment of reported content and an annual compliance report to NITDA, with platforms over 100,000 users categorised as large; sources conflict whether it is in force (one says 26 Sept 2022) or still a draft — verify with NITDA.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NG"
+      },
+      "condition": "child",
+      "action": "Log",
+      "source": "Child Rights Act No. 26 of 2003 — https://www.accesstojustice-ng.org/Child%20RIght%20Act%202003.pdf",
+      "retrieved_snippet": "Federal law of 278 sections recognising children's rights including birth registration and protection from abuse and exploitation; it takes effect in a state only once that State Assembly enacts it (sources disagree on how many states have done so).",
+      "official_source": false
     }
   ]
 }

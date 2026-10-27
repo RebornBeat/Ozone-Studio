@@ -1,0 +1,44 @@
+{
+  "disclaimer": "Drafted from Cypriot law as described by live web search results retrieved 2026-10-27 (sources: cut.ac.cy, harriskyriakides.law, rm.coe.int, better-internet-for-kids.europa.eu); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "CY"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "προσωπικά δεδομένα"
+      ],
+      "action": "Log",
+      "source": "Law 125(I)/2018 providing for the protection of natural persons with regard to the processing of personal data — copy of the statute https://www.cut.ac.cy/digitalAssets/472/472580_1law125_i_2018.pdf",
+      "retrieved_snippet": "Section 8 (University of Cyprus copy of the statute): processing of personal data is lawful where information society services are offered directly to a child and the child is at least fourteen years old; for a child younger than fourteen, processing is lawful only when consent is given or authorised by the holder of parental responsibility. The regulator is the Commissioner for Personal Data Protection; later amendment 26(I)/2022 not checked.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CY"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "κυβερνοεγκλήματα"
+      ],
+      "action": "Log",
+      "source": "Law 22(III)/2004 ratifying the Budapest Convention on Cybercrime; Law 147(I)/2015 (attacks against information systems) — Council of Europe Octopus profile https://rm.coe.int/octocom-legal-profile-cyprus/16809e5a34",
+      "retrieved_snippet": "Council of Europe profile lists L.22(III)/2004, including Art. 48 (offences against the confidentiality, integrity and availability of computer data systems) and the computer-related offences; one secondary source says Law 147(I)/2015 implements Directive 2013/40/EU (unconfirmed). Ratification dates differ between sources (WIPO: ratified 19 January 2005).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CY"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "καταναλωτής"
+      ],
+      "action": "Log",
+      "source": "Consumer Protection Law 2021, Law 112(I)/2021 — Better Internet for Kids https://better-internet-for-kids.europa.eu/en/rules-guidelines/consumer-protection-law-2021-law-112i2021",
+      "retrieved_snippet": "Consolidated and modernised Cypriot consumer protection law aligned with EU law; prohibits unfair commercial practices (misleading and aggressive practices that materially distort consumer behaviour); the Consumer Protection Service within the Ministry of Energy, Trade and Industry enforces it; secondary sources differ on the wording of the unfairness test. Statute text not retrieved.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,29 +1,37 @@
 {
-  "disclaimer": "Drafted from real South African legislation, retrieved via web search against government sources (justice.gov.za, Government Gazette references) and established legal-reference sites (saflii.org — South African Legal Information Institute) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified South African legal counsel. Scope: National(\"ZA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real South African legislation, retrieved via web search against government sources (justice.gov.za, Government Gazette references) and established legal-reference sites (saflii.org — South African Legal Information Institute) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified South African legal counsel. Scope: National(\"ZA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Enriched 2026-10-27 via live web search (additional rules cite acts.co.za, gov.za, inforegulator.org.za, saflii.org, lawlibrary.org.za). Rules added in this pass are Log only; laws and commencement status change — re-verify.",
   "rules": [
     {
-      "scope": { "National": "ZA" },
+      "scope": {
+        "National": "ZA"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Protection of Personal Information Act (POPIA), Act 4 of 2013 — assented to 19 Nov 2013, published in Government Gazette Notice 37067 (26 Nov 2013), fully enforceable since 1 July 2021. Accessible text: https://popia.co.za/ (unofficial mirror of the Act as passed by Parliament).",
       "official_source": false
     },
     {
-      "scope": { "National": "ZA" },
+      "scope": {
+        "National": "ZA"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Children's Act 38 of 2005 — principal child-protection legislation, defines and criminalizes child sexual abuse/exploitation. Official text hosted by the Department of Justice and Constitutional Development: https://www.justice.gov.za/legislation/acts/2005-038%20childrensact.pdf",
       "official_source": true
     },
     {
-      "scope": { "National": "ZA" },
+      "scope": {
+        "National": "ZA"
+      },
       "condition": "child sexual abuse material",
       "action": "Log",
       "source": "Film and Publications Amendment Act 11 of 2019 — makes it an offense to possess, create, produce, or contribute to child sexual abuse material online; places a positive obligation on internet service providers to act on such content.",
       "official_source": false
     },
     {
-      "scope": { "National": "ZA" },
+      "scope": {
+        "National": "ZA"
+      },
       "condition": "artificial intelligence",
       "action": "Log",
       "source": "No standalone AI statute as of 2026 — the National AI Policy Framework (published August 2024, following the 2024 National AI Plan launch at the University of Johannesburg) is the current blueprint, covering ethical guidelines, privacy/data protection, safety/security, transparency, and fairness/bias mitigation; a tailored regulatory approach is planned for 2025-2027, expected to be risk-based. Honest gap: policy framework only, no binding AI-specific legislation yet. Secondary summary: https://policyvault.africa/policy/south-africa-national-artificial-intelligence-ai-policy-framework-2024/",
@@ -31,10 +39,78 @@
       "official_source": false
     },
     {
-      "scope": { "National": "ZA" },
+      "scope": {
+        "National": "ZA"
+      },
       "condition": "accessibility",
       "action": "Log",
       "source": "No dedicated digital-accessibility statute — legal basis is indirect, via the Constitution's Bill of Rights (disability non-discrimination), the Promotion of Equality and Prevention of Unfair Discrimination Act (PEPUDA, 2000), and the Promotion of Access to Information Act (PAIA, 2000). Government Information Technology Officer (GITO) standards require national/provincial government websites to comply with WCAG 2.0 Level AA — this is the one concrete, checkable technical standard found; no equivalent private-sector mandate exists. Honest gap, not filled with an invented private-sector requirement. Secondary summary: https://www.allaccessible.org/is-website-accessibility-a-legal-requirement-in-south-africa/",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Cybercrimes Act, 2020 (Act No. 19 of 2020) — https://source.acts.co.za/cybercrimes-act-2020/2__unlawful_access.php",
+      "retrieved_snippet": "Section 2 makes it an offence to unlawfully and intentionally access a computer system or a computer data storage medium; malicious-communications offences (ss 14-16) cover inciting damage to property or violence, threatening damage or violence, and unlawful disclosure of intimate images. One commentary reports most sections proclaimed 30 Nov 2021 (commencement 1 Dec 2021) with s 54 (breach reporting) not yet in force; verify against the Government Gazette.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "consumer",
+      "action": "Log",
+      "source": "Consumer Protection Act 68 of 2008 — https://www.gov.za/node/701057",
+      "retrieved_snippet": "The Act's stated aims include setting national consumer protection norms, improving consumer information standards, banning certain unfair marketing practices and establishing the National Consumer Commission; published in the Government Gazette on 29 April 2009.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "security compromise"
+      ],
+      "action": "Log",
+      "source": "Protection of Personal Information Act 4 of 2013, section 22 (security compromise notification) — Information Regulator, https://inforegulator.org.za/wp-content/uploads/2025/04/MEDIA-STATEMENT-INVITATION-TO-REPORT-SECURITY-COMPROMISES-THROUGH-THE-eSERVICES-PORTAL-.pdf",
+      "retrieved_snippet": "Where there are reasonable grounds to believe a data subject's personal information was accessed or acquired by an unauthorised person, the responsible party must notify the Regulator and, subject to s 22(3), the affected data subject; the Regulator states there is no reporting threshold and, as of 1 April 2025, reports must be filed through its eServices portal.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Financial Intelligence Centre Act 38 of 2001 — https://www.saflii.org/za/legis/num_act/fica2001243.pdf",
+      "retrieved_snippet": "Establishes the Financial Intelligence Centre and a Money Laundering Advisory Council and imposes duties on accountable institutions (client identification and verification, record-keeping, reporting of suspicious transactions); assented 28 Nov 2001, effective 1 Feb 2002; scope later extended to terrorist financing.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "hate speech",
+      "action": "Log",
+      "source": "Prevention and Combating of Hate Crimes and Hate Speech Act 16 of 2023 — https://lawlibrary.org.za/akn/za/act/2023/16/eng@2024-05-14",
+      "retrieved_snippet": "Assented to in May 2024 and published in Government Gazette 50652; marked uncommenced (not yet in force) — draft implementing regulations were published for comment in Government Gazette 53729 in November 2025. Listed for awareness; confirm commencement before relying on it.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZA"
+      },
+      "condition": "electronic transaction",
+      "aliases": [
+        "data message"
+      ],
+      "action": "Log",
+      "source": "Electronic Communications and Transactions Act 25 of 2002 — https://www.saflii.org/za/legis/num_act/ecata2002427.pdf",
+      "retrieved_snippet": "Assented 31 July 2002; objects include enabling and facilitating electronic communications and transactions in the public interest; covers legal recognition of data messages, electronic signatures, evidential weight and retention; amended by the Consumer Protection Act (2011), POPIA (30 June 2021) and the Cybercrimes Act (1 Dec 2021).",
       "official_source": false
     }
   ]

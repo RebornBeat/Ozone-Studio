@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Drafted from Maltese law as described by live web search results retrieved 2026-10-27 (sources: whitecase.com, idpc.org.mt, rm.coe.int, coe.int); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MT"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "data protection"
+      ],
+      "action": "Log",
+      "source": "Data Protection Act (Chapter 586; Act XX of 2018 as amended by Act XII of 2021) — Information and Data Protection Commissioner https://idpc.org.mt/our-office/legislation/ ; White & Case GDPR guide https://whitecase.com/publications/article/gdpr-guide-national-implementation-malta",
+      "retrieved_snippet": "White & Case: age of consent is 13 for processing by or on behalf of information society services and 16 for processing students' personal data; the Information and Data Protection Commissioner is the competent supervisory authority. The statutory text of the age provision was not retrieved (official text at legislation.mt, ELI act/2021/12/eng).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "MT"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "computer misuse"
+      ],
+      "action": "Log",
+      "source": "Criminal Code (Chapter 9), sub-title on computer misuse, Articles 337B to 337H — Council of Europe Octopus Malta profile https://www.coe.int/fr/web/octopus/-/malta",
+      "retrieved_snippet": "Council of Europe: the computer-misuse sub-title (Articles 337B-337H) covers the offences the Budapest Convention requires; Malta signed the Convention on 17 January 2002 and ratified on 12 April 2012; the procedural provisions mention search, seizure and production orders only in general terms. Detailed article wording not retrieved.",
+      "official_source": true
+    }
+  ]
+}

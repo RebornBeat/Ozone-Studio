@@ -1,22 +1,28 @@
 {
-  "disclaimer": "Drafted from real Israeli legislation, retrieved via web search — the only official version of this law is in Hebrew; English translations cited here are third-party (Or-Hof Law, DataGuidance) and may not perfectly reflect the current amended text. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified Israeli legal counsel. Scope: National(\"IL\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel, and specifically because the source here is a translation rather than primary official text. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real Israeli legislation, retrieved via web search — the only official version of this law is in Hebrew; English translations cited here are third-party (Or-Hof Law, DataGuidance) and may not perfectly reflect the current amended text. This is an engineering starting point, NOT verified legal compliance and NOT a substitute for review by qualified Israeli legal counsel. Scope: National(\"IL\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel, and specifically because the source here is a translation rather than primary official text. This content will age — re-verify before relying on it. MENA expansion 2026-10-27: additional rules retrieved via live web search (embassies.gov.il, nbctf.mod.gov.il, WIPO Lex, and Israeli law-firm commentary where an official page was unreachable — those rules carry official_source=false). Only the Hebrew text of Israeli statutes is binding; English texts cited are translations or commentary. Aliases are plain-language Hebrew translations of the English condition keyword, not legal claims. All actions are Log only; laws and amendments change — re-verify before relying.",
   "rules": [
     {
-      "scope": { "National": "IL" },
+      "scope": {
+        "National": "IL"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Protection of Privacy Law, 5741-1981 — one of the first privacy/data-protection statutes of its kind, confers rights to privacy and data protection. Official version is Hebrew only; English translation: https://www.dataguidance.com/sites/default/files/protection_of_privacy_law_5741-1981_-_translation_by_or-hof_law.pdf",
       "official_source": false
     },
     {
-      "scope": { "National": "IL" },
+      "scope": {
+        "National": "IL"
+      },
       "condition": "minor",
       "action": "Log",
       "source": "Protection of Privacy Law, 5741-1981 (minors-specific rules/amendments) — reported provisions include a general duty to protect minors' privacy, restrictions on collecting information about children under 14, and requiring parental consent for sensitive information about minors under 18. Source: Law Library of Congress summary, https://stuff.coffeecode.net/www.loc.gov/law/help/online-privacy-law/israel.php",
       "official_source": false
     },
     {
-      "scope": { "National": "IL" },
+      "scope": {
+        "National": "IL"
+      },
       "condition": "artificial intelligence",
       "action": "Log",
       "source": "Israel's AI Policy ('Responsible Innovation'), published by the Ministry of Innovation, Science and Technology and Ministry of Justice, December 2023 — policy-led/principle-driven, not a single AI Act; directs existing sectoral regulators to craft fit-for-purpose rules under a three-tiered structure (sector regulators, a governmental knowledge center, a steering committee), explicitly grounded in OECD AI principles. Financial sector (credit decisioning, insurance underwriting, investment advice) is the most developed area following a late-2024 interagency task force report. Secondary summary: https://dig.watch/resource/israels-policy-on-artificial-intelligence-regulation-and-ethics",
@@ -24,12 +30,79 @@
       "official_source": false
     },
     {
-      "scope": { "National": "IL" },
+      "scope": {
+        "National": "IL"
+      },
       "condition": "accessibility",
       "action": "Log",
       "source": "Equal Rights for Persons with Disabilities Law, 1998 (ERPD), enforced by the Commission for Equal Rights of Persons with Disabilities (CERPD, est. 2000); Israel Standard (IS) 5568 (in force since October 2017, essentially identical to WCAG 2.0) is the operative web-accessibility technical standard, mandatory for both public and private sectors. Official standards body: Standards Institution of Israel, https://www.sii.org.il/en/accessibility-statement/",
       "retrieved_snippet": "In 1998, the Israeli Parliament passed the Equal Rights For Persons With Disabilities Law (ERPD)... In August 2000, the Commission for Equal Rights of Persons with Disabilities (CERPD) was set up to enforce the ERPD... The Israel Standard (IS) 5568... came into force in October 2017... essentially identical to WCAG 2.0. Compliance with Israel's web accessibility laws is mandatory for both the public and private sectors.",
       "official_source": false
+    },
+    {
+      "scope": {
+        "National": "IL"
+      },
+      "condition": "sensitive data",
+      "aliases": [
+        "מידע רגיש"
+      ],
+      "action": "Log",
+      "source": "Protection of Privacy Law, 5741-1981, as amended by Amendment 13 (in force 14 August 2025) — commentary: https://www.pearlcohen.com/the-knesset-enacted-a-key-amendment-to-the-israeli-protection-of-privacy-law-summery-version/",
+      "retrieved_snippet": "Law-firm commentary reports Amendment 13 took effect on 14 August 2025, replaced 'sensitive information' with 'Highly Sensitive Information' (covering genetic data, biometric data, criminal records and location data), added online identifiers to personal data, requires a Data Protection Officer in certain cases, and gives the Privacy Protection Authority administrative fining powers; sources disagree on the Knesset passage date.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "IL"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "פריצה למחשב"
+      ],
+      "action": "Log",
+      "source": "Computers Law, 5755-1995 (version amended 2012 on WIPO Lex) — https://www.wipo.int/wipolex/en/legislation/details/15420",
+      "retrieved_snippet": "A law-firm chapter reports Section 4 criminalises intrusion into computer material (maximum three years' imprisonment), Section 5 aggravates intrusion in furtherance of another felony (five years), Section 2 covers interference with a computer's operation and Section 6 covers tools for cybercrime; State Attorney guideline 2.38 (August 2018) sets prosecution policy and notes good-faith or authorised security testing may not be prosecuted. The statutory text itself was not retrieved; penalty figures may be out of date.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "IL"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "הלבנת הון"
+      ],
+      "action": "Log",
+      "source": "Prohibition on Money Laundering Law, 5760-2000 — English text on the Ministry of Foreign Affairs site: https://embassies.gov.il/MFA/AboutIsrael/state/Law/Pages/Prohibition_Money_Laundering_Law_5760-2000.aspx",
+      "retrieved_snippet": "The Ministry of Foreign Affairs hosts an English text opening with definitions (including 'property' and 'a property transaction'); the first schedule lists the predicate offences. Bank of Israel material notes only the Hebrew text is binding. Latest amendments were not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "IL"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "זכויות יוצרים"
+      ],
+      "action": "Log",
+      "source": "Copyright Law, 5768-2007 — Ministry of Justice opinion on copyrighted works used for machine-learning training (December 2022) — commentary: https://www.law.co.il/en/news/2022/12/22/fair-use-of-copyrighted-content-for-aiml-training/",
+      "retrieved_snippet": "Law-firm write-ups report the Ministry of Justice opinion concludes that, apart from exceptional cases, using copyrighted material for machine-learning training is generally permitted under fair use, incidental use or transient use provisions of the 2007 Act; it covers training only, not outputs; it is a government legal opinion, not a statute or court ruling. Section references differ between sources.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "IL"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "טרור"
+      ],
+      "action": "Log",
+      "source": "Counter-Terrorism Law, 5776-2016 (in force 1 November 2016) — Ministry of Defense NBCTF: https://nbctf.mod.gov.il/en/Minister%20Sanctions/Designation/Pages/designationProcess.aspx",
+      "retrieved_snippet": "The NBCTF page states the Counter-Terrorism Law, 5776-2016 authorizes the Minister of Defense to designate a group as a Terrorist Organization and that designations are published in the Official Gazette and on the NBCTF site; the Library of Congress and terrorism-info.org.il report the law replaced earlier counter-terrorism legislation and took effect 1 November 2016.",
+      "official_source": true
     }
   ]
 }

@@ -1,18 +1,100 @@
 {
-  "disclaimer": "Drafted from real Saudi Arabian legislation, retrieved via web search against official government sources (sdaia.gov.sa, mcit.gov.sa, the UN's own cybercrime document repository unodc.org) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Saudi legal counsel. Scope: National(\"SA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Note: independent reporting found in this same research indicates Saudi Arabia's Anti-Cyber Crime Law has, in practice, also been used against minors for peaceful online expression — flagged here for honesty, not resolved into a rule (this mechanism records what a real source said, not a verdict on enforcement practice).",
+  "disclaimer": "Drafted from real Saudi Arabian legislation, retrieved via web search against official government sources (sdaia.gov.sa, mcit.gov.sa, the UN's own cybercrime document repository unodc.org) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Saudi legal counsel. Scope: National(\"SA\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Note: independent reporting found in this same research indicates Saudi Arabia's Anti-Cyber Crime Law has, in practice, also been used against minors for peaceful online expression — flagged here for honesty, not resolved into a rule (this mechanism records what a real source said, not a verdict on enforcement practice). MENA expansion 2026-10-27: additional rules retrieved via live web search (mcit.gov.sa, misa.gov.sa, rulebook.sama.gov.sa, and law-firm commentary where an official page was unreachable — those rules carry official_source=false). The official governing texts are Arabic; English texts cited are official translations or commentary. Aliases are plain-language Arabic translations of the English condition keyword, not legal claims. All actions are Log only; laws and draft amendments change — re-verify before relying.",
   "rules": [
     {
-      "scope": { "National": "SA" },
+      "scope": {
+        "National": "SA"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Personal Data Protection Law (PDPL) and its Implementing Regulation — in force since 14 September 2023, overseen by the Saudi Data and Artificial Intelligence Authority (SDAIA), applies to processing of personal data of KSA residents regardless of where the processing occurs. Official regulator: https://sdaia.gov.sa/en/SDAIA/about/Pages/RegulationsAndPolicies.aspx",
       "official_source": true
     },
     {
-      "scope": { "National": "SA" },
+      "scope": {
+        "National": "SA"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Anti-Cyber Crime Law (8 Rabi 1, 1428 / 26 March 2007) — addresses luring and exploitation of minors online; child sexual abuse is an aggravating factor under the law. Official text hosted by the Ministry of Communications and IT: https://mcit.gov.sa//sites/default/files/anti_cyber_crime_law_en_0.pdf",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "تسرب البيانات"
+      ],
+      "action": "Log",
+      "source": "Personal Data Protection Law Implementing Regulations (published by SDAIA 7 September 2023), notification provision — commentary: https://www.clydeco.com/en/insights/2023/09/saudi-arabia-issues-implementing-regulations",
+      "retrieved_snippet": "Law-firm commentary reports the Implementing Regulations require controllers to notify SDAIA within 72 hours of becoming aware of a breach likely to cause harm to personal data or data subjects, and to inform data subjects without undue delay; Clyde & Co also reports SDAIA opened a consultation on 6 October 2026 (closing 5 November 2026) on a draft amendment to Article 24 that would drop the harm threshold. The official SDAIA text was not read.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "الجرائم المعلوماتية"
+      ],
+      "action": "Log",
+      "source": "Anti-Cyber Crime Law, Royal Decree No. M/17 dated 8 Rabi I 1428 AH (26 March 2007) — official English translation (Bureau of Experts): https://www.mcit.gov.sa/sites/default/files/anti_cyber_crime_law_en_0.pdf",
+      "retrieved_snippet": "The search confirmed the law was issued by Royal Decree M/17 dated 8 Rabi I 1428 AH (26 March 2007), contains sixteen articles in the Arabic governing text, and that the Bureau of Experts' official English translation is published on the MCIT site and WIPO Lex. Penalty articles were not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "artificial intelligence",
+      "aliases": [
+        "الذكاء الاصطناعي"
+      ],
+      "action": "Log",
+      "source": "SDAIA AI Ethics Principles (published September 2023) — commentary: https://regulations.ai/regulations/RAI-SA-NA-PCAESXX-2023",
+      "retrieved_snippet": "Third-party summaries describe SDAIA's AI Ethics Principles as non-binding guidance with seven principles (fairness, privacy and security, humanity, social and environmental benefits, reliability and safety, transparency and explainability, accountability and responsibility); enforceable obligations come from other laws such as the PDPL. Sources disagree on dates; the official SDAIA page was not reached.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "الإرهاب"
+      ],
+      "action": "Log",
+      "source": "Law on Combating Crimes of Terrorism and its Financing, Royal Decree No. M/21 dated 12 Safar 1439 AH (1 November 2017), amended by Royal Decree No. M/142 (11 June 2020) — SAMA rulebook: https://rulebook.sama.gov.sa/en/node/853",
+      "retrieved_snippet": "The SAMA rulebook lists the law as in force; it replaced the 2013 law (Royal Decree M/16); Article 3 gives extraterritorial application in certain cases; the official translation defines a terrorist crime broadly, including acts intended to disturb public order, destabilize state security or coerce authorities.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "حقوق المؤلف"
+      ],
+      "action": "Log",
+      "source": "Copyright Law, Royal Decree No. M/41 dated 2 Rajab 1424 AH (30 August 2003), consolidated with Council of Ministers Decision No. 536 (2018, enforcement moved to SAIP) — official translation: https://misa.gov.sa/app/uploads/2025/08/Copyright-Law.pdf",
+      "retrieved_snippet": "WIPO Lex records publication in the Official Gazette on 19 September 2003 with entry into force six months later; the consolidated version incorporates Decision No. 536 of 19/10/1439 AH (in force 16 December 2018), which replaced references to the Ministry of Culture and Information with the Saudi Authority for Intellectual Property (SAIP). The MISA PDF is a translation; the Arabic text controls.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SA"
+      },
+      "condition": "e-commerce",
+      "aliases": [
+        "التجارة الإلكترونية"
+      ],
+      "action": "Log",
+      "source": "E-Commerce Law, Royal Decree No. M/126 dated 10 July 2019 (in force 24 October 2019) and its Implementing Regulations (2020) — official translation: https://misa.gov.sa/app/uploads/2025/07/E-Commerce-Law.pdf",
+      "retrieved_snippet": "The Ministry of Commerce translated text confirms the decree date of 10 July 2019; law-firm commentary reports it took effect 24 October 2019 and applies to consumers and e-commerce service providers whether established in the Kingdom or not, provided they sell to consumers in the Kingdom; the Implementing Regulations (early 2020) cover consumer data, terms, electronic advertising and store registration.",
       "official_source": true
     }
   ]

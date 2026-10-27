@@ -10,7 +10,7 @@
  * independent of MetaPortion's own per-context transcripts.
  */
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TranscriptEntry } from '../chatRendering';
 
 export interface UseChatSessionArgs {
@@ -84,7 +84,20 @@ function isTerminalTaskStatus(status: unknown): boolean {
 }
 
 export function useChatSession({ projectId, workspaceId }: UseChatSessionArgs) {
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  // PERSISTENT CHAT (2026-10-27 — the operator switched tabs and the
+  // conversation was gone): the transcript survives tab switches via
+  // sessionStorage, keyed by project+workspace so different projects never
+  // bleed into each other. Cleared explicitly on project change.
+  const chatKey = `ozone-chat:${projectId ?? 'none'}:${workspaceId ?? 'none'}`;
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>(() => {
+    try {
+      const saved = sessionStorage.getItem(chatKey);
+      return saved ? (JSON.parse(saved) as TranscriptEntry[]) : [];
+    } catch { return []; }
+  });
+  useEffect(() => {
+    try { sessionStorage.setItem(chatKey, JSON.stringify(transcript)); } catch { /* quota — chat still works, just not persisted */ }
+  }, [transcript, chatKey]);
   const [isRunning, setIsRunning] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 

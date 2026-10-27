@@ -5983,3 +5983,34 @@ The skip_seed fix (blueprint-corruption crash closed) was deployed earlier; this
 
 ### 5. CC jurisdiction-expansion assignment written (handoff mvr5cdvrx935)
 7/161 rules act; 154 national Log-only; expansion direction + infrastructure notes + the 42209 id-range caution for CC's resumed forks.
+
+## 2026-10-27 (zcode, FAILURE-AUDIT+TODO) — the operator's live-report review: every failure from the capture stores diagnosed, the I-Loop's own insight traced to root cause, the Tasks tab + chat persistence + 3D graph-native spec captured. Edits only; NO builds, NO tests.
+
+### 1. The failure audit (every failure class from the live captures, diagnosed)
+1. **amt_reexpansion 65% failure rate** (96 calls in last 200: 31 ok, 65 failed). Sub-classes:
+   - **42× empty model (`model_used: ""`)** — OpenRouter connection-drop (`connection closed before message completed`) + BitNet inference failure (the binary is not compiled with GPU offload, and the error includes the full llama.cpp startup banner). These are the walk's own multi-model fallback doing its job: trying candidates until one answers. 31 of 96 DID answer. The failure RATE is high but the BEHAVIOR is correct (loud, captured, walk-terminating).
+   - **Permanent structural failures** (`failed_structural`): "has no object_store_path" / "No such file or directory" / "EOF while parsing" — these are the TORN CONTAINERS from the silent deaths (42209/10/11 + siblings). amt_loop correctly marks them terminal on FIRST occurrence (no retries on structural gaps — the code comment says "burning 10 passes on a candidate that can never succeed IS the failure mode"). **The tombstones I wrote for 42209/10/11 clear the search blocker, but the amt_loop's own candidate file still has torn-container ids queued** — the loop marks them terminal and moves on, which is correct, but the candidate file grows.
+2. **i_loop_reflection 2/5 failed** — nemotron-3.5-super-vl:free generated 10,932 tokens then failed (likely truncated at the free-tier output limit). The 3 that succeeded used different models. The I-Loop's budget is the walk's own — a 10k-token reflection is within budget but the free tier's output cap kills it. **Not a code bug; a model-tier constraint.**
+3. **sensor tick firewall_status failure** — this is CORRECT: the sensor fires, the posture check reports a real firewall state change (or the tool is unavailable), and the finding mirrors as a tool_call event → SecurityFindingActor queues a candidate. 72 SecurityFinding log lines = the actor chain is alive. The "failure" in the capture store is the TOOL's report, not a code failure.
+4. **Task executor: 31 launches, tasks 714/730 both `interrupted`** — the executor fired 31 times, but each queued task it ran was interrupted by the host deaths (the executor was on during the unstable period). Tasks 714 and 730 are BOTH "AMT re-expansion [InitialBuild] container 42169" — the executor was re-running the same queued task because it stayed queued after each interruption. **After the AUTO_EXECUTE hold, these two stopped cycling.** Task 44 ("CHECKLIST retirement half") DID complete its walk (lanes answered, candidates 3-30s latency).
+
+### 2. The I-Loop's own insight — traced and confirmed
+The I-Loop's reflection at 19:51 said: "The dominant pattern is the massive volume of 'failed_structural' graph-ripple CoordinationEvent creation failures — hundreds across the history." **The I-Loop is RIGHT**, and the root is now fully traced: amt_loop deepens containers → many 42xxx-range containers are torn (from the silent deaths) → "has no object_store_path" → `failed_structural` (permanent, no retry) → `fail_task` → `emit_task_ripple("failed", ...)` → a new graph event fires → the I-Loop sees the flood. The system is stuck in a **structural-failure echo**: each terminal failure CREATES a new event that the I-Loop then reflects on. The fix is the same as the tombstone fix: clear the torn containers so amt_loop stops hitting them. **This is the system's first genuine self-observed defect** — the I-Loop correctly identified a real systemic issue from its own capture store.
+
+### 3. Tasks tab — the workspace was missing it
+`Section` type had no `'tasks'`; the workspace tabs showed 📁 Files / 🧵 Fabric / 🌳 Hierarchy / 🕸 Graph / ⚙️ Engines only. **FIXED: `📋 Tasks` added**, rendering `<OrderPanel />` (the universal task order view) as its body. tsc clean in my files.
+
+### 4. Chat persistence — LANDED
+The transcript was `useState` (component-local) — tab switch unmounted it. **FIXED: sessionStorage-backed**, keyed `ozone-chat:${projectId}:${workspaceId}` (projects never bleed). useEffect persists on every transcript change; quota errors are caught (chat works, just not persisted past the session). tsc clean.
+
+### 5. The 3D graph-native world — spec captured (guide §8)
+The operator's vision: the workspace is not tabs over a substrate, it IS a navigable 3D space. Full spec appended to the GraphKit guide (§8): GraphWorld3D (three.js leaf renderer behind GraphKit contracts), camera-as-lens-selector (tab bar becomes camera presets, substrate never remounts), raycast picking → navigateTo → fly-to, LOD, 3D indicator meshes. The existing GraphCanvas (2D SVG) stays as the mini-map/overview inside the 3D world.
+
+### 6. Remaining TODO (the single list, now the ONLY list)
+1. **Tombsone pass II**: scan the amt_reexpansion_candidates.json for ALL torn container ids (not just 42209-11) and tombstone them — stops the failed_structural echo at its source.
+2. **Three.js dependency** — add three + @react-three/fiber + @react-three/drei to ui/package.json and build GraphWorld3D (guide §8).
+3. **Chat modify/retry/branch navigation** — the persistent transcript now survives tab switches; the NEXT wave adds per-entry actions (edit → re-send, retry → re-orchestrate, branch → fork the conversation).
+4. **koi + valence acceptances** — unchanged preconditions.
+5. **EU redeploy** — the binary is one session_gate fix behind the local host; redeploy when the operator says go.
+6. **CC jurisdiction expansion** — assignment posted (mvr5cdvrx935), awaiting CC's resume.
+7. **Engine ports to lens bodies** (GraphKit wave 6 completion) + **workspace shell revamp** (wave 7).

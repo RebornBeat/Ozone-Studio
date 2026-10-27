@@ -1,0 +1,44 @@
+{
+  "disclaimer": "Drafted from Luxembourg law as described by live web search results retrieved 2026-10-27 (sources: cnpd.public.lu, police.public.lu, rm.coe.int, cssf.lu); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LU"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données personnelles"
+      ],
+      "action": "Log",
+      "source": "Act of 1 August 2018 on the organisation of the National Data Protection Commission and the general data protection framework (Mémorial A No 686 of 16 August 2018) — https://cnpd.public.lu/dam-assets/fr/legislation/droit-lux/Act-of-1-August-2018-on-the-organisation-of-the-National-Data-Protection-Commission-and-the-general-data-protection-framework.pdf",
+      "retrieved_snippet": "Official text describes the CNPD as an independent public institution with legal personality, financially and administratively autonomous; law-firm summaries state the Act repealed the law of 2 August 2002, derogates from the GDPR for research and statistics and bars processing of genetic data for certain insurance and employment purposes. Consolidated text and later amendments not checked.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LU"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "accès frauduleux"
+      ],
+      "action": "Log",
+      "source": "Penal Code Article 509-1 (fraudulent access to or remaining in an automated data processing or transmission system) — Police grand-ducale https://police.public.lu/en/legislation/infractions-en-matiere-informatique.html",
+      "retrieved_snippet": "Police summary: fraudulent access carries imprisonment of two months to two years, a fine of EUR 500 to 25,000, or both; an aggravated form applies where data is deleted or changed or the system disrupted; the cybercrime section (Articles 509-1 to 509-7) dates from a 1993 law. Current consolidated text on legilux not checked.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LU"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "consommateur"
+      ],
+      "action": "Log",
+      "source": "Code de la consommation (Consumer Code), including Book 4 on out-of-court consumer dispute resolution added by the law of 17 February 2016 (Mémorial A No 60 of 14 April 2016) — https://cssf.lu/wp-content/uploads/L_170216_Code_consommation.pdf",
+      "retrieved_snippet": "Article L. 010-1 defines a consumer as a natural person acting outside their commercial, industrial, craft or liberal activity; the Code originated in a 2008 bill that also transposed Directive 2005/29/EC on unfair commercial practices; a bill amending the Code (No 8255) was filed on 27 June 2023 (adoption status not found). Current consolidated text not verified.",
+      "official_source": true
+    }
+  ]
+}

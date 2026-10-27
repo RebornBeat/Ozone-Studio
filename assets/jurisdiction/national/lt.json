@@ -1,0 +1,57 @@
+{
+  "disclaimer": "Drafted from Lithuanian law as described by live web search results retrieved 2026-10-27 (sources: linklaters.com, rm.coe.int, better-internet-for-kids.europa.eu, leap.unep.org); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LT"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "asmens duomenys"
+      ],
+      "action": "Log",
+      "source": "Law on Legal Protection of Personal Data (adopted 1996; amended 16 July 2018 to implement the GDPR; last amendment cited 11 November 2021, No XIV-640) — https://www.linklaters.com/en/insights/data-protected/data-protected---lithuania",
+      "retrieved_snippet": "Linklaters: the Law applies in conjunction with Regulation (EU) 2016/679 and sets out specific aspects of processing, the legal status and powers of the State Data Protection Inspectorate, the powers of the Inspector of Journalist Ethics and the fines procedure. Inspectorate site listed as vdai.lrv.lt. Official e-seimas text could not be fetched (HTTP 403).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "LT"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "neteisėta prieiga"
+      ],
+      "action": "Log",
+      "source": "Criminal Code Articles 198 and 198-1 (electronic data and information systems) — Council of Europe Budapest Convention legal profile — https://rm.coe.int/octocom-legal-profile-lithuania/16809e59f7",
+      "retrieved_snippet": "Council of Europe profile: Article 198 penalises unlawful observation, interception or use of electronic data that may not be made public (up to four years' imprisonment, up to six where national security or the economy is affected); Article 198-1 covers unauthorised access to an information system by breaching security measures. Current official text not verified.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LT"
+      },
+      "condition": "minor",
+      "aliases": [
+        "nepilnametis"
+      ],
+      "action": "Log",
+      "source": "Law on the Protection of Minors against the Detrimental Effect of Public Information, No IX-1067 of 10 September 2002 — https://better-internet-for-kids.europa.eu/en/knowledge-hub/law-protection-minors-against-detrimental-effect-public-information",
+      "retrieved_snippet": "Sets criteria for public information that may harm minors, dissemination procedures and duties and liability of producers, disseminators and journalists; a 2021 amendment harmonised it with the Audiovisual Media Services Directive; implementation is assigned to the Inspector of Journalist Ethics and the Communications Regulatory Authority. The law has been criticised by international bodies on freedom-of-expression grounds. Current consolidated text not verified.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LT"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "vartotojas"
+      ],
+      "action": "Log",
+      "source": "Law on Consumer Protection (Vartotojų teisių apsaugos įstatymas) No I-657 of 10 November 1994 — https://leap.unep.org/en/countries/lt/national-legislation/law-consumer-protection-no-i-657",
+      "retrieved_snippet": "Defines consumer rights, the institutional framework and competence of consumer protection authorities, out-of-court dispute procedures and liability for infringements; amendments of 30 September 2021 addressed unfair contract terms and Law No XIV-1472 introduced representative actions for collective consumer redress from 25 June 2023. Current consolidated text not verified.",
+      "official_source": false
+    }
+  ]
+}

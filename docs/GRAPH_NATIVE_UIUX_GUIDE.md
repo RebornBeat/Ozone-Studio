@@ -319,3 +319,48 @@ changes except consuming two existing routes.
 | Navigation spine exists | navigation.ts (5 kinds); engines' "view in graph →" (ThreeDEngine:225) |
 | Files graph-native but siloed | WorkspaceBrowser.tsx (FileReference containers, honest empties); no file↔graph link strips anywhere |
 | zustand store present | services/store.ts:208 useOzoneStore |
+
+---
+
+## 8. THE 3D GRAPH-NATIVE WORLD (the operator's 2026-10-27 vision)
+
+> "I want it like an explorable traversable 3D graph-native traversal map etc across all" — the workspace is not tabs over a substrate, it IS a navigable 3D space where every container is a node, every edge is a path, and the lenses are camera positions.
+
+### 8.1 What the operator described
+The current UI has tabs (Files/Fabric/Hierarchy/Graph/Engines) that switch between flat 2D views of graph slices. The operator wants:
+- **One persistent 3D space** — containers are 3D nodes positioned by the graph's real structure (modality clusters, AMT depth, cross-link proximity)
+- **Traversal as navigation** — clicking a node flies the camera to it; its cross-links expand as visible paths to neighbors; "opening" a node swaps the active lens to that modality's detail view INSIDE the 3D space (not a separate tab)
+- **Dynamic lens switching** — the tab bar becomes a camera-preset selector, not a page swap; the graph persists underneath
+- **All 27 modalities visible** — the discriminator fix + GraphProvider already cover this
+- **Icons/indicators as 3D objects** — task pips, gate states, construction pulses rendered in-space
+
+### 8.2 Architecture (extends GraphKit, not replaces it)
+- **Layer 6 — the 3D renderer**: a `<GraphWorld3D>` component that consumes the same GraphProvider substrate. Three.js IS the right leaf renderer here (the doctrine allows it: "leaf renderers behind GraphKit's contracts"). It renders:
+  - Nodes as 3D primitives (sphere/box/octahedron per modality from the shape system), colored by MODALITY_COLOR
+  - Edges as 3D lines/tubes with edgeClass honesty
+  - Camera as a first-person or orbital controller
+  - Node selection → NodeInspector (the same primitive, rendered as a 3D-anchored overlay)
+  - CrossLinkStrip → rendered as visible edges + a hover panel
+- **What makes it "traversable"**: raycast picking → navigateTo (the spine) → camera fly-to → NodeInspector opens in-place. The user moves THROUGH the graph the way they currently scroll through tabs.
+- **Performance**: LOD (distant nodes = dots, near = full geometry), frustum culling, and the GraphProvider's single-fetch model already bound the data.
+
+### 8.3 What exists vs what to build
+| Exists | To build |
+|---|---|
+| GraphProvider substrate (all 27 modalities, cross-links, files) | Three.js scene manager wired to the provider |
+| MODALITY_COLOR + shape system | 3D geometry mapping per shape |
+| GraphCanvas (2D SVG — stays as the mini-map/overview) | Camera controller + raycast picking + LOD |
+| Navigation spine (navigateTo) | Camera fly-to integration |
+| NodeCard/NodeInspector primitives | 3D-anchored overlay rendering |
+| All indicator data (trace/span/task/gate) | 3D indicator meshes (pips, pulses) |
+
+### 8.4 The tabs' role in the 3D world
+The tab bar doesn't disappear — it becomes a LENS SELECTOR that sets the camera preset and filter:
+- "Files" → camera flies to the file cluster, file-type nodes highlighted
+- "Engines ▸ Code" → camera flies to the code cluster, code detail panel opens
+- "Graph" → free orbital view of everything
+- "Tasks" → task nodes (the TaskIcon data) rendered as a sidebar overlay on the 3D space
+The underlying substrate NEVER remounts — switching lenses is a camera/filter change, not a page swap.
+
+### 8.5 Dependency
+three.js (or @react-three/fiber + @react-three/drei as the React wrapper) — the doctrine's leaf-renderer exception. The GraphProvider/primitives/indicators/lens contracts above are the stable API; three.js is the rendering engine behind GraphWorld3D.

@@ -531,6 +531,58 @@ async fn authenticate(
 }
 
 
+/// Local-process internal token (2026-10-27). With OZONE_REQUIRE_SESSION=1 the
+/// strict gate 401'd every local helper that has no paired session — notably
+/// the shared-context MCP server's `/context/mirror` and `/task/create`
+/// (coordination events silently stopped mirroring). The host now keeps a
+/// random token in `<data_dir>/.internal_token` (created 0600, REUSED across
+/// restarts so long-lived local agents keep working) and the gate accepts it
+/// as `x-oz-internal`. It is a file-permission boundary: a browser page cannot
+/// read it, a same-user local process can — the same trust a paired session
+/// would give that process, without requiring a pairing it cannot perform.
+static INTERNAL_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn init_internal_token(data_dir: &str) {
+    let path = std::path::Path::new(data_dir).join(".internal_token");
+    let existing = std::fs::read_to_string(&path)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| s.len() >= 32);
+    let token = match existing {
+        Some(t) => t,
+        None => {
+            use rand::RngCore;
+            let mut bytes = [0u8; 32];
+            rand::thread_rng().fill_bytes(&mut bytes);
+            let token = hex::encode(bytes);
+            let _ = std::fs::create_dir_all(data_dir);
+            #[cfg(unix)]
+            {
+                use std::io::Write;
+                use std::os::unix::fs::OpenOptionsExt;
+                match std::fs::OpenOptions::new()
+                    .write(true)
+                    .create(true)
+                    .truncate(true)
+                    .mode(0o600)
+                    .open(&path)
+                {
+                    Ok(mut f) => {
+                        let _ = f.write_all(token.as_bytes());
+                    }
+                    Err(e) => tracing::warn!(path = %path.display(), error = %e, "could not write internal token file"),
+                }
+            }
+            #[cfg(not(unix))]
+            {
+                let _ = std::fs::write(&path, &token);
+            }
+            token
+        }
+    };
+    let _ = INTERNAL_TOKEN.set(token);
+}
+
 /// STRICT SESSION MODE (perimeter review 2026-10-23): with
 /// `OZONE_REQUIRE_SESSION=1`, the mutating route families (`/config/`,
 /// `/mcp/tools`, `/network/`, `/task/`, `/context/mirror`,
@@ -581,8 +633,16 @@ async fn session_gate(
             .get("x-oz-session")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string());
+        let internal = req
+            .headers()
+            .get("x-oz-internal")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+            .unwrap_or_default();
+        let internal_ok = !internal.is_empty()
+            && INTERNAL_TOKEN.get().map_or(false, |t| *t == internal);
         let token = bearer.or(alt).unwrap_or_default();
-        let ok = {
+        let ok = internal_ok || {
             let runtime = state.runtime.read().await;
             let auth = runtime.auth.read().await;
             auth.validate_session(&hex::decode(&token).unwrap_or_default())
@@ -3004,6 +3064,14 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         r.config.grpc.clone()
     };
     let addr = format!("{}:{}", config.address, config.port);
+
+    {
+        let data_dir = {
+            let r = runtime.read().await;
+            r.config.general.data_dir.clone()
+        };
+        init_internal_token(&data_dir);
+    }
 
     let progress_map = {
         let r = runtime.read().await;

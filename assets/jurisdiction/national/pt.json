@@ -1,17 +1,61 @@
 {
-  "disclaimer": "Drafted from real, current Portuguese law, retrieved via web search against reputable secondary sources describing Lei n.º 58/2019 (the Portuguese GDPR execution law) and CNPD enforcement, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Portuguese legal counsel. Scope: National(\"PT\") — this file covers ONLY Portugal-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, current Portuguese law, retrieved via web search against reputable secondary sources describing Lei n.º 58/2019 (the Portuguese GDPR execution law) and CNPD enforcement, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Portuguese legal counsel. Scope: National(\"PT\") — this file covers ONLY Portugal-specific law that supplements the EU-wide baseline already covered in national/eu.json (GDPR, DSA, UCPD) — it does not duplicate that content. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it. Enriched 2026-10-27 with additional rules from live web search results (diariodarepublica.pt and secondary summaries); existing rules unchanged; added rules are Log only — re-verify against the Diário da República.",
   "rules": [
     {
-      "scope": { "National": "PT" },
+      "scope": {
+        "National": "PT"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Lei n.º 58/2019 of 8 August — Portugal's GDPR execution law (not a transposition, since GDPR is directly applicable, but a supplementary law filling the discretion GDPR leaves to member states); the Comissão Nacional de Proteção de Dados (CNPD) is the designated supervisory authority. https://www.garrigues.com/en_GB/new/new-portuguese-data-protection-act"
     },
     {
-      "scope": { "National": "PT" },
+      "scope": {
+        "National": "PT"
+      },
       "condition": "data breach",
       "action": "Log",
       "source": "Lei n.º 58/2019 — non-compliance with Portuguese data protection law can trigger criminal, civil, and administrative liability (beyond GDPR's own administrative fines), and affected individuals have a statutory right to compensation from the controller/processor for damage suffered. https://www.recordinglaw.com/world-laws/world-data-privacy-laws/portugal-data-privacy-laws/"
+    },
+    {
+      "scope": {
+        "National": "PT"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cibercrime",
+        "acesso ilegítimo"
+      ],
+      "action": "Log",
+      "source": "Lei n.º 109/2009, de 15 de setembro (Lei do Cibercrime), Article 6 acesso ilegítimo — https://diariodarepublica.pt/dr/detalhe/lei/109-2009-489693",
+      "retrieved_snippet": "Diário da República / secondary summaries: the Cybercrime Law transposes Framework Decision 2005/222/JAI and adapts domestic law to the Council of Europe Convention on Cybercrime; Article 6 criminalises unauthorised access to a computer system and the consolidated text includes amendments from Lei n.º 79/2021 and Decreto-Lei n.º 125/2025. Penalty figures were only seen in a partial excerpt and are not stated here.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "PT"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "consumidor"
+      ],
+      "action": "Log",
+      "source": "Lei n.º 24/96, de 31 de julho (Lei de Defesa do Consumidor) — https://diariodarepublica.pt/dr/detalhe/lei/24-1996-406882",
+      "retrieved_snippet": "Diário da República: establishes the legal regime for consumer protection and repeals Lei n.º 29/81; Article 1 places the duty to protect consumers on the State, the Autonomous Regions and local authorities; amended many times including Lei n.º 47/2014 (Directive 2011/83/EU) and Lei n.º 28/2023. Portugal has no single consumer code; rules are spread across several laws.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "PT"
+      },
+      "condition": "disinformation",
+      "aliases": [
+        "desinformação"
+      ],
+      "action": "Log",
+      "source": "Lei n.º 27/2021, de 17 de maio (Carta Portuguesa de Direitos Humanos na Era Digital) — https://diariodarepublica.pt/dr/detalhe/lei/27-2021-163442504",
+      "retrieved_snippet": "Charter of digital rights: states that fundamental rights apply fully in cyberspace and guarantees free access to the Internet; its original Article 6 on disinformation was heavily criticised and largely repealed by an amendment approved on 21 July 2022 (leaving only its first paragraph). Current consolidated text not retrieved.",
+      "official_source": true
     }
   ]
 }

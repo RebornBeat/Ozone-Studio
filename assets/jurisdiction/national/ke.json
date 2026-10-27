@@ -1,25 +1,41 @@
 {
-  "disclaimer": "Drafted from real Kenyan legislation and regulatory guidance, retrieved via web search against official government sources (odpc.go.ke, kenyalaw.org — the National Council for Law Reporting, parliament.go.ke, ca.go.ke) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Kenyan legal counsel. Scope: National(\"KE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real Kenyan legislation and regulatory guidance, retrieved via web search against official government sources (odpc.go.ke, kenyalaw.org — the National Council for Law Reporting, parliament.go.ke, ca.go.ke) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Kenyan legal counsel. Scope: National(\"KE\"). Every rule's action is deliberately Log-only — a conservative, generic engineering policy, not a legal conclusion, since this content was retrieved and drafted by an automated research process, not reviewed by counsel. This content will age — re-verify before relying on it. Enriched 2026-10-27 via live web search (additional rules cite new.kenyalaw.org and interior.go.ke). Rules added in this pass are Log only; laws change — re-verify against Kenya Law.",
   "rules": [
     {
-      "scope": { "National": "KE" },
+      "scope": {
+        "National": "KE"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "The Data Protection Act, No. 24 of 2019 — enacted 8 Nov 2019 to give effect to Article 31 of the Constitution of Kenya, created the Office of the Data Protection Commissioner (ODPC). Official text: https://www.odpc.go.ke/wp-content/uploads/2024/02/TheDataProtectionAct__No24of2019.pdf and Kenya Law: https://new.kenyalaw.org/akn/ke/act/2019/24",
       "official_source": true
     },
     {
-      "scope": { "National": "KE" },
+      "scope": {
+        "National": "KE"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Consumer Protection Act, No. 46 of 2012 — general consumer-protection framework, prevents unfair trade practices. Official text via Kenya Law/Parliament: https://www.parliament.go.ke/node/6320",
       "official_source": true
     },
     {
-      "scope": { "National": "KE" },
+      "scope": {
+        "National": "KE"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Industry Guidelines for Child Online Protection (COP) and Safety in Kenya, issued by the Communications Authority of Kenya under the Kenya Information and Communications (Consumer Protection) Regulations 2010 — safeguards for children's access to and use of ICT products/services. Official regulator: https://www.ca.go.ke/child-online-protection",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "KE"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Computer Misuse and Cybercrimes Act, 2018 (No. 5 of 2018), Cap. 79C — https://new.kenyalaw.org/akn/ke/act/2018/5/eng@2022-12-31",
+      "retrieved_snippet": "Assented 16 May 2018, commenced 30 May 2018; provides for offences relating to computer systems including unauthorised access (s 14), interference (s 16), interception (s 17), cyber espionage (s 21), cyber harassment (s 27), phishing (s 30), cyber terrorism (s 33) and wrongful distribution of obscene or intimate images (s 37); the Kenya Law page notes a later version exists, so check the current text.",
       "official_source": true
     }
   ]

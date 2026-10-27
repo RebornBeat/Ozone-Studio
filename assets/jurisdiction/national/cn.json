@@ -1,8 +1,10 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for China (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. The official texts of these laws are in Chinese; English sources cited here are reference translations, not the authoritative text. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for China (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. The official texts of these laws are in Chinese; English sources cited here are reference translations, not the authoritative text. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Enriched 2026-10-27 via live web search (retrieved 2026-10-27) against npc.gov.cn, cac.gov.cn, english.court.gov.cn, en.moj.gov.cn (official) and chinalawtranslate.com / law-firm commentary (secondary, official_source=false); several rules rely on search-result summaries and an English translation that may lag the Chinese text, which prevails. Every rule action is Log only; laws change, re-verify.",
   "rules": [
     {
-      "scope": {"National": "CN"},
+      "scope": {
+        "National": "CN"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Personal Information Protection Law (PIPL), adopted August 20 2021, effective November 1 2021, 74 articles in 8 chapters. Official text is Chinese-only; reference English translation: https://www.china-briefing.com/news/the-prc-personal-information-protection-law-final-a-full-translation/",
@@ -10,7 +12,9 @@
       "official_source": false
     },
     {
-      "scope": {"National": "CN"},
+      "scope": {
+        "National": "CN"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Law on the Protection of Minors (revised, effective June 1 2021, dedicated online-protection chapter) + Regulation on the Protection of Minors Online, State Council, effective January 1 2024. Reference translation: https://www.chinalawtranslate.com/en/online-protection-of-minors/",
@@ -18,7 +22,9 @@
       "official_source": false
     },
     {
-      "scope": {"National": "CN"},
+      "scope": {
+        "National": "CN"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Law on Protection of Rights and Interests of Consumers (1993, amended 2013) + Implementing Regulation, effective July 1 2024. Official government portal (English): https://english.www.gov.cn/policies/latestreleases/202403/19/content_WS65f974b2c6d0868f4e8e53d1.html",
@@ -26,7 +32,9 @@
       "official_source": true
     },
     {
-      "scope": {"National": "CN"},
+      "scope": {
+        "National": "CN"
+      },
       "condition": "generative ai",
       "action": "Log",
       "source": "Interim Measures for the Management of Generative Artificial Intelligence Services — jointly issued by seven Chinese authorities, in force since 15 August 2023; binding on public generative AI services offered to Chinese users regardless of where the provider is based, and requires filing/registration before launch. Reference: https://aigovernance.com/policy/china-generative-ai-regulations-interim-measures",
@@ -34,11 +42,144 @@
       "official_source": false
     },
     {
-      "scope": {"National": "CN"},
+      "scope": {
+        "National": "CN"
+      },
       "condition": "chatbot",
       "action": "Log",
       "source": "Interim Measures for the Administration of AI Anthropomorphic Interactive Services — issued 10 April 2026 by the Cyberspace Administration of China and four other departments, effective 15 July 2026. Reference: https://www.twobirds.com/en/insights/2026/china/china's-new-regulations-on-ai-anthropomorphic-interactive-services",
       "retrieved_snippet": "On April 10, 2026, the Cyberspace Administration of China and four other departments jointly issued the Interim Measures for the Administration of AI Anthropomorphic Interactive Services, taking effect July 15, 2026 — regulating AI services designed to simulate human-like interaction.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "data security",
+      "aliases": [
+        "数据安全"
+      ],
+      "action": "Log",
+      "source": "Data Security Law of the PRC (adopted 10 June 2021, in force 1 September 2021) — http://www.npc.gov.cn/englishnpc/c2759/c23934/202112/t20211209_385109.html",
+      "retrieved_snippet": "Official NPC English text; Article 2 applies the law to data processing activities and security supervision within the territory of the PRC. Commentary sources add that it has 55 articles and extraterritorial reach where data processing harms national security, public interest or citizens' rights.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "cybersecurity",
+      "aliases": [
+        "网络安全"
+      ],
+      "action": "Log",
+      "source": "Decision of the NPC Standing Committee on Amending the Cybersecurity Law (adopted 28 October 2025, in force 1 January 2026) — http://www.npc.gov.cn/c2/c30834/202510/t20251028_449048.html",
+      "retrieved_snippet": "Official NPC page for the amendment decision (Chinese). Reporting on it states the revision took effect 1 January 2026, adds a first explicit AI article, raises penalties and expands extraterritorial application; article-level wording was not checked against an English text.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "network data",
+      "aliases": [
+        "网络数据安全管理条例"
+      ],
+      "action": "Log",
+      "source": "Regulations on Network Data Security Management (PRC State Council) — official English PDF at https://en.moj.gov.cn/pdf/RegulationsonNetworkDataSecurityManagement.pdf",
+      "retrieved_snippet": "Official English translation published by the PRC Ministry of Justice under the title Regulations on Network Data Security Management; effective date and article contents were not read in this retrieval.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "encryption",
+      "aliases": [
+        "密码法"
+      ],
+      "action": "Log",
+      "source": "Cryptography Law of the PRC — http://www.npc.gov.cn/englishnpc/c2759/c23934/202009/t20200929_384279.html",
+      "retrieved_snippet": "Official NPC English text of the Cryptography Law of the PRC (page dated 2020-09-29); article-level content was not read in this retrieval.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "非法侵入计算机信息系统"
+      ],
+      "action": "Log",
+      "source": "Criminal Law of the PRC, Articles 285-286 (English translation, 2015 edition; later amended) — https://english.court.gov.cn/2015-12/01/c_761557_26.htm",
+      "retrieved_snippet": "Search results for the Supreme People's Court English edition show Article 285 criminalizing illegal intrusion into computer information systems (state affairs, national defence, cutting-edge science; other systems when circumstances are serious) and Article 286 criminalizing destroying or disrupting computer systems or data and spreading destructive programs. The edition is older than the current consolidated law, so penalties and wording must be re-verified.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "反恐怖主义法",
+        "恐怖主义"
+      ],
+      "action": "Log",
+      "source": "Counter-Terrorism Law of the PRC (as amended in 2018), English translation — https://www.chinalawtranslate.com/en/counter-terrorism-law-2015/",
+      "retrieved_snippet": "Per this English translation, Article 19 requires telecommunications operators and internet service providers to maintain network security and content monitoring systems and, on finding terrorist or extremist content, stop its spread, preserve records, delete it and report to public security organs.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "反洗钱"
+      ],
+      "action": "Log",
+      "source": "Anti-Money Laundering Law of the PRC (revised 8 November 2024, in force 1 January 2025) — https://roedl.com/insights/china-anti-money-laundering-law-revised",
+      "retrieved_snippet": "Law-firm summary: the NPC Standing Committee adopted the revised law on 8 November 2024, effective 1 January 2025, replacing the 2007 law; 65 articles in seven chapters (Xinhua), with extraterritorial application and AML information-sharing provisions. Secondary source; official text not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "recommendation algorithm",
+      "aliases": [
+        "算法推荐"
+      ],
+      "action": "Log",
+      "source": "Provisions on the Administration of Algorithmic Recommendations in Internet Information Services (CAC, MIIT, MPS, SAMR; in force 1 March 2022) — https://www.cac.gov.cn/2022-01/04/c_1642894606364259.htm",
+      "retrieved_snippet": "Official CAC text (Chinese; English title per State Council Gazette). Providers must offer users a non-personalized option or easy way to turn off recommendations, must not push minors toward internet addiction or apply unreasonable price discrimination, and providers with public-opinion attributes or social-mobilization capacity must file with the algorithm registry within ten working days of launch.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "deepfake",
+      "aliases": [
+        "深度合成"
+      ],
+      "action": "Log",
+      "source": "Provisions on the Administration of Deep Synthesis Internet Information Services (CAC, MIIT, MPS; Order No. 12, issued 25 November 2022, in force 10 January 2023) — https://chinajusticeobserver.com/law/x/provisions-on-the-administration-of-deep-synthesis-of-internet-based-information-service-20221125",
+      "retrieved_snippet": "Secondary summary of the 25-article provisions: deep synthesis providers must add identifiers to synthetic content, verify users' real identities and provide complaint channels; app stores must review such apps; no one may use deep synthesis to produce or spread information prohibited by laws and administrative regulations.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "CN"
+      },
+      "condition": "ai-generated content",
+      "aliases": [
+        "人工智能生成合成内容标识"
+      ],
+      "action": "Log",
+      "source": "Measures for Labeling AI-Generated Synthetic Content (CAC, MIIT, MPS, NRTA; in force 1 September 2025) with mandatory national standard GB 45438-2025 — https://www.loeb.com/en/insights/publications/2025/03/chinas-ai-labeling-measures-and-mandatory-national-standards-take-effect-september-1",
+      "retrieved_snippet": "Law-firm summary: explicit labels are required on AI-generated text, images, audio, video and virtual scenes and implicit labels in file metadata; users must declare synthetic content they publish. English titles and issue dates differ across sources (7, 14 or 17 March 2025); the official CAC text was not retrieved.",
       "official_source": false
     }
   ]

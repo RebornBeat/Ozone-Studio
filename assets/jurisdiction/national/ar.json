@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Argentine federal statutes, verified via live web search against official government sources (argentina.gob.ar) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Argentine law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only.",
+  "disclaimer": "Drafted from real, currently-published official Argentine federal statutes, verified via live web search against official government sources (argentina.gob.ar) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Argentine law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only. EXPANSION 2026-10-27: six additional rules (cybercrime, grooming, discrimination, hate speech, money laundering, copyright) retrieved via live web search on 2026-10-27 from argentina.gob.ar and servicios.infoleg.gob.ar (Ministerio de Justicia); snippets are close paraphrases of the retrieved pages; aliases are Spanish terms from the laws' titles. Every rule action remains Log only; verify consolidated article wording on Infoleg before relying on it.",
   "rules": [
     {
       "scope": {"National": "AR"},
@@ -31,6 +31,91 @@
       "action": "Log",
       "source": "Ley de Defensa del Consumidor, Ley 24.240 — https://www.argentina.gob.ar/normativa/nacional/ley-24240-638",
       "retrieved_snippet": "Establishes the rights of consumers and obligations of providers in consumption relations. Sanctioned 1993-09-22, published in Boletín Oficial 1993-10-15.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos informáticos",
+        "acceso ilegítimo a un sistema informático"
+      ],
+      "action": "Log",
+      "source": "Ley 26.388 (2008), modificación del Código Penal — delitos informáticos — https://www.argentina.gob.ar/normativa/nacional/ley-26388-141790/texto",
+      "retrieved_snippet": "Sanctioned 2008-06-04 and published in the Boletín Oficial 2008-06-25, it amends the Código Penal to criminalize computer damage, computer fraud, alteration of evidence and offenses against privacy; art. 153 bis penalizes access to a restricted-access computer system or data, with an aggravated penalty where the victim is a public body or a financial or public-service provider.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "grooming",
+      "aliases": [
+        "grooming",
+        "acoso sexual infantil por medios electrónicos"
+      ],
+      "action": "Log",
+      "source": "Ley 26.904 (2013) — Código Penal art. 131; complemented by Ley 27.590 'Mica Ortega' (2020) and Decreto 407/2022 — https://servicios.infoleg.gob.ar/infolegInternet/verNorma.do?id=223586",
+      "retrieved_snippet": "Art. 131 punishes with prison of six months to four years anyone who, by electronic communications, telecommunications or other data-transmission technology, contacts a minor with the purpose of committing any offense against the minor's sexual integrity; sanctioned 2013-11-13, published 2013-12-11.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "discrimination",
+      "aliases": [
+        "discriminación",
+        "actos discriminatorios"
+      ],
+      "action": "Log",
+      "source": "Ley 23.592 (actos discriminatorios), as amended by Ley 25.608 — https://www.argentina.gob.ar/normativa/nacional/ley-23592-20465/actualizacion",
+      "retrieved_snippet": "Art. 1: whoever arbitrarily impedes, obstructs, restricts or impairs the full exercise on equal terms of constitutional rights and guarantees must cease the act and repair moral and material damage; discriminatory motives considered include race, religion, nationality, ideology, political or union opinion, sex, economic position, social condition or physical characteristics.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "discurso de odio",
+        "propaganda de superioridad racial"
+      ],
+      "action": "Log",
+      "source": "Ley 23.592 (actos discriminatorios) art. 2-3 — https://www.argentina.gob.ar/normativa/nacional/ley-23592-20465/actualizacion",
+      "retrieved_snippet": "Art. 3 sets prison of one month to three years for those who participate in an organization or carry out propaganda based on ideas of racial or religious superiority, or who incite hatred or persecution against persons for race, religion, nationality or political ideas; art. 2 raises the penalty scale of Penal Code offenses committed out of persecution or hatred of a race, religion or nationality.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavado de activos",
+        "lavado de dinero",
+        "unidad de información financiera"
+      ],
+      "action": "Log",
+      "source": "Ley 25.246 (encubrimiento y lavado de activos de origen delictivo), creating the Unidad de Información Financiera (UIF) — https://servicios.infoleg.gob.ar/infolegInternet/anexos/60000-64999/62977/texact.htm",
+      "retrieved_snippet": "Sanctioned in 2000, it modified the offense of concealment, created the UIF, set the duty of obligated subjects to report suspicious operations without delay (art. 20) and a penal sanction regime; Ley 26.268 added terrorism-financing prevention and Ley 26.683 gave the UIF supervisory powers; regulated by Decreto 290/2007.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AR"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "propiedad intelectual",
+        "derecho de autor"
+      ],
+      "action": "Log",
+      "source": "Ley 11.723 (Régimen Legal de la Propiedad Intelectual, 1933) — https://servicios.infoleg.gob.ar/infolegInternet/anexos/40000-44999/42755/texact.htm",
+      "retrieved_snippet": "Protects authors of scientific, literary, artistic or didactic works including computer programs and databases (per argentina.gob.ar Derecho Fácil); art. 5 in the current Infoleg text sets protection for heirs at 70 years from 1 January following the author's death and extends it to performers and phonogram producers; regulated by Decreto 41.233/1934.",
       "official_source": true
     }
   ]

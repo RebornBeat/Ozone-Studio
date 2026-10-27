@@ -45,6 +45,7 @@ import { ForkLineageView } from '../views/hierarchy/ForkLineageView';
 import { JurisdictionHierarchy } from '../views/hierarchy/JurisdictionHierarchy';
 import { GraphView } from './GraphView';
 import { ENGINES } from '../panels/EnginesPanel';
+import { OrderPanel } from './OrderPanel';
 import { WorkspaceStatusStrip } from './WorkspaceStatusStrip';
 import { useOzoneStore } from '../services/store';
 
@@ -60,7 +61,7 @@ export interface ProjectWorkspaceViewerProps {
   zseiProjectId: number | null;
 }
 
-type Section = 'files' | 'fabric' | 'hierarchy' | 'graph' | 'engines';
+type Section = 'files' | 'fabric' | 'hierarchy' | 'graph' | 'engines' | 'tasks';
 type FilesSub = 'browser' | 'refs' | 'code';
 type HierarchySub = 'amt' | 'lineage' | 'jurisdiction';
 // Mirrors EnginesPanel.tsx's own registry (same ids) so a project-scoped
@@ -74,6 +75,7 @@ const SECTIONS: { id: Section; label: string }[] = [
   { id: 'hierarchy', label: '🌳 Hierarchy' },
   { id: 'graph', label: '🕸 Graph' },
   { id: 'engines', label: '⚙️ Engines' },
+  { id: 'tasks', label: '📋 Tasks' },
 ];
 
 const FILES_SUBS: { id: FilesSub; label: string }[] = [
@@ -211,6 +213,7 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
         {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
         {section === 'graph' && <GraphView projectId={zseiProjectId} />}
         {section === 'engines' && activeEngine.render(zseiProjectId)}
+        {section === 'tasks' && <OrderPanel />}
       </div>
       <div className="project-insights-tabs">
         {SECTIONS.map(s => (

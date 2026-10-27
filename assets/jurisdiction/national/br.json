@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Brazilian federal statutes, verified via live web search against official government sources (planalto.gov.br, consumidor.gov.br, camara.leg.br) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Brazilian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, currently-published official Brazilian federal statutes, verified via live web search against official government sources (planalto.gov.br, consumidor.gov.br, camara.leg.br) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Brazilian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only. This content will age — re-verify before relying on it. EXPANSION 2026-10-27: nine additional rules (data breach, cybercrime, platform liability, terrorism, copyright, money laundering, racism, election, gambling) retrieved via live web search on 2026-10-27 from planalto.gov.br, gov.br (ANPD, Fazenda) and tse.jus.br; snippets are close paraphrases of the retrieved pages; aliases are Portuguese terms from the laws' own titles; the gambling rule carries an explicit status caveat (MP 1.394/2026). Every rule action remains Log only.",
   "rules": [
     {
       "scope": {"National": "BR"},
@@ -47,6 +47,134 @@
       "action": "Log",
       "source": "Lei Brasileira de Inclusão da Pessoa com Deficiência (LBI / Estatuto da Pessoa com Deficiência), Lei No. 13.146/2015, Article 63 — https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2015/lei/l13146.htm",
       "retrieved_snippet": "Article 63 makes digital accessibility mandatory for websites maintained by government bodies and by companies with headquarters or commercial presence in Brazil. A new technical standard, ABNT NBR 17225, was launched to operationalize Article 63's requirements for websites and web applications.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "incidente de segurança",
+        "vazamento de dados"
+      ],
+      "action": "Log",
+      "source": "Resolução CD/ANPD nº 15, de 24 de abril de 2024 (Regulamento de Comunicação de Incidente de Segurança) — https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-aprova-o-regulamento-de-comunicacao-de-incidente-de-seguranca",
+      "retrieved_snippet": "The controller must notify the ANPD and affected data subjects of a security incident that may cause relevant risk or damage; the deadline to notify the ANPD is three business days from when the controller learns the incident affected personal data. Risk is presumed where sensitive data, data of children, adolescents or elderly people, financial or authentication data, or large-scale data is involved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "invasão de dispositivo informático",
+        "crime cibernético"
+      ],
+      "action": "Log",
+      "source": "Lei No. 12.737/2012 (created Código Penal art. 154-A, invasão de dispositivo informático), as amended by Lei No. 14.155/2021 — https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/lei/l12737.htm",
+      "retrieved_snippet": "Art. 154-A of the Penal Code punishes invading another's computing device, connected or not to a network, by unlawfully breaching a security mechanism to obtain, alter or destroy data or install vulnerabilities; Lei 14.155/2021 raised the penalty to reclusão of 1 to 4 years plus a fine (per Planalto's consolidated text as summarized by the search; check the current wording on planalto.gov.br).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "platform liability",
+      "aliases": [
+        "marco civil da internet",
+        "responsabilidade de provedores"
+      ],
+      "action": "Log",
+      "source": "Marco Civil da Internet, Lei No. 12.965/2014 (regulated by Decreto 8.771/2016; Decreto 12.975/2026 amends the regulation) — https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2014/lei/l12965.htm",
+      "retrieved_snippet": "Establishes principles, guarantees, rights and duties for internet use in Brazil (Art. 1); principles include freedom of expression, privacy, personal data protection and net neutrality (Art. 3); connection logs must be kept for one year (Art. 13); Art. 19 requires a specific court order before an application provider is liable for third-party content, and a 2026 decree updating the regulation is listed on Planalto.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "terrorismo",
+        "antiterrorismo"
+      ],
+      "action": "Log",
+      "source": "Lei No. 13.260/2016 (Lei Antiterrorismo) — https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2016/lei/l13260.htm",
+      "retrieved_snippet": "Regulates the constitutional provision on terrorism (art. 5, XLIII), defines the offense and its procedure; terrorism is committed by acts motivated by xenophobia, discrimination or prejudice with the aim of provoking social or generalized terror (art. 2); offenses are treated as against the interest of the Union, investigated by the Federal Police (art. 11).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "direitos autorais",
+        "direito autoral"
+      ],
+      "action": "Log",
+      "source": "Lei No. 9.610/1998 (Lei de Direitos Autorais) — https://www.planalto.gov.br/ccivil_03/leis/l9610.htm",
+      "retrieved_snippet": "Regulates copyright and related rights; Article 46 lists uses that are not infringement, such as reproduction of news in the press with the author's name and source cited; Lei 12.853/2013 added rules on collective management and Decreto 9.574/2018 regulates collective management.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavagem de dinheiro",
+        "lavagem de capitais"
+      ],
+      "action": "Log",
+      "source": "Lei No. 9.613/1998 (Lei de Lavagem de Dinheiro) — https://www.planalto.gov.br/ccivil_03/leis/l9613compilado.htm",
+      "retrieved_snippet": "Defines money laundering offenses and created the COAF (financial intelligence council); amended by Lei 12.683/2012 to make prosecution more effective and by Lei 14.478/2022; Lei 13.974/2020 restructured the COAF with technical and operational autonomy, administratively tied to the Banco Central do Brasil.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "racism",
+      "aliases": [
+        "racismo",
+        "injúria racial",
+        "preconceito de raça"
+      ],
+      "action": "Log",
+      "source": "Lei No. 7.716/1989 (crimes resultantes de preconceito de raça ou de cor), as amended by Lei 9.459/1997 and Lei 14.532/2023 — https://www.planalto.gov.br/ccivil_03/leis/l7716.htm",
+      "retrieved_snippet": "Criminalizes discrimination or prejudice of race, color, ethnicity, religion or national origin (as widened by Lei 9.459/1997); Lei 14.532/2023 added art. 2-A treating racial insult (injúria racial) as racism, with reclusão of 2 to 5 years and a fine.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "election",
+      "aliases": [
+        "propaganda eleitoral",
+        "eleições",
+        "deepfake eleitoral"
+      ],
+      "action": "Log",
+      "source": "Resolução TSE nº 23.610, de 18 de dezembro de 2019 (propaganda eleitoral), as amended in 2024 and 2026 for artificial intelligence — https://www.tse.jus.br/legislacao/compilada/res/2019/resolucao-no-23-610-de-18-de-dezembro-de-2019",
+      "retrieved_snippet": "The TSE amended the resolution in February 2024 to ban deepfakes in election propaganda and to require notice of AI use in campaign content; the consolidated text defines a deepfake as synthetic audio or video altering the image or voice of a real, deceased or fictional person and bans use to favor or harm a candidacy (art. 9-C); the AI-labeling duty is in art. 9-B; a candidate using a deepfake can lose registration or mandate (per TSE news pages; the 2026 amendments and thesis are described on tse.jus.br).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "BR"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "apostas de quota fixa",
+        "apostas online"
+      ],
+      "action": "Log",
+      "source": "Lei No. 14.790/2023 (apostas de quota fixa) — https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/lei/l14790.htm",
+      "retrieved_snippet": "Created fixed-odds betting as a lottery modality authorized by the Ministério da Fazenda; bets on youth categories or events with only minor athletes are not allowed; winnings are taxed at 15% income tax per the Receita Federal. STATUS CAVEAT: the Planalto page now marks many articles as revoked by Medida Provisória nº 1.394/2026, which per the Ministry of Finance prohibits operation, offer, intermediation and advertising of fixed-odds lotteries; whether the MP was converted into law was not confirmed in the retrieved sources — verify before relying on it.",
       "official_source": true
     }
   ]

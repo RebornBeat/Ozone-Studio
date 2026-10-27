@@ -1,0 +1,44 @@
+{
+  "disclaimer": "Drafted from Estonian law as described by live web search results retrieved 2026-10-27 (sources: riigiteataja.ee, rm.coe.int, mkm.ee); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "EE"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "isikuandmed"
+      ],
+      "action": "Log",
+      "source": "Personal Data Protection Act (Isikuandmete kaitse seadus), English consolidated text in Riigi Teataja — https://www.riigiteataja.ee/en/eli/522092025009/consolide",
+      "retrieved_snippet": "Riigi Teataja English text, § 8: if GDPR Article 6(1)(a) applies in connection with information society services offered directly to a child, processing of the child's personal data is permitted only if the child is at least 13 years old; below 13, only with the consent of the child's legal representative.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EE"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "arvutikuritegu"
+      ],
+      "action": "Log",
+      "source": "Penal Code §§ 206, 207 and 217 (computer data and system offences) — Council of Europe Budapest Convention legal profile (2020) — https://rm.coe.int/octocom-legal-profile-estonia/16809e5982",
+      "retrieved_snippet": "Council of Europe profile (updated 2020): § 206 interference with computer data, § 207 hindering the functioning of computer systems, § 217 unlawful use of a computer system (illegal access); Estonia is a party to the Convention. Older sources number the sections differently; check the current Penal Code in Riigi Teataja.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "EE"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "tarbija"
+      ],
+      "action": "Log",
+      "source": "Consumer Protection Act and Law of Obligations Act — Ministry of Economic Affairs and Communications https://mkm.ee/en/consumer-protection",
+      "retrieved_snippet": "Ministry page: the basic principles of Estonian consumer protection are laid down in the Consumer Protection Act, while the Law of Obligations Act covers contract requirements for consumers and remedies for breach; the Consumer Protection and Technical Regulatory Authority is the government agency representing consumers. Current consolidated version not confirmed (WIPO Lex lists an English text dated 21.03.2016).",
+      "official_source": true
+    }
+  ]
+}

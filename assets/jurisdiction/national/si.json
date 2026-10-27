@@ -1,0 +1,67 @@
+{
+  "disclaimer": "Drafted from Slovenian law as described by live web search results retrieved 2026-10-27 (sources: ey.com, selih.si, fra.europa.eu, rm.coe.int, akos-rs.si); never generated from training knowledge. Several rules rest on secondary or summarised sources (marked official_source=false) and some official consolidated texts could not be fetched directly, so wording, article numbers and penalties must be re-verified against the official gazette before any reliance. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of national law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. EU-wide regulations (GDPR, DSA, AI Act, ...) are covered by the EU file, not duplicated here. Every rule's action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "SI"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "osebni podatki"
+      ],
+      "action": "Log",
+      "source": "Personal Data Protection Act (ZVOP-2), Official Gazette of the Republic of Slovenia No. 163/22 — https://ey.com/en_si/ey-slovenia-law-news/law-news-january-2023",
+      "retrieved_snippet": "EY Slovenia: the National Assembly adopted ZVOP-2 on 15 December 2022, it was published in the Official Gazette on 27 December 2022 and entered into force on 26 January 2023, repealing ZVOP-1; the Information Commissioner continues as supervisory authority and can impose the fines prescribed in GDPR Article 83.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "SI"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "potrošnik"
+      ],
+      "action": "Log",
+      "source": "Consumer Protection Act (ZVPot-1), published in the Official Gazette 11 October 2022 — https://selih.si/en/general/new-provisions-to-be-introduced-by-the-new-consumer-protection-act-in-slovenia/",
+      "retrieved_snippet": "Selih & Partnerji / EY: ZVPot-1 was passed by the National Assembly on 29 September 2022, published 11 October 2022, with main obligations applying from 26 January 2023; it transposes Directives 2019/770, 2019/771 and 2019/2161 and absorbed the Act on Consumer Protection against Unfair Commercial Practices.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "SI"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "sovražni govor"
+      ],
+      "action": "Log",
+      "source": "Criminal Code (KZ-1) Article 297, public incitement to hatred, violence or intolerance — https://fra.europa.eu/en/databases/anti-muslim-hatred/case-law/9668",
+      "retrieved_snippet": "FRA case-law database: a 2024 Supreme Court judgment (I Ips 32326/2021) upheld a conviction for public incitement to hatred, violence or intolerance under Article 297 KZ-1; commentary describes the offence as a narrow criminal hate-speech offence tied to Article 63 of the Constitution. Current consolidated Article 297 text not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SI"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Criminal Code (KZ-1) Article 221, attack on an information system — Council of Europe Budapest Convention legal profile — https://rm.coe.int/octocom-legal-profile-slovenia/16809e5a30",
+      "retrieved_snippet": "Council of Europe profile reproduces Article 221(1): entering or breaking into an information system without authorisation, and unauthorised interception of data transfers to, from or within a non-public system, punishable by up to one year of imprisonment (an older profile; current wording and penalty not verified against the official text).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "SI"
+      },
+      "condition": "minor",
+      "aliases": [
+        "mladoletnik"
+      ],
+      "action": "Log",
+      "source": "Audiovisual Media Services Act (ZAvMS) as amended by ZAvMS-B (in force January 2022) and the AKOS General Act on the protection of children and minors — https://rm.coe.int/avmsd-transposition-info-sheet-si-/1680aa581b",
+      "retrieved_snippet": "Council of Europe observatory: Slovenia transposed AVMSD Article 28b into ZAvMS, requiring video-sharing platform providers under Slovenian jurisdiction to protect children from harmful content; the 2021 amendment ZAvMS-B, in force since January 2022, brought the AVMSD minors rules including age categories and access restrictions; the regulator AKOS supervises compliance (https://www.akos-rs.si/en/tv-radio-and-vod/exposing/responsibilities-for-content-control).",
+      "official_source": true
+    }
+  ]
+}

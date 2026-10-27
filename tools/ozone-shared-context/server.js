@@ -29,6 +29,44 @@ const path = require("path");
 const os = require("os");
 
 const OZONE_HOST = process.env.OZONE_HOST || "http://127.0.0.1:50051";
+
+// Local internal token (2026-10-27): with OZONE_REQUIRE_SESSION=1 the host's
+// strict gate 401s unauthenticated mutating calls (/context/mirror,
+// /task/create, /mcp/tools/*). The host keeps a random token in
+// <data_dir>/.internal_token (0600); this same-user local process presents it
+// as x-oz-internal. Sources, first hit wins: OZONE_INTERNAL_TOKEN,
+// OZONE_INTERNAL_TOKEN_FILE, then the standard data-dir locations. Absent
+// token => plain headers (works against a host that is not in strict mode).
+const _fs = require("fs");
+const _path = require("path");
+let _tokCache = { at: 0, val: "" };
+function internalToken() {
+  const now = Date.now();
+  if (now - _tokCache.at < 30000) return _tokCache.val;
+  let val = process.env.OZONE_INTERNAL_TOKEN || "";
+  if (!val) {
+    const repo = _path.resolve(__dirname, "..", "..");
+    const candidates = [
+      process.env.OZONE_INTERNAL_TOKEN_FILE,
+      process.env.OZONE_DATA_DIR && _path.join(process.env.OZONE_DATA_DIR, ".internal_token"),
+      _path.join(repo, "target", "release", "zsei_data", ".internal_token"),
+      _path.join(repo, "zsei_data", ".internal_token"),
+      "/opt/ozone-studio/zsei_data/.internal_token",
+    ].filter(Boolean);
+    for (const c of candidates) {
+      try { val = _fs.readFileSync(c, "utf8").trim(); if (val) break; } catch (_) { /* next */ }
+    }
+  }
+  _tokCache = { at: now, val };
+  return val;
+}
+function ozHeaders() {
+  const h = { "Content-Type": "application/json" };
+  const t = internalToken();
+  if (t) h["x-oz-internal"] = t;
+  return h;
+}
+
 const STATE_DIR = process.env.OZONE_CONTEXT_DIR || path.join(process.cwd(), ".ozone-context");
 const CC_PROJECTS = process.env.OZONE_CC_PROJECTS || path.join(os.homedir(), ".claude", "projects");
 const PRESENCE_TTL_MS = 5 * 60 * 1000; // sessions expire from "live" after 5 min idle
@@ -83,7 +121,7 @@ function readNotes(limit = 30, kind = null) {
 function pushActivity(kind, level, source, message) {
   fetch(`${OZONE_HOST}/monitor/activity`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body: JSON.stringify({ kind, level, source, message }),
   }).catch(() => {}); // host down → local state still works
 }
@@ -103,7 +141,7 @@ function mirrorContext(req) {
   if (process.env.OZONE_THROUGH_HOST === "1") {
     fetch(`${OZONE_HOST}/mcp/call`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: ozHeaders(),
       body: JSON.stringify({ tool: "context_mirror", agent: req.agent, input: req }),
     })
       .then((r) => r.json())
@@ -113,7 +151,7 @@ function mirrorContext(req) {
       .catch(() => {
         fetch(`${OZONE_HOST}/context/mirror`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: ozHeaders(),
           body,
         }).catch(() => {});
       });
@@ -121,7 +159,7 @@ function mirrorContext(req) {
   }
   fetch(`${OZONE_HOST}/context/mirror`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body,
   }).catch(() => {});
 }
@@ -177,7 +215,7 @@ async function hostToken() {
   const post = (p, b) =>
     fetch(`${OZONE_HOST}${p}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: ozHeaders(),
       body: JSON.stringify(b),
     }).then((r) => r.json());
   const { privateKey, rawPub } = deviceKeypair();
@@ -196,7 +234,7 @@ async function usageGate(tool) {
   try {
     const res = await fetch(`${OZONE_HOST}/mcp/usage`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: ozHeaders(),
       body: JSON.stringify({ agent: AGENT_NAME, tool }),
     });
     if (res.ok) {
@@ -461,7 +499,7 @@ const HOST_EVENT_KINDS = ["tool_call", "config_change"];
 async function hostQuery(query) {
   const res = await fetch(`${OZONE_HOST}/zsei/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body: JSON.stringify({ query, session_token: "" }),
     signal: AbortSignal.timeout(3000),
   });
@@ -520,7 +558,7 @@ async function taskCreate({ title, description, assignee, priority }) {
   const token = await hostToken();
   const res = await fetch(`${OZONE_HOST}/task/create`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body: JSON.stringify({
       prompt: description ? `${title}\n\n${description}` : title,
       assignee: assignee || null,
@@ -552,7 +590,7 @@ async function tasksList({ limit = 20 } = {}) {
   const token = await hostToken();
   const res = await fetch(`${OZONE_HOST}/task/list`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body: JSON.stringify({ session_token: token, limit }),
   });
   return res.json();
@@ -689,7 +727,7 @@ process.stderr.write("[ozone-shared-context] ready — state in " + STATE_DIR + 
 function selfRegister() {
   fetch(`${OZONE_HOST}/mcp/tools/register`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: ozHeaders(),
     body: JSON.stringify({
       name: "ozone-shared-context",
       transport: "stdio",

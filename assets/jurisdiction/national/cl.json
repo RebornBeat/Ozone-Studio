@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Chilean statutes, verified via live web search against official government sources (bcn.cl — Biblioteca del Congreso Nacional, senado.cl) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Chilean law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Note: Ley 21.719 was published 2024-12-13 but only enters full force 2026-12-01 — flagged as not-yet-fully-effective at time of writing. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, currently-published official Chilean statutes, verified via live web search against official government sources (bcn.cl — Biblioteca del Congreso Nacional, senado.cl) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Chilean law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Note: Ley 21.719 was published 2024-12-13 but only enters full force 2026-12-01 — flagged as not-yet-fully-effective at time of writing. Every rule's action is Log only. This content will age — re-verify before relying on it. EXPANSION 2026-10-27: four additional rules (cybercrime, copyright, money laundering, discrimination) retrieved via live web search on 2026-10-27 from bcn.cl (Biblioteca del Congreso Nacional, LeyChile); Ley 21.719's entry into force is scheduled for 2026-12-01 per BCN/Diario Oficial pages, with a Senate bill (Boletín 18.623-07) that would defer it to 2027-12-01 — status unconfirmed. Every rule action remains Log only.",
   "rules": [
     {
       "scope": {"National": "CL"},
@@ -47,6 +47,63 @@
       "action": "Log",
       "source": "Ley 20.422 (2010), Establece Normas sobre Igualdad de Oportunidades e Inclusión Social de Personas con Discapacidad + Decreto Supremo No. 1 (2015) — https://www.bcn.cl/leychile/Consulta/listado_n_sel?comp=&agr=2&_grupo_aporte=&sub=1117",
       "retrieved_snippet": "Ley 20.422 (informed by Chile's 2008 ratification of the UN Convention on the Rights of Persons with Disabilities) establishes equal-opportunity/inclusion norms; Supreme Decree No. 1 (2015) requires STATE organisms specifically to implement web accessibility standards. There is currently no legal requirement for private-sector websites — private-sector web accessibility remains voluntary in Chile as of this research, an honest gap, not a citable private-sector obligation.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CL"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos informáticos",
+        "acceso indebido a sistema informático"
+      ],
+      "action": "Log",
+      "source": "Ley 21.459 (20-06-2022), establece normas sobre delitos informáticos, deroga la Ley 19.223 — https://www.bcn.cl/leychile/navegar?idNorma=1177743",
+      "retrieved_snippet": "Establishes computer-crime offenses, repeals Ley 19.223 and adapts Chilean law to the Budapest Convention on Cybercrime (promulgated by Decreto 83 of 2017); offenses include improper access to computer systems, capture of data via electromagnetic emissions and harmful alteration or deletion of data.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CL"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "propiedad intelectual",
+        "derecho de autor"
+      ],
+      "action": "Log",
+      "source": "Ley 17.336 sobre Propiedad Intelectual (latest consolidated version 03-NOV-2017, last modified by Ley 21.045; reglamento Decreto 277) — https://www.bcn.cl/leychile/navegar?idNorma=28933",
+      "retrieved_snippet": "BCN LeyChile lists the consolidated text of Ley 17.336 on intellectual property, last modified by Ley 21.045 (version 03-NOV-2017), with seven pending bills including one on technological protection measures; later amendments include Ley 18.957 (computer programs) and Ley 20.435 (limitations and exceptions).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CL"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavado de activos",
+        "lavado de dinero",
+        "blanqueo de activos"
+      ],
+      "action": "Log",
+      "source": "Ley 19.913 (Diario Oficial 18-12-2003), crea la Unidad de Análisis Financiero y modifica disposiciones en materia de lavado y blanqueo de activos — https://www.bcn.cl/leychile/navegar?idNorma=219119",
+      "retrieved_snippet": "Creates the Unidad de Análisis Financiero (UAF) to prevent the financial system and other economic sectors being used to commit the offenses it describes; art. 3 identifies obligated entities that must file suspicious-operation reports, art. 4 requires declaring cash entering or leaving the country above US$10,000, art. 27 lists predicate offenses; BCN shows the consolidated text last modified by Ley 21.821 (30-MAY-2026).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CL"
+      },
+      "condition": "discrimination",
+      "aliases": [
+        "discriminación arbitraria",
+        "ley zamudio"
+      ],
+      "action": "Log",
+      "source": "Ley 20.609 (Ley Zamudio), establece medidas contra la discriminación — https://www.bcn.cl/api-leyfacil/servicio/ObtenerGuiaPublicadaHTML?uri=ley-de-no-discriminacion",
+      "retrieved_snippet": "Creates a judicial mechanism to correct acts of arbitrary discrimination, obliges state bodies to design anti-discrimination policies, sets a special procedure against discriminatory acts by state agents and a penal aggravating circumstance for hate-motivated crimes (per BCN's citizen guide and parliamentary advisory summary); a BCN June 2025 report says a reform bill (Boletín 12748-17) was in a mixed commission — current status not verified.",
       "official_source": true
     }
   ]
