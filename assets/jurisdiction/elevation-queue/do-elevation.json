@@ -1,0 +1,18 @@
+{
+  "region": "do",
+  "rules_to_elevate": [
+    {
+      "condition": "data breach involving personal data",
+      "action": "RequireConfirmation",
+      "source": "Dominican Republic - Law 172-13 on Personal Data Protection",
+      "topic": "data-protection"
+    },
+    {
+      "condition": "unauthorized access to computer systems",
+      "action": "Warn",
+      "source": "Dominican Republic - Law 53-07 on High-Tech Crimes",
+      "topic": "cybercrime"
+    }
+  ],
+  "status": "PENDING-OPERATOR-REVIEW"
+}

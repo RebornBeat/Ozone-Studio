@@ -1,0 +1,24 @@
+{
+  "region": "eu",
+  "rules_to_elevate": [
+    {
+      "condition": "processing of personal data without lawful basis",
+      "action": "RequireConfirmation",
+      "source": "EU GDPR Article 6",
+      "topic": "data-protection"
+    },
+    {
+      "condition": "automated decision-making without human oversight",
+      "action": "Warn",
+      "source": "EU GDPR Article 22",
+      "topic": "automated-decision"
+    },
+    {
+      "condition": "AI system classified as high-risk under the AI Act",
+      "action": "RequireConfirmation",
+      "source": "EU AI Act Annex III",
+      "topic": "ai-regulation"
+    }
+  ],
+  "status": "PENDING-OPERATOR-REVIEW"
+}

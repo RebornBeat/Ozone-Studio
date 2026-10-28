@@ -17,6 +17,7 @@ export {
 } from "./primitives";
 export { GraphCanvas } from "./GraphCanvas";
 export type { CanvasLayout, GraphCanvasProps } from "./GraphCanvas";
+export { GraphWorld3D } from "./GraphWorld3D";
 export {
   ModalityBadge,
   TaskStateIcon,
