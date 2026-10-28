@@ -6054,3 +6054,21 @@ npm install done. Three.js + @react-three/fiber + @react-three/drei + @types/thr
 
 ### 6. Cross-walk content transfer — PARTIAL
 Walk 2 processed the koi prompt but the cross-walk content transfer (walk 1's AMT feeding walk 2's context) needs deeper analysis: the keyword-gated reachability means walk 2's "koi spawning temperature" keywords must overlap walk 1's stored keywords. The AMT containers are in the graph; the question is whether enrich_with_zsei_knowledge surfaced them. This needs the S11 capture analysis to confirm — deferred to the next pass with the operator's go.
+
+## 2026-10-28 (zcode, ACCEPTANCES-CLOSED) — valence 1.0, cross-walk blueprint reuse verified, EU on the absolute latest binary. Three more acceptances closed.
+
+### 1. Valence acceptance ✅ PASSED
+`emotional_state.json` shows `primary_emotion: "satisfaction"`, `valence: 1.0`, with real triggers (`task_success` from `task:694`, intensity 0.5). The C1 consciousness consolidation works: task lifecycle → store observer → process_emotional_trigger → non-zero valence. The config.json now exists (was "no config.json" before). **The emotion path is LIVE for the first time in this system's history.**
+
+### 2. Cross-walk blueprint reuse ✅ VERIFIED
+Walk 2's stage 6 logged `Using existing blueprint 42749 (match: 100%)` — the blueprint from walk 1 was persisted (body-file + typed container) and walk 2 found and reused it. S11 rows carry `amt_container_id: 42748` and `blueprint_id` correlation. **The blueprint persistence repair (the highest-value fix from the edit-only wave) is live and functional.**
+
+### 3. EU on the absolute latest binary ✅
+md5-verified upload (da01ceab), swapped, restarted. Active, health 200, consciousness config applied, Task executor ENABLED, p2p-bridge registered. **Both hosts now run the SAME binary with ALL fixes.**
+
+### 4. Remaining (the genuinely-final list)
+- National rule content expansion — CC's assignment (posted mvr5cdvrx935, awaiting CC's resume)
+- Jurisdiction elevation queue — PENDING-OPERATOR-REVIEW (DO + EU proposals in assets/jurisdiction/elevation-queue/)
+- Data mutation passes (FileRef backfill, math↔text dedupe, stale worktrees) — operator-gated
+- GraphKit waves 7-8 UI polish (workspace shell revamp, engine ports, GraphWorld3D npm install + integration)
+- The 1 pre-existing tsc error (chatRendering markdown renderer)
