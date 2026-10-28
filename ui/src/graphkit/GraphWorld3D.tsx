@@ -202,7 +202,7 @@ export const GraphWorld3D: React.FC<{
       return {
         from: a.position,
         to: b.position,
-        dash: e.edgeClass !== "real",
+        dash: e.edgeClass !== "structural",
         color: e.edgeClass === "cross-modal" ? "#e879f9" : "#4a6178",
       };
     }).filter((e): e is Edge3D => e !== null);
