@@ -219,7 +219,7 @@ export function renderMarkdown(text: string): React.ReactNode {
     if (headerMatch) {
       flushParagraph();
       const level = headerMatch[1].length;
-      const Tag = (`h${Math.min(level + 2, 6)}`) as keyof JSX.IntrinsicElements;
+      const Tag = (`h${Math.min(level + 2, 6)}`) as 'h1' | 'h2' | 'h3' | 'h4' | 'h5' | 'h6';
       blocks.push(
         <Tag key={key++} style={{ margin: '10px 0 6px 0', fontSize: (level <= 2 ? '1.1em' : '1em') as string, ...wrap }}>
           {renderInlineMarkdown(headerMatch[2])}

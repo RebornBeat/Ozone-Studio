@@ -35,53 +35,87 @@
  * passed through as-is, never substituted with the flat id.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { WorkspaceBrowser } from '../views/files/WorkspaceBrowser';
 import { FileReferenceViewer } from '../views/files/FileReferenceViewer';
 import { CodeViewer } from '../views/files/CodeViewer';
+import MathViewer from '../views/files/MathViewer';
+import FileEditor from '../views/files/FileEditor';
+import VersionHistory from '../views/files/VersionHistory';
 import { FabricView } from '../views/fabric/FabricView';
 import { AmtTreeView } from '../views/hierarchy/AmtTreeView';
 import { ForkLineageView } from '../views/hierarchy/ForkLineageView';
 import { JurisdictionHierarchy } from '../views/hierarchy/JurisdictionHierarchy';
 import { GraphView } from './GraphView';
-import { ENGINES } from '../panels/EnginesPanel';
+import { ENGINES } from '../panels/enginesRegistry';
 import { WorkspaceStatusStrip } from './WorkspaceStatusStrip';
-import { GraphNativeSection } from '../graphkit/GraphNativeSection';
-import { TaskStateIcon, StepPips, ActivityPulse } from '../graphkit/indicators';
+import { GraphNativeWorkspace } from '../graphkit/GraphNativeWorkspace';
+import type { WorkspaceLensItem } from '../graphkit/GraphNativeWorkspace';
+import type { WorldLens } from '../graphkit/layout3d';
 import { useOzoneStore } from '../services/store';
+import { Cpu, Folder, GitBranch, Network, Share2 } from 'lucide-react';
 
 export interface ProjectWorkspaceViewerProps {
   // Flat Workspace-tab id — used ONLY by this component's own
   // handleUnlinkFile (GetProjectFiles #6 / Unlink #30). Never passed to
   // any of the graph-native viewers below.
-  projectId: number;
+  // `null` in the GLOBAL panel mounts (Files / Fabric / Hierarchy / Engines
+  // tabs), where there is no Workspace-tab project — Unlink (which needs the
+  // flat file_link id space) is then simply not offered.
+  projectId: number | null;
   // Real ZSEI graph container id — used for every graph-native viewer's
   // own `projectId` prop (WorkspaceBrowser/FileReferenceViewer/CodeViewer/
   // FabricView/AmtTreeView/ForkLineageView/JurisdictionHierarchy/
   // GraphView). May be null; those components already handle that.
   zseiProjectId: number | null;
+  // Global panel mounts start on their own lens; the Workspace tab omits it.
+  initialSection?: 'files' | 'fabric' | 'hierarchy' | 'graph' | 'engines';
+  // Deep-link requests from the module-level hooks (filesPanelTab.ts /
+  // enginesPanelTab.ts — e.g. Code's "view history →"). Applied when the
+  // value is set/changes; the Workspace tab passes nothing.
+  requestedFilesSub?: string | null;
+  requestedEngineSub?: string | null;
 }
 
 type Section = 'files' | 'fabric' | 'hierarchy' | 'graph' | 'engines';
-type FilesSub = 'browser' | 'refs' | 'code';
+type FilesSub = 'browser' | 'refs' | 'code' | 'math' | 'editor' | 'history';
 type HierarchySub = 'amt' | 'lineage' | 'jurisdiction';
 // Mirrors EnginesPanel.tsx's own registry (same ids) so a project-scoped
 // click (e.g. StepDetailSection's ModalityChip jump target) and the global
 // Engines tab always land on the same sub-tab id for the same modality.
 type EngineSub = typeof ENGINES[number]['id'];
 
-const SECTIONS: { id: Section; label: string }[] = [
-  { id: 'files', label: '📁 Files' },
-  { id: 'fabric', label: '🧵 Fabric' },
-  { id: 'hierarchy', label: '🌳 Hierarchy' },
-  { id: 'graph', label: '🕸 Graph' },
-  { id: 'engines', label: '⚙️ Engines' },
+const LENSES: WorkspaceLensItem[] = [
+  { id: 'files', label: 'Files', icon: <Folder size={14} /> },
+  { id: 'fabric', label: 'Fabric', icon: <Network size={14} /> },
+  { id: 'hierarchy', label: 'Hierarchy', icon: <GitBranch size={14} /> },
+  { id: 'graph', label: 'Graph', icon: <Share2 size={14} /> },
+  { id: 'engines', label: 'Engines', icon: <Cpu size={14} /> },
 ];
+
+// Which graph modalities each engine tab covers — what the 3D world
+// highlights when that engine is the active lens (empty = every modality).
+// Engine ids are the EnginesPanel registry's own; modality names are the
+// substrate's (MODALITY_COLOR keys).
+const ENGINE_MODALITIES: Record<string, string[]> = {
+  'all-modalities': [],
+  code: ['code'],
+  math: ['math'],
+  text: ['text'],
+  image: ['image'],
+  '3d': ['3D'],
+  'audio-video': ['audio', 'video', 'sound'],
+  geospatial: ['geospatial'],
+  parametric_cad: ['CAD'],
+};
 
 const FILES_SUBS: { id: FilesSub; label: string }[] = [
   { id: 'browser', label: 'Browser' },
   { id: 'refs', label: 'References' },
   { id: 'code', label: 'Code' },
+  { id: 'math', label: 'Math' },
+  { id: 'editor', label: 'Editor' },
+  { id: 'history', label: 'History' },
 ];
 
 const HIERARCHY_SUBS: { id: HierarchySub; label: string }[] = [
@@ -92,8 +126,14 @@ const HIERARCHY_SUBS: { id: HierarchySub; label: string }[] = [
 
 const ENGINE_SUBS: { id: EngineSub; label: string }[] = ENGINES.map(e => ({ id: e.id, label: e.label }));
 
-export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: ProjectWorkspaceViewerProps) {
-  const [section, setSection] = useState<Section>('files');
+export default function ProjectWorkspaceViewer({
+  projectId,
+  zseiProjectId,
+  initialSection,
+  requestedFilesSub,
+  requestedEngineSub,
+}: ProjectWorkspaceViewerProps) {
+  const [section, setSection] = useState<Section>(initialSection ?? 'files');
   const [filesSub, setFilesSub] = useState<FilesSub>('browser');
   const [hierarchySub, setHierarchySub] = useState<HierarchySub>('amt');
   const [enginesSub, setEnginesSub] = useState<EngineSub>(ENGINES[0].id);
@@ -114,6 +154,19 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
   // tab re-fetches just its file-refs list (not the whole workspaces/
   // projects sidebar tree — see its `refreshToken` prop).
   const [browserRefreshToken, setBrowserRefreshToken] = useState(0);
+
+  useEffect(() => {
+    if (requestedFilesSub && FILES_SUBS.some((f) => f.id === requestedFilesSub)) {
+      setSection('files');
+      setFilesSub(requestedFilesSub as FilesSub);
+    }
+  }, [requestedFilesSub]);
+  useEffect(() => {
+    if (requestedEngineSub && ENGINES.some((e) => e.id === requestedEngineSub)) {
+      setSection('engines');
+      setEnginesSub(requestedEngineSub as EngineSub);
+    }
+  }, [requestedEngineSub]);
 
   const subs = section === 'files' ? FILES_SUBS : section === 'hierarchy' ? HIERARCHY_SUBS : section === 'engines' ? ENGINE_SUBS : null;
   const activeSub = section === 'files' ? filesSub : section === 'hierarchy' ? hierarchySub : section === 'engines' ? enginesSub : null;
@@ -138,7 +191,7 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
   async function handleUnlinkFile(fileRef: any) {
     const containerId = fileRef?.containerId;
     const execute = window.ozone?.pipeline?.execute;
-    if (containerId == null || !execute) return;
+    if (containerId == null || !execute || projectId === null) return;
     try {
       const flatResult = await execute(6, {
         action: 'GetProjectFiles',
@@ -176,79 +229,76 @@ export default function ProjectWorkspaceViewer({ projectId, zseiProjectId }: Pro
     setFilesSub(fileRef?.modality === 'Code' ? 'code' : 'refs');
   }
 
-  return (
-    // ORDER (2026-10-18, operator-reported, repeated across several
-    // rounds): the active section's content renders FIRST, the tab bar
-    // (Files/Fabric/Hierarchy/Graph + sub-tabs) LAST — directly above
-    // ProjectChatPanel below this viewer, so the tab bar is the thing
-    // sitting right on top of the chat title, not the content.
-    <div className="project-insights-viewer">
-      {/* WORKSPACE STATUS STRIP (wave 7, additive): live P2P trust posture
-          (connected ≠ trusted) — indicators from the kit, real values only. */}
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 4 }}>
-        <WorkspaceStatusStrip />
-      </div>
-      {myActivity && (
-        <div className="project-live-activity" key={myActivity.timestamp}>
-          <span className="project-live-activity-dot" />
-          <span className="project-live-activity-stage">{myActivity.stageName}</span>
-          <span className="project-live-activity-summary">{myActivity.summary}</span>
-        </div>
-      )}
-      <div className="project-insights-content">
-        {section === 'files' && filesSub === 'browser' && (
-          <WorkspaceBrowser
-            projectId={zseiProjectId}
-            onUnlink={handleUnlinkFile}
-            onOpenFile={handleOpenFile}
-            refreshToken={browserRefreshToken}
-            embedded
-          />
-        )}
-        {section === 'files' && filesSub === 'refs' && <FileReferenceViewer projectId={zseiProjectId} />}
-        {section === 'files' && filesSub === 'code' && <CodeViewer projectId={zseiProjectId} />}
-        {section === 'fabric' && <FabricView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'amt' && <AmtTreeView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'lineage' && <ForkLineageView projectId={zseiProjectId} />}
-        {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
-        {section === 'graph' && <GraphView projectId={zseiProjectId} />}
-        {section === 'engines' && activeEngine.render(zseiProjectId)}
-        {zseiProjectId !== null && (
-          <GraphNativeSection
-            projectId={zseiProjectId}
-            lens={section === 'engines'
-              ? { kind: 'engines', modality: activeEngine?.id ?? 'code' }
-              : { kind: section as any }}
-            height={320}
-          />
-        )}
+  // The world highlights what the active lens means (real data, see
+  // graphkit/layout3d.ts computeLensView).
+  const worldLens: WorldLens = section === 'engines'
+    ? {
+        kind: 'engines',
+        modalities: ENGINE_MODALITIES[activeEngine.id] ?? [],
+        label: activeEngine.label,
+      }
+    : { kind: section };
 
-      </div>
-      <div className="project-insights-tabs">
-        {SECTIONS.map(s => (
-          <button
-            key={s.id}
-            className={section === s.id ? 'active' : ''}
-            onClick={() => setSection(s.id)}
-          >
-            {s.label}
-          </button>
-        ))}
-        {subs && (
-          <>
-            <span className="project-insights-tab-sep" />
-            {subs.map(s => (
-              <button
-                key={s.id}
-                className={activeSub === s.id ? 'active' : ''}
-                onClick={() => setSub(s.id)}
-              >
-                {s.label}
-              </button>
-            ))}
-          </>
-        )}
-      </div>
+  // Inspector → engine: the first engine tab that covers this modality, else
+  // the all-modalities table (never a dead end).
+  function openInEngine(modality: string) {
+    const hit = ENGINES.find((e) => (ENGINE_MODALITIES[e.id] ?? []).includes(modality));
+    setSection('engines');
+    setEnginesSub((hit ?? ENGINES[0]).id);
+  }
+
+  // The classic view for the active lens/sub — docked INSIDE the world
+  // (GraphNativeWorkspace's Detail tab), no longer stacked below a tile.
+  const detail = (
+    <>
+      {section === 'files' && filesSub === 'browser' && (
+        <WorkspaceBrowser
+          projectId={zseiProjectId}
+          onUnlink={projectId === null ? undefined : handleUnlinkFile}
+          onOpenFile={handleOpenFile}
+          refreshToken={browserRefreshToken}
+          embedded
+        />
+      )}
+      {section === 'files' && filesSub === 'refs' && <FileReferenceViewer projectId={zseiProjectId} />}
+      {section === 'files' && filesSub === 'code' && <CodeViewer projectId={zseiProjectId} />}
+      {section === 'files' && filesSub === 'math' && <MathViewer projectId={zseiProjectId} />}
+      {section === 'files' && filesSub === 'editor' && <FileEditor projectId={zseiProjectId} />}
+      {section === 'files' && filesSub === 'history' && <VersionHistory projectId={zseiProjectId} />}
+      {section === 'fabric' && <FabricView projectId={zseiProjectId} />}
+      {section === 'hierarchy' && hierarchySub === 'amt' && <AmtTreeView projectId={zseiProjectId} />}
+      {section === 'hierarchy' && hierarchySub === 'lineage' && <ForkLineageView projectId={zseiProjectId} />}
+      {section === 'hierarchy' && hierarchySub === 'jurisdiction' && <JurisdictionHierarchy projectId={zseiProjectId} />}
+      {section === 'graph' && <GraphView projectId={zseiProjectId} />}
+      {section === 'engines' && activeEngine.render(zseiProjectId)}
+    </>
+  );
+
+  return (
+    <div className="project-insights-viewer">
+      <GraphNativeWorkspace
+        projectId={zseiProjectId}
+        worldLens={worldLens}
+        lenses={LENSES}
+        activeLens={section}
+        onLens={(id) => setSection(id as Section)}
+        subs={subs}
+        activeSub={activeSub}
+        onSub={setSub}
+        detail={detail}
+        statusStrip={<WorkspaceStatusStrip />}
+        banner={
+          myActivity ? (
+            <div className="project-live-activity" key={myActivity.timestamp}>
+              <span className="project-live-activity-dot" />
+              <span className="project-live-activity-stage">{myActivity.stageName}</span>
+              <span className="project-live-activity-summary">{myActivity.summary}</span>
+            </div>
+          ) : undefined
+        }
+        onOpenInEngine={openInEngine}
+        onOpenFiles={() => setSection('files')}
+      />
     </div>
   );
 }

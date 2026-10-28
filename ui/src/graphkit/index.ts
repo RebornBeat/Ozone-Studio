@@ -18,8 +18,10 @@ export {
 export { GraphCanvas } from "./GraphCanvas";
 export type { CanvasLayout, GraphCanvasProps } from "./GraphCanvas";
 export { GraphWorld3D } from "./GraphWorld3D";
-export { GraphNativeSection } from "./GraphNativeSection";
-export type { SectionLens } from "./GraphNativeSection";
+export { GraphNativeWorkspace } from "./GraphNativeWorkspace";
+export type { GraphNativeWorkspaceProps, WorkspaceLensItem } from "./GraphNativeWorkspace";
+export { computeWorldLayout, computeLensView } from "./layout3d";
+export type { WorldLayout, WorldLens, WorldNode, LensView } from "./layout3d";
 export {
   ModalityBadge,
   TaskStateIcon,

@@ -97,6 +97,15 @@ async function bridgeOrHttp<T>(bridgeFn: string, httpPath: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Plain GET against the host through the same bridge-first path every other
+ * client call uses (Electron: main-process HTTP bridge, because a file://
+ * renderer cannot fetch localhost directly; browser: direct fetch). Exported
+ * so components stop hand-rolling relative `fetch("/health")` calls that only
+ * work when the page origin happens to be the host. */
+export function hostGet<T = unknown>(httpPath: string): Promise<T> {
+  return bridgeOrHttp<T>("", httpPath);
+}
+
 async function postHttp<T>(httpPath: string, body: unknown): Promise<T> {
   const oz = (window as any).ozone;
   if (oz?.http?.post) {

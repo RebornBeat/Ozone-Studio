@@ -1,255 +1,495 @@
 /**
- * GraphWorld3D — the 3D graph-native world (guide §8, the operator's vision:
- * "explorable traversable 3D graph-native traversal map across all").
+ * GraphWorld3D — the explorable, traversable 3D graph-native world (guide §8).
  *
- * This is a LEAF RENDERER behind GraphKit's contracts (doctrine §1.5): it
- * consumes the GraphProvider substrate and renders it in 3D space. Three.js
- * is the rendering engine; the stable API is the provider + the navigation
- * spine + the indicator data.
+ * A LEAF RENDERER behind GraphKit's contracts: it draws the WorldLayout the
+ * pure layout module computed from the GraphProvider substrate, and reports
+ * intent (select / open / hover) upward — it owns no data and fetches nothing.
  *
- * Architecture:
- * - Nodes = 3D primitives (icosahedron default, shape varies by modality group),
- *   colored by MODALITY_COLOR, sized by connection count
- * - Edges = 3D lines with edgeClass dash honesty (solid real, dashed derived)
- * - Camera = OrbitControls (explore) + fly-to on selection (traverse)
- * - Raycast picking = click to select, double-click to navigate
- * - CrossLinkStrip = rendered as a 2D overlay panel on selection
- * - Indicators = 3D-anchored sprites (task pips, gate states, construction pulses)
- *
- * Layout: deterministic force-directed approximation (modality clusters attract,
- * cross-links repel) computed once per substrate load, not per-frame.
- *
- * PERF: LOD via drei's Detailed; frustum culling is automatic; the substrate
- * is bounded by the GraphProvider's single-fetch model.
+ * What it does:
+ *  - Nodes as instanced meshes (one draw call per shape), colored by
+ *    MODALITY_COLOR; the lens dims everything outside its highlight set.
+ *  - Hubs (one per ModalityGraph container) wrapped in a translucent shell, so
+ *    "this cluster is that graph" is visible, not inferred.
+ *  - Edges batched per class (in-graph, cross-modal in magenta, file links,
+ *    lineage…) — emphasised when the active lens means them, dimmed otherwise.
+ *  - Camera fly-to: lens changes, selections and "focus" requests animate the
+ *    orbit camera to frame the target; the operator keeps full orbit control.
+ *  - Real construction pulses: a node a modality pipeline just constructed
+ *    (node event) flashes and breathes for a few seconds.
+ *  - Click selects, double-click opens, hover shows an honest tooltip.
  */
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { Canvas, useThree, useFrame } from "@react-three/fiber";
-import { OrbitControls, Line, Html, Text } from "@react-three/drei";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import type { ThreeEvent } from "@react-three/fiber";
+import { Billboard, Html, OrbitControls, Stars } from "@react-three/drei";
 import * as THREE from "three";
-import { MODALITY_COLOR } from "../graphRenderers/defaults";
-import type { GraphViewEdge, GraphViewNode, Modality } from "../graphViewTypes";
-import { navigateTo } from "../navigation";
+import type {
+  LensView,
+  WorldEdgeClass,
+  WorldLayout,
+  WorldNode,
+  WorldShape,
+} from "./layout3d";
 
-const C_TEXT = "#e6edf3";
-const C_MUTED = "#8b949e";
+const PULSE_SECONDS = 5;
 
-// ── Layout ──
-
-interface Node3D {
-  id: string;
-  position: [number, number, number];
-  color: string;
-  label: string;
-  nodeType: string;
-  modality: string;
-  isReal: boolean;
-  connections: number;
+export interface FocusRequest {
+  /** Bump to re-trigger a fly-to even when the target is unchanged. */
+  key: number;
+  center: [number, number, number];
+  radius: number;
 }
 
-interface Edge3D {
-  from: [number, number, number];
-  to: [number, number, number];
-  dash: boolean;
-  color: string;
+export interface GraphWorld3DProps {
+  layout: WorldLayout;
+  lens: LensView;
+  selectedIndex: number | null;
+  /** composite node id → unix-ms of its last real construction event */
+  pulses: Record<string, number>;
+  showLabels: boolean;
+  autoRotate: boolean;
+  focus: FocusRequest | null;
+  onSelect: (index: number | null) => void;
+  onOpen: (index: number) => void;
 }
 
-/** Deterministic force-directed approximation: modality clusters on concentric
- * shells (z-axis by modality index), nodes spread on each shell by hash order.
- * Cross-links pull nodes slightly toward their targets. Computed once. */
-function computeLayout(
-  nodes: GraphViewNode[],
-  edges: GraphViewEdge[],
-  width: number,
-): Map<string, Node3D> {
-  const pos = new Map<string, Node3D>();
-  if (nodes.length === 0) return pos;
+// ── Edge styling ──
 
-  // Group by modality
-  const groups = new Map<string, GraphViewNode[]>();
-  for (const n of nodes) {
-    const m = n.modality ?? "container";
-    (groups.get(m) ?? groups.set(m, []).get(m)!).push(n);
-  }
-  const modalityList = Array.from(groups.keys());
+const EDGE_STYLE: Record<WorldEdgeClass, { color: string; opacity: number; dashed: boolean }> = {
+  structural: { color: "#6b8aa8", opacity: 0.6, dashed: false },
+  dependency: { color: "#6aa8d8", opacity: 0.6, dashed: false },
+  semantic: { color: "#8aa4bd", opacity: 0.5, dashed: true },
+  "cross-modal": { color: "#e879f9", opacity: 0.95, dashed: false },
+  lineage: { color: "#f59e0b", opacity: 0.8, dashed: false },
+  governance: { color: "#34d399", opacity: 0.8, dashed: false },
+  link: { color: "#b794f6", opacity: 0.75, dashed: true },
+  file: { color: "#4fc3f7", opacity: 0.8, dashed: true },
+  root: { color: "#4a5b6e", opacity: 0.4, dashed: false },
+};
 
-  // Assign each modality a z-layer
-  const zLayer = new Map<string, number>();
-  modalityList.forEach((m, i) => zLayer.set(m, (i - modalityList.length / 2) * 14));
+const EDGE_CLASSES = Object.keys(EDGE_STYLE) as WorldEdgeClass[];
 
-  // Assign angular positions within each shell
-  const GOLDEN = Math.PI * (3 - Math.sqrt(5)); // golden angle for even distribution
-  for (const [m, list] of groups) {
-    const z = zLayer.get(m) ?? 0;
-    const radius = Math.min(18, 6 + list.length * 0.8);
-    list.forEach((n, i) => {
-      const angle = i * GOLDEN;
-      const r = radius * (0.7 + 0.3 * ((i % 5) / 5));
-      pos.set(n.id, {
-        id: n.id,
-        position: [cx() + Math.cos(angle) * r, cy() + Math.sin(angle) * r * 0.6, z + (i % 3 - 1) * 2],
-        color: MODALITY_COLOR[m as Modality] ?? C_MUTED,
-        label: n.label,
-        nodeType: n.nodeType,
-        modality: m,
-        isReal: n.isReal !== false,
-        connections: 0,
-      });
-    });
-  }
-
-  function cx() { return 0; }
-  function cy() { return 0; }
-
-  // Count connections for sizing
-  for (const e of edges) {
-    const a = pos.get(e.from);
-    const b = pos.get(e.to);
-    if (a) a.connections++;
-    if (b) b.connections++;
-  }
-
-  return pos;
-}
-
-// ── 3D Node ──
-
-const Node3DMesh: React.FC<{
-  node: Node3D;
-  selected: boolean;
-  onSelect: (id: string) => void;
-}> = ({ node, selected, onSelect }) => {
-  const meshRef = useRef<THREE.Mesh>(null);
-  const radius = 0.5 + Math.min(node.connections * 0.08, 0.8);
-  const geometry = useMemo(() => {
-    // Shape by modality group: icosahedron for code/math, box for text/image,
-    // octahedron for spatial, sphere for others
-    switch (node.modality) {
-      case "code": case "math": return new THREE.IcosahedronGeometry(radius, 0);
-      case "text": case "image": return new THREE.BoxGeometry(radius * 1.4, radius * 1.4, radius * 1.4);
-      case "3D": case "CAD": case "geospatial": return new THREE.OctahedronGeometry(radius, 0);
-      default: return new THREE.SphereGeometry(radius, 12, 8);
+const Edges: React.FC<{ layout: WorldLayout; lens: LensView; selectedIndex: number | null }> = ({ layout, lens, selectedIndex }) => {
+  const objects = useMemo(() => {
+    const out: THREE.LineSegments[] = [];
+    const isActive = (i: number) => lens.active === null || lens.active.has(i);
+    for (const cls of EDGE_CLASSES) {
+      const style = EDGE_STYLE[cls];
+      const emphasised = lens.emphasize.has(cls);
+      const bright: number[] = [];
+      const dim: number[] = [];
+      for (const e of layout.edges) {
+        if (e.cls !== cls) continue;
+        const a = layout.nodes[e.a].pos;
+        const b = layout.nodes[e.b].pos;
+        // An edge is "lit" when the lens includes both ends, or when the lens
+        // emphasises this class and includes either end.
+        const lit =
+          lens.active === null ||
+          (isActive(e.a) && isActive(e.b)) ||
+          (emphasised && (isActive(e.a) || isActive(e.b)));
+        (lit ? bright : dim).push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      }
+      const build = (verts: number[], opacity: number) => {
+        if (verts.length === 0) return;
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3));
+        const mat = style.dashed
+          ? new THREE.LineDashedMaterial({
+              color: style.color, transparent: true, opacity, dashSize: 0.55, gapSize: 0.4, depthWrite: false,
+            })
+          : new THREE.LineBasicMaterial({ color: style.color, transparent: true, opacity, depthWrite: false });
+        const seg = new THREE.LineSegments(geom, mat);
+        if (style.dashed) seg.computeLineDistances();
+        seg.frustumCulled = false;
+        out.push(seg);
+      };
+      build(bright, lens.active === null ? style.opacity : Math.min(1, style.opacity + (emphasised ? 0.15 : 0)));
+      build(dim, 0.05);
     }
-  }, [radius, node.modality]);
+    // Edges touching the selection: drawn solid in the accent colour on top,
+    // so "what is this connected to" reads at a glance.
+    if (selectedIndex !== null) {
+      const sel: number[] = [];
+      for (const e of layout.edges) {
+        if (e.a !== selectedIndex && e.b !== selectedIndex) continue;
+        const a = layout.nodes[e.a].pos;
+        const b = layout.nodes[e.b].pos;
+        sel.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+      }
+      if (sel.length > 0) {
+        const geom = new THREE.BufferGeometry();
+        geom.setAttribute("position", new THREE.Float32BufferAttribute(sel, 3));
+        const seg = new THREE.LineSegments(
+          geom,
+          new THREE.LineBasicMaterial({ color: "#4fc3f7", transparent: true, opacity: 1, depthTest: false }),
+        );
+        seg.frustumCulled = false;
+        seg.renderOrder = 5;
+        out.push(seg);
+      }
+    }
+    return out;
+  }, [layout, lens, selectedIndex]);
 
+  useEffect(
+    () => () => {
+      for (const o of objects) {
+        o.geometry.dispose();
+        (o.material as THREE.Material).dispose();
+      }
+    },
+    [objects],
+  );
   return (
-    <mesh
-      ref={meshRef}
-      position={node.position}
-      geometry={geometry}
-      onClick={(e) => { e.stopPropagation(); onSelect(node.id); }}
-      onPointerOver={() => document.body.style.cursor = "pointer"}
-      onPointerOut={() => document.body.style.cursor = "default"}
-    >
-      <meshStandardMaterial
-        color={node.color}
-        transparent
-        opacity={node.isReal ? 0.85 : 0.4}
-        emissive={node.color}
-        emissiveIntensity={selected ? 0.4 : 0.08}
-      />
-      {selected && (
-        <mesh scale={1.3}>
-          <sphereGeometry args={[radius, 8, 6]} />
-          <meshBasicMaterial color="#4fc3f7" wireframe transparent opacity={0.3} />
-        </mesh>
-      )}
-      <Html distanceFactor={20} position={[0, radius + 0.4, 0]} center>
-        <div style={{
-          color: C_TEXT, fontSize: "10px", whiteSpace: "nowrap",
-          textShadow: "0 1px 3px rgba(0,0,0,0.8)", pointerEvents: "none",
-          maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis",
-        }}>
-          {node.label}
-        </div>
-      </Html>
-    </mesh>
+    <>
+      {objects.map((o, i) => (
+        <primitive key={i} object={o} />
+      ))}
+    </>
   );
 };
 
-// ── 3D Edge ──
+// ── Hub shells ──
 
-const Edge3DLine: React.FC<{ edge: Edge3D }> = ({ edge }) => (
-  <Line
-    points={[edge.from, edge.to]}
-    color={edge.color}
-    lineWidth={edge.dash ? 1 : 1.5}
-    dashed={edge.dash}
-    dashSize={0.3}
-    gapSize={0.2}
-    transparent
-    opacity={0.5}
-  />
+const HubShells: React.FC<{ layout: WorldLayout; lens: LensView }> = ({ layout, lens }) => {
+  const shells = useMemo(() => {
+    const radius = new Map<number, number>();
+    const hubPos = new Map<number, [number, number, number]>();
+    for (const n of layout.nodes) if (n.kind === "hub" && n.containerId !== null) hubPos.set(n.containerId, n.pos);
+    for (const n of layout.nodes) {
+      if (n.kind !== "node" || n.containerId === null) continue;
+      const hp = hubPos.get(n.containerId);
+      if (!hp) continue;
+      const d = Math.hypot(n.pos[0] - hp[0], n.pos[1] - hp[1], n.pos[2] - hp[2]) + n.radius + 0.6;
+      radius.set(n.containerId, Math.max(radius.get(n.containerId) ?? 2.2, d));
+    }
+    return layout.nodes
+      .filter((n) => n.kind === "hub")
+      .map((n) => ({ node: n, r: radius.get(n.containerId ?? -1) ?? 2.2 }));
+  }, [layout]);
+  return (
+    <>
+      {shells.map(({ node, r }) => {
+        const lit = lens.active === null || lens.active.has(node.index);
+        return (
+          <mesh key={node.id} position={node.pos} scale={r}>
+            <sphereGeometry args={[1, 24, 16]} />
+            <meshBasicMaterial color={node.color} transparent opacity={lit ? 0.07 : 0.02} depthWrite={false} />
+          </mesh>
+        );
+      })}
+    </>
+  );
+};
+
+// ── Instanced node groups (one per shape) ──
+
+const InstancedGroup: React.FC<{
+  shape: WorldShape;
+  items: WorldNode[];
+  layout: WorldLayout;
+  lens: LensView;
+  selectedIndex: number | null;
+  hoveredIndex: number | null;
+  pulses: Record<string, number>;
+  onSelect: (index: number | null) => void;
+  onOpen: (index: number) => void;
+  onHover: (index: number | null) => void;
+}> = ({ shape, items, layout, lens, selectedIndex, hoveredIndex, pulses, onSelect, onOpen, onHover }) => {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const dummy = useMemo(() => new THREE.Object3D(), []);
+  const tint = useMemo(() => new THREE.Color(), []);
+  const white = useMemo(() => new THREE.Color("#ffffff"), []);
+
+  const geometry = useMemo(() => {
+    switch (shape) {
+      case "box": return new THREE.BoxGeometry(1.15, 1.15, 1.15);
+      case "octa": return new THREE.OctahedronGeometry(0.85, 0);
+      case "ico": return new THREE.IcosahedronGeometry(0.8, 0);
+      default: return new THREE.SphereGeometry(0.75, 16, 12);
+    }
+  }, [shape]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+
+  // Which of this group's items are pulsing (real construction events).
+  const pulseStart = useMemo(() => {
+    const m = new Map<number, number>(); // item slot → start ms
+    for (const [id, t] of Object.entries(pulses)) {
+      const idx = layout.byId.get(id);
+      if (idx === undefined) continue;
+      const slot = items.findIndex((it) => it.index === idx);
+      if (slot >= 0) m.set(slot, t);
+    }
+    return m;
+  }, [pulses, layout, items]);
+
+  const apply = useCallback(
+    (nowMs: number) => {
+      const mesh = ref.current;
+      if (!mesh) return;
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        const dim = lens.active !== null && !lens.active.has(it.index);
+        const sel = it.index === selectedIndex;
+        const hov = it.index === hoveredIndex;
+        let scale = it.radius * (sel ? 1.4 : hov ? 1.2 : 1) * (dim ? 0.55 : 1);
+        tint.set(it.color);
+        if (dim) tint.multiplyScalar(0.22);
+        const started = pulseStart.get(i);
+        if (started !== undefined) {
+          const age = (nowMs - started) / 1000;
+          if (age >= 0 && age < PULSE_SECONDS) {
+            const k = 1 - age / PULSE_SECONDS;
+            scale *= 1 + 0.9 * k * (0.55 + 0.45 * Math.sin(age * 9));
+            tint.lerp(white, 0.75 * k);
+          }
+        }
+        dummy.position.set(it.pos[0], it.pos[1], it.pos[2]);
+        dummy.scale.setScalar(scale);
+        dummy.updateMatrix();
+        mesh.setMatrixAt(i, dummy.matrix);
+        mesh.setColorAt(i, tint);
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    },
+    [items, lens, selectedIndex, hoveredIndex, pulseStart, dummy, tint, white],
+  );
+
+  useEffect(() => {
+    apply(Date.now());
+  }, [apply]);
+
+  const wasPulsing = useRef(false);
+  useFrame(() => {
+    if (pulseStart.size === 0) {
+      if (wasPulsing.current) {
+        wasPulsing.current = false;
+        apply(Date.now());
+      }
+      return;
+    }
+    const now = Date.now();
+    let live = false;
+    for (const t of pulseStart.values()) if ((now - t) / 1000 < PULSE_SECONDS) { live = true; break; }
+    if (live) {
+      wasPulsing.current = true;
+      apply(now);
+    } else if (wasPulsing.current) {
+      wasPulsing.current = false;
+      apply(now);
+    }
+  });
+
+  const slotOf = (e: ThreeEvent<MouseEvent | PointerEvent>): number | null =>
+    typeof e.instanceId === "number" && e.instanceId < items.length ? items[e.instanceId].index : null;
+
+  if (items.length === 0) return null;
+  return (
+    <instancedMesh
+      key={`${shape}:${items.length}`}
+      ref={ref}
+      args={[geometry, undefined as unknown as THREE.Material, items.length]}
+      frustumCulled={false}
+      onClick={(e) => {
+        e.stopPropagation();
+        const idx = slotOf(e);
+        if (idx !== null) onSelect(idx);
+      }}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        const idx = slotOf(e);
+        if (idx !== null) onOpen(idx);
+      }}
+      onPointerMove={(e) => {
+        e.stopPropagation();
+        const idx = slotOf(e);
+        if (idx !== hoveredIndex) onHover(idx);
+        document.body.style.cursor = idx === null ? "default" : "pointer";
+      }}
+      onPointerOut={() => {
+        onHover(null);
+        document.body.style.cursor = "default";
+      }}
+    >
+      <meshLambertMaterial />
+    </instancedMesh>
+  );
+};
+
+// ── Camera rig (fly-to) ──
+
+const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+const CameraRig: React.FC<{ focus: FocusRequest | null; controlsRef: React.MutableRefObject<any> }> = ({
+  focus,
+  controlsRef,
+}) => {
+  const { camera } = useThree();
+  const anim = useRef<{
+    t: number;
+    fromPos: THREE.Vector3;
+    toPos: THREE.Vector3;
+    fromTarget: THREE.Vector3;
+    toTarget: THREE.Vector3;
+  } | null>(null);
+
+  useEffect(() => {
+    const controls = controlsRef.current;
+    if (!focus || !controls) return;
+    const toTarget = new THREE.Vector3(...focus.center);
+    const dir = camera.position.clone().sub(controls.target);
+    if (dir.lengthSq() < 1e-6) dir.set(0, 0.25, 1);
+    dir.normalize();
+    // Frame the target to fill the view: a narrow aspect needs more distance
+    // to fit the same width.
+    const aspect = (camera as THREE.PerspectiveCamera).aspect || 1;
+    const distance = Math.min(150, Math.max(10, focus.radius * 2.0 * Math.max(1, 1.2 / aspect)));
+    anim.current = {
+      t: 0,
+      fromPos: camera.position.clone(),
+      toPos: toTarget.clone().add(dir.multiplyScalar(distance)),
+      fromTarget: controls.target.clone(),
+      toTarget,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.key]);
+
+  useFrame((_, dt) => {
+    const a = anim.current;
+    const controls = controlsRef.current;
+    if (!a || !controls) return;
+    a.t = Math.min(1, a.t + dt / 0.85);
+    const k = ease(a.t);
+    camera.position.lerpVectors(a.fromPos, a.toPos, k);
+    controls.target.lerpVectors(a.fromTarget, a.toTarget, k);
+    controls.update();
+    if (a.t >= 1) anim.current = null;
+  });
+  return null;
+};
+
+// ── Labels, selection ring, tooltip ──
+
+const Label: React.FC<{ node: WorldNode; strong?: boolean }> = ({ node, strong }) => (
+  <Html position={[node.pos[0], node.pos[1] + Math.max(node.radius + 0.7, node.shell + 0.6), node.pos[2]]} center zIndexRange={[20, 0]} style={{ pointerEvents: "none" }}>
+    <div className={strong ? "gnw3d-label gnw3d-label-strong" : "gnw3d-label"}>{node.label}</div>
+  </Html>
 );
 
-// ── Main component ──
-
-export const GraphWorld3D: React.FC<{
-  nodes: GraphViewNode[];
-  edges: GraphViewEdge[];
-  selectedId?: string | null;
-  onSelect?: (id: string) => void;
-  height?: number;
-}> = ({ nodes, edges, selectedId, onSelect, height = 420 }) => {
-  const [hovered, setHovered] = useState<string | null>(null);
-
-  const layout = useMemo(() => computeLayout(nodes, edges, 40), [nodes, edges]);
-
-  const edges3d: Edge3D[] = useMemo(() => {
-    return edges.map(e => {
-      const a = layout.get(e.from);
-      const b = layout.get(e.to);
-      if (!a || !b) return null;
-      return {
-        from: a.position,
-        to: b.position,
-        dash: e.edgeClass !== "structural",
-        color: e.edgeClass === "cross-modal" ? "#e879f9" : "#4a6178",
-      };
-    }).filter((e): e is Edge3D => e !== null);
-  }, [edges, layout]);
-
-  const nodes3d = useMemo(() => {
-    return nodes.map(n => {
-      const p = layout.get(n.id);
-      if (!p) return null;
-      return { ...p, connections: (p.connections ?? 0) };
-    }).filter((n): n is Node3D => n !== null);
-  }, [nodes, layout]);
-
+const SelectionRing: React.FC<{ node: WorldNode }> = ({ node }) => {
+  const ref = useRef<THREE.Mesh>(null);
+  useFrame((_, dt) => {
+    if (ref.current) ref.current.rotation.z += dt * 0.8;
+  });
   return (
-    <div style={{ width: "100%", height, position: "relative" }}>
-      <Canvas
-        camera={{ position: [0, 0, 35], fov: 50 }}
-        style={{ background: "var(--color-bg, #0d1117)", borderRadius: 8, border: "1px solid var(--color-border-faint, #30363d)" }}
-        onPointerMissed={() => onSelect?.("")}
-      >
-        <ambientLight intensity={0.5} />
-        <directionalLight position={[10, 20, 15]} intensity={0.8} />
-        <pointLight position={[-10, -10, -10]} intensity={0.3} />
-        <OrbitControls
-          enableDamping
-          dampingFactor={0.1}
-          minDistance={5}
-          maxDistance={80}
-        />
-        {edges3d.map((e, i) => <Edge3DLine key={i} edge={e} />)}
-        {nodes3d.map((n) => (
-          <Node3DMesh
-            key={n.id}
-            node={n}
-            selected={n.id === selectedId}
-            onSelect={(id) => onSelect?.(id)}
-          />
-        ))}
-      </Canvas>
-      {/* Overlay: node count + hint */}
-      <div style={{
-        position: "absolute", bottom: 8, left: 10,
-        fontSize: 10, color: C_MUTED, pointerEvents: "none",
-      }}>
-        {nodes.length} nodes · {edges.length} edges · drag to orbit · scroll to zoom · click to select
+    <Billboard position={node.pos}>
+      <mesh ref={ref}>
+        <torusGeometry args={[node.radius * 1.9 + 0.3, 0.07, 8, 48]} />
+        <meshBasicMaterial color="#4fc3f7" transparent opacity={0.9} />
+      </mesh>
+    </Billboard>
+  );
+};
+
+const Tooltip: React.FC<{ node: WorldNode }> = ({ node }) => (
+  <Html position={[node.pos[0], node.pos[1] - node.radius - 0.5, node.pos[2]]} center zIndexRange={[40, 0]} style={{ pointerEvents: "none" }}>
+    <div className="gnw3d-tip">
+      <div className="gnw3d-tip-title">{node.label}</div>
+      <div className="gnw3d-tip-sub">
+        {node.nodeType}
+        {node.modality !== "container" ? ` · ${node.modality}` : ""}
+        {!node.isReal ? " · derived" : ""}
+        {node.degree > 0 ? ` · ${node.degree} link${node.degree === 1 ? "" : "s"}` : ""}
       </div>
     </div>
+  </Html>
+);
+
+// ── Main ──
+
+export const GraphWorld3D: React.FC<GraphWorld3DProps> = ({
+  layout, lens, selectedIndex, pulses, showLabels, autoRotate, focus, onSelect, onOpen,
+}) => {
+  const controlsRef = useRef<any>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+
+  const groups = useMemo(() => {
+    const by: Record<WorldShape, WorldNode[]> = { sphere: [], box: [], octa: [], ico: [] };
+    for (const n of layout.nodes) by[n.shape].push(n);
+    return by;
+  }, [layout]);
+
+  // Which nodes carry a text label: the selection and hover always; hubs and
+  // the root when the lens includes them; everything when the world is small.
+  const labelled = useMemo(() => {
+    const set = new Set<number>();
+    const small = layout.nodes.length <= 70;
+    for (const n of layout.nodes) {
+      const lit = lens.active === null || lens.active.has(n.index);
+      if (!lit) continue;
+      if (n.kind === "root" || n.kind === "hub") set.add(n.index);
+      else if (small && showLabels) set.add(n.index);
+    }
+    return set;
+  }, [layout, lens, showLabels]);
+
+  const selected = selectedIndex !== null ? layout.nodes[selectedIndex] : null;
+  const hoveredNode = hovered !== null ? layout.nodes[hovered] : null;
+
+  return (
+    <Canvas
+      camera={{ position: [0, layout.radius * 0.4, layout.radius * 1.9 + 8], fov: 50, near: 0.1, far: 1200 }}
+      dpr={[1, 2]}
+      gl={{ antialias: true }}
+      onPointerMissed={() => onSelect(null)}
+    >
+      <color attach="background" args={["#0a1017"]} />
+      <fog attach="fog" args={["#0a1017", layout.radius * 2.2, layout.radius * 7 + 60]} />
+      <ambientLight intensity={0.85} />
+      <directionalLight position={[12, 24, 16]} intensity={0.9} />
+      <pointLight position={[-14, -10, -12]} intensity={0.35} />
+      <Stars radius={Math.max(260, layout.radius * 4)} depth={60} count={1400} factor={3} saturation={0} fade speed={0.4} />
+      <OrbitControls
+        ref={controlsRef}
+        makeDefault
+        enableDamping
+        dampingFactor={0.09}
+        minDistance={4}
+        maxDistance={Math.max(120, layout.radius * 6)}
+        autoRotate={autoRotate}
+        autoRotateSpeed={0.5}
+      />
+      <CameraRig focus={focus} controlsRef={controlsRef} />
+      <HubShells layout={layout} lens={lens} />
+      <Edges layout={layout} lens={lens} selectedIndex={selectedIndex} />
+      {(Object.keys(groups) as WorldShape[]).map((shape) => (
+        <InstancedGroup
+          key={shape}
+          shape={shape}
+          items={groups[shape]}
+          layout={layout}
+          lens={lens}
+          selectedIndex={selectedIndex}
+          hoveredIndex={hovered}
+          pulses={pulses}
+          onSelect={onSelect}
+          onOpen={onOpen}
+          onHover={setHovered}
+        />
+      ))}
+      {Array.from(labelled).map((i) =>
+        i === selectedIndex || i === hovered ? null : <Label key={`l${i}`} node={layout.nodes[i]} />,
+      )}
+      {selected && (
+        <>
+          <SelectionRing node={selected} />
+          <Label node={selected} strong />
+        </>
+      )}
+      {hoveredNode && hoveredNode.index !== selectedIndex && <Tooltip node={hoveredNode} />}
+    </Canvas>
   );
 };
 

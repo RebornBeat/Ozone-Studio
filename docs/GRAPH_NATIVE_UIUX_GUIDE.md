@@ -364,3 +364,46 @@ The underlying substrate NEVER remounts — switching lenses is a camera/filter 
 
 ### 8.5 Dependency
 three.js (or @react-three/fiber + @react-three/drei as the React wrapper) — the doctrine's leaf-renderer exception. The GraphProvider/primitives/indicators/lens contracts above are the stable API; three.js is the rendering engine behind GraphWorld3D.
+
+## 9. STATUS 2026-10-28 (cc) — THE GRAPH-NATIVE WORKSPACE IS THE WORKSPACE (rendered + driven in a real browser)
+
+Supersedes the "3D tile + classic view stacked underneath" arrangement of the first wave. Verified this pass: `tsc` clean (0 errors; the one legacy chatRendering error is fixed), production bundle builds (main chunk 1.62 MB → 766 KB because the 3D world is now lazy-loaded; `GraphWorld3D` is its own 853 KB chunk), and the workspace was **rendered and driven in headless Chrome (WebGL via SwiftShader)** — first against a synthetic 319-entity substrate (hover tooltips, click-to-select, fly-to, inspector with real fields + cross-links, lens re-framing and dimming, legend solo, find-in-graph, narrow layout; zero console errors), then against the **live host's real data** through the global Files & Code / Fabric / Hierarchy / Engines tabs. Not yet verified: inside Electron itself (it needs the preload bridge; the plain-browser run cannot reach the host through the app's CSP — see §9.6).
+
+### 9.1 What it is now
+One persistent 3D world fills the project workspace; the classic views are **docked inside it**, not stacked below it:
+```
+header: project · lens line · find-in-graph ( / ) · peer/activity chips
+┌ world (3D) ───────────────────────────────┐┌ dock (resizable, collapsible) ─┐
+│ HUD: counts · truncation notes · live      ││ Inspector │ Detail             │
+│      construction pulses · solo chip       ││ selected entity: type, real    │
+│ controls: reset · focus · labels · rotate  ││ fields, cross-links, connected │
+│           fullscreen · dock                ││ — or the classic lens view     │
+│ legend (click = solo a modality)           ││ with its sub-tabs              │
+└────────────────────────────────────────────┘└────────────────────────────────┘
+lens bar (Files · Fabric · Hierarchy · Graph · Engines) — camera/highlight presets over the ONE world
+```
+- **World = the substrate drawn in space** (`graphkit/layout3d.ts`, pure + deterministic): project root → one **hub per ModalityGraph container** on a sphere around it, each wrapped in a translucent shell, its nodes clustered inside; files on an outer ring pulled toward the graphs they feed; other containers (methodologies, blueprints, AMTs, tasks…) on an outer shell grouped by type. Edges: in-graph, root→hub containment, container-level cross-links (cross-modal `SimilarTo` in magenta), file→graph. Caps are honest (2400 graph nodes / 300 containers / 300 files; the HUD says "showing the N most-connected of M").
+- **Lenses actually mean something**: Files highlights files + the graphs they feed; Fabric highlights containers with links touching *this project* and emphasises cross-modal edges; Hierarchy highlights AMT/lineage/plan/jurisdiction containers; Engines highlights that engine's modalities (e.g. Audio/Video = audio+video+sound); Graph = everything. Switching lens re-frames the camera and dims the rest — the substrate never remounts.
+- **Traversal**: click selects (camera flies to frame it: a hub frames its whole cluster), double-click opens it in its engine / Files lens, the inspector's Connected chips and Cross-links chips jump along edges, edges touching the selection light up accent-blue, `/` find-in-graph, `F` focus, `R` reset, `L` labels, `D` dock, `Esc` deselect.
+- **Real signals only**: node-event pulses flash exactly the node a modality pipeline just constructed (provider keeps per-node pulses for 10 s, batched ≤4 updates/s); "N nodes being constructed now"; derived nodes are tagged; empty/loading/error states say why. No fabricated progress.
+- **Resilience**: WebGL missing or the renderer throwing never takes the workspace down — the dock (every classic view) stays and the world says what happened.
+
+### 9.2 One component, two mounts (the canonical-surface law, finished)
+`ProjectWorkspaceViewer` (Workspace tab) and the new `components/GraphNativePanel.tsx` (the global **Files & Code / Fabric / Hierarchy / Engines** tabs) render the same `GraphNativeWorkspace`; the tab's identity is its starting lens and the shared ProjectPicker supplies the project. The Files lens now carries Browser / References / Code / **Math / Editor / History** (previously global-only), deep-link requests (`requestFilesTab`, `requestEnginesTab`) still land on the right sub-view, and Unlink is offered only where a Workspace-tab (flat) project id exists. The engine registry moved to `panels/enginesRegistry.tsx` (no import cycle). The standalone 2D **Graph View** tab is intentionally unchanged (it owns `graph-node` deep-link pickup); it is also the Graph lens's docked detail.
+
+### 9.3 Provider fixes made on the way (these were real defects)
+- Live handlers were registered per `load()` and never released, and every refetch closed over the *first* load's cancellation flag → switching projects left the previous project's handlers refetching into the new one's state. Now one module-level teardown (`teardownLive`) cancels the in-flight fetch and releases every handler on load/reset.
+- Refetch is coalesced (600 ms trailing; a construction burst = one refetch) and keeps the substrate on screen meanwhile (no flash to "loading").
+- `WorkspaceStatusStrip` fetched a bare relative `/health` — it only worked when the page origin was the host, so under Electron the peer-trust strip never appeared; and `/network/paired-peers` is session-gated under `OZONE_REQUIRE_SESSION=1`. Now through `hostGet` (new, bridge-first like every other client call), with an honest degrade when the trust half 401s.
+- Provider additions: `graphContainers`, `projectName`, `pulses`.
+
+### 9.4 Files (all under `ui/src/`)
+New: `graphkit/GraphNativeWorkspace.tsx` (shell, inspector, search, dock, prefs persisted in localStorage `ozone-gnw-prefs-v1`), `graphkit/layout3d.ts` (layout + lens views), `components/GraphNativePanel.tsx`, `panels/enginesRegistry.tsx` (moved from `EnginesPanel.tsx`). Rewritten: `graphkit/GraphWorld3D.tsx` (instanced meshes per shape, batched edge geometry per class, hub shells, camera fly-to rig, pulses, tooltip/labels, error-safe). Changed: `ProjectWorkspaceViewer.tsx`, `graphProvider.ts`, the four global panels, `ozoneClient.ts` (`hostGet`), `WorkspaceStatusStrip.tsx`, `App.css` (`.gnw*` / `.gnw3d*` / `.gnp-body`; also a stray `*/` inside a comment that made vite warn about invalid CSS). Removed: `graphkit/GraphNativeSection.tsx`.
+
+### 9.5 Remaining (honest backlog, in value order)
+1. Verify inside Electron (preload bridge, real session gating, fullscreen). 2. Task / gate / capture indicators as in-space objects (guide §8.3 — the substrate does not carry task rows yet; needs a task feed into the provider). 3. Saved camera views + shareable deep links to a selection. 4. Path-finding between two selected entities. 5. Time scrubber over construction events. 6. Port the 9 dedicated engine bodies to lens renders (they work as docked detail meanwhile). 7. Engine-specific inspector rows (the generic inspector shows the node's real `properties`). 8. The old 2D Graph tab as a lens (needs its deep-link pickup moved).
+
+### 9.6 Known environment limits
+- The app's `index.html` CSP is `default-src 'self'`, so a plain browser cannot reach the host (Electron bridges through the main process) — a browser-only dev run needs the CSP meta removed.
+- SwiftShader (software WebGL) was used for the headless run; real-GPU performance on large substrates (2400+ nodes) is untested here, though node/edge drawing is instanced/batched by design (layout of a 3060-node substrate computes in ~36 ms).
+

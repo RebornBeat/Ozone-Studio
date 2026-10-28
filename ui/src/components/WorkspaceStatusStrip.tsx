@@ -8,7 +8,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { useGraphKit } from "../graphkit/graphProvider";
-import { getGraphEventClient } from "../graphEventClient";
+import { hostGet } from "../ozoneClient";
 import { PeerState, ActivityPulse } from "../graphkit/indicators";
 
 export const WorkspaceStatusStrip: React.FC = () => {
@@ -23,12 +23,24 @@ export const WorkspaceStatusStrip: React.FC = () => {
       try {
         // /health already carries the real peer_count (HealthResponse) — no
         // new route needed; paired-peers is the trust half.
-        const health = await fetch("/health").then((r) => r.json());
-        const paired = await fetch("/network/paired-peers").then((r) => r.json());
+        // Through the shared host client (Electron bridge-first) — a bare
+        // relative fetch("/health") only works when the page origin IS the
+        // host, so under Electron (file://) the strip silently never showed.
+        const health: any = await hostGet("/health");
         if (cancelled) return;
         setPeerCount(Number(health?.peer_count ?? 0));
-        setPairedCount(Array.isArray(paired?.paired_peers) ? paired.paired_peers.length : 0);
         setAvailable(true);
+        // Trust half is best-effort: /network/* is session-gated when the
+        // host runs OZONE_REQUIRE_SESSION=1, so an unpaired UI gets 401 here.
+        // Honest degrade: paired count stays 0 and the chip says so.
+        try {
+          const paired: any = await hostGet("/network/paired-peers");
+          if (!cancelled) {
+            setPairedCount(Array.isArray(paired?.paired_peers) ? paired.paired_peers.length : 0);
+          }
+        } catch {
+          if (!cancelled) setPairedCount(0);
+        }
       } catch {
         if (!cancelled) setAvailable(false);
       }

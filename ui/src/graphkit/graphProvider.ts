@@ -48,8 +48,17 @@ export interface GraphKitState {
   sourceContainers: number[];
   files: GKFileRef[];
   containers: Record<number, GKContainerRef>;
+  /** Every ModalityGraph container under the project (known modality only),
+   * keyed by container id — the "hub" the 3D world draws each graph around. */
+  graphContainers: Record<number, { modality: Modality; name: string | null }>;
+  /** The project container's own name (null when unnamed) — the root hub. */
+  projectName: string | null;
   crossLinks: GKCrossLink[];
   crossLinksByContainer: Record<number, GKCrossLink[]>;
+  /** Real node-construction events, newest timestamp per composite node id
+   * (`${modality}:${graphId}:${nodeId}`) — what the 3D world pulses. Pruned
+   * to the last 10 seconds; empty when nothing is being constructed. */
+  pulses: Record<string, number>;
   /** Unix-ms of the last real WS event for this project (presence indicators
    * show recency of REAL activity; 0 = none this session). */
   lastEventAt: number;
@@ -86,6 +95,7 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
   const containerRelations: Record<number, ContainerRelation[]> = {};
   const files: GKFileRef[] = [];
   const containers: Record<number, GKContainerRef> = {};
+  const graphContainers: Record<number, { modality: Modality; name: string | null }> = {};
   let unknownModalityGraphs = 0;
   const labels = new Map<number, string>();
   const modalities = new Map<number, Modality | null>();
@@ -108,6 +118,7 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
       const raw = await getContainerContent(id);
       if (!raw) continue; // honest: container exists, content not JSON
       sourceContainers.push(id);
+      graphContainers[id] = { modality, name };
       const conv = convertGraph(raw, modality, id);
       nodes.push(...conv.nodes);
       edges.push(...conv.edges);
@@ -229,70 +240,125 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
     unknownModalityGraphs,
     files,
     containers,
+    graphContainers,
+    projectName: project.local_state.metadata.name ?? null,
     crossLinks,
     crossLinksByContainer,
   };
 }
 
+// Live-subscription bookkeeping (module-level, ONE substrate at a time). The
+// first version registered handlers per load() and never released them, and
+// every refetch closed over the FIRST load's cancellation flag — so switching
+// projects left the old project's handlers refetching into the new one's
+// state. Now: load()/reset() cancel the in-flight signal and release every
+// handler before wiring the next project.
+let activeSignal: { cancelled: boolean } | null = null;
+let releaseHandlers: Array<() => void> = [];
+let pendingPulses: Record<string, number> = {};
+let pulseTimer: ReturnType<typeof setTimeout> | null = null;
+
+function teardownLive() {
+  if (activeSignal) activeSignal.cancelled = true;
+  activeSignal = null;
+  for (const release of releaseHandlers) {
+    try {
+      release();
+    } catch {
+      /* already released */
+    }
+  }
+  releaseHandlers = [];
+  pendingPulses = {};
+  if (pulseTimer) {
+    clearTimeout(pulseTimer);
+    pulseTimer = null;
+  }
+}
+
+const EMPTY_SUBSTRATE = {
+  nodes: [] as GraphViewNode[],
+  edges: [] as GraphViewEdge[],
+  containerRelations: {} as Record<number, ContainerRelation[]>,
+  unknownModalityGraphs: 0,
+  sourceContainers: [] as number[],
+  files: [] as GKFileRef[],
+  containers: {} as Record<number, GKContainerRef>,
+  graphContainers: {} as Record<number, { modality: Modality; name: string | null }>,
+  projectName: null as string | null,
+  crossLinks: [] as GKCrossLink[],
+  crossLinksByContainer: {} as Record<number, GKCrossLink[]>,
+};
+
+type Substrate = NonNullable<Awaited<ReturnType<typeof fetchProjectSubstrate>>>;
+
+function applySubstrate(result: Substrate, emptyWhy: string) {
+  const empty =
+    result.nodes.length === 0 &&
+    result.files.length === 0 &&
+    Object.keys(result.containers).length === 0;
+  return {
+    status: (empty ? { kind: "empty", why: emptyWhy } : { kind: "ready" }) as GKStatus,
+    nodes: result.nodes,
+    edges: result.edges,
+    containerRelations: result.containerRelations,
+    unknownModalityGraphs: result.unknownModalityGraphs,
+    sourceContainers: result.sourceContainers,
+    files: result.files,
+    containers: result.containers,
+    graphContainers: result.graphContainers,
+    projectName: result.projectName,
+    crossLinks: result.crossLinks,
+    crossLinksByContainer: result.crossLinksByContainer,
+  };
+}
+
+const PULSE_WINDOW_MS = 10_000;
+
 export const useGraphKit = create<GraphKitState>((set, get) => ({
   projectId: null,
   status: { kind: "idle" },
-  nodes: [],
-  edges: [],
-  containerRelations: {},
-  unknownModalityGraphs: 0,
-  sourceContainers: [],
-  files: [],
-  containers: {},
-  crossLinks: [],
-  crossLinksByContainer: {},
+  ...EMPTY_SUBSTRATE,
+  pulses: {},
   lastEventAt: 0,
   nodeEventCount: 0,
-  reset: () =>
+  reset: () => {
+    teardownLive();
     set({
       projectId: null,
       status: { kind: "idle" },
-      nodes: [],
-      edges: [],
-      containerRelations: {},
-      unknownModalityGraphs: 0,
-      sourceContainers: [],
-      files: [],
-      containers: {},
-      crossLinks: [],
-      crossLinksByContainer: {},
+      ...EMPTY_SUBSTRATE,
+      pulses: {},
       lastEventAt: 0,
       nodeEventCount: 0,
-    }),
+    });
+  },
   load: (projectId: number) => {
     if (get().projectId === projectId && get().status.kind !== "idle") return;
-    set({ projectId, status: { kind: "loading" } });
+    // Switching projects: drop the previous project's handlers/in-flight
+    // fetches before anything else, then clear its substrate so the new
+    // project never renders the old one's nodes while loading.
+    teardownLive();
+    set({
+      projectId,
+      status: { kind: "loading" },
+      ...EMPTY_SUBSTRATE,
+      pulses: {},
+      lastEventAt: 0,
+      nodeEventCount: 0,
+    });
     const signal = { cancelled: false };
+    activeSignal = signal;
 
     fetchProjectSubstrate(projectId, signal)
       .then((result) => {
         if (signal.cancelled || result === null) return;
-        const empty =
-          result.nodes.length === 0 &&
-          result.files.length === 0 &&
-          Object.keys(result.containers).length === 0;
-        set({
-          status: empty
-            ? {
-                kind: "empty",
-                why: "This project has no graph containers yet — run an orchestration with attachments, or link files, and this workspace fills from the graph.",
-              }
-            : { kind: "ready" },
-          nodes: result.nodes,
-          edges: result.edges,
-          containerRelations: result.containerRelations,
-          unknownModalityGraphs: result.unknownModalityGraphs,
-          sourceContainers: result.sourceContainers,
-          files: result.files,
-          containers: result.containers,
-          crossLinks: result.crossLinks,
-          crossLinksByContainer: result.crossLinksByContainer,
-        });
+        set(
+          applySubstrate(
+            result,
+            "This project has no graph containers yet — run an orchestration with attachments, or link files, and this workspace fills from the graph.",
+          ),
+        );
       })
       .catch((err: unknown) => {
         if (signal.cancelled) return;
@@ -306,44 +372,82 @@ export const useGraphKit = create<GraphKitState>((set, get) => ({
 
     // ONE subscription per store (the shared client; never per-view sockets).
     // Graph events for this project's scope → honest refetch of the substrate.
+    // Refetch is coalesced: a burst of events (a construction run emits many)
+    // triggers one trailing refetch, never a refetch per event, and the
+    // current substrate stays on screen (status stays "ready") meanwhile.
     const client = getGraphEventClient();
     client.connect();
-    client.onEvent(
-      (frame) => {
-        if (frame.parent_id !== projectId && frame.container_id !== projectId) return;
-        set({ lastEventAt: Date.now() });
-        // Refetch by forcing the load path (projectId already set → reset
-        // gate bypassed via explicit status bump).
-        set({ status: { kind: "loading" } });
-        fetchProjectSubstrate(projectId, signal)
-          .then((result) => {
-            if (signal.cancelled || result === null) return;
-            set({
-              status: result.nodes.length + result.files.length === 0 ? { kind: "empty", why: "No graph containers under this project." } : { kind: "ready" },
-              nodes: result.nodes,
-              edges: result.edges,
-              containerRelations: result.containerRelations,
-              unknownModalityGraphs: result.unknownModalityGraphs,
-              sourceContainers: result.sourceContainers,
-              files: result.files,
-              containers: result.containers,
-              crossLinks: result.crossLinks,
-              crossLinksByContainer: result.crossLinksByContainer,
-            });
-          })
-          .catch(() => {
-            /* keep the previous substrate; next event retries */
-            set({ status: { kind: "ready" } });
-          });
-      },
-      [`proj:${projectId}`, "scope:global"],
-    );
-    // Node-construction events → substrate-wide pulse counter (the 3D
-    // pattern promoted; per-node highlight stays a lens concern).
-    client.onNodeEvent((frame) => {
-      if (frame.project_id !== projectId) return;
-      set((s) => ({ nodeEventCount: s.nodeEventCount + 1, lastEventAt: Date.now() }));
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null;
+    let refetching = false;
+    let again = false;
+    const refetch = () => {
+      if (signal.cancelled) return;
+      if (refetching) {
+        again = true;
+        return;
+      }
+      refetching = true;
+      fetchProjectSubstrate(projectId, signal)
+        .then((result) => {
+          if (signal.cancelled || result === null) return;
+          set(applySubstrate(result, "No graph containers under this project."));
+        })
+        .catch(() => {
+          /* keep the previous substrate; the next event retries */
+        })
+        .finally(() => {
+          refetching = false;
+          if (again && !signal.cancelled) {
+            again = false;
+            refetch();
+          }
+        });
+    };
+    const scheduleRefetch = () => {
+      if (refetchTimer) clearTimeout(refetchTimer);
+      refetchTimer = setTimeout(refetch, 600);
+    };
+    releaseHandlers.push(() => {
+      if (refetchTimer) clearTimeout(refetchTimer);
     });
+    releaseHandlers.push(
+      client.onEvent(
+        (frame) => {
+          if (frame.parent_id !== projectId && frame.container_id !== projectId) return;
+          set({ lastEventAt: Date.now() });
+          scheduleRefetch();
+        },
+        [`proj:${projectId}`, "scope:global"],
+      ),
+    );
+    // Node-construction events → substrate-wide pulse counter AND per-node
+    // pulses (the 3D pattern promoted: the world pulses exactly the node the
+    // modality pipeline just constructed). Batched to <=4 store updates/sec —
+    // producers can fire hundreds of events per graph.
+    releaseHandlers.push(
+      client.onNodeEvent((frame) => {
+        if (frame.project_id !== projectId) return;
+        const now = Date.now();
+        pendingPulses[`${frame.modality}:${frame.graph_id}:${frame.node_id}`] = now;
+        if (frame.related_node_id != null) {
+          pendingPulses[`${frame.modality}:${frame.graph_id}:${frame.related_node_id}`] = now;
+        }
+        set((s) => ({ nodeEventCount: s.nodeEventCount + 1, lastEventAt: now }));
+        if (pulseTimer) return;
+        pulseTimer = setTimeout(() => {
+          pulseTimer = null;
+          const flush = pendingPulses;
+          pendingPulses = {};
+          const cutoff = Date.now() - PULSE_WINDOW_MS;
+          set((s) => {
+            const merged: Record<string, number> = {};
+            for (const [k, t] of Object.entries(s.pulses)) if (t >= cutoff) merged[k] = t;
+            for (const [k, t] of Object.entries(flush)) merged[k] = t;
+            return { pulses: merged };
+          });
+        }, 250);
+      }),
+    );
   },
 }));
 

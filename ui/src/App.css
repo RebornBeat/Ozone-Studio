@@ -5047,8 +5047,7 @@ body {
 
 /* ============================================================================
    v0.4.0 - CORE TAB UI COMPONENT STYLES
-   These styles are used by pipelines/core/*/
-ui/component.js files
+   These styles are used by pipelines/core/<name>/ui/component.js files
    ============================================================================ */
 
 /* Workspace Tab (Pipeline #6) */
@@ -7113,3 +7112,190 @@ ui/component.js files
   color: var(--color-text);
   border-color: var(--color-accent);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   GraphNativeWorkspace (2026-10-28) — the project workspace AS the graph.
+   One persistent 3D world; the classic views dock inside it; the bottom
+   lens bar re-frames/highlights the same world. See
+   ui/src/graphkit/GraphNativeWorkspace.tsx and the guide §4.7/§8.
+   ═══════════════════════════════════════════════════════════════════════ */
+.gnw {
+  --gnw-bg: #0a1017;
+  --gnw-panel: rgba(15, 22, 33, 0.92);
+  --gnw-panel-solid: #0f1621;
+  --gnw-line: #1e2a3a;
+  --gnw-line-strong: #2a3a52;
+  --gnw-text: #e6edf3;
+  --gnw-body: #a9b8c9;
+  --gnw-muted: #6b7c90;
+  --gnw-accent: #4fc3f7;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 380px;
+  min-width: 0;
+  width: 100%;
+  background: var(--gnw-bg);
+  color: var(--gnw-body);
+  outline: none;
+  overflow: hidden;
+}
+.gnw:focus-visible { box-shadow: inset 0 0 0 1px var(--gnw-accent); }
+.gnw-fs { min-height: 100vh; }
+.gnw-empty-state { padding: 24px; color: var(--gnw-muted); font-size: 13px; align-items: center; justify-content: center; }
+
+.gnw-head {
+  display: flex; align-items: center; gap: 12px;
+  padding: 7px 14px; flex-shrink: 0; min-height: 34px;
+  border-bottom: 1px solid var(--gnw-line);
+  background: linear-gradient(180deg, rgba(20,30,45,0.95), rgba(12,18,28,0.95));
+}
+.gnw-head-title { color: var(--gnw-text); font-weight: 700; font-size: 13px; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnw-head-lens { color: var(--gnw-muted); font-size: 11.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gnw-head-spacer { flex: 1 1 auto; }
+
+.gnw-main { position: relative; display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
+.gnw-world { position: relative; flex: 1 1 auto; min-width: 0; min-height: 0; background: var(--gnw-bg); }
+.gnw-world canvas { display: block; outline: none; }
+
+/* HUD */
+.gnw-hud { position: absolute; z-index: 30; font-size: 11px; color: var(--gnw-body); pointer-events: none; }
+.gnw-hud button, .gnw-hud .gnw-chip { pointer-events: auto; }
+.gnw-hud-tl { top: 10px; left: 12px; display: flex; flex-direction: column; gap: 4px; align-items: flex-start; max-width: 62%; }
+.gnw-hud-tr { top: 10px; right: 12px; display: flex; gap: 4px; pointer-events: auto; }
+.gnw-hud-bl { bottom: 10px; left: 12px; max-width: 70%; }
+.gnw-hud-br { bottom: 10px; right: 12px; }
+.gnw-hud-line { background: var(--gnw-panel); border: 1px solid var(--gnw-line); border-radius: 8px; padding: 4px 10px; }
+.gnw-hud-line b { color: var(--gnw-text); }
+.gnw-hud-warn { color: #d9b45f; background: rgba(217,180,95,0.08); border: 1px solid rgba(217,180,95,0.25); border-radius: 8px; padding: 3px 9px; }
+.gnw-hud-live { color: var(--gnw-accent); background: rgba(79,195,247,0.1); border: 1px solid rgba(79,195,247,0.3); border-radius: 8px; padding: 3px 9px; animation: gnw-pulse 1.6s ease-in-out infinite; }
+.gnw-hud-dim { color: var(--gnw-muted); padding: 0 4px; }
+.gnw-hint { color: var(--gnw-muted); font-size: 10.5px; background: rgba(10,16,23,0.6); padding: 2px 8px; border-radius: 6px; }
+@keyframes gnw-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+.gnw-ibtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; cursor: pointer;
+  background: var(--gnw-panel); color: var(--gnw-body);
+  border: 1px solid var(--gnw-line); border-radius: 8px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.gnw-ibtn:hover { background: #17233a; color: var(--gnw-text); border-color: var(--gnw-line-strong); }
+.gnw-ibtn.on { color: var(--gnw-accent); border-color: rgba(79,195,247,0.5); background: rgba(79,195,247,0.1); }
+
+.gnw-legend { display: flex; flex-wrap: wrap; gap: 4px; pointer-events: auto; }
+.gnw-legend-item {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  background: var(--gnw-panel); color: var(--gnw-body); font-size: 10.5px;
+  border: 1px solid var(--gnw-line); border-radius: 10px; padding: 2px 8px;
+}
+.gnw-legend-item:hover { border-color: var(--gnw-line-strong); color: var(--gnw-text); }
+.gnw-legend-item.on { border-color: var(--gnw-accent); color: var(--gnw-text); background: rgba(79,195,247,0.12); }
+.gnw-dot { display: inline-block; width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
+.gnw-muted { color: var(--gnw-muted); font-size: 11px; }
+.gnw-pad { padding: 14px; line-height: 1.55; font-size: 12.5px; }
+
+.gnw-overlay {
+  position: absolute; inset: 0; z-index: 25; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 10px; text-align: center;
+  padding: 24px; color: var(--gnw-body); font-size: 13px; line-height: 1.55;
+  background: radial-gradient(ellipse at center, rgba(10,16,23,0.55), rgba(10,16,23,0.9));
+  pointer-events: none;
+}
+.gnw-overlay-error { color: #ff8a8a; }
+.gnw-spinner { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--gnw-line-strong); border-top-color: var(--gnw-accent); animation: gnw-spin 0.9s linear infinite; }
+@keyframes gnw-spin { to { transform: rotate(360deg); } }
+
+/* Dock */
+.gnw-dock {
+  position: relative; display: flex; flex-direction: column; flex-shrink: 0; min-width: 0;
+  background: var(--gnw-panel-solid); border-left: 1px solid var(--gnw-line);
+}
+.gnw-dock-overlay { position: absolute; top: 0; right: 0; bottom: 0; z-index: 60; box-shadow: -12px 0 30px rgba(0,0,0,0.45); }
+.gnw-resize { position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 61; }
+.gnw-resize:hover, .gnw-resize:active { background: rgba(79,195,247,0.35); }
+.gnw-dock-head { display: flex; align-items: center; gap: 6px; padding: 7px 10px; flex-shrink: 0; border-bottom: 1px solid var(--gnw-line); }
+.gnw-seg { display: inline-flex; border: 1px solid var(--gnw-line); border-radius: 8px; overflow: hidden; }
+.gnw-seg button { background: transparent; color: var(--gnw-muted); border: 0; padding: 4px 12px; font-size: 12px; cursor: pointer; }
+.gnw-seg button.on { background: #17233a; color: var(--gnw-text); }
+.gnw-seg button:hover:not(.on) { color: var(--gnw-body); }
+.gnw-dock-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.gnw-subs { display: flex; gap: 4px; padding: 8px 10px; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid var(--gnw-line); position: sticky; top: 0; background: var(--gnw-panel-solid); z-index: 2; }
+.gnw-subs button { background: transparent; color: #7fa8cc; border: 1px solid transparent; border-radius: 6px; padding: 3px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.gnw-subs button:hover { background: #16233a; }
+.gnw-subs button.on { background: #16233a; color: #dfe7f2; border-color: var(--gnw-line-strong); }
+.gnw-detail { padding: 12px; min-width: 0; }
+
+/* Inspector */
+.gnw-insp { display: flex; flex-direction: column; gap: 4px; padding: 12px; }
+.gnw-insp-head { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--gnw-line); }
+.gnw-insp-kind { align-self: flex-start; font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--gnw-accent); border: 1px solid rgba(79,195,247,0.35); border-radius: 4px; padding: 0 5px; }
+.gnw-insp-title { color: var(--gnw-text); font-size: 14px; font-weight: 700; word-break: break-word; }
+.gnw-insp-sub { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 11px; color: var(--gnw-body); }
+.gnw-tag-derived { font-size: 9.5px; color: var(--gnw-muted); border: 1px dashed var(--gnw-line-strong); border-radius: 3px; padding: 0 4px; }
+.gnw-insp-actions { display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 0; }
+.gnw-insp-sec { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--gnw-line); }
+.gnw-sec-title { font-size: 10.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--gnw-muted); }
+.gnw-kv { display: flex; justify-content: space-between; gap: 12px; font-size: 11.5px; }
+.gnw-kv span { color: var(--gnw-muted); flex-shrink: 0; }
+.gnw-kv b { color: var(--gnw-body); font-weight: 500; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.gnw-props { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.gnw-preview { font-size: 11.5px; color: var(--gnw-body); background: rgba(255,255,255,0.03); border: 1px solid var(--gnw-line); border-radius: 6px; padding: 6px 8px; max-height: 120px; overflow: auto; white-space: pre-wrap; word-break: break-word; }
+.gnw-btn {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  background: transparent; color: var(--gnw-body); font-size: 11.5px;
+  border: 1px solid var(--gnw-line-strong); border-radius: 7px; padding: 3px 9px;
+}
+.gnw-btn:hover { background: #17233a; color: var(--gnw-text); }
+.gnw-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.gnw-chip {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer; max-width: 100%;
+  background: transparent; color: var(--gnw-body); font-size: 10.5px;
+  border: 1px solid var(--gnw-line-strong); border-radius: 10px; padding: 1px 8px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.gnw-chip:hover { color: var(--gnw-text); border-color: var(--gnw-accent); }
+.gnw-chip-static { cursor: default; }
+.gnw-chip-static:hover { border-color: var(--gnw-line-strong); color: var(--gnw-body); }
+
+/* Lens bar (kept directly above the project chat, per the operator's ordering) */
+.gnw-lensbar { display: flex; align-items: center; gap: 4px; padding: 7px 12px; flex-shrink: 0; overflow-x: auto; border-top: 1px solid var(--gnw-line); background: linear-gradient(0deg, rgba(20,30,45,0.95), rgba(12,18,28,0.95)); }
+.gnw-lensbar button {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;
+  background: transparent; color: #7fa8cc; font-size: 12.5px;
+  border: 1px solid transparent; border-radius: 8px; padding: 5px 12px;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.gnw-lensbar button:hover { background: #16233a; }
+.gnw-lensbar button.on { background: #16233a; color: #dfe7f2; border-color: var(--gnw-line-strong); box-shadow: inset 0 -2px 0 var(--gnw-accent); }
+
+/* In-canvas labels / tooltip (drei <Html>) */
+.gnw3d-label { color: #e6edf3; font-size: 10px; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.9); max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
+.gnw3d-label-strong { font-size: 11.5px; font-weight: 700; color: #4fc3f7; }
+.gnw3d-tip { background: rgba(10,16,23,0.92); border: 1px solid #2a3a52; border-radius: 8px; padding: 5px 9px; white-space: nowrap; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
+.gnw3d-tip-title { color: #e6edf3; font-size: 11.5px; font-weight: 600; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+.gnw3d-tip-sub { color: #8fa3b8; font-size: 10px; }
+
+/* The classic views dock inside a dark panel: keep their own light-on-dark
+   chrome readable without re-theming each of them. */
+.gnw-detail > * { max-width: 100%; }
+.gnw-detail table { max-width: 100%; }
+
+.gnw-narrow .gnw-hud-tl { max-width: 80%; }
+.gnw-narrow .gnw-hint { display: none; }
+
+/* Global Files/Fabric/Hierarchy/Engines tabs mount the same graph-native
+   workspace (components/GraphNativePanel.tsx): the scroll region becomes a
+   flex column so the workspace fills the tab instead of shrink-wrapping. */
+.gnp-body { display: flex; flex-direction: column; overflow: hidden; }
+.gnp-body > .project-insights-viewer { flex: 1 1 auto; min-height: 0; border-bottom: 0; }
+
+/* Find-in-graph (header) */
+.gnw-search { position: relative; display: inline-flex; align-items: center; gap: 6px; color: var(--gnw-muted); background: rgba(255,255,255,0.03); border: 1px solid var(--gnw-line); border-radius: 8px; padding: 3px 8px; }
+.gnw-search:focus-within { border-color: var(--gnw-accent); color: var(--gnw-body); }
+.gnw-search input { background: transparent; border: 0; outline: none; color: var(--gnw-text); font-size: 12px; width: 170px; }
+.gnw-search-results { position: absolute; top: calc(100% + 4px); right: 0; min-width: 260px; z-index: 80; background: var(--gnw-panel-solid); border: 1px solid var(--gnw-line-strong); border-radius: 8px; box-shadow: 0 10px 28px rgba(0,0,0,0.5); overflow: hidden; }
+.gnw-search-results button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; background: transparent; border: 0; color: var(--gnw-body); font-size: 12px; padding: 6px 10px; cursor: pointer; }
+.gnw-search-results button:hover { background: #17233a; color: var(--gnw-text); }
+.gnw-sr-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
