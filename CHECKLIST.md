@@ -6236,3 +6236,5 @@ The I-Loop correctly identified the structural-failure echo: torn 42xxx containe
 
 ### 8. The jurisdiction expansion — CC's massive contribution
 132 files, 648 rules, all 27 EU members, UN layer 41 rules, local-language aliases. Content is web-search sourced (mostly search summaries; ~220 rules not official_source; ~60 scopes thin). All added rules are Log; only the operator's DO/EU elevations + 7 baseline global rules act. UNCOMPILED — jurisdiction.rs aliases + sync need compilation before the new rules load.
+
+## 2026-10-28 (zcode, I-LOOP-FIX) — the I-Loop's max_tokens now follows the model window (no fixed cap — "traversable like AMT" per operator) + same-model retry. The 300-token budget was too tight for reasoning models: nemotron produced chain-of-thought that exhausted 300 tokens before content appeared (content=null, finish_reason=length → empty reflection). The fix: output_budget = meta_model.context_length / 4 (the same principle the assistant digest uses: meta_window / 2), + a same-model retry on error. tsc clean, cargo check clean.

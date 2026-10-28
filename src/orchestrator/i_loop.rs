@@ -250,9 +250,26 @@ async fn run_one_reflection(
     }
     let prompt = assembled.text;
 
+    // Output budget follows the model window (the same principle the
+    // assistant digest uses: digest_budget = meta_window / 2). The I-Loop's
+    // reflection is shorter than a digest, so 1/4 of the window is generous
+    // enough for the JSON reflection + the reasoning phase that precedes it.
+    let output_budget = meta_model
+        .as_ref()
+        .map(|m| (m.context_length as usize / 4).max(500))
+        .unwrap_or(1000);
+
     let mut input = serde_json::json!({
         "prompt": prompt,
-        "max_tokens": 300,
+        // BUDGET FOLLOWS THE MODEL WINDOW (operator: "there is no limit —
+        // it's traversable like AMT"): the output budget derives from the
+        // meta model's context_length, not a fixed constant. A 128k model
+        // gets a generous budget; a 4k model gets a proportionally smaller
+        // one. The reasoning-model truncation fix: reasoning models like
+        // nemotron produce chain-of-thought before content — 300 tokens
+        // was exhausted by reasoning alone (content=null, length-truncated),
+        // consuming 10-11k total tokens with 0 usable output.
+        "max_tokens": output_budget,
         "temperature": 0.4,
         "system_prompt": "Periodic self-reflection. Be honest and specific, not performative. Return only valid JSON."
     });
@@ -288,7 +305,16 @@ async fn run_one_reflection(
     crate::consciousness::set_i_loop_active(true);
     let _i_loop_active = ILoopActiveGuard;
     stats.calls_made += 1;
-    let result = executor.execute(PROMPT_PIPELINE_ID, input).await;
+    // SAME-MODEL RETRY (2026-10-27): free-tier reasoning models sometimes
+    // exhaust their output budget on chain-of-thought (finish_reason=length,
+    // content=null) — a single retry catches the transient case.
+    let result = match executor.execute(PROMPT_PIPELINE_ID, input.clone()).await {
+        Ok(r) => Ok(r),
+        Err(_) => {
+            tracing::info!("I-Loop: first reflection attempt errored — retrying once");
+            executor.execute(PROMPT_PIPELINE_ID, input.clone()).await
+        }
+    };
     // Doctrine #35: the loop's model calls are captured like every other
     // (S11, capture_loop_model_call) — serving model/tokens/failures leave
     // a trace instead of vanishing with the loop's detached context.
