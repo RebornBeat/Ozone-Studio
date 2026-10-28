@@ -6087,3 +6087,19 @@ When the operator opens a project workspace:
 - Clicking any node opens the inspector with its cross-links as clickable chips
 - The "ALL FILES ACROSS PROJECTS" area now shows real graph data instead of an empty list
 - The GraphProvider loads once per project; switching tabs is instant (no refetch)
+
+## 2026-10-27 (zcode, INDICATOR-RETROFIT) — the GraphKit indicators wired into the real UI panels: TaskStateIcon into TaskDetailPanel status display, StepPips summary bar (per-step colored pips), WorkspaceStatusStrip enhanced with ActivityPulse (construction events from GraphKit substrate). The indicators are no longer "built but unwired" — they are visible in the running UI. Edits only; tsc clean in all edited files.
+
+### 1. TaskDetailPanel
+- TaskStateIcon wired next to the status text (running=loader, queued=clock, interrupted=octagon with "won't complete on its own" tooltip, completed=check, failed=x, paused=pause)
+- StepPips summary bar added above the steps table: one colored pip per step (green=completed, blue=running, red=failed, border=pending) — quick-glance progression without inventing a percentage
+
+### 2. WorkspaceStatusStrip
+- ActivityPulse added (lit when nodeEventCount > 0 from the GraphKit substrate's live node-event stream)
+- Existing PeerState retained (connected ≠ trusted honesty)
+
+### 3. Still TODO (the indicator-retrofit remainder)
+- GateState wiring into OrchestrationStatusPanel (needs the decision-review outcome data reaching the panel)
+- LoopPulse (amt/meta/i-loop/assistant heartbeat chips — needs loop cadence data reaching the UI)
+- CapturePresence (needs capture-store non-empty status per view)
+- The full workspace shell revamp (guide §4.7 — ModalityWheel, left rail mini-graph, breadcrumb navigation)

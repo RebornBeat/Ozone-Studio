@@ -8,12 +8,14 @@
  */
 import React, { useEffect, useState } from "react";
 import { getGraphEventClient } from "../graphEventClient";
-import { PeerState } from "../graphkit/indicators";
+import { PeerState, ActivityPulse } from "../graphkit/indicators";
+import { useGraphKit } from "../graphkit/graphProvider";
 
 export const WorkspaceStatusStrip: React.FC = () => {
   const [peerCount, setPeerCount] = useState(0);
   const [pairedCount, setPairedCount] = useState(0);
   const [available, setAvailable] = useState(false);
+  const nodeEventCount = useGraphKit((s) => s.nodeEventCount);
 
   useEffect(() => {
     let cancelled = false;
@@ -55,6 +57,7 @@ export const WorkspaceStatusStrip: React.FC = () => {
       }}
     >
       <PeerState peerCount={peerCount} pairedCount={pairedCount} />
+      <ActivityPulse active={nodeEventCount > 0} label={`${nodeEventCount} live construction events this session`} />
     </div>
   );
 };

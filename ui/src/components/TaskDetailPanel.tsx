@@ -12,6 +12,7 @@ import React, { useEffect, useState } from "react";
 import { useOzoneStore } from "../services/store";
 import TaskInsightSections from "../views/task/TaskInsightSections";
 import { getGraphEventClient, GraphEventFrame } from "../graphEventClient";
+import { TaskStateIcon, StepPips } from "../graphkit/indicators";
 
 interface TaskStep {
   step_index: number;
@@ -209,7 +210,8 @@ export const TaskDetailPanel: React.FC = () => {
         <>
           <div className="ostats">
             <div className="ostat">
-              <div className="ostat-num" style={{ fontSize: 13, color: statusColor(normalizeStatus(task.status)) }}>
+              <div className="ostat-num" style={{ fontSize: 13, color: statusColor(normalizeStatus(task.status)), display: 'flex', alignItems: 'center', gap: 5 }}>
+                <TaskStateIcon status={task.status} />
                 {normalizeStatus(task.status)}
               </div>
               <div className="ostat-label">
@@ -227,6 +229,20 @@ export const TaskDetailPanel: React.FC = () => {
             </div>
             <div className="ostat">
               <div className="ostat-num">{task.steps?.length ?? 0}</div>
+              <div className="ostat-label">Steps</div>
+              <div className="ostat-num">
+                {(task.steps ?? []).length > 0 ? (
+                  <span style={{ display: 'inline-flex', gap: 2 }}>
+                    {(task.steps ?? []).map((s: any, i: number) => (
+                      <span key={i} style={{
+                        width: 8, height: 8, borderRadius: 1,
+                        background: s.status === 'completed' ? '#7bd88f' : s.status === 'running' ? '#4fc3f7' : s.status === 'failed' ? '#ff8a8a' : 'var(--color-border)',
+                        display: 'inline-block',
+                      }} />
+                    ))}
+                  </span>
+                ) : '0'}
+              </div>
               <div className="ostat-label">Steps recorded</div>
             </div>
           </div>

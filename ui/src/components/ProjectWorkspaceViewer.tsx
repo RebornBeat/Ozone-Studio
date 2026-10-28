@@ -47,6 +47,7 @@ import { GraphView } from './GraphView';
 import { ENGINES } from '../panels/EnginesPanel';
 import { WorkspaceStatusStrip } from './WorkspaceStatusStrip';
 import { GraphNativeSection } from '../graphkit/GraphNativeSection';
+import { TaskStateIcon, StepPips, ActivityPulse } from '../graphkit/indicators';
 import { useOzoneStore } from '../services/store';
 
 export interface ProjectWorkspaceViewerProps {
