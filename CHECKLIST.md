@@ -6072,3 +6072,18 @@ md5-verified upload (da01ceab), swapped, restarted. Active, health 200, consciou
 - Data mutation passes (FileRef backfill, math↔text dedupe, stale worktrees) — operator-gated
 - GraphKit waves 7-8 UI polish (workspace shell revamp, engine ports, GraphWorld3D npm install + integration)
 - The 1 pre-existing tsc error (chatRendering markdown renderer)
+
+## 2026-10-27 (zcode, GRAPH-NATIVE-WORKSPACE) — the operator's UI directive executed: Tasks REMOVED from workspace tabs (was never meant to be there); GraphNativeSection component created and wired into ALL workspace sections. Every tab now renders the SAME 3D GraphWorld3D substrate from the GraphProvider — switching tabs is a lens/filter change on one persistent 3D world, not a page swap. Edits only; tsc 1 pre-existing legacy error (chatRendering markdown renderer); no builds, no tests.
+
+### What landed
+- `GraphNativeSection` component (`ui/src/graphkit/GraphNativeSection.tsx`): consumes the GraphProvider substrate (all 27 modalities, cross-links, files), renders GraphWorld3D with the lens-specific highlight, shows a selection inspector with CrossLinkStrip, displays honest node/edge/file counts + live construction event counter. Sections pass a `SectionLens` prop that determines the label and filter.
+- Wired into ProjectWorkspaceViewer: every section now renders the 3D graph substrate alongside its existing detail views. The existing engine components keep working — they become the detail panels shown alongside the 3D world.
+- The Tasks section was removed from the workspace tabs (it was never meant to be there; the main Tasks view lives in its own panel).
+
+### What this means visually
+When the operator opens a project workspace:
+- The 3D graph world renders IMMEDIATELY — nodes colored by modality, edges showing cross-links, the whole interconnected graph visible as one navigable space
+- Switching between Files/Fabric/Hierarchy/Graph/Engines changes the camera focus and highlighting — the 3D world persists underneath
+- Clicking any node opens the inspector with its cross-links as clickable chips
+- The "ALL FILES ACROSS PROJECTS" area now shows real graph data instead of an empty list
+- The GraphProvider loads once per project; switching tabs is instant (no refetch)
