@@ -1,8 +1,10 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Vietnam (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Vietnam (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Addendum (retrieved 2026-10-27): additional rules drafted from live web search/fetch of luatvietnam.vn, legal500.com, digitalpolicyalert.org, rahmatlim.com; engineering starting point only, NOT legal compliance, not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
   "rules": [
     {
-      "scope": {"National": "VN"},
+      "scope": {
+        "National": "VN"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Law on Personal Data Protection (PDP Law), enacted by the National Assembly, effective 1 January 2026 — elevates the prior Decree No.13/2023/ND-CP (Personal Data Protection Decree, effective 1 July 2023, 44 articles/4 chapters) to full statutory law. Summary: https://fpf.org/blog/vietnams-personal-data-protection-decree-overview-key-takeaways-and-context/ and https://www.hlc.com/en/publications/vietnam-enacts-landmark-law-on-personal-data-protection-stable-standing-with-stricter-compliance",
@@ -10,7 +12,9 @@
       "official_source": false
     },
     {
-      "scope": {"National": "VN"},
+      "scope": {
+        "National": "VN"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Decree 147/2024/ND-CP, requiring parental registration and supervision of social media accounts for children under 16; a further draft amendment (2026) proposes restricting under-16 users to view-only access (no posting/commenting/sharing/reacting). Summary: https://vietnamnet.vn/en/new-vietnam-law-mandates-parental-registration-for-child-online-accounts-2531595.html and https://thediplomat.com/2026/07/vietnam-planning-social-media-restrictions-for-children-under-16/",
@@ -18,11 +22,46 @@
       "official_source": false
     },
     {
-      "scope": {"National": "VN"},
+      "scope": {
+        "National": "VN"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Law on the Protection of Consumer Rights 2023 (LPCR 2023), passed 20 June 2023, effective 1 July 2024, replacing Law No.59/2010/QH12; plus Decree No.55/2024/ND-CP on digital-platform responsibilities. Summary: https://www.tilleke.com/insights/significant-aspects-of-vietnams-new-consumer-protection-law/",
       "retrieved_snippet": "Defines a consumer as a person purchasing/using goods or services for non-commercial personal/family/organizational consumption. Protects vulnerable consumers (elderly, disabled, children, ethnic minorities, pregnant/nursing women, severely ill, poor households); requires disclosure of influencer sponsorships; requires prior consumer consent before a business shares their information with a third party; simplifies small-claims procedures under VND 100 million.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "VN"
+      },
+      "condition": "cybersecurity",
+      "aliases": [],
+      "action": "Log",
+      "source": "Law on Cyber Security, Law No. 24/2018/QH14 (12 June 2018), effective 1 January 2019 — https://english.luatvietnam.vn/law-no-24-2018-qh14-dated-june-12-2018-of-the-national-assembly-on-cybersecurity-164904-doc1.html",
+      "retrieved_snippet": "Fetched page: Law on Cyber Security No. 24/2018/QH14, effective January 1, 2019; Article 26(3): providers of telecommunications, internet or value-added services in Vietnam 'shall store these data in Vietnam for a period prescribed by the Government.'",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "VN"
+      },
+      "condition": "data localization",
+      "aliases": [],
+      "action": "Log",
+      "source": "Law on Data, No. 60/2024/QH15, passed 30 November 2024, effective 1 July 2025 — https://www.legal500.com/developments/thought-leadership/legal-update-on-vietnams-data-law/ ; https://digitalpolicyalert.org/change/11012-cross-border-data-transfer-regulation-in-vietnam",
+      "retrieved_snippet": "Search-result summaries only (pages not fetched; no official text found): law firm sources say the National Assembly passed the Law on Data (No. 60/2024/QH15) on 30 November 2024, in force 1 July 2025; Digital Policy Alert reports that core and important data sent abroad needs prior authority approval.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "VN"
+      },
+      "condition": "artificial intelligence",
+      "aliases": [],
+      "action": "Log",
+      "source": "Law on Artificial Intelligence, No. 134/2025/QH15 (passed 10 December 2025), in force 1 March 2026 — https://www.rahmatlim.com/publication/articles/32667/s-new-law-on-artificial-intelligence-risk-based-regulatory-framework-in-force-1-march-2026",
+      "retrieved_snippet": "Fetched Rahmat Lim page: the Law 'came into effect on 1 March 2026' and sorts AI systems into three risk tiers (high, medium, low) assigned before deployment. Number 134/2025/QH15 and passage date come from search-result summaries (asianews.network, vneconomy), not the fetched page.",
       "official_source": false
     }
   ]

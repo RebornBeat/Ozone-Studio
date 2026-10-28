@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Sub-national (US-NY) rules drafted from laws retrieved via live web search on 2026-10-27 from ag.ny.gov, nyc.gov; contains only NY-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-NY"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "New York SHIELD Act (signed July 25, 2019), amending the 2005 breach statute — https://ag.ny.gov/resources/organizations/data-breach-reporting/shield-act",
+      "retrieved_snippet": "NY AG: covered entities holding New York residents' private information must notify affected consumers as quickly as possible after a breach (breach definition covers unauthorized access); report goes to AG, Department of State and State Police via AG portal; penalties up to $20 per failed notice capped at $250,000, and up to $5,000 per violation for inadequate safeguards.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-NY"
+      },
+      "condition": "ai hiring",
+      "action": "Log",
+      "source": "New York City Local Law 144 of 2021 (automated employment decision tools), enforced by DCWP — https://www.nyc.gov/assets/dca/downloads/pdf/about/DCWP-AEDT-FAQ.pdf",
+      "retrieved_snippet": "NYC DCWP: effective Jan. 1, 2023, enforcement from July 5, 2023; employers/agencies may not use an AEDT for hiring or promotion in NYC unless it had a bias audit within one year, a summary is posted publicly, and candidates are notified at least ten business days before use.",
+      "official_source": true
+    }
+  ]
+}

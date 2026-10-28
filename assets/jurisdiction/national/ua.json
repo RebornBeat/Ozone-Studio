@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from hsa.org.ua (university site, secondary; zakon.rada.gov.ua unreachable). . Engineering starting point only; NOT legal compliance and not a substitute for qualified Ukrainian counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "UA"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "захист персональних даних"
+      ],
+      "action": "Log",
+      "source": "Закон України «Про захист персональних даних» від 01.06.2010 № 2297-VI — cited by https://www.hsa.org.ua/blog/zahyst-personalnyh-danyh-v-ukrayini-suchasne-ta-perspektyvne-zakonodavstvo",
+      "retrieved_snippet": "Secondary page states: 'Захист персональних даних фізичних осіб в Україні наразі регулюється Законом України «Про захист персональних даних» від 01.06.2010 № 2297-VI'. Official zakon.rada.gov.ua page was unreachable (connection refused); amendments/current text not verified.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from coe.int, rsf.org, osiris.sn, dti.eui.eu (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "NE"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybercriminalité"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2019-33 du 3 juillet 2019 portant répression de la cybercriminalité (modifiée par ordonnance) — https://www.coe.int/fr/web/octopus/country-wiki-ap/-/asset_publisher/CmDb7M4RGb4Z/content/niger",
+      "retrieved_snippet": "Council of Europe page (search summary): Parliament adopted the law on 25 June 2019; modifies the Penal Code and Code of Criminal Procedure. RSF reports a later ordinance amended three articles to restore prison terms for electronic defamation, insults and dissemination of data likely to disturb public order (year not stated in snippet).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NE"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2022-059 on personal data protection (HAPDP) — https://dti.eui.eu/database/page/148",
+      "retrieved_snippet": "Search summary of a database entry: comprehensive data protection regime in Niger repealing Law No. 2017-28; Art. 87 specifies supervisory powers of sworn officers of the HAPDP; practical arrangements to be laid down by decree. Current in-force status not confirmed.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Sub-national (US-VA) rules drafted from laws retrieved via live web search on 2026-10-27 from law.lis.virginia.gov; contains only VA-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-VA"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Virginia Consumer Data Protection Act, Code of Virginia Title 59.1, Chapter 53 — https://law.lis.virginia.gov/vacodefull/title59.1/chapter53/",
+      "retrieved_snippet": "Virginia LIS (search summary): consumers may submit requests to controllers; controllers respond within 45 days with one possible 45-day extension; violations are prohibited practices under §59.1-200; state agencies, GLBA financial institutions and HIPAA covered entities are exempt.",
+      "official_source": true
+    }
+  ]
+}

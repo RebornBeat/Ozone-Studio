@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Dominican Republic statutes, verified via live web search against official government sources (presidencia.gob.do, proconsumidor.gob.do, pgr.gob.do, dgjp.gob.do) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Dominican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only.",
+  "disclaimer": "Drafted from real, currently-published official Dominican Republic statutes, verified via live web search against official government sources (presidencia.gob.do, proconsumidor.gob.do, pgr.gob.do, dgjp.gob.do) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Dominican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Every rule's action is Log only. ENRICHMENT 2026-10-27: additional rules drafted from laws retrieved via live web search/fetch on 2026-10-27 from dgii.gov.do, indotel.gob.do, aduanas.gob.do and presidencia.gob.do. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; all newly added rules are Log only; laws (including the 2025 Penal Code and its 2026 amendments, and telecom reform) change, re-verify.",
   "rules": [
     {
       "scope": {
@@ -39,6 +39,168 @@
       "action": "Log",
       "source": "Ley General de Protección de los Derechos del Consumidor o Usuario, Ley 358-05 — https://proconsumidor.gob.do/historia/",
       "retrieved_snippet": "Establishes the regime for defense of consumer/user rights, guaranteeing equity and legal security between suppliers and consumers. Enacted 2005-09-09; Article 33 recognizes rights to life/health/safety protection and truthful, clear, timely information. Enforced by Pro Consumidor.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos de alta tecnología",
+        "delito informático"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Ley No. 53-07 criminalizes offences committed against or through information and communication technologies; its considerandos state such crimes were not provided for in Dominican criminal legislation and require typification.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "acceso ilícito"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Artículo 6.- Acceso Ilícito: accessing an electronic, computer, telematic or telecommunications system or its components, with or without another's identity or exceeding authorization, is punished with three months to one year of prison and a fine of 1 to 200 times the minimum wage (higher penalties where data is deleted, modified or disclosed).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "interception",
+      "aliases": [
+        "interceptación de datos",
+        "intervención de comunicaciones"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Artículo 9.- Interceptación e Intervención de Datos o Señales: intercepting, listening, recording or observing a data signal or transmission belonging to another, without prior authorization of a competent judge, through an electronic, computer, telematic or telecommunications system is an offence.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "child pornography",
+      "aliases": [
+        "pornografía infantil"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Artículo 24.- Pornografía Infantil: production, dissemination, sale and any commercialization of pornographic images and representations of a child or adolescent is punished with two to four years of prison and a fine of 10 to 500 times the minimum wage; acquisition and intentional possession in an information system is also penalized (Párrafo).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "identity theft",
+      "aliases": [
+        "robo de identidad"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Ley 53-07 Artículo 17 is headed 'Robo de Identidad' and addresses a person making use of another person's identity through information technology (full text/penalty not reproduced here).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "online defamation",
+      "aliases": [
+        "difamación electrónica"
+      ],
+      "action": "Log",
+      "source": "Ley No. 53-07 sobre Crímenes y Delitos de Alta Tecnología (2007) — https://dgii.gov.do/legislacion/leyesTributarias/Documents/Otras Leyes de Interés/53-07.pdf",
+      "retrieved_snippet": "Artículo 21.- Difamación: defamation committed through electronic, computer, telematic, telecommunications or audiovisual means is punished with three months to one year of prison and a fine of 5 to 500 times the minimum wage; Artículo 22 covers public injuria by the same means.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "secrecy of communications",
+      "aliases": [
+        "secreto de las telecomunicaciones",
+        "inviolabilidad de las telecomunicaciones"
+      ],
+      "action": "Log",
+      "source": "Ley General de Telecomunicaciones No. 153-98 (1998, Gaceta Oficial 9983) — https://indotel.gob.do/wp-content/uploads/2022/10/ley-general-de-telecomunicaciones-153-98-d.pdf",
+      "retrieved_snippet": "Artículo 5.- Secreto e inviolabilidad de las telecomunicaciones: communications, information and data emitted through telecommunications services are secret and inviolable, except judicial intervention under common law. INDOTEL (regulator) is reported to be reforming this law; reform not in force as retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavado de activos",
+        "legitimación de capitales"
+      ],
+      "action": "Log",
+      "source": "Ley No. 155-17 contra el Lavado de Activos y el Financiamiento del Terrorismo (2017) — https://www.aduanas.gob.do/media/lj5ikamd/ley_155-17_lavado_de_activo.pdf",
+      "retrieved_snippet": "Artículo 1 (Objeto): the law establishes the acts that constitute money laundering, predicate offences and financing of terrorism, with applicable criminal sanctions, plus special investigation techniques and mechanisms (text retrieved via the Dirección General de Aduanas).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "terrorist financing",
+      "aliases": [
+        "financiamiento del terrorismo"
+      ],
+      "action": "Log",
+      "source": "Ley No. 155-17 contra el Lavado de Activos y el Financiamiento del Terrorismo (2017) — https://www.aduanas.gob.do/media/lj5ikamd/ley_155-17_lavado_de_activo.pdf",
+      "retrieved_snippet": "Ley 155-17 title and Artículo 1(a): defines the acts constituting money laundering, predicate offences and 'el financiamiento del terrorismo', with the criminal sanctions applicable.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "derecho de autor",
+        "derechos de autor"
+      ],
+      "action": "Log",
+      "source": "Ley No. 65-00 sobre Derecho de Autor (2000) — https://www.aduanas.gob.do/media/3yndr4ja/65-00_sobre_derecho_de_autor.pdf",
+      "retrieved_snippet": "Artículo 1: the provisions of the law are of public and social interest; authors and holders of literary, artistic and scientific works enjoy protection for their works, and related rights are also protected (text retrieved via the Dirección General de Aduanas; later amendments exist, e.g. Ley 2-07 per secondary reports, not verified).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "non-consensual images",
+      "aliases": [
+        "difusión de imágenes sin consentimiento"
+      ],
+      "action": "Log",
+      "source": "Ley No. 74-25 Orgánica que instituye el Código Penal de la República Dominicana (2025) — https://presidencia.gob.do/sites/default/files/laws/2025-08/Ley%20Nu%CC%81m.%2074-25%20(Co%CC%81digo%20Penal%20RD).pdf",
+      "retrieved_snippet": "Artículo 192.- Difusión de audios o imágenes sin consentimiento: whoever publishes or disseminates by any means audios, images or videos of another person without consent is sanctioned (penalty begins at six months to one year in the retrieved text). Original 2025 text; later amendment Ley 44-26 reported by secondary sources.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DO"
+      },
+      "condition": "defamation",
+      "aliases": [
+        "difamación",
+        "injuria"
+      ],
+      "action": "Log",
+      "source": "Ley No. 74-25 Orgánica que instituye el Código Penal de la República Dominicana (2025) — https://presidencia.gob.do/sites/default/files/laws/2025-08/Ley%20Nu%CC%81m.%2074-25%20(Co%CC%81digo%20Penal%20RD).pdf",
+      "retrieved_snippet": "Artículo 208.- Difamación: public imputation of a precise fact affecting a person's honor or reputation by any public means including streaming, electronic media or cyberspace; Párrafo: punished with two to five years of prison and a fine of 9 to 15 minimum salaries (original text). Artículo 210.- Injuria defines public insulting expression without imputation of a precise fact. Constitutional challenge to these articles reported by secondary sources.",
       "official_source": true
     }
   ]

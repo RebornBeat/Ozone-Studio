@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from mola.gov.bh (Bahrain Ministry of Legal Affairs), lloc.gov.bh, clydeco.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. The mola.gov.bh fetch returned HTTP 403, so the snippet is from the search result listing. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "BH"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Law (Law No. 30 of 2018), Bahrain — https://www.mola.gov.bh/MediaManager/Media/Documents/Laws/Batch3/L3018.pdf (also https://www.lloc.gov.bh/FullEn/K3018.docx)",
+      "retrieved_snippet": "Search summary: official text published by the Ministry of Legal Affairs and the Legislation and Legal Opinion Commission; covers automated processing and organised manual filing systems and reaches foreign businesses processing by means available within the Kingdom; Arabic Official Gazette version controls. Sources differ on gazette date and on the regulator.",
+      "official_source": true
+    }
+  ]
+}

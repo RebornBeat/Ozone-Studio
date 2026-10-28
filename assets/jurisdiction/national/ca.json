@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Canadian federal statutes and regulator (Office of the Privacy Commissioner of Canada, Justice Laws Website, Accessible Canada Act) guidance, verified via live web search against official/reputable sources at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Canadian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Provincial law (e.g. Quebec's Law 25) is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, currently-published official Canadian federal statutes and regulator (Office of the Privacy Commissioner of Canada, Justice Laws Website, Accessible Canada Act) guidance, verified via live web search against official/reputable sources at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Canadian law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. Provincial law (e.g. Quebec's Law 25) is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it. ENRICHMENT 2026-10-27: additional rules drafted from pages retrieved via live web search/fetch on 2026-10-27 from laws-lois.justice.gc.ca and lop.parl.ca (Library of Parliament). Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; newly added rules are Log only; laws change, re-verify. French-language aliases were not added for federal rules because French titles were not retrieved; see ca-qc.json for Quebec.",
   "rules": [
     {
       "scope": {"National": "CA"},
@@ -47,6 +47,75 @@
       "action": "Log",
       "source": "Accessible Canada Act (ACA), S.C. 2019, c. 10 — Royal Assent 21 June 2019, in force 11 July 2019 — https://laws-lois.justice.gc.ca/eng/acts/A-0.6/",
       "retrieved_snippet": "Applies to the federal public sector and federally regulated organizations (banking, telecommunications, transportation, broadcasting) — not a general private-sector requirement. Covered organizations must publish accessibility plans; as of 31 May 2024, federal entities must comply with EN 301 549, which incorporates WCAG 2.1 Level AA plus provisions for non-web software and mobile apps.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CA"
+      },
+      "condition": "spam",
+      "aliases": [
+        "commercial electronic message",
+        "anti-spam"
+      ],
+      "action": "Log",
+      "source": "Canada's Anti-Spam Legislation (CASL), S.C. 2010, c. 23 (Royal Assent 15 Dec 2010, in force 1 Jul 2014) — https://laws-lois.justice.gc.ca/eng/annualstatutes/2010_23/fulltext.html",
+      "retrieved_snippet": "The Act prohibits sending commercial electronic messages without the recipient's prior consent, sets rules for such messages including a mechanism to withdraw consent, and prohibits altering transmission data and installing computer programs without authorization; CRTC may impose administrative monetary penalties.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CA"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "promotion of hatred",
+        "hate propaganda"
+      ],
+      "action": "Log",
+      "source": "Criminal Code, R.S.C. 1985, c. C-46, s. 319 (current to 2026-09-30) — https://laws-lois.justice.gc.ca/eng/acts/c-46/section-319.html",
+      "retrieved_snippet": "s. 319(2): everyone who, by communicating statements 'other than in private conversation, wilfully promotes hatred against any identifiable group' commits an offence; s. 319(1) covers public incitement of hatred likely to lead to a breach of the peace. Search summaries of an archived 2026 consolidation also report newer subsections (e.g. 319(2.2) on hate/terrorist symbols); not independently read.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CA"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "unauthorized use of computer",
+        "computer crime"
+      ],
+      "action": "Log",
+      "source": "Criminal Code, R.S.C. 1985, c. C-46, s. 342.1 (current to 2026-09-30) — https://laws-lois.justice.gc.ca/eng/acts/c-46/section-342.1.html",
+      "retrieved_snippet": "s. 342.1(1) unauthorized use of computer: indictable offence with imprisonment of not more than 10 years; can also be prosecuted summarily.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CA"
+      },
+      "condition": "child sexual abuse material",
+      "aliases": [
+        "child pornography"
+      ],
+      "action": "Log",
+      "source": "Criminal Code, R.S.C. 1985, c. C-46, s. 163.1 (current to 2026-09-30) — https://laws-lois.justice.gc.ca/eng/acts/c-46/section-163.1.html",
+      "retrieved_snippet": "s. 163.1 defines 'child sexual abuse and exploitation material'; possession is punishable on indictment by up to 10 years, or on summary conviction with a mandatory minimum of six months.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CA"
+      },
+      "condition": "online harms",
+      "aliases": [
+        "online safety",
+        "digital safety"
+      ],
+      "action": "Log",
+      "source": "Library of Parliament, Legislative Summary of Bill C-34 (Digital Safety Act / Safe Social Media Act), 28 Aug 2026 — https://lop.parl.ca/staticfiles/PublicWebsite/Home/ResearchPublications/LegislativeSummaries/PDF/45-1/PV_45-1-C34-E.pdf",
+      "retrieved_snippet": "Bill C-63 (Online Harms Act, introduced 26 Feb 2024) died on the Order Paper on 6 Jan 2025. Its Criminal Code hate provisions were partially reintroduced in the Combatting Hate Act (Bill C-9, Royal Assent 18 Jun 2026, in force 18 Jul 2026) and child-protection measures in the Protecting Victims Act (Bill C-16, Royal Assent 18 Jun 2026). Bill C-34 (Digital Safety Act) was introduced 10 Jun 2026 and is a BILL before Parliament, NOT law as retrieved.",
       "official_source": true
     }
   ]

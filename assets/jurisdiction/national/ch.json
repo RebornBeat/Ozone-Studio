@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from Switzerland's revised Federal Act on Data Protection (FADP / German: DSG; SR 235.1), in force since 1 September 2023, retrieved via web search against summaries citing the official consolidated text on fedlex.admin.ch, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Swiss legal counsel. Scope: National(\"CH\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from Switzerland's revised Federal Act on Data Protection (FADP / German: DSG; SR 235.1), in force since 1 September 2023, retrieved via web search against summaries citing the official consolidated text on fedlex.admin.ch, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Swiss legal counsel. Scope: National(\"CH\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it. Enriched 2026-10-27 (retrieved 2026-10-27): new rules drafted from official consolidated texts (PDF) retrieved from fedlex.data.admin.ch (Fedlex, official Swiss publication platform); English StGB text is unofficial translation without legal force; Log only; laws change, re-verify.",
   "rules": [
     {
       "scope": { "National": "CH" },
@@ -12,6 +12,42 @@
       "condition": "profiling",
       "action": "Log",
       "source": "FADP (SR 235.1) — introduces specific protection against high-risk automated profiling for Swiss nationals; enforcement by the Federal Data Protection and Information Commissioner (FDPIC), with penalties up to CHF 250,000 against the responsible natural person. Official consolidated text: fedlex.admin.ch (SR 235.1)."
+    },
+    {
+      "scope": {
+        "National": "CH"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "verletzung der datensicherheit"
+      ],
+      "action": "Log",
+      "source": "Bundesgesetz über den Datenschutz (DSG), SR 235.1, AS 2022 491, Art. 24 — https://fedlex.data.admin.ch/filestore/fedlex.data.admin.ch/eli/cc/2022/491/20250707/de/pdf-a/fedlex-data-admin-ch-eli-cc-2022-491-20250707-de-pdf-a.pdf",
+      "retrieved_snippet": "Art. 24 Meldung von Verletzungen der Datensicherheit, Abs. 1: 'Der Verantwortliche meldet dem EDÖB so rasch als möglich eine Verletzung der Datensicherheit, die voraussichtlich zu einem hohen Risiko für die Persönlichkeit oder die Grundrechte der betroffenen Person führt.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CH"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Swiss Criminal Code (StGB), SR 311.0, Art. 143bis Unauthorised access to a data processing system (consolidated version of 1 Oct 2026, English, unofficial translation) — https://fedlex.data.admin.ch/filestore/fedlex.data.admin.ch/eli/cc/54/757_781_799/20261001/en/pdf-a/fedlex-data-admin-ch-eli-cc-54-757_781_799-20261001-en-pdf-a.pdf",
+      "retrieved_snippet": "Art. 143bis para 1: obtaining unauthorised access by means of data transmission equipment to a data processing system specially secured against access is liable on complaint to a custodial sentence not exceeding three years or a monetary penalty; para 2 covers marketing or making accessible passwords/programs intended for that offence.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CH"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "incitement to hatred"
+      ],
+      "action": "Log",
+      "source": "Swiss Criminal Code (StGB), SR 311.0, Art. 261bis Discrimination and incitement to hatred (consolidated 1 Oct 2026, English, unofficial translation) — https://fedlex.data.admin.ch/filestore/fedlex.data.admin.ch/eli/cc/54/757_781_799/20261001/en/pdf-a/fedlex-data-admin-ch-eli-cc-54-757_781_799-20261001-en-pdf-a.pdf",
+      "retrieved_snippet": "Art. 261bis: 'Any person who publicly incites hatred or discrimination against a person or a group of persons on the grounds of their race, ethnic origin, religion or sexual orientation' (and related acts of publicly denigrating or discriminating in a manner that violates human dignity) is liable under the article.",
+      "official_source": true
     }
   ]
 }

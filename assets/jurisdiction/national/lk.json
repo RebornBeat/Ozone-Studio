@@ -1,0 +1,29 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from dpa.gov.lk (fetched), documents.gov.lk, srilankalaw.lk (search summaries only); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {"National": "LK"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act No. 9 of 2022 (Sri Lanka) — https://dpa.gov.lk/Background.php",
+      "retrieved_snippet": "Fetched from the Data Protection Authority site: \"Personal Data Protection Act No. 9 of 2022\", \"passed by the Sri Lankan Parliament on 19th March 2022\"; phased commencement: Part V on 17 July 2023, Parts VI, VIII, IX, X on 1 December 2023, Parts I, II, III, VII scheduled for 18 March 2025 (search summary: a 2025 amendment reportedly changes remaining commencement to ministerial order; unverified).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "LK"},
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Computer Crime Act No. 24 of 2007 (Sri Lanka) — https://documents.gov.lk/view/acts/2007/7/24-2007_E.pdf",
+      "retrieved_snippet": "Search summary only (fetch of the PDF returned 404): the Act is hosted at documents.gov.lk and lawnet.gov.lk; it covers unauthorised computer access and making devices/passwords available for offences, with fines and imprisonment up to three years, and has extraterritorial reach where the computer, service or loss is connected to Sri Lanka.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "LK"},
+      "condition": "online safety",
+      "action": "Log",
+      "source": "Online Safety Act No. 9 of 2024 (Sri Lanka) — https://www.srilankalaw.lk/bulletin/bulletin-2024/3203-act-9-of-2024-online-safety-act.html",
+      "retrieved_snippet": "Search summary only (secondary sources: srilankalaw.lk, readme.lk, Wikipedia; official text not retrieved): Parliament passed the Act on 24 January 2024, in effect early February 2024 (sources differ 1 vs 2 Feb); creates an Online Safety Commission; false-statement offences in ss.12-20, online child-abuse offences s.21, bot conduct s.22.",
+      "official_source": false
+    }
+  ]
+}

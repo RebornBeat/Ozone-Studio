@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from coe.int, article19.org, smex.org (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "SD"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybercrimes"
+      ],
+      "action": "Log",
+      "source": "Law Combating Cybercrimes, 2018 (amended 2020) — https://www.coe.int/web/octopus/-/sudan",
+      "retrieved_snippet": "Council of Europe Octopus page (search summary): the 2018 law replaced the Computer Crime Act of 2007 and addresses illegal access, data interference and illegal interception; ARTICLE 19 reports Article 23 criminalizes violation of privacy and that 2020 amendments added penalties for online 'fake news'; official text reportedly not published; a 2025 amendment is unverified.",
+      "official_source": true
+    }
+  ]
+}

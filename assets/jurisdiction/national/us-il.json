@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Sub-national (US-IL) rules drafted from laws retrieved via live web search on 2026-10-27 from ilga.gov; contains only IL-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-IL"
+      },
+      "condition": "biometric",
+      "action": "Log",
+      "source": "Biometric Information Privacy Act (BIPA), 740 ILCS 14 — https://www.ilga.gov/documents/legislation/ilcs/documents/074000140k10.htm",
+      "retrieved_snippet": "ILGA: private entities must publish a retention/destruction policy and obtain written notice and a written release before collecting biometric identifiers (retina/iris scans, fingerprints, voiceprints, hand or face geometry); private right of action with $1,000 negligent / $5,000 intentional or reckless damages. SB 3122 (2026) proposing changes was seen only as introduced.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-IL"
+      },
+      "condition": "ai hiring",
+      "action": "Log",
+      "source": "Public Act 103-0804 (HB 3773), amending the Illinois Human Rights Act — https://ilga.gov/Documents/Legislation/PublicActs/103/PDF/103-0804.pdf",
+      "retrieved_snippet": "ILGA: signed Aug. 9, 2024, effective Jan. 1, 2026; makes it a civil rights violation for employers to use AI that discriminates against protected classes in employment decisions or to use zip codes as a proxy, and requires notice to employees when AI is used for these purposes.",
+      "official_source": true
+    }
+  ]
+}

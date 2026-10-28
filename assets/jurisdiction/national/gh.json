@@ -1,0 +1,48 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from ghalii.org, lexmundi.com, dlapiperdataprotection.com, mondaq.com, csa.gov.gh (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "GH"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Data Protection Act, 2012 (Act 843) — https://www.lexmundi.com/guides/data-privacy-guide/jurisdictions/africa/ghana",
+      "retrieved_snippet": "Lex Mundi: the Act is the main law on processing personal data in Ghana, enacted to give effect to the privacy guarantee in Article 18(2) of the 1992 Constitution. DLA Piper: data controllers must register with the Data Protection Commission (certificate valid two years).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "GH"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybersecurity"
+      ],
+      "action": "Log",
+      "source": "Cybersecurity Act, 2020 (Act 1038) — https://ghalii.org/akn/gh/act/2020/1038",
+      "retrieved_snippet": "Search summary of the Act: establishes the Cyber Security Authority, focuses on protecting critical information infrastructure; 100 sections and 3 schedules including Blocking and Taking Down Illegal Content, Administrative Penalties and Unlawful Access; assent 29 December 2020.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "GH"
+      },
+      "condition": "electronic transaction",
+      "action": "Log",
+      "source": "Electronic Transactions Act, 2008 (Act 772) — https://ghalii.org/akn/gh/act/2008/772",
+      "retrieved_snippet": "Search summary of GhaLII page: object is to facilitate electronic communications and related transactions in the public interest; applies to electronic transactions and records of every type; amended by Act 838 (2012) and Act 1038 (2020).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "GH"
+      },
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Anti-Money Laundering Act, 2020 (Act 1044) — https://ghalii.org/akn/gh/act/2020/1044",
+      "retrieved_snippet": "Search summary of GhaLII page: consolidates the laws relating to prohibition of money laundering and provides for the Financial Intelligence Centre; first section states a person shall not engage in money laundering; Official Gazette 29 December 2020.",
+      "official_source": false
+    }
+  ]
+}

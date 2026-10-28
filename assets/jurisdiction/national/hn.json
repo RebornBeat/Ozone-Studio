@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from laprensa.hn (secondary press), iaip.gob.hn; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "HN"
+      },
+      "condition": "electronic signature",
+      "aliases": [
+        "firma electrónica"
+      ],
+      "action": "Log",
+      "source": "Decreto 149-2013 Ley de Firma Electrónica (reforma art. 27, 2020) — https://www.laprensa.hn/economia/certifican-al-bch-para-prestar-servicios-de-firma-electronica-EALP1055188",
+      "retrieved_snippet": "Search summary of press reports (secondary; official text not retrieved): the electronic signature law was approved by Congress under Decreto 149-2013 on 30 July 2013; a 2020 reform of art. 27 recognizes foreign electronic signatures and certificates meeting an equivalent reliability standard; Banco Central de Honduras was authorized as certification provider.",
+      "official_source": false
+    }
+  ]
+}

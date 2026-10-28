@@ -1,0 +1,28 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from dlapiperdataprotection.com, digitalpolicyalert.org, hoganlovells.com (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "RW"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "privacy law"
+      ],
+      "action": "Log",
+      "source": "Law No. 058/2021 of 13/10/2021 relating to the protection of personal data and privacy — https://www.dlapiperdataprotection.com/?c=RW&t=law",
+      "retrieved_snippet": "Search summary: enacted 13 October 2021, effective 15 October 2021; covers controllers/processors in Rwanda and abroad handling data of people in Rwanda; National Cyber Security Authority is supervisory authority (registration, complaints, sanctions); existing operators had two years to comply.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "RW"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Law No. 60/2018 on prevention and punishment of cyber crimes — https://digitalpolicyalert.org/change/12963-content-moderation-regulation-in-law-no-602018-on-prevention-and-punishment-of-cyber-crimes",
+      "retrieved_snippet": "Search summary: law on prevention and punishment of cyber-crimes, in force September 2018 after Official Gazette publication; specific offences and penalties not verified.",
+      "official_source": false
+    }
+  ]
+}

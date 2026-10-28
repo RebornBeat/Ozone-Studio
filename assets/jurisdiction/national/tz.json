@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from clydeco.com, dataguidance.com, tanzlii.org, policyvault.africa (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "TZ"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Act No. 11 of 2022 — https://www.clydeco.com/en/insights/2023/02/tanzania-personal-data-protection-act-of-2022",
+      "retrieved_snippet": "Search summary: provides principles of personal data protection and minimum requirements for collection and processing, and establishes the Personal Data Protection Commission; DataGuidance reports commencement 1 May 2023 by GN No. 326 of 2023.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "TZ"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Cybercrimes Act, 2015 (Act No. 14) — https://www.tanzlii.org/akn/tz/act/2015/14",
+      "retrieved_snippet": "Search summary: Act Supplement No. 14 of 22 May 2015 to the Gazette; criminalizes offences related to computer systems and ICT; applies to Mainland Tanzania and Zanzibar save for section 50; TanzLII notes outstanding amendment Act 10 of 2024 not applied.",
+      "official_source": false
+    }
+  ]
+}

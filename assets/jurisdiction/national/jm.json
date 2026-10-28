@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from opm.gov.jm, iapp.org (secondary), clym.io (secondary), psoj.org (secondary); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "JM"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "data protection"
+      ],
+      "action": "Log",
+      "source": "Data Protection Act, 2020 (Jamaica; enacted June/July 2020, Act number cited inconsistently as 7 or 16 of 2020) — https://opm.gov.jm/the-office-of-the-information-commissioner/",
+      "retrieved_snippet": "Search summary (pages not fetched): the Office of the Information Commissioner, established December 2021, operates under the Data Protection Act enacted in 2020; the Commissioner monitors compliance, keeps the register of data controllers and investigates complaints; a two-year transition period reportedly ran from 1 December 2021 to 30 November 2023 (dates vary across sources).",
+      "official_source": false
+    }
+  ]
+}

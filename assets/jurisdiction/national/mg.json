@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from dlapiperdataprotection.com, coe.int, rsf.org, law.ungovr.org (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MG"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2014-038 sur la Protection des Données à Caractère Personnel — https://www.dlapiperdataprotection.com/?c=MG&t=law",
+      "retrieved_snippet": "Search summary: adopted 16 December 2014, promulgated 9 January 2015, Official Gazette 9 June 2015; regulator CMIL set up by Decree 2023-1541 but not fully operational; DLA Piper notes no implementing decree published so application is not yet effective.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "MG"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybercriminalité"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2014-006 sur la lutte contre la cybercriminalité, amended by Loi n° 2016-031 — https://www.coe.int/web/octopus/-/madagascar",
+      "retrieved_snippet": "Council of Europe Octopus page (search summary): lists Law 2014-006 on Combating Cybercrime and Law 2016-031 of 23/09/16 modifying it; covers information-system offences, content offences and service-provider liability; RSF reports Constitutional High Court upheld it and criticises provisions on defaming officials online.",
+      "official_source": true
+    }
+  ]
+}

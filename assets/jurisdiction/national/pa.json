@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from sinaproc.gob.pa, gacetaoficial.gob.pa; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "PA"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "datos personales",
+        "protección de datos"
+      ],
+      "action": "Log",
+      "source": "Ley 81 de 26 de marzo de 2019 sobre Protección de Datos Personales; reglamentada por Decreto Ejecutivo 285 de 28 de mayo de 2021 (Gaceta Oficial 29296-A) — https://www.sinaproc.gob.pa/wp-content/uploads/2026/08/Ley-81-de-26-de-marzo-de-2019.pdf ; https://www.gacetaoficial.gob.pa/pdfTemp/29296_A/GacetaNo_29296a_20210528.pdf",
+      "retrieved_snippet": "Search summary (not fetched): Ley 81 of 2019 sets principles, rights, obligations and procedures for processing personal data by natural or legal persons, public or private; art. 47 made it effective two years after promulgation (29 March 2021); regulated by Decreto Ejecutivo 285 of 28 May 2021 published in Gaceta Oficial 29296-A.",
+      "official_source": true
+    }
+  ]
+}

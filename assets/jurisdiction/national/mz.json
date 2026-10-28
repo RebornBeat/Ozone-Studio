@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from aimnews.org, plmj.com, rm.coe.int (search summaries, Portuguese commentary). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MZ"
+      },
+      "condition": "electronic transaction",
+      "aliases": [
+        "transacções electrónicas"
+      ],
+      "action": "Log",
+      "source": "Lei das Transacções Electrónicas (Lei n.º 3/2017) — https://aimnews.org/2026/08/25/intic-alerta-para-desafios-na-proteccao-de-dados-pessoais-em-mocambique/",
+      "retrieved_snippet": "Search summary: 2017 law governing e-commerce, data messages, electronic communications and e-government; gives sectoral legal basis for personal data protection; INTIC inspections found many entities not complying (e.g. naming officials responsible for personal data). A general data protection law and cybercrime/cybersecurity bills were bills/in progress, not included.",
+      "official_source": false
+    }
+  ]
+}

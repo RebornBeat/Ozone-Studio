@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Pakistan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Pakistan specifically: as of 2026 there is NO enacted comprehensive data protection statute — the entry below honestly reflects that gap rather than fabricating an enacted law.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Pakistan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Pakistan specifically: as of 2026 there is NO enacted comprehensive data protection statute — the entry below honestly reflects that gap rather than fabricating an enacted law. Enriched 2026-10-27 (retrieved 2026-10-27) from search summaries via tradecca.thecommonwealth.org, rm.coe.int, sbp.org.pk.",
   "rules": [
     {
       "scope": {"National": "PK"},
@@ -23,6 +23,22 @@
       "action": "Log",
       "source": "Consumer protection in Pakistan is a PROVINCIAL matter, not a single federal statute: Islamabad Consumer Protection Act 1995, Khyber Pakhtunkhwa Consumer Protection Act 1997 (official text: http://kpcode.kp.gov.pk/uploads/1997_06_THE_KHYBER_PAKHTUNKHWA_CONSUMERS_PROTECTION_ACT_1997_.pdf), Balochistan Consumer Protection Act 2003, Punjab Consumers Protection Act 2005 (official text: http://punjablaws.gov.pk/laws/477.html), and a Sindh Consumer Protection Bill from 2015.",
       "retrieved_snippet": "Each province has its own consumer protection legislation and district consumer protection councils; consumer courts established under the provincial acts handle complaint resolution.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "PK"},
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Prevention of Electronic Crimes Act, 2016, s.3 and s.6 (Commonwealth policy repository copy; Council of Europe legal profile) — https://tradecca.thecommonwealth.org/pdf/prevention-of-electronic-crimes-act ; https://rm.coe.int/octocom-legal-profile-pakistan/16809ebe79",
+      "retrieved_snippet": "Search summary only (not fetched; secondary copies, official na.gov.pk/pakistancode copy not found): s.3 \"Whoever with dishonest intention gains unauthorized access to any information system or data\" is punishable by up to three months or fine up to PKR 50,000 or both; s.6 covers unauthorized access to critical infrastructure information systems. Act number inconsistently given (XL vs XI of 2016) so re-verify.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "PK"},
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Anti-Money Laundering Act, 2010 (Act No. VII of 2010), SBP-hosted gazette copy — https://www.sbp.org.pk/about/act/Anti-Act-2010.pdf",
+      "retrieved_snippet": "Search summary only (not fetched): State Bank of Pakistan hosts a gazette copy of the Anti-Money Laundering Act, 2010 (Act No. VII of 2010); a Senate-hosted text amended up to 24 Sep 2020 also exists (Second Amendment 2020); later amendments not checked.",
       "official_source": true
     }
   ]

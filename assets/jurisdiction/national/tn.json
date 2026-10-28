@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from dlapiperdataprotection.com, dataguidance.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "TN"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données personnelles"
+      ],
+      "action": "Log",
+      "source": "Organic Act No. 2004-63 of 27 July 2004 on the Protection of Personal Data (Tunisia) — https://www.dlapiperdataprotection.com/?t=law&c=TN",
+      "retrieved_snippet": "DLA Piper (search summary): Article 1 affirms every individual's right to protection of personal data relating to private life, as a fundamental right guaranteed by the Constitution; INPDP is the supervisory authority; a replacement law has been under review since 2017. Aggregator claims of breach notification/DPO duties conflict with DLA Piper and are not recorded.",
+      "official_source": false
+    }
+  ]
+}

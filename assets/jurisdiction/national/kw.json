@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from coe.int (Council of Europe Octopus), dlapiperdataprotection.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "KW"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Law No. 63 of 2015 on Combating Information Technology Crimes (Kuwait) — https://www.coe.int/web/octopus/-/kuwait",
+      "retrieved_snippet": "Search summary: the Council of Europe country profile lists Law 63/2015 among Kuwaiti laws covering illegal access, data interference and computer-related fraud, noting some offences are not criminalised to the extent the Budapest Convention requires; DLA Piper adds that it penalises illegal dealing with personal or governmental data.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "KW"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 20 of 2014 on Electronic Transactions (Kuwait) with Decision No. 48 of 2014; CITRA Administrative Decision No. 26 of 2024 (Data Privacy Protection Regulation, telecom licensees only) — https://www.dlapiperdataprotection.com/?c=KW&t=law",
+      "retrieved_snippet": "DLA Piper (search summary): Kuwait has no dedicated general personal data protection law; Law No. 20 of 2014 includes data privacy provisions for electronic records, and CITRA's 2024 Data Privacy Protection Regulation applies exclusively to CITRA-licensed telecom providers. One other source labels the 2024 instrument a 'law'; legal form unresolved.",
+      "official_source": false
+    }
+  ]
+}

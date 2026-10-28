@@ -80,6 +80,7 @@ def build_registry():
                 "source": source,
                 "official_source": official,
                 "has_retrieved_snippet": bool(snippet),
+                "aliases": len(rule.get("aliases") or []),
             }
             entries.append(entry)
             scope_entry["rule_count"] += 1
@@ -141,10 +142,11 @@ def write_markdown(entries, scopes, gaps, out_path: Path):
         f"hand-curated content like global.json that cites an article directly)."
     )
     lines.append(
-        f"- {len(gaps['non_log_national_actions'])} national-scope rules with a "
-        f"non-Log action (should be 0 — national content is always Log-only per "
-        f"method 21; global.json is the sole documented exception and is excluded "
-        f"from this check)."
+        f"- {len(gaps['non_log_national_actions'])} national/local-scope rules with a "
+        f"non-Log action. Shipped national content is Log-only; every non-Log entry "
+        f"here must trace to an explicit operator elevation decision (see "
+        f"`assets/jurisdiction/elevation-queue/` and docs/JURISDICTION_SETUP.md). "
+        f"global.json is the documented baseline exception and is excluded from this check."
     )
     lines.append("")
     lines.append("## By scope")
@@ -157,8 +159,8 @@ def write_markdown(entries, scopes, gaps, out_path: Path):
             f"{info['rule_count']} rule(s) · disclaimer present: {info['disclaimer_present']}"
         )
         lines.append("")
-        lines.append("| Topic | Action | Source | Official | Snippet |")
-        lines.append("|---|---|---|---|---|")
+        lines.append("| Topic | Action | Source | Official | Snippet | Aliases |")
+        lines.append("|---|---|---|---|---|---|")
         for e in entries:
             if e["scope"] != scope:
                 continue
@@ -168,7 +170,7 @@ def write_markdown(entries, scopes, gaps, out_path: Path):
             snippet = "yes" if e["has_retrieved_snippet"] else "no"
             source_cell = e["source"].replace("|", "\\|")
             lines.append(
-                f"| {e['condition']} | {e['action']} | {source_cell} | {official} | {snippet} |"
+                f"| {e['condition']} | {e['action']} | {source_cell} | {official} | {snippet} | {e.get('aliases', 0)} |"
             )
         lines.append("")
     out_path.write_text("\n".join(lines) + "\n")

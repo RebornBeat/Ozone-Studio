@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from assembleenationale.bf, allafrica.com, sidwaya.info (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "BF"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 001-2021/AN du 30 mars 2021 portant protection des personnes à l'égard du traitement des données à caractère personnel — https://assembleenationale.bf/storage/Loi/kDsWHXOTUCQFVESChh8BlBdiZnCrdTsOpXe1rzmH.pdf",
+      "retrieved_snippet": "Search summary of the National Assembly PDF: article 1 states the law aims to protect the fundamental rights and freedoms of natural persons regarding processing of their personal data; covers automated and non-automated processing; applies to controllers established in Burkina Faso and foreign controllers operating from its territory (art. 3). Press reports fines of 5 to 100 million FCFA; CIL is the independent authority.",
+      "official_source": true
+    }
+  ]
+}

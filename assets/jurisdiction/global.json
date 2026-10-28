@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from named, cited, stable international instruments (Universal Declaration of Human Rights; UN Convention on the Rights of the Child) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose, especially involving minors or vulnerable populations. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. Fast-moving national or state law (e.g. any specific country or state statute) is deliberately NOT included here and must be sourced and reviewed separately by a human. Actions above Log (Warn/RequireConfirmation/Block) on this file are a deliberate, explicit human decision (not auto-populated, not unreviewed) — see method 21/29's decision_rules and CHECKLIST.md for the real discussion this went through.",
+  "disclaimer": "Drafted from named, cited, stable international instruments (Universal Declaration of Human Rights; UN Convention on the Rights of the Child) as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose, especially involving minors or vulnerable populations. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. Fast-moving national or state law (e.g. any specific country or state statute) is deliberately NOT included here and must be sourced and reviewed separately by a human. Actions above Log (Warn/RequireConfirmation/Block) on this file are a deliberate, explicit human decision (not auto-populated, not unreviewed) — see method 21/29's decision_rules and CHECKLIST.md for the real discussion this went through. ADDENDUM (instruments added after live web research retrieved 2026-10-27/28): further Global rules citing ICCPR, ICESCR, ICERD, CEDAW, CAT, CRPD, the Genocide Convention, Geneva Conventions and Additional Protocols, Rome Statute, UNTOC and the Trafficking Protocol, the CRC Optional Protocols, UNCAC, the UN Convention against Cybercrime (adopted but, per the retrieved page, not yet in force), BWC, CWC, NPT, Arms Trade Treaty, UNSC resolution 1373 and sanctions regimes, UN Guiding Principles, UNDRIP, the 1951 Refugee Convention, ILO C182/C29/C105, the UNESCO AI Ethics Recommendation, GA resolution 78/265 and the Global Digital Compact, drawn from un.org, ohchr.org, treaties/legal.un.org, unodc.org, unesco.org, ilo.org, opcw.org, icrc.org, icc-cpi.int, unhcr.org and unoda.org. Many snippets were taken from search-result summaries where the full page was not fetched; article numbers are cited only where they appeared in retrieved text. Soft-law instruments (UNGPs, UNDRIP, UNESCO Recommendation, GA resolution, Global Digital Compact) are non-binding. All added rules are action Log only, with no non-English aliases (none were verified). Laws and treaty status change; re-verify. Not legal compliance advice.",
   "rules": [
     {
       "scope": "Global",
@@ -42,6 +42,278 @@
       "condition": "self-harm",
       "action": "RequireConfirmation",
       "source": "UDHR Article 3 (right to life, liberty, and security of person)"
+    },
+    {
+      "scope": "Global",
+      "condition": "right to privacy",
+      "action": "Log",
+      "source": "International Covenant on Civil and Political Rights (1966), Article 17 — https://www.ohchr.org/en/instruments-mechanisms/instruments/international-covenant-civil-and-political-rights (OHCHR material retrieved via search: https://www.ohchr.org/sites/default/files/documents/hrbodies/hrcouncil/sessions-regular/session63/a-hrc-63-crp-6.pdf)",
+      "retrieved_snippet": "OHCHR material describes ICCPR Article 17 as protecting against arbitrary or unlawful interference with privacy and correspondence; an OHCHR paper states the right to privacy includes the principles of data protection.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "freedom of expression",
+      "action": "Log",
+      "source": "ICCPR (1966), Article 19(3) — OHCHR https://www.ohchr.org/sites/default/files/documents/issues/civicspace/OHCHR-TECHCS-SEA2023.pdf",
+      "retrieved_snippet": "OHCHR describes the three-part test under ICCPR Article 19 as the primary framework for assessing restrictions on expression: restrictions must be provided by law and necessary for specified aims such as the rights or reputations of others or public order.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "hate speech",
+      "action": "Log",
+      "source": "ICCPR (1966), Article 20(2) — OHCHR https://www.ohchr.org/en/issues/freedomopinion/articles19-20/pages/expertseminar2008",
+      "retrieved_snippet": "OHCHR quotes Article 20(2): 'any advocacy of national, racial or religious hatred that constitutes incitement to discrimination, hostility or violence shall be prohibited by law.'",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "social rights",
+      "action": "Log",
+      "source": "International Covenant on Economic, Social and Cultural Rights, GA res. 2200A (XXI), 16 Dec 1966 — https://www.ohchr.org/en/instruments-mechanisms/instruments/international-covenant-economic-social-and-cultural-rights",
+      "retrieved_snippet": "OHCHR states the ICESCR was adopted by the General Assembly on 16 December 1966 and entered into force on 3 January 1976 (article 27); with the UDHR and ICCPR it forms the International Bill of Human Rights.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "racial discrimination",
+      "action": "Log",
+      "source": "International Convention on the Elimination of All Forms of Racial Discrimination (ICERD) — https://www.ohchr.org/sites/default/files/cerd.pdf",
+      "retrieved_snippet": "Article 1(1) defines racial discrimination as any distinction, exclusion, restriction or preference based on race, colour, descent, or national or ethnic origin that nullifies or impairs equal enjoyment of human rights and fundamental freedoms in public life; UN legal materials note 'purpose or effect' means intent is not required.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "discrimination against women",
+      "action": "Log",
+      "source": "Convention on the Elimination of All Forms of Discrimination against Women (CEDAW) — https://www.ohchr.org/sites/default/files/cedaw.pdf",
+      "retrieved_snippet": "OHCHR materials describe CEDAW Article 1 as defining discrimination against women as any sex-based distinction, exclusion or restriction impairing women's enjoyment of human rights and fundamental freedoms in any field.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "torture",
+      "action": "Log",
+      "source": "Convention against Torture and Other Cruel, Inhuman or Degrading Treatment or Punishment (1984) — https://www.ohchr.org/en/instruments-mechanisms/instruments/convention-against-torture-and-other-cruel-inhuman-or-degrading",
+      "retrieved_snippet": "OHCHR text: Article 1 defines torture as severe physical or mental suffering intentionally inflicted for purposes such as obtaining information, punishment, intimidation or discrimination, by or with a public official's involvement; Article 2 states no exceptional circumstances justify torture; Article 16 covers other cruel, inhuman or degrading treatment.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "disability discrimination",
+      "action": "Log",
+      "source": "Convention on the Rights of Persons with Disabilities (CRPD), GA res. 61/106 (2006), Article 5 — https://www.un.org/development/desa/disabilities/convention-on-the-rights-of-persons-with-disabilities/article-5-equality-and-non-discrimination.html",
+      "retrieved_snippet": "UN DESA page for Article 5 (equality and non-discrimination) covers equality before the law, prohibition of disability-based discrimination, reasonable accommodation, and special measures for de facto equality.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "genocide",
+      "action": "Log",
+      "source": "Convention on the Prevention and Punishment of the Crime of Genocide (1948), Article II — https://www.un.org/en/genocide-prevention/1948-convention",
+      "retrieved_snippet": "Article II defines genocide as any of five listed acts (killing, serious bodily or mental harm, conditions of life calculated to destroy the group, preventing births, forcibly transferring children) committed with intent to destroy, in whole or in part, a national, ethnical, racial or religious group, as such.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "war crimes",
+      "action": "Log",
+      "source": "Rome Statute of the International Criminal Court (1998), Article 8 — https://www.icc-cpi.int/sites/default/files/2024-05/Rome-Statute-eng.pdf",
+      "retrieved_snippet": "Search-result summary of the official text: Article 8(2) defines war crimes, beginning with grave breaches of the Geneva Conventions of 12 August 1949; the ICC Elements of Crimes specify war crimes occur in the context of an international or non-international armed conflict.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "crimes against humanity",
+      "action": "Log",
+      "source": "Rome Statute of the International Criminal Court (1998), Article 7 — https://www.icc-cpi.int/sites/default/files/2024-05/Rome-Statute-eng.pdf",
+      "retrieved_snippet": "Article 7: 'crime against humanity' means listed acts (from murder and enslavement to torture and rape) when committed as part of a widespread or systematic attack directed against any civilian population, with knowledge of the attack.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "civilians",
+      "action": "Log",
+      "source": "Geneva Conventions of 12 August 1949 and Additional Protocols I and II (1977) — ICRC https://ihl-databases.icrc.org/en/ihl-treaties/api-1977 and https://www.icrc.org/en/law-and-policy/protected-persons-civilians",
+      "retrieved_snippet": "ICRC: the Fourth Geneva Convention was the first IHL treaty dealing specifically with civilians; per ICRC summaries Protocol I requires distinguishing civilians from combatants (Arts 48, 52), bars attacks on civilians and terror as a primary purpose (Art 51) and starvation of civilians (Art 54); Protocol II covers non-international armed conflicts.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "human trafficking",
+      "action": "Log",
+      "source": "Protocol to Prevent, Suppress and Punish Trafficking in Persons, Especially Women and Children (2000), supplementing the UN Convention against Transnational Organized Crime — https://www.unodc.org/documents/treaties/Review_Mechanism/Review_Mechanism_2020/Website/Legislative_Guide_on_TiP/TiP_LegislativGuide_Final.pdf",
+      "retrieved_snippet": "UNODC material: Article 3(a) defines trafficking by an act (recruitment, transport, transfer, harbouring or receipt), a means (coercion, deception, abuse) and a purpose of exploitation; Article 3(c) treats moving a child for exploitation as trafficking without the listed means; Article 3(d) defines a child as under eighteen.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "organized crime",
+      "action": "Log",
+      "source": "United Nations Convention against Transnational Organized Crime (2000), Article 2 — https://www.unodc.org/documents/treaties/Legislative_Guide_2017/Legislative_Guide_E.pdf",
+      "retrieved_snippet": "UNODC: Article 2(a) defines an organized criminal group as a structured group of three or more persons acting in concert to commit serious crimes for financial or other material benefit; 'serious crime' (Art 2(b)) means maximum penalty of at least four years' deprivation of liberty.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "child pornography",
+      "action": "Log",
+      "source": "Optional Protocol to the CRC on the sale of children, child prostitution and child pornography, A/RES/54/263 (2000) — https://www.ohchr.org/sites/default/files/crc-sale.pdf",
+      "retrieved_snippet": "Search-result summary: adopted 25 May 2000 (A/RES/54/263), in force 18 January 2002; Article 2 defines sale of children, child prostitution (use of a child in sexual activities for remuneration or other consideration) and child pornography (representation of a child engaged in sexual activities; full wording not confirmed).",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "child sexual abuse material",
+      "action": "Log",
+      "source": "Optional Protocol to the CRC on the sale of children, child prostitution and child pornography, A/RES/54/263 (2000) — https://www.ohchr.org/en/instruments-mechanisms/instruments/optional-protocol-convention-rights-child-sale-children-child",
+      "retrieved_snippet": "Same instrument as the 'child pornography' rule (the Protocol uses the term 'child pornography'; this entry maps the modern term to it); see that rule's snippet for what was actually retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "child soldiers",
+      "action": "Log",
+      "source": "Optional Protocol to the CRC on the involvement of children in armed conflict (2000) — https://www.ohchr.org/en/instruments-mechanisms/instruments/optional-protocol-convention-rights-child-involvement-children",
+      "retrieved_snippet": "OHCHR: the Protocol, adopted 2000 and in force 2002, prohibits children's direct participation in hostilities, prohibits recruitment under eighteen by armed groups, and encourages states to set conscription age at eighteen.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "corruption",
+      "action": "Log",
+      "source": "United Nations Convention against Corruption (2003) — https://www.unodc.org/documents/brussels/UN_Convention_Against_Corruption.pdf",
+      "retrieved_snippet": "UNODC material describes Article 15 as requiring criminalization of intentional active and passive bribery of national public officials, including benefits to third parties; the offence does not depend on the official actually acting.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "bribery",
+      "action": "Log",
+      "source": "United Nations Convention against Corruption (2003), Article 15 — https://www.unodc.org/corruption/en/learn/what-is-uncac/criminalization-and-law-enforcement.html",
+      "retrieved_snippet": "UNODC: Article 15 requires States parties to criminalize active bribery (offering, giving, promising an undue advantage) and passive bribery (solicitation or acceptance) of domestic public officials (retrieved via search summary).",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "United Nations Convention against Cybercrime (GA res. 79/243, 24 Dec 2024) — https://www.unodc.org/unodc/en/cybercrime/convention/home.html",
+      "retrieved_snippet": "Per search summary of UNODC pages: adopted by the General Assembly on 24 December 2024 (resolution 79/243); opened for signature 25 October 2025 in Hanoi; NOT yet in force as of retrieval — enters into force 90 days after the 40th ratification (article 65(1)); signatory/party counts varied between sources and should be re-checked.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "biological weapons",
+      "action": "Log",
+      "source": "Convention on the Prohibition of the Development, Production and Stockpiling of Bacteriological (Biological) and Toxin Weapons (BWC, 1972), Article I — https://legal.un.org/avl/ha/cpdpsbbtwd/cpdpsbbtwd.html",
+      "retrieved_snippet": "Article I prohibits developing, producing, stockpiling or otherwise acquiring or retaining microbial or other biological agents or toxins 'of types and in quantities that have no justification for prophylactic, protective or other peaceful purposes', and related weapons/delivery means (search summary; UNODA reports 189 States Parties).",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "chemical weapons",
+      "action": "Log",
+      "source": "Chemical Weapons Convention (1993), Article I — https://www.opcw.org/chemical-weapons-convention/articles/article-i",
+      "retrieved_snippet": "OPCW: Article I (General Obligations) commits States Parties never to develop, acquire, stockpile, retain, transfer, use or prepare to use chemical weapons or assist others to do so, and to destroy chemical weapons they own or hold.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "nuclear weapons",
+      "action": "Log",
+      "source": "Treaty on the Non-Proliferation of Nuclear Weapons (NPT, 1968), Articles I-II — https://www.un.org/disarmament/wmd/nuclear/npt/text",
+      "retrieved_snippet": "Search summary of the UN text: Article I bars nuclear-weapon States from transferring nuclear weapons or control over them or assisting others to acquire them; Article II bars non-nuclear-weapon States from receiving, manufacturing or acquiring them.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "arms trade",
+      "action": "Log",
+      "source": "Arms Trade Treaty (2013), Article 6 — https://disarmament.unoda.org/en/our-work/conventional-arms/legal-instruments/arms-trade-treaty",
+      "retrieved_snippet": "UNODA/UN: Article 6 prohibits transfers that would violate Security Council arms embargoes, and (Art 6(3)) transfers where the State has knowledge at the time of authorization that the arms would be used in genocide, crimes against humanity, grave breaches of the Geneva Conventions, attacks on civilians or other war crimes.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "terrorist financing",
+      "action": "Log",
+      "source": "UN Security Council resolution 1373 (2001) — https://documents.un.org/doc/undoc/gen/n01/557/43/pdf/n0155743.pdf",
+      "retrieved_snippet": "Adopted unanimously 28 September 2001 under Chapter VII: para 1(a) decides that all States shall prevent and suppress the financing of terrorist acts; related duties include criminalizing wilful provision/collection of funds and freezing assets without delay; resolution 2462 (2019) reaffirmed it.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "sanctions",
+      "action": "Log",
+      "source": "UN Security Council sanctions regimes under Article 41 of the UN Charter — https://main.un.org/securitycouncil/en/content/repertoire/sanctions-and-other-committees",
+      "retrieved_snippet": "UN Security Council pages: Article 41 permits measures short of armed force; regimes typically combine arms embargo, asset freeze and travel ban on designated persons/entities, overseen by sanctions committees (e.g. resolution 2816 (2026) reaffirmed the Taliban-related measures). Regimes change; check current lists.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "business and human rights",
+      "action": "Log",
+      "source": "UN Guiding Principles on Business and Human Rights (2011), endorsed by Human Rights Council resolution 17/4 — https://www.ohchr.org/en/business-and-human-rights",
+      "retrieved_snippet": "OHCHR: the Human Rights Council endorsed the Guiding Principles in resolution 17/4 (June 2011); they apply to all States and business enterprises, and an OHCHR booklet says they are not a legally binding instrument and do not create new international law obligations.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "indigenous peoples",
+      "action": "Log",
+      "source": "UN Declaration on the Rights of Indigenous Peoples, GA res. 61/295 (2007) — https://www.un.org/development/desa/indigenouspeoples/declaration-on-%20the-rights-of-indigenous-peoples.html",
+      "retrieved_snippet": "UN: adopted by the General Assembly on 13 September 2007 (resolution 61/295; press release reports 143 in favour, 4 against, 11 abstentions); described as a universal framework of minimum standards; a declaration, not a treaty.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "non-refoulement",
+      "action": "Log",
+      "source": "Convention relating to the Status of Refugees (1951), Article 33 — https://www.unhcr.org/sites/default/files/legacy-pdf/496365eb2.pdf",
+      "retrieved_snippet": "UNHCR/OHCHR texts: Article 33(1) bars expelling or returning a refugee to territories where life or freedom would be threatened on account of race, religion, nationality, membership of a particular social group or political opinion; Article 33(2) allows limited exceptions (security danger, serious crime).",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "child labour",
+      "action": "Log",
+      "source": "ILO Worst Forms of Child Labour Convention, 1999 (No. 182), Article 3 — https://normlex.ilo.org/dyn/nrmlx_en/f?p=NORMLEXPUB%3A12100%3A0%3A%3ANO%3A%3AP12100_ILO_CODE%3AC182",
+      "retrieved_snippet": "Search summary of NORMLEX text: worst forms comprise (a) slavery and similar practices incl. child sale, trafficking, debt bondage and forced recruitment for armed conflict, (b) use of a child for prostitution or pornography, (c) illicit activities such as drug trafficking, (d) hazardous work; applies to persons under 18.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "forced labour",
+      "action": "Log",
+      "source": "ILO Forced Labour Convention, 1930 (No. 29) and Abolition of Forced Labour Convention, 1957 (No. 105) — https://www.ilo.org/dyn/normlex/en/f?p=NORMLEXPUB%3A12100%3A0%3A%3ANO%3A%3AP12100_ILO_CODE%3AC029",
+      "retrieved_snippet": "ILO C29 defines forced or compulsory labour as 'all work or service which is exacted from any person under the menace of any penalty and for which the said person has not offered himself voluntarily'; C105 requires suppressing forced labour used e.g. for political coercion, economic development, labour discipline, punishment for strikes or discrimination (search summary).",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "ai ethics",
+      "action": "Log",
+      "source": "UNESCO Recommendation on the Ethics of Artificial Intelligence (2021) — https://www.unesco.org/en/artificial-intelligence/recommendation-ethics",
+      "retrieved_snippet": "UNESCO: adopted by the General Conference in November 2021 as the first global standard on AI ethics; rests on four core values including respect for human dignity and human rights and ten core principles including proportionality, safety, privacy, transparency and fairness; a recommendation, not a binding treaty.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "UN General Assembly resolution A/RES/78/265 (21 March 2024), 'Seizing the opportunities of safe, secure and trustworthy artificial intelligence systems for sustainable development' — https://news.un.org/en/story/2024/03/1147831",
+      "retrieved_snippet": "UN News/documents: adopted without a vote on 21 March 2024; urges Member States to refrain from or cease use of AI systems that are impossible to operate in compliance with international human rights law or pose undue risks to human rights; scope limited to the non-military domain; non-binding.",
+      "official_source": true
+    },
+    {
+      "scope": "Global",
+      "condition": "digital compact",
+      "action": "Log",
+      "source": "Global Digital Compact (annex I to the Pact for the Future, A/RES/79/1, 22 Sept 2024) — https://www.un.org/digital-emerging-technologies/global-digital-compact",
+      "retrieved_snippet": "UN: adopted 22 September 2024 at the Summit of the Future as an annex to the Pact for the Future; commits to human-rights-grounded digital cooperation and an International Scientific Panel and Global Policy Dialogue on AI; a political, non-binding outcome.",
+      "official_source": true
     }
   ]
 }

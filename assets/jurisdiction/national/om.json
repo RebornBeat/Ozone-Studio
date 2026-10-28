@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from decree.om, clydeco.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "OM"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Law, Royal Decree 6/2022 (Oman) — https://decree.om/?p=8554",
+      "retrieved_snippet": "Fetched page: 'The provisions of this law apply to personal data that is processed' (Article 2); processing requires 'the explicit consent of the data subject' (Article 10). Search summaries add issuance 9 Feb 2022 and MTCIT as enforcing ministry; status of executive regulations conflicts across sources.",
+      "official_source": false
+    }
+  ]
+}

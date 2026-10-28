@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from ulii.org, bills.parliament.ug, dataguidance.com, powerlaw.africa (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "UG"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "data protection"
+      ],
+      "action": "Log",
+      "source": "Data Protection and Privacy Act, 2019 (Act 9 of 2019) — https://www.ulii.org/akn/ug/act/2019/9",
+      "retrieved_snippet": "Search summary of ULII text: protects privacy and personal data by regulating collection and processing, sets data subject rights and obligations of collectors, processors and controllers; gives effect to Article 27(2) of the Constitution; Gazette 3 May 2019.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "UG"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "computer misuse"
+      ],
+      "action": "Log",
+      "source": "Computer Misuse (Amendment) Act, 2022 — https://bills.parliament.ug/attachments/Computer Misuse (Amendment)Act, 2022.pdf",
+      "retrieved_snippet": "Search summary of Parliament PDF: assented 14 October 2022; adds s.26C (malicious information, up to seven years or 750 currency points) and s.26D (disguised identity on social media); strengthens unauthorised access and restricts sharing a child's information without parental consent.",
+      "official_source": true
+    }
+  ]
+}

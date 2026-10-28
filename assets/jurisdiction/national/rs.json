@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from paragraf.rs (commercial legal database; official gazette/PIS page not retrieved). . Engineering starting point only; NOT legal compliance and not a substitute for qualified Serbian counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "RS"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "podaci o ličnosti",
+        "zaštita podataka o ličnosti"
+      ],
+      "action": "Log",
+      "source": "Zakon o zaštiti podataka o ličnosti (Law on Personal Data Protection), Službeni glasnik RS, br. 87/2018 — https://www.paragraf.rs/propisi/zakon_o_zastiti_podataka_o_licnosti.html",
+      "retrieved_snippet": "Page title 'Zakon o zaštiti podataka o ličnosti', 'Sl. glasnik RS, br. 87/2018'; Art. 1: 'Ovim zakonom uređuje se pravo na zaštitu fizičkih lica u vezi sa obradom podataka o ličnosti…'; covers data subject rights, controller/processor duties, transfers abroad, oversight and penalties. Paragraf is a commercial legal database, not the official gazette.",
+      "official_source": false
+    }
+  ]
+}

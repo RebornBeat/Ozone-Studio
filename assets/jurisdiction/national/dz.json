@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from gide.com, dataguidance.com, cookie-script.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "DZ"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 18-07 of 10 June 2018 on the protection of natural persons in the processing of personal data (Algeria) — https://www.gide.com/en/news-insights/protection-of-personal-data-focus-on-algerian-regulations/",
+      "retrieved_snippet": "Search summary (GIDE/DataGuidance): the ANPDP is the independent authority overseeing compliance; controllers must notify and in some cases obtain authorisation; compliance period ended 11 Aug 2023. GIDE says the law was amended by Law No. 25-11 of 24 July 2025 (contents not verified).",
+      "official_source": false
+    }
+  ]
+}

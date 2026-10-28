@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from lawsociety.ly, omct.org, cihrs.org. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LY"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Law No. 5 of 2022 Concerning Combating Cybercrimes (Libya) — https://lawsociety.ly/en/legislation/law-no-5-of-2022-regarding-combating-cybercrimes/",
+      "retrieved_snippet": "Law Society of Libya (search summary): lists the law as in force; covers hacking, identity theft and cyber terrorism; rights groups (CIHRS, OMCT) say it undermines freedom of expression and privacy and call for repeal.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "LY"
+      },
+      "condition": "electronic transactions",
+      "action": "Log",
+      "source": "Law No. 6 of 2022 on Electronic Transactions (Libya) — https://lawsociety.ly/en/legislation/law-no-5-of-2022-regarding-combating-cybercrimes/",
+      "retrieved_snippet": "Law Society of Libya listing (search summary): Law No. 6 of 2022 on Electronic Transactions is listed as in force among related legislation; no provisions retrieved.",
+      "official_source": false
+    }
+  ]
+}

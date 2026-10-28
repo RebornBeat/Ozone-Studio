@@ -1,0 +1,61 @@
+{
+  "disclaimer": "Drafted from Italian laws retrieved via live web fetch/search on 2026-10-27 from normattiva.it, gazzettaufficiale.it and (where flagged official_source=false) secondary sources. Member-state law only; EU-wide instruments are in eu.json. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel. Every rule action is Log only. Laws change; re-verify; Normattiva consolidated pages carry 2026 versions that were not read in full.",
+  "rules": [
+    {
+      "scope": {
+        "National": "IT"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "dati personali",
+        "protezione dei dati personali",
+        "codice privacy"
+      ],
+      "action": "Log",
+      "source": "Decreto Legislativo 30 giugno 2003, n. 196 — Codice in materia di protezione dei dati personali — https://www.normattiva.it/uri-res/N2Ls?urn:nir:stato:decreto.legislativo:2003-06-30;196",
+      "retrieved_snippet": "Fetched Normattiva page: title 'Codice in materia di protezione dei dati personali, recante disposizioni per l'adeguamento dell'ordinamento nazionale al regolamento (UE) n. 2016/679', D.Lgs. n. 196 of 30 June 2003 (GU n. 174, 29-07-2003, SO n. 123); art. 1 (Oggetto) begins 'Il trattamento dei dati personali avviene secondo le norme del' Regulation (EU) 2016/679.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "IT"
+      },
+      "condition": "artificial intelligence",
+      "aliases": [
+        "intelligenza artificiale"
+      ],
+      "action": "Log",
+      "source": "Legge 23 settembre 2025, n. 132 — Disposizioni e deleghe al Governo in materia di intelligenza artificiale — https://www.gazzettaufficiale.it/eli/gu/2025/09/25/223/sg/pdf ; https://www.normattiva.it/eli/id/2025/09/25/25G00143/CONSOLIDATED",
+      "retrieved_snippet": "Search summary (official URLs listed, secondary commentary read): published in Gazzetta Ufficiale n. 223 of 25 September 2025, in force 10 October 2025; art. 1 sets principles for research, development, adoption and use of AI systems and models with a human-centred approach; art. 2 links definitions to Regulation (EU) 2024/1689; framework law delegating powers to the Government, with sector provisions (professions, public administration, justice, copyright, criminal law). Law is in force, not a bill.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "IT"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "accesso abusivo",
+        "sistema informatico o telematico"
+      ],
+      "action": "Log",
+      "source": "Codice penale, art. 615-ter (accesso abusivo a un sistema informatico o telematico; introduced by Legge 547/1993) — https://www.brocardi.it/codice-penale/libro-secondo/titolo-xii/capo-iii/art615ter.html",
+      "retrieved_snippet": "Secondary-source search summary (Brocardi and commentary; Normattiva page not retrieved): punishes entering a protected computer/telematic system without authorisation or remaining against the holder's will; base penalty up to three years' imprisonment; aggravated cases two to ten years; introduced by Law 547 of 1993.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "IT"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "antiriciclaggio",
+        "riciclaggio"
+      ],
+      "action": "Log",
+      "source": "Decreto Legislativo 21 novembre 2007, n. 231 (antiriciclaggio; amended by D.Lgs. 90/2017) — https://www.fiscoetasse.com/normativa-prassi/11770-antiriciclaggio-attuazione-della-direttiva-2005-60-ce.html",
+      "retrieved_snippet": "Secondary-source search summary (Normattiva not retrieved): decree implementing Directives 2005/60/CE and 2006/70/CE, published GU n. 290 of 14 December 2007 (SO), in force 29 December 2007, sets rules preventing misuse of the financial and economic system for money laundering and terrorist financing; significantly amended by D.Lgs. 25 May 2017, n. 90.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from azlp.mk (Agency for Personal Data Protection, official), page listing the laws only. . Engineering starting point only; NOT legal compliance and not a substitute for qualified North Macedonian counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MK"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law on Personal Data Protection, Official Gazette of the Republic of North Macedonia No. 42/20, amended by Law on amending and supplementing the law on the protection of personal data, Official Gazette No. 294/21 — https://azlp.mk/en/pdpa/regulations-and-documents/laws/",
+      "retrieved_snippet": "The Agency for Personal Data Protection's laws page lists 'Law on personal data protection' (Official Gazette of the Republic of North Macedonia No. 42/20) and 'Law on amending and supplementing the law on the protection of personal data' (Official Gazette No. 294/21). Article text not retrieved (CoE translation returned 403).",
+      "official_source": true
+    }
+  ]
+}

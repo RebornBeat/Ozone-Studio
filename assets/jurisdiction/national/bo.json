@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from bcb.gob.bo, lexivox.org (secondary); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "BO"
+      },
+      "condition": "telecommunications",
+      "aliases": [
+        "telecomunicaciones",
+        "tecnologías de información y comunicación"
+      ],
+      "action": "Log",
+      "source": "Ley N° 164 General de Telecomunicaciones, Tecnologías de Información y Comunicación (8 agosto 2011), reglamento DS 1391 (2012) — https://www.bcb.gob.bo/webdocs/normativa/2011%20-%20LEY%200164%20-%20Telecomunicaciones%20y%20Tecnolog%C3%ADas%20de%20la%20Informaci%C3%B3n.pdf",
+      "retrieved_snippet": "Search summary (PDF not opened): Ley 164 sets the general framework for telecommunications, ICT and postal services and their regulatory system, includes user and provider rights and obligations; regulated by Decreto Supremo 1391 of 24 October 2012.",
+      "official_source": true
+    }
+  ]
+}

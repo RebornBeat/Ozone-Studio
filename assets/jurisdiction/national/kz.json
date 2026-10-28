@@ -1,0 +1,13 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from adilet.zan.kz (search summary only); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {"National": "KZ"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law of the Republic of Kazakhstan No. 94-V of 21 May 2013 \"On Personal Data and their Protection\" — https://adilet.zan.kz/eng/docs/Z1300000094",
+      "retrieved_snippet": "Search summary only (adilet fetch returned no article text): official English (unofficial translation) and Kazakh versions are on adilet.zan.kz; Law dated 21 May 2013 No. 94-V regulates public relations concerning personal data and sets principles and legal bases for collecting, processing and protecting it; the consolidated text carries amendments through at least late 2025/January 2026 so re-verify the current version.",
+      "official_source": true
+    }
+  ]
+}

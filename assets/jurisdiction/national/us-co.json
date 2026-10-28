@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Sub-national (US-CO) rules drafted from laws retrieved via live web search on 2026-10-27 from coag.gov, leg.colorado.gov; contains only CO-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-CO"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Colorado Privacy Act (2021), effective July 1, 2023 — https://coag.gov/resources/colorado-privacy-act/",
+      "retrieved_snippet": "Colorado AG: consumers may access, correct, delete, port their data and opt out of sale, targeted advertising and certain profiling; businesses generally have 45 days to respond (extendable 45); consent required for sensitive data; Global Privacy Control honored from July 1, 2024.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-CO"
+      },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "SB26-189 'Automated Decision-Making Technology' (signed 05/14/2026), replacing SB24-205 'Consumer Protections for Artificial Intelligence' — https://leg.colorado.gov/bills/sb26-189",
+      "retrieved_snippet": "Colorado legislature page: SB26-189 replaces the 2024 AI consumer protections with requirements for developers and deployers of tools influencing consequential decisions (documentation, consumer notice, correction and human review, AG enforcement). Page lists effective date 05/14/2026; a search result of the bill text states the act takes effect January 1, 2027 (exception for one subsection) — not confirmed on the page; verify. Original SB24-205 duties were set for Feb 1, 2026, delayed to June 30, 2026 by SB25B-004; AG rulemaking and a federal court order (X.AI LLC v. Weiser) concerning enforcement were reported but not independently verified.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from bacn.gov.py, bcp.gov.py; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "PY"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "datos personales",
+        "protección de datos"
+      ],
+      "action": "Log",
+      "source": "Ley N° 7593/2025 de Protección de Datos Personales en la República del Paraguay — https://www.bacn.gov.py/leyes-paraguayas/12924/ley-n-7593",
+      "retrieved_snippet": "Search summary (official BACN page listed but not opened; details from secondary press): general framework for public and private processors, creates the Agencia Nacional de Protección de Datos Personales within MITIC; promulgated 27-28 November 2025; sources disagree on which provisions are already operative (regulation due within 24 months, full implementation ~November 2027).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "PY"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "defensa del consumidor"
+      ],
+      "action": "Log",
+      "source": "Ley N° 1334/98 de Defensa del Consumidor y del Usuario (amended by Ley 6366/2019) — https://www.bcp.gov.py/marco-legal",
+      "retrieved_snippet": "Search summary of the Banco Central del Paraguay legal-framework page: lists Ley 1334 as the consumer and user protection law; Ley 6366 of 2019 amends it to clarify information on credit operations.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "PY"
+      },
+      "condition": "credit data",
+      "aliases": [
+        "datos crediticios",
+        "buró de crédito"
+      ],
+      "action": "Log",
+      "source": "Ley N° 6534/2020 de Protección de Datos Personales Crediticios — https://www.bcp.gov.py/marco-legal",
+      "retrieved_snippet": "Search summary: BCP lists Ley 6534/2020 on credit personal data; a 2023 BCP resolution regulates licensing, supervision and sanction of credit information bureaus; the law sets a 5-year retention period for credit data (per a Ferrere analysis).",
+      "official_source": true
+    }
+  ]
+}

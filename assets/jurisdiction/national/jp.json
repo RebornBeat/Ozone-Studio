@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Japan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Japan (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Enriched 2026-10-27 (retrieved 2026-10-27) from japaneselawtranslation.go.jp.",
   "rules": [
     {
       "scope": {"National": "JP"},
@@ -40,6 +40,33 @@
       "source": "Japanese Industrial Standard JIS X 8341-3 (web accessibility, aligned with WCAG 2.0 Level AA; first enacted 2004, revised 2010), plus the Act on the Promotion of Smooth Communication of Persons with Disabilities via Accessible Information (enacted May 2022). Mandatory compliance for government agencies; private-sector reporting obligations carry fines up to JPY 200,000 for false/missing accessibility disclosures. Secondary summary: https://www.boia.org/blog/japans-digital-accessibility-laws-an-overview ; JIS standard itself administered by the Japanese Standards Association, https://www.jsa.or.jp/",
       "retrieved_snippet": "Japan's most specific web accessibility regulation is JIS X 8341-3... includes the same principles and success criteria as WCAG 2.0 Level AA. While JIS X 8341 compliance is not universally legislated, it is required for government agencies and many corporations. If private businesses don't report their accessibility practices to authorities, or make false claims, they may face fines of up to JPY 200,000.",
       "official_source": false
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "cybercrime",
+      "aliases": ["不正アクセス"],
+      "action": "Log",
+      "source": "Act on Prohibition of Unauthorized Computer Access (Act No. 128 of 1999) — https://www.japaneselawtranslation.go.jp/en/laws/view/3933",
+      "retrieved_snippet": "Fetched: Article 1 states \"The purpose of this Act is to prevent computer-related crimes committed via telecommunications lines\"; the Act prohibits unauthorized computer access and sets penalties (English translation reflects amendments to Act No. 28 of 2013).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "copyright",
+      "aliases": ["著作権法"],
+      "action": "Log",
+      "source": "Copyright Act (Act No. 48 of 1970), last version Act No. 52 of 2021 per translation database — https://www.japaneselawtranslation.go.jp/en/laws/view/4207/en",
+      "retrieved_snippet": "Fetched: Article 1 states \"The purpose of this Act is to provide for authors' rights and neighboring rights with respect to works,\" while allowing fair use of cultural products; Japanese title 著作権法.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "JP"},
+      "condition": "intermediary liability",
+      "aliases": ["発信者情報"],
+      "action": "Log",
+      "source": "Act on the Limitation of Liability for Damages of Specified Telecommunications Service Providers and the Right to Demand Disclosure of Sender Identification Information (Law No. 137 of 2001) — https://www.japaneselawtranslation.go.jp/ja/laws/view/2088/en",
+      "retrieved_snippet": "Fetched: Law No. 137 of 2001; Article 1 states \"The purpose of this Act is to set forth the limitation of liability for damages\" of specified telecommunications service providers and the procedure for disclosure of sender information (search summary adds 2021 revision Act No. 27 of 2021 added disclosure-order court procedures).",
+      "official_source": true
     }
   ]
 }

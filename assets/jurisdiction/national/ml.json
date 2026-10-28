@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from dataguidance.com, apanews.net, droitmediasfinance.com (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "ML"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2013-015 du 21 mai 2013 portant protection des données à caractère personnel en République du Mali (modifiée par la loi n° 2017-070) — https://www.DataGuidance.com/jurisdiction/mali",
+      "retrieved_snippet": "Search summary: applies to processing carried out wholly or partly in Mali by State, public bodies and private persons; APDP is an independent administrative authority that sets norms, approves transfers and imposes administrative sanctions; obstructing the authority is fined 5 to 20 million FCFA (art. 65); amended by loi n° 2017-070 of 18 December 2017.",
+      "official_source": false
+    }
+  ]
+}

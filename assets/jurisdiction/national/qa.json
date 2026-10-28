@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from clym.io, tamimi.com, sherloc.unodc.org (UN-hosted unofficial translation). Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "QA"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 13 of 2016 on Personal Data Privacy Protection (Qatar) — https://www.clym.io/regulations/law-no13-of-2016-qatar",
+      "retrieved_snippet": "Search summary: consent is the main basis for processing with a legitimate-purpose exception; individuals may object, correct, delete and access data; data of special nature includes ethnic origin, children, health, religious beliefs, marital relations and criminal offences. Sources conflict on the regulator and on effective dates.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "QA"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Law No. 14 of 2014 on Combating Cybercrimes (Qatar) — https://sherloc.unodc.org/cld/uploads/res/document/the-cybercrime-prevention-law_html/Qatar_Cybercrime_Law_unofficial_translation.pdf (also https://www.tamimi.com/law-update/october-4/articles/cyber-crime-prevention-law-in-qatar/)",
+      "retrieved_snippet": "Search summary: promulgated Sept 2014; covers hacking, fraud and content offences; unauthorised access to systems carries up to 3 years' imprisonment; producing or distributing child pornography up to five years; Article 21 requires providers to keep subscriber information for one year. Commentary notes undefined 'false news' terms.",
+      "official_source": true
+    }
+  ]
+}

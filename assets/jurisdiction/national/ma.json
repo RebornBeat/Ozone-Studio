@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, current Moroccan law, retrieved via web search against reputable secondary sources describing Law No. 09-08 (18 February 2009) on the protection of individuals with regard to the processing of personal data, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Moroccan legal counsel. No verifiable source for consumer-protection-specific integration with this law was found during this research pass — not included rather than guessed. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, current Moroccan law, retrieved via web search against reputable secondary sources describing Law No. 09-08 (18 February 2009) on the protection of individuals with regard to the processing of personal data, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Moroccan legal counsel. No verifiable source for consumer-protection-specific integration with this law was found during this research pass — not included rather than guessed. Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it. Additional rules appended 2026-10-27 (retrieved 2026-10-27) from digitalpolicyalert.org (search summaries; secondary); Log only. Law 31-08 amendment proposals (2025) are bills and not recorded.",
   "rules": [
     {
       "scope": { "National": "MA" },
@@ -18,6 +18,8 @@
       "condition": "data access request",
       "action": "Log",
       "source": "Law No. 09-08 — refusing a data subject's access, rectification, or objection rights carries penalties of MAD 20,000-200,000; failure to declare/authorize processing with the CNDP carries penalties of MAD 10,000-100,000. https://www.dpo-consulting.com/blog/morocco-data-protection-law-09-08"
-    }
+    },
+    {"scope": {"National": "MA"}, "condition": "cybercrime", "action": "Log", "source": "Law No. 07-03 supplementing the Penal Code with regard to offences relating to automated data processing systems (2003) — https://digitalpolicyalert.org/change/13190-law-no-07-03-supplementing-the-penal-code-with-regard-to-offences-relating-to-automated-data-processing-systems", "retrieved_snippet": "Search summary: Law No. 07-03 supplements the Moroccan Penal Code with offences relating to automated data processing systems; countersigned by the Prime Minister 11 Nov 2003. Specific offences not retrieved.", "official_source": false},
+    {"scope": {"National": "MA"}, "condition": "consumer", "action": "Log", "source": "Law No. 31-08 establishing consumer protection measures (Morocco) — https://digitalpolicyalert.org/change/13193-law-no-31-08-establishing-consumer-protection-measures-including-usersubject-right", "retrieved_snippet": "Search summary: Law 31-08 upholds consumer rights including clear and appropriate information about products; entered into force in 2011 after Official Gazette publication.", "official_source": false}
   ]
 }

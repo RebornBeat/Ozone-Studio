@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 (retrieved 2026-10-27) from alp.unescwa.org (UN ESCWA), dataguidance.com. Several snippets are from search-result summaries rather than fully fetched official texts, and several sources are unofficial translations or secondary commentary; the Arabic/French official gazette text prevails. Engineering starting point only; NOT legal compliance; not a substitute for qualified local counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LB"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law No. 81 of 2018 on Electronic Transactions and Personal Data (Lebanon) — https://alp.unescwa.org/legislations/law-81-2018-electronic-transactions-and-personal-data",
+      "retrieved_snippet": "UN ESCWA database: the law defines e-transactions, sets procedures to admit electronic instruments, rules for e-commerce and contracts, and provisions for personal data protection. DataGuidance (search summary): no independent authority; the Ministry of Economy and Trade has a role, mainly processing notification.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "LB"
+      },
+      "condition": "electronic transactions",
+      "action": "Log",
+      "source": "Law No. 81 of 2018 on Electronic Transactions and Personal Data (Lebanon) — https://alp.unescwa.org/legislations/law-81-2018-electronic-transactions-and-personal-data",
+      "retrieved_snippet": "UN ESCWA database: sets rules for e-commerce and contracts and procedures to admit electronic instruments.",
+      "official_source": true
+    }
+  ]
+}

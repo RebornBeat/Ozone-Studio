@@ -1,0 +1,27 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from secondary sources (law firms, trackers, PacLII/AustLII, CoE, UNODC); no official government page was successfully read, so official_source is false throughout and several snippets are search-result summaries. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "FJ"
+      },
+      "condition": "cybercrime",
+      "aliases": [],
+      "action": "Log",
+      "source": "Cybercrime Act 2021 (Act No. 3 of 2021), in force 14 November 2022 except s.34 — https://pacliirms.austlii.edu.au/fj/legis/num_act/ca2021112",
+      "retrieved_snippet": "Search-result summary of the PacLII/AustLII table of contents (fetch failed): covers offences against confidentiality, integrity and availability of computer data and systems (including unauthorised access, computer-related forgery, identity theft) plus search, seizure and production-order powers.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "FJ"
+      },
+      "condition": "online safety",
+      "aliases": [],
+      "action": "Log",
+      "source": "Online Safety Act 2018 (Act No. 8 of 2018) — https://pacliirms.austlii.edu.au/fj/legis/num_act/osa2018154",
+      "retrieved_snippet": "Search-result summary of the PacLII/AustLII text (fetch failed): establishes the Online Safety Commission; offences include causing harm by posting an electronic communication (s 24) and posting an intimate visual recording (s 25).",
+      "official_source": false
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official Mexican federal statutes, verified via live web search against official government sources (gob.mx, diputados.gob.mx, profeco.gob.mx) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Mexican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. State-level law is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from real, currently-published official Mexican federal statutes, verified via live web search against official government sources (gob.mx, diputados.gob.mx, profeco.gob.mx) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only, NOT a comprehensive survey of Mexican law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel. State-level law is deliberately NOT included here. Every rule's action is Log only. This content will age — re-verify before relying on it. ENRICHMENT 2026-10-27: additional rules drafted from laws retrieved via live web search/fetch on 2026-10-27 from ordenjuridico.gob.mx, cnbv.gob.mx, banxico.org.mx and siga.jalisco.gob.mx (state mirror, flagged official_source false). The diputados.gob.mx site was unreachable during retrieval. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; all newly added rules are Log only; laws change, re-verify.",
   "rules": [
     {
       "scope": {"National": "MX"},
@@ -48,6 +48,75 @@
       "source": "Ley General para la Inclusión de las Personas con Discapacidad + Ley Federal de Telecomunicaciones y Radiodifusión (2014) — https://www.gob.mx/conadis",
       "retrieved_snippet": "Mexico's primary disability-rights statute protects and promotes inclusion broadly; the Federal Telecommunications and Broadcasting Law separately mandates that telecommunications services be accessible to persons with disabilities. Neither law explicitly names website/digital-content accessibility standards (e.g. no codified WCAG requirement) — website accessibility specifically is honestly underdeveloped in Mexican federal law as of this research, not a settled, citable requirement the way it is in the EU, Poland, or Brazil's LBI.",
       "official_source": false
+    },
+    {
+      "scope": {
+        "National": "MX"
+      },
+      "condition": "privacy",
+      "aliases": [
+        "autodeterminación informativa",
+        "protección de datos personales"
+      ],
+      "action": "Log",
+      "source": "Ley Federal de Protección de Datos Personales en Posesión de los Particulares (new law, DOF 20-03-2025, replacing the 2010 law) — https://www.ordenjuridico.gob.mx/Documentos/Federal/html/wo125102.html",
+      "retrieved_snippet": "Article 1: 'La presente Ley es de orden público y de observancia general en todo el territorio nacional'; regulates handling of personal data held by private parties. Article 2 fr. XV names the Secretaría Anticorrupción y Buen Gobierno as the competent authority. The Cámara de Diputados consolidated text is reported (search result) to reflect a reform of 14-11-2025; the diputados.gob.mx site was unreachable so this was not read directly.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "MX"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "acceso ilícito a sistemas",
+        "acceso ilícito a equipos de informática"
+      ],
+      "action": "Log",
+      "source": "Código Penal Federal, Título Noveno, Art. 211 bis 1 (state-government mirror compiled through DOF 08-02-2006) — http://siga.jalisco.gob.mx/assets/documentos/normatividad/CodPenalFed.htm",
+      "retrieved_snippet": "Art. 211 bis 1 begins 'Al que sin autorización modifique, destruya o provoque pérdida de información contenida en sistemas o equipos de informática...'; in the retrieved (older) text the penalty is six months to two years of prison and a fine of 100 to 300 days. Reform proposals and a 2019 chamber vote to raise penalties exist; current federal text/penalties NOT verified.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "MX"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "derecho de autor",
+        "derechos de autor"
+      ],
+      "action": "Log",
+      "source": "Ley Federal del Derecho de Autor (DOF 24-12-1996; page shows reform of 01-07-2020) — http://www.ordenjuridico.gob.mx/Documentos/Federal/html/wo17068.html",
+      "retrieved_snippet": "Article 1: the law 'tiene por objeto la salvaguarda y promoción del acervo cultural de la Nación' and the protection of the rights of authors, performers, publishers, producers and broadcasters over their works.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "MX"
+      },
+      "condition": "fintech",
+      "aliases": [
+        "tecnología financiera",
+        "instituciones de tecnología financiera"
+      ],
+      "action": "Log",
+      "source": "Ley para Regular las Instituciones de Tecnología Financiera (Ley Fintech) — https://www.cnbv.gob.mx/Normatividad/Ley%20para%20Regular%20las%20Instituciones%20de%20Tecnolog%C3%ADa%20Financiera.pdf",
+      "retrieved_snippet": "Article 1 (as returned by search of the CNBV text): the law is of public order and general observance and 'tiene por objeto regular los servicios financieros que prestan las instituciones de tecnología financiera'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "MX"
+      },
+      "condition": "cryptocurrency",
+      "aliases": [
+        "activos virtuales"
+      ],
+      "action": "Log",
+      "source": "Ley Fintech (CNBV text) and Banco de México Circular 4/2019 — https://www.cnbv.gob.mx/Normatividad/Ley%20para%20Regular%20las%20Instituciones%20de%20Tecnolog%C3%ADa%20Financiera.pdf ; https://www.banxico.org.mx/marco-normativo/normativa-emitida-por-el-banco-de-mexico/circular-4-2019/%7B8D7769AF-03F6-701A-68AA-EF25A73AD035%7D.pdf",
+      "retrieved_snippet": "Per search results of the official texts: ITFs may operate only with the virtual assets determined by Banco de México in general provisions and need Banxico's prior authorization; Circular 4/2019 determines which virtual assets and conditions. Circular dates from 2019 (régimen currency in 2026 not verified).",
+      "official_source": true
     }
   ]
 }

@@ -1,0 +1,73 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from mevzuat.gov.tr (official legislation information system). . Engineering starting point only; NOT legal compliance and not a substitute for qualified Turkish counsel. Every rule action is Log only. Laws change; re-verify. Enriched 2026-10-27 (retrieved 2026-10-27) with Law Nos. 5237, 5651, 6563 from mevzuat.gov.tr PDFs.",
+  "rules": [
+    {
+      "scope": {
+        "National": "TR"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "kişisel veri",
+        "kişisel verilerin korunması"
+      ],
+      "action": "Log",
+      "source": "Kişisel Verilerin Korunması Kanunu (Law on the Protection of Personal Data), Law No. 6698, adopted 24/3/2016, Resmî Gazete 7/4/2016 No. 29677 — https://www.mevzuat.gov.tr/mevzuatmetin/1.5.6698.pdf",
+      "retrieved_snippet": "Madde 1: 'Bu Kanunun amacı, kişisel verilerin işlenmesinde başta özel hayatın gizliliği olmak üzere kişilerin temel hak ve özgürlüklerini korumak…'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "TR"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "veri ihlali"
+      ],
+      "action": "Log",
+      "source": "Law No. 6698, Madde 12(5) — https://www.mevzuat.gov.tr/mevzuatmetin/1.5.6698.pdf",
+      "retrieved_snippet": "Madde 12(5): 'İşlenen kişisel verilerin kanuni olmayan yollarla başkaları tarafından elde edilmesi hâlinde, veri sorumlusu bu durumu en kısa sürede ilgilisine ve Kurula bildirir.' (version of the text retrieved; may not reflect later amendments)",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "TR"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "bilişim sistemine girme"
+      ],
+      "action": "Log",
+      "source": "Türk Ceza Kanunu, Law No. 5237, Madde 243 Bilişim sistemine girme — https://www.mevzuat.gov.tr/MevzuatMetin/1.5.5237.pdf",
+      "retrieved_snippet": "Madde 243(1): 'Bir bilişim sisteminin bütününe veya bir kısmına, hukuka aykırı olarak giren veya orada kalmaya devam eden kimseye … hapis veya adlî para cezası' (penalty range amended by Law 7413 of 23/6/2022 per footnote; exact current range not relied on here).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "TR"
+      },
+      "condition": "online platform",
+      "aliases": [
+        "yer sağlayıcı",
+        "erişim sağlayıcı",
+        "internet ortamında yapılan yayınlar"
+      ],
+      "action": "Log",
+      "source": "İnternet Ortamında Yapılan Yayınların Düzenlenmesi ve Bu Yayınlar Yoluyla İşlenen Suçlarla Mücadele Edilmesi Hakkında Kanun, Law No. 5651, adopted 4/5/2007, Resmî Gazete 23/5/2007 No. 26530 — https://www.mevzuat.gov.tr/MevzuatMetin/1.5.5651.pdf",
+      "retrieved_snippet": "Madde 1: the Act regulates the obligations and responsibilities of content providers, hosting providers, access providers and mass-use providers, and the procedures for combating certain crimes committed online through them.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "TR"
+      },
+      "condition": "e-commerce",
+      "aliases": [
+        "elektronik ticaret"
+      ],
+      "action": "Log",
+      "source": "Elektronik Ticaretin Düzenlenmesi Hakkında Kanun, Law No. 6563, adopted 23/10/2014, Resmî Gazete 5/11/2014 No. 29166 — https://www.mevzuat.gov.tr/MevzuatMetin/1.5.6563.pdf",
+      "retrieved_snippet": "Madde 1: the Act's purpose is to regulate the procedures of electronic commerce; it covers commercial communication, responsibilities of service providers and intermediary service providers, and information duties for contracts made by electronic means.",
+      "official_source": true
+    }
+  ]
+}

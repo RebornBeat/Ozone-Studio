@@ -1,0 +1,16 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from secondary sources (law firms, trackers, PacLII/AustLII, CoE, UNODC); no official government page was successfully read, so official_source is false throughout and several snippets are search-result summaries. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MM"
+      },
+      "condition": "cybersecurity",
+      "aliases": [],
+      "action": "Log",
+      "source": "Cybersecurity Law No. 1/2025 (enacted 1 January 2025 by the State Administration Council; in force 30 July 2025 via Notification 113/2025) — https://www.tilleke.com/insights/myanmar-cybersecurity-law-takes-effect/",
+      "retrieved_snippet": "Fetched Tilleke & Gibbins: 'On July 30, 2025, Myanmar's Cybersecurity Law No. 1/2025 came into effect'; establishing a VPN or providing VPN services without approval from the designated ministry is penalised (prison, fine, or both). Law issued by the military State Administration Council; official gazette text not retrieved.",
+      "official_source": false
+    }
+  ]
+}

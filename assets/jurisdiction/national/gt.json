@@ -1,0 +1,33 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from banguat.gob.gt, conap.gob.gt; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "GT"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavado de dinero",
+        "lavado de activos"
+      ],
+      "action": "Log",
+      "source": "Decreto 67-2001 Ley contra el Lavado de Dinero u otros Activos — https://pinfex.banguat.gob.gt/sites/default/files/banguat/leyes/2025/ley_contra_lavado_de_dinero.pdf",
+      "retrieved_snippet": "Search summary (PDF not opened): official Banguat text; stated purpose is to prevent, control, monitor and sanction laundering of money or other assets from any crime; offence defined from art. 2.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GT"
+      },
+      "condition": "electronic signature",
+      "aliases": [
+        "firma electrónica",
+        "comunicaciones electrónicas"
+      ],
+      "action": "Log",
+      "source": "Decreto 47-2008 Ley para el Reconocimiento de las Comunicaciones y Firmas Electrónicas — https://sip.conap.gob.gt/wp-content/uploads/2019/09/26022019-CONGRESO-DECRETO-47-2008-TELECOMUNICACIONES-Y-FIRMA-ELECTRONICA.pdf",
+      "retrieved_snippet": "Search summary (PDF not opened): Congress decree whose preamble gives electronic communications and signatures functional equivalence with paper documents and handwritten signatures.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from matsne.gov.ge (Legislative Herald of Georgia, official). No Georgian-language aliases included (none retrieved). . Engineering starting point only; NOT legal compliance and not a substitute for qualified Georgian counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "GE"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law of Georgia on Personal Data Protection, No. 3144-XIმს-Xმპ, 14 June 2023 — https://matsne.gov.ge/en/document/view/5827307",
+      "retrieved_snippet": "Page title 'Law of Georgia on Personal Data Protection', number 3144-XIმს-Xმპ, issued 14/06/2023, published 03/07/2023; Art. 1: purpose is to ensure the protection of fundamental human rights and freedoms in personal data processing.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "GE"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "incident"
+      ],
+      "action": "Log",
+      "source": "Law of Georgia on Personal Data Protection, Art. 29 Obligation to notify the State Audit Office about an incident — https://matsne.gov.ge/en/document/view/5827307",
+      "retrieved_snippet": "Art. 29: the controller must notify the State Audit Office 'not later than 72 hours after the identification of the incident'.",
+      "official_source": true
+    }
+  ]
+}

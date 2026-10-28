@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from cipesa.org, osiris.sn (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "SN"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel",
+        "données personnelles"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2008-12 du 25 janvier 2008 sur la protection des données à caractère personnel — https://osiris.sn/loi-no-2008-12-du-25-janvier-2008-sur-la-protection-des-donnees-a-caractere.html",
+      "retrieved_snippet": "Résumé de recherche : la loi n° 2008-12 du 25 janvier 2008 institue la Commission de protection des Données Personnelles (CDP), autorité administrative indépendante chargée de contrôler la légalité de la collecte et du traitement ; le traitement de données relatives aux infractions requiert une autorisation préalable de la CDP (art. 20-2 et 42 selon un avis de la CDP). CIPESA signale un projet de loi de remplacement dont l'adoption n'est pas confirmée.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from law.ungovr.org, droitnumerique.cd, wearetech.africa (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "CD"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel",
+        "code du numérique"
+      ],
+      "action": "Log",
+      "source": "Ordonnance-loi n° 23/010 du 13 mars 2023 portant Code du numérique (Titre III, protection des données) — https://law.ungovr.org/ai/cd",
+      "retrieved_snippet": "Search summary: the Code sets out the DRC's first detailed personal-data regime (lawfulness, transparency, security) and provides for a data protection authority (APD); APD functions reportedly given temporarily to ARPTIC by ministerial decree of 17 August 2024; authority not fully operational and subject of legal challenge.",
+      "official_source": false
+    }
+  ]
+}

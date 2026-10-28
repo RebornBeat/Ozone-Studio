@@ -1,8 +1,10 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Thailand (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Thailand (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Addendum (retrieved 2026-10-27): additional rules drafted from live web search/fetch of icj.org; engineering starting point only, NOT legal compliance, not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
   "rules": [
     {
-      "scope": {"National": "TH"},
+      "scope": {
+        "National": "TH"
+      },
       "condition": "personal data",
       "action": "Log",
       "source": "Personal Data Protection Act B.E.2562 (2019) (PDPA), came into full effect 1 June 2022. Regulator: Personal Data Protection Committee (PDPC). Summary: https://www.nortonrosefulbright.com/en/knowledge/publications/e29d223d/overview-of-thailand-personal-data-protection-act-be2562-2019 . Official statutory text should be verified via the Thai Government Gazette or the PDPC's own site — not directly retrieved in this pass.",
@@ -10,7 +12,9 @@
       "official_source": false
     },
     {
-      "scope": {"National": "TH"},
+      "scope": {
+        "National": "TH"
+      },
       "condition": "child",
       "action": "Log",
       "source": "Child Protection Act B.E.2546 (2003) is the current base law (a child is an unmarried person under 18; parental consent required before collecting personal data of a child under 10). A comprehensive replacement Draft Child Protection Act was released for public review by the Ministry of Social Development and Human Security on 11 May 2026 — NOT YET ENACTED, a draft only. Summary: https://www.tilleke.com/insights/thailands-draft-child-protection-act-complete-overhaul-of-existing-framework/13/",
@@ -18,12 +22,25 @@
       "official_source": false
     },
     {
-      "scope": {"National": "TH"},
+      "scope": {
+        "National": "TH"
+      },
       "condition": "consumer",
       "action": "Log",
       "source": "Consumer Protection Act B.E.2522 (1979). Regulator: Office of the Consumer Protection Board (OCPB), established 2 July 1979, official site https://www.ocpb.go.th/index_en.php",
       "retrieved_snippet": "Safeguards consumer rights, regulates business practices, and ensures fair trade; OCPB administers matters on advertising, labeling, and contracts, investigates claims and mediates disputes, with escalation to the Consumer Court (expedited procedures, waived legal fees) if mediation fails.",
       "official_source": true
+    },
+    {
+      "scope": {
+        "National": "TH"
+      },
+      "condition": "cybercrime",
+      "aliases": [],
+      "action": "Log",
+      "source": "Act on Computer Crime B.E. 2550 (2007) (amended by Act on Computer Crime (No. 2) B.E. 2560 (2017)), ICJ-hosted 'Tentative Translation' — https://www.icj.org/wp-content/uploads/2012/12/Thailand-Computer-Crime-Act-2007-eng.pdf",
+      "retrieved_snippet": "Fetched PDF (tentative translation): Section 5 — 'Whoever illegally access computer system having specific security measures and such security measures are not intended for his use, shall be punished with imprisonment not exceeding six months or fine not exceeding ten thousand baht or both.' Sections 8-10 cover illegal interception, damage/alteration of computer data, and system interference. 2007 text; the 2017 amendment's effect on penalties was not verified.",
+      "official_source": false
     }
   ]
 }

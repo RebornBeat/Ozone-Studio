@@ -1,0 +1,45 @@
+{
+  "disclaimer": "Sub-national (US-CA) rules drafted from laws retrieved via live web search on 2026-10-27 from oag.ca.gov, gov.ca.gov; contains only CA-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-CA"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "California Consumer Privacy Act (CCPA) as amended by CPRA (Prop. 24); regulations by California Privacy Protection Agency — https://oag.ca.gov/privacy/ccpa",
+      "retrieved_snippet": "California AG: rights include to know, delete, opt out of sale or sharing, correct, and limit use of sensitive personal information; applies to for-profit businesses meeting revenue (over $25 million) or data-volume thresholds; private suits limited to data breaches.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-CA"
+      },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "SB 53, Transparency in Frontier Artificial Intelligence Act (Ch. 138, Stats. 2025), signed Sept. 29, 2025 — https://www.gov.ca.gov/2025/09/29/governor-newsom-signs-sb-53-advancing-californias-world-leading-artificial-intelligence-industry/",
+      "retrieved_snippet": "Governor's release/search summary: large frontier AI developers must publish a frontier AI framework, critical safety incidents are reported to the Office of Emergency Services, whistleblowers are protected, and the Attorney General enforces civil penalties.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-CA"
+      },
+      "condition": "training data",
+      "action": "Log",
+      "source": "AB 2013, Generative artificial intelligence: training data transparency (signed Sept. 28, 2024) — https://leginfo.legislature.ca.gov/faces/billTextClient.xhtml?bill_id=202320240AB2013",
+      "retrieved_snippet": "Search summary of bill text: AI developers must post on their websites a high-level summary of datasets used to develop generative AI systems on or before January 1, 2026.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-CA"
+      },
+      "condition": "ai generated content",
+      "action": "Log",
+      "source": "SB 942, California AI Transparency Act (signed 2024) — https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202320240SB942",
+      "retrieved_snippet": "Search summary: covered providers must offer free AI-detection tools, visible markings on AI-generated content and latent provenance disclosures where technically feasible, from January 1, 2026; later operative-date changes not verified.",
+      "official_source": true
+    }
+  ]
+}

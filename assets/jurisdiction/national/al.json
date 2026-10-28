@@ -1,0 +1,38 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from idp.al (Albanian Information and Data Protection Commissioner), English-language PDF copy; Albanian-language gazette text not retrieved. . Engineering starting point only; NOT legal compliance and not a substitute for qualified Albanian counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "AL"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law no. 124/2024 On Personal Data Protection (Official Gazette no. 9, 17 Jan 2025 per DLA Piper summary) — https://idp.al/wp-content/uploads/2025/04/Law-no.124-2024-DP.pdf",
+      "retrieved_snippet": "Art. 1: 'This law sets out rules about protection of individuals in relation to the processing of their personal data.' Art. 2: aim is protection of fundamental human rights and freedoms, in particular the right to personal data protection.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AL"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "Law no. 124/2024 On Personal Data Protection, Art. 29 Notification of a personal data breach — https://idp.al/wp-content/uploads/2025/04/Law-no.124-2024-DP.pdf",
+      "retrieved_snippet": "Art. 29(1): 'the controller shall as soon as possible, but no later than 72 hours, after having become aware of it, notify the Commissioner' unless the breach is unlikely to endanger rights and freedoms of data subjects.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "AL"
+      },
+      "condition": "child",
+      "aliases": [
+        "minor"
+      ],
+      "action": "Log",
+      "source": "Law no. 124/2024 On Personal Data Protection, Art. 8 (child's consent) — https://idp.al/wp-content/uploads/2025/04/Law-no.124-2024-DP.pdf",
+      "retrieved_snippet": "Art. 8(6): consent-based processing of minors' data in online delivery of goods or services is legitimate only if the minor is at least 16 years old; under 16, only with parental/custodian consent.",
+      "official_source": true
+    }
+  ]
+}

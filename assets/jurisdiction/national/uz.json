@@ -1,0 +1,13 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from lex.uz (fetched); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {"National": "UZ"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law of the Republic of Uzbekistan \"On Personal Data\" No. LRU-547 of 2 July 2019 (ZRU-547 in some sources) — https://lex.uz/docs/4831939",
+      "retrieved_snippet": "Fetched (lex.uz, unofficial English translation): header \"от 02.07.2019 г. № LRU-547\"; Article 1: \"The purpose of this Law is to regulate relations in the field of personal data.\" Search summary adds in force 1 October 2019 (secondary-sourced; not verified on the page).",
+      "official_source": true
+    }
+  ]
+}

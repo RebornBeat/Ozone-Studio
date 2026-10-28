@@ -1,0 +1,21 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from legalinfo.mn (search summaries only); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {"National": "MN"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law on Personal Data Protection (Mongolia), adopted 17 December 2021, in force 1 May 2022 — https://legalinfo.mn/en/edtl/16532053734461",
+      "retrieved_snippet": "Search summary only (legalinfo.mn fetch returned HTTP 500): the legalinfo.mn unofficial translation states the law regulates relations concerning the collection, processing, use and security of personal data; PwC (secondary) reports it took effect 1 May 2022 and repealed the Law on Personal Secrets (1995).",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "MN"},
+      "condition": "cyber security",
+      "action": "Log",
+      "source": "Law on Cyber Security (Mongolia), adopted 17 December 2021 — https://legalinfo.mn/en/edtl/16531350476261",
+      "retrieved_snippet": "Search summary only (legalinfo.mn fetch returned HTTP 500): the official text sets out its purpose as building the legal system for cyber security and the safety, confidentiality and accessibility of information in cyberspace, and applies also to foreign citizens and foreign-invested legal persons operating through Mongolia's information systems; in force 1 May 2022 per secondary sources.",
+      "official_source": true
+    }
+  ]
+}

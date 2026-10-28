@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Sub-national (US-WA) rules drafted from laws retrieved via live web search on 2026-10-27 from atg.wa.gov; contains only WA-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-WA"
+      },
+      "condition": "health data",
+      "action": "Log",
+      "source": "Washington My Health My Data Act (HB 1155, 2023; RCW 19.373) — https://www.atg.wa.gov/protecting-washingtonians-personal-health-data-and-privacy",
+      "retrieved_snippet": "Washington AG: signed April 27, 2023; requires a distinct consumer health data privacy policy, consent to collect or share, valid authorization to sell, deletion rights, and limits on geofencing health facilities; violations are per se Consumer Protection Act violations enforceable by the AG and by private action; compliance from March 31, 2024 (June 30, 2024 for small businesses).",
+      "official_source": true
+    }
+  ]
+}

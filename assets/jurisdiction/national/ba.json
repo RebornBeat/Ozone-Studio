@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from tuzilastvobih.gov.ba (Prosecutor's Office of BiH, English PDF of the 2006 law as originally enacted; amendments not retrieved from an official page). . A GDPR-aligned replacement was reported as drafted but not adopted by DLA Piper via search summary (undated); not included as a rule. Engineering starting point only; NOT legal compliance and not a substitute for qualified Bosnia and Herzegovina counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "BA"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Law on the Protection of Personal Data, Official Gazette of Bosnia and Herzegovina 49/06 (amended 76/11, 89/11 per secondary summaries) — https://www.tuzilastvobih.gov.ba/files/docs/zakoni/zakon_o_zastiti_licnih_podataka_49_06_-_eng.pdf",
+      "retrieved_snippet": "Art. 1: 'The purpose of this Law is to secure in the territory of Bosnia and Herzegovina for every individual … respect for human rights and fundamental freedoms, and in particular the right to privacy with regard to the processing of personal data'; the Law establishes the Agency for Protection of Personal Data in BiH. Art. 2: applies to personal data processed by all public authorities, natural and legal persons.",
+      "official_source": true
+    }
+  ]
+}

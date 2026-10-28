@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from personuvernd.is (regulator) via search-result summary only; no Icelandic statute page could be fetched. . Engineering starting point only; NOT legal compliance and not a substitute for qualified Icelandic counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "IS"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "persónuvernd"
+      ],
+      "action": "Log",
+      "source": "Act No. 90/2018 on Data Protection and the Processing of Personal Data (Iceland), in force 15 July 2018, replacing Act No. 77/2000 — https://personuvernd.is/information-in-english/acts-and-rules",
+      "retrieved_snippet": "From a search-result summary of the Persónuvernd (Icelandic Data Protection Authority) site, not a fetched page: the Act entered into force on 15 July 2018, substituted Act No. 77/2000 and implements Regulation (EU) 2016/679; the original Icelandic text is published in the Law Gazette. Article text not retrieved; page fetch redirected and then failed.",
+      "official_source": true
+    }
+  ]
+}

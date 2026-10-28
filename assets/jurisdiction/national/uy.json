@@ -1,0 +1,60 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from impo.com.uy; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "UY"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "datos personales",
+        "habeas data"
+      ],
+      "action": "Log",
+      "source": "Ley No. 18.331 de Protección de Datos Personales y Acción de Habeas Data (2008) — https://impo.com.uy/bases/leyes-originales/18331-2008",
+      "retrieved_snippet": "Fetched: title 'Dictánse normas sobre protección de datos personales y derógase la Ley 17.838'; art. 1: 'El derecho a la protección de datos personales es inherente a la persona humana'; art. 31 creates the Unidad Reguladora y de Control de Datos Personales within AGESIC.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "UY"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "defensa del consumidor",
+        "relaciones de consumo"
+      ],
+      "action": "Log",
+      "source": "Ley No. 17.250 de Relaciones de Consumo (2000) — https://www.impo.com.uy/bases/leyes/17250-2000",
+      "retrieved_snippet": "Search summary of impo.com.uy: official text of Ley 17.250 (Ley de Relaciones de Consumo), regulated by Decreto 244/000; includes a five-business-day cancellation right for sales outside business premises; Decreto 167/021 incorporates MERCOSUR e-commerce consumer rules.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "UY"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "lavado de activos"
+      ],
+      "action": "Log",
+      "source": "Ley No. 19.574 Ley Integral contra el Lavado de Activos (2017) — https://www.impo.com.uy/bases/leyes/19574-2017",
+      "retrieved_snippet": "Search summary of impo.com.uy: Ley 19.574 is the integral anti-money-laundering law; art. 4 creates the Secretaría Nacional para la Lucha contra el Lavado de Activos y el Financiamiento del Terrorismo; regulated by Decreto 379/018; amended by Ley 20.469 (published April 2026).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "UY"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "ciberdelito",
+        "delito informático"
+      ],
+      "action": "Log",
+      "source": "Ley No. 20.327 de Ciberdelitos (25/9/2024) — https://www.impo.com.uy/bases/leyes-originales/20327-2024",
+      "retrieved_snippet": "Search summary: Ley 20.327 of 25/9/2024 is described by the Biblioteca del Poder Legislativo as Uruguay's first cybercrime law; adds Penal Code offences including illicit access (art. 297 BIS), illicit interception (297 TER), computer fraud (347 BIS) and identity impersonation (347 TER).",
+      "official_source": true
+    }
+  ]
+}

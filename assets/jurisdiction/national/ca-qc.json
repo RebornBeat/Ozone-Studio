@@ -1,0 +1,48 @@
+{
+  "disclaimer": "Drafted from pages retrieved via live web search/fetch on 2026-10-27 from cai.gouv.qc.ca (Commission d'accès à l'information du Québec) and quebec.ca. legisquebec.gouv.qc.ca returned HTTP 403 so statute section numbers were NOT verified and are not stated. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "CA-QC"
+      },
+      "condition": "personal information",
+      "aliases": [
+        "renseignements personnels",
+        "protection des renseignements personnels",
+        "loi 25"
+      ],
+      "action": "Log",
+      "source": "Loi sur la protection des renseignements personnels dans le secteur privé (as modernized by Loi 25, 2021) — Commission d'accès à l'information du Québec — https://www.cai.gouv.qc.ca/protection-renseignements-personnels/sujets-et-domaines-dinteret/principaux-changements-loi-25",
+      "retrieved_snippet": "The CAI describes Loi 25 (adopted 2021) as modernizing the private-sector Act (Loi sur la protection des renseignements personnels dans le secteur privé); since September 2023 rules cover anonymization, assessments before disclosure outside Quebec, consent, governance and transparency; the person with highest authority in a business is responsible for personal information and may delegate (RPRP), whose title and contact must be published.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "CA-QC"
+      },
+      "condition": "data breach",
+      "aliases": [
+        "incident de confidentialité",
+        "incidents de confidentialité"
+      ],
+      "action": "Log",
+      "source": "Commission d'accès à l'information — incidents de confidentialité (entreprises privées) — https://www.cai.gouv.qc.ca/protection-renseignements-personnels/information-entreprises-privees/incidents-confidentialite-mesures-securite-entreprises",
+      "retrieved_snippet": "Where an incident presents a risk of serious harm 'l'entreprise doit en aviser la Commission par écrit' and inform affected persons; 'Toute entreprise doit tenir un registre dans lequel elle collige tous les incidents de confidentialité', kept at least five years. The page says it is a simplified summary without force of law.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "CA-QC"
+      },
+      "condition": "data portability",
+      "aliases": [
+        "portabilité des renseignements",
+        "portabilité des données"
+      ],
+      "action": "Log",
+      "source": "Loi sur la protection des renseignements personnels dans le secteur privé (as modernized by Loi 25, 2021) — Commission d'accès à l'information du Québec — https://www.cai.gouv.qc.ca/protection-renseignements-personnels/sujets-et-domaines-dinteret/principaux-changements-loi-25",
+      "retrieved_snippet": "'Depuis le 22 septembre 2024', individuals can ask organizations for their computerized personal information in a structured, commonly used technological format (data portability right).",
+      "official_source": true
+    }
+  ]
+}

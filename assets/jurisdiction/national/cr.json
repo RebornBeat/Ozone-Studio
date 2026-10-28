@@ -1,0 +1,32 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from tse.go.cr, micitt.go.cr, archivonacional.go.cr, bufetedecostarica.com (secondary); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "CR"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "datos personales",
+        "protección de datos"
+      ],
+      "action": "Log",
+      "source": "Ley No. 8968 de Protección de la Persona frente al tratamiento de sus datos personales (2011) — https://www.tse.go.cr/pdf/normativa/reglamentoleyproteccionpersona.pdf (regulation Decreto 37554-JP; law text also at https://www.micitt.go.cr/sites/default/files/marco_juridico_legal/08.%20Ley%20n.%C2%B0%208968%20Ley%20de%20Protecci%C3%B3n%20de%20la%20Persona%20frente%20al%20tratamiento%20de%20sus%20datos%20personales..pdf)",
+      "retrieved_snippet": "Search summary (not fetched): Ley 8968 published in La Gaceta No. 170 of 5 September 2011; art. 1 protects fundamental rights incl. informational self-determination; Decreto 37554-JP regulates it and the Agencia de Protección de Datos de los Habitantes (PRODHAB) was created under its Transitorio III. A 2020 bill (No. 21.828) to restructure PRODHAB had unknown status.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CR"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos informáticos"
+      ],
+      "action": "Log",
+      "source": "Ley No. 9048 reforma de la Sección VIII 'Delitos Informáticos y Conexos' del Título VII del Código Penal (2012) — https://bufetedecostarica.com/reforma-de-la-seccion-viii-delitos-informaticos-y-conexos-del-titulo-vii-del-codigo-penal-de-costa-rica-9048/",
+      "retrieved_snippet": "Search summary (secondary source, official SCIJ page not fetched): SCIJ record identifies Ley 9048 of 10/07/2012 as the reform of Section VIII 'Delitos Informáticos y Conexos' of Title VII of the Penal Code, in force from 06/11/2012.",
+      "official_source": false
+    }
+  ]
+}

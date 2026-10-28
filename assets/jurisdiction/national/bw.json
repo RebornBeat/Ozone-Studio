@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from cipit.org, dlapiperdataprotection.com, ifex.org, michalsons.com (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "BW"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Data Protection Act, Act No. 18 of 2024 — https://cipit.org/?p=3218",
+      "retrieved_snippet": "Search summary: enacted 29 October 2024, repealing the never-commenced 2018 Act; continues the Information and Data Protection Commission with independence and expanded powers; commencement reported as 14 January 2025 (one source says 29 October 2024); commentary notes breach notification timelines, DPIAs for high-risk processing and rules on children's data.",
+      "official_source": false
+    }
+  ]
+}

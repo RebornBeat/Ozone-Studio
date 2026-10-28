@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from a consolidated copy of the law hosted at chisinaugaz.md (not an official domain; legis.md referenced in the document footer). . Engineering starting point only; NOT legal compliance and not a substitute for qualified Moldovan counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MD"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "date cu caracter personal"
+      ],
+      "action": "Log",
+      "source": "Legea nr. 133 din 08.07.2011 privind protecția datelor cu caracter personal (MO 170-175 art. 492, 14.10.2011; last amendment shown LP100/2025, in force 14.06.2025) — https://chisinaugaz.md/storage/files/Legislatie/072025/133-2011%20RO.pdf",
+      "retrieved_snippet": "Art. 1 Scopul legii: 'Scopul prezentei legi este asigurarea protecției drepturilor și libertăților fundamentale ale persoanei fizice în ceea ce privește prelucrarea datelor cu caracter personal, în special a dreptului la inviolabilitatea vieții intime, familiale și private.' Copy hosted by a third party (legis.md official page not retrieved); a bill replacing the law was not verified.",
+      "official_source": false
+    }
+  ]
+}

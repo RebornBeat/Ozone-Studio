@@ -1,0 +1,28 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from veritaszim.net, zimlii.org, misa.org, dlapiperafrica.com (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "ZW"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "data protection"
+      ],
+      "action": "Log",
+      "source": "Cyber and Data Protection Act [Chapter 12:07] (No. 5 of 2021) — https://www.zimlii.org:443/akn/zw/act/2021/5",
+      "retrieved_snippet": "Search summary: object is to strengthen cyber security so controllers and data subjects can trust ICTs; commenced 11 March 2022; POTRAZ is the Data Protection Authority under section 5; SI 155 of 2024 requires data controller licences from POTRAZ (reported deadline 12 March 2025).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZW"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Cyber and Data Protection Act [Chapter 12:07] (No. 5 of 2021), gazetted 2022-03-11 — https://www.veritaszim.net/sites/veritas_d/files/Cyber %26 Data Protection Act Cap1207 No 5 of 2021 gaz 2022-03-11.pdf",
+      "retrieved_snippet": "Search result lists the gazetted Act as Cyber & Data Protection Act Cap 12:07 No 5 of 2021 (gazetted 11 March 2022); the Act covers cyber security; specific cybercrime offences not verified from retrieved text.",
+      "official_source": false
+    }
+  ]
+}

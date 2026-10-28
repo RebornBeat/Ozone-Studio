@@ -1,0 +1,142 @@
+{
+  "disclaimer": "Drafted from German federal laws retrieved via live web fetch on 2026-10-27 from gesetze-im-internet.de (official federal legal portal). Member-state implementing/supplementary law only; EU-wide instruments are in eu.json. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel. Every rule action is Log only. Laws change; re-verify. Snippets are paraphrases of fetched page text.",
+  "rules": [
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "personenbezogene daten",
+        "datenschutz"
+      ],
+      "action": "Log",
+      "source": "Bundesdatenschutzgesetz (BDSG) vom 30. Juni 2017 (BGBl. I S. 2097) — https://www.gesetze-im-internet.de/bdsg_2018/BJNR209710017.html",
+      "retrieved_snippet": "Page title 'Bundesdatenschutzgesetz vom 30. Juni 2017 (BGBl. I S. 2097)', in force since 25.05.2018. § 1(1) opens: 'Dieses Gesetz gilt für die Verarbeitung personenbezogener Daten durch öffentliche Stellen des Bundes,'. Sections 32 and 33 set information duties supplementing GDPR Art. 13/14; § 38 covers data protection officers of non-public bodies; § 42 'Strafvorschriften'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "cookies",
+      "aliases": [
+        "endeinrichtungen",
+        "tracking"
+      ],
+      "action": "Log",
+      "source": "Telekommunikation-Digitale-Dienste-Datenschutz-Gesetz (TDDDG) § 25 — https://www.gesetze-im-internet.de/ttdsg/__25.html",
+      "retrieved_snippet": "§ 25 'Schutz der Privatsphäre bei Endeinrichtungen': storing information on, or accessing information stored in, an end user's device requires consent based on clear and comprehensive information, with exceptions for pure message transmission and where strictly necessary for a service the user explicitly requested.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "ausspähen von daten",
+        "hacking"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 202a Ausspähen von Daten — https://www.gesetze-im-internet.de/stgb/__202a.html",
+      "retrieved_snippet": "Heading 'Ausspähen von Daten'. Abs. 1 criminalises unlawfully obtaining access to data not meant for the person and specially protected against unauthorised access, by overcoming the protection ('unter Überwindung der Zugangssicherung'); up to three years or a fine. Abs. 2 limits 'data' to electronically/magnetically stored or transmitted data.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "data tampering",
+      "aliases": [
+        "datenveränderung",
+        "datensabotage"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 303a Datenveränderung — https://www.gesetze-im-internet.de/stgb/__303a.html",
+      "retrieved_snippet": "Heading 'Datenveränderung'. Abs. 1: whoever unlawfully deletes, suppresses, renders unusable or alters data (§ 202a Abs. 2) — up to two years or a fine; attempt punishable (Abs. 2); preparation subject to § 202c (Abs. 3).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "volksverhetzung"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 130 Volksverhetzung — https://www.gesetze-im-internet.de/stgb/__130.html",
+      "retrieved_snippet": "Heading '§ 130 Volksverhetzung'. Abs. 1 opens 'Wer in einer Weise, die geeignet ist, den öffentlichen Frieden zu stören,' followed by numbered offences and 'wird mit Freiheitsstrafe von drei Monaten bis zu fünf Jahren bestraft.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "defamation",
+      "aliases": [
+        "üble nachrede",
+        "verleumdung"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 186 Üble Nachrede — https://www.gesetze-im-internet.de/stgb/__186.html",
+      "retrieved_snippet": "Heading 'Üble Nachrede'. Asserting or spreading a fact about another that would make them contemptible or lower them in public opinion is punishable (page summary: up to one year or a fine; up to two years if public, in a meeting or by distributing content); not applicable if the fact is proven true.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "image privacy",
+      "aliases": [
+        "bildaufnahmen",
+        "höchstpersönlicher lebensbereich"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 201a — https://www.gesetze-im-internet.de/stgb/__201a.html",
+      "retrieved_snippet": "Heading 'Verletzung des höchstpersönlichen Lebensbereichs und von Persönlichkeitsrechten durch Bildaufnahmen'; opens 'Mit Freiheitsstrafe bis zu zwei Jahren oder mit Geldstrafe wird bestraft, wer'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "geldwäsche"
+      ],
+      "action": "Log",
+      "source": "Geldwäschegesetz (GwG) § 1 and Strafgesetzbuch § 261 Geldwäsche — https://www.gesetze-im-internet.de/gwg_2017/__1.html ; https://www.gesetze-im-internet.de/stgb/__261.html",
+      "retrieved_snippet": "GwG full title 'Gesetz über das Aufspüren von Gewinnen aus schweren Straftaten'; § 1(1): 'Geldwäsche im Sinne dieses Gesetzes ist eine Straftat nach § 261 des Strafgesetzbuchs.' StGB § 261 Abs. 1 covers hiding, transferring, acquiring or using an object derived from an unlawful act; page shows 'bis zu fünf Jahren oder mit Geldstrafe'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "glücksspiel"
+      ],
+      "action": "Log",
+      "source": "Strafgesetzbuch (StGB) § 284 Unerlaubte Veranstaltung eines Glücksspiels — https://www.gesetze-im-internet.de/stgb/__284.html",
+      "retrieved_snippet": "Heading 'Unerlaubte Veranstaltung eines Glücksspiels'; opens 'Wer ohne behördliche Erlaubnis öffentlich ein Glücksspiel veranstaltet'; page summary: up to two years or a fine.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "DE"
+      },
+      "condition": "online platform",
+      "aliases": [
+        "digitale dienste",
+        "telemedien"
+      ],
+      "action": "Log",
+      "source": "Digitale-Dienste-Gesetz (DDG) — https://www.gesetze-im-internet.de/ddg/__1.html",
+      "retrieved_snippet": "§ 1 'Anwendungsbereich, Begriffsbestimmungen': the Act applies to all service providers within Abs. 4 Nr. 5 unless otherwise provided, with exceptions for certain EU regulations; does not apply to broadcasting under state media law. (The page did not state a date.)",
+      "official_source": true
+    }
+  ]
+}

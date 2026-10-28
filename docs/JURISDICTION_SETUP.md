@@ -1,5 +1,7 @@
 # Jurisdiction-Aware Guardrails — Setup
 
+> **UPDATE 2026-10-28:** national content NOW ships (131 national/local files, 648 rules, UN layer expanded) — the sentences below saying "zero content for any national or local jurisdiction" are history. See "Coverage snapshot" and "How to expand or refresh jurisdiction content" at the end of this file.
+>
 > **STATUS CORRECTION 2026-10-23 (read before acting on this document):**
 > parts of this guide are stale relative to the tree. Verified current facts:
 > the I-Loop EXISTS and runs (`src/orchestrator/i_loop.rs`, boot-spawned,
@@ -135,3 +137,23 @@ is an operator policy act, never automatic. To elevate:
    enforcement boundary, so review the matcher behavior for the rule's
    trigger words first (`contains_word` is word-boundary safe including
    `_`, but English-only).
+
+## Coverage snapshot (2026-10-28 expansion)
+
+Shipped content under `assets/jurisdiction/`: `global.json` (the UN-scope layer: 7 baseline rules + 34 UN-system instruments, all new ones `Log`) and **131 national/local files** (was 40) holding **648 rules in total** (was 161): all 27 EU member states (+ `eu.json` for EU-wide law), the UN-member countries of every region that had retrievable law, and 8 sub-national files (`us-ca us-co us-il us-ny us-tx us-va us-wa`, `ca-qc`; scope `{"Local":"US-CA"}`). 308 rules carry local-language `aliases`. Every shipped rule is `Log`, EXCEPT the operator's own elevations (DO `personal data`, EU `personal data` + `data breach` = RequireConfirmation) and the 7 baseline global rules. `SOURCE_REGISTRY.md/.json` lists every rule with its source, official flag, snippet flag and alias count (regenerate with `python3 tools/generate_jurisdiction_registry.py`).
+
+Honest limits (read before relying on any of it):
+- Content was gathered by live web search, not from training memory. Where the search tool returned only summaries, the rule's `retrieved_snippet` says "search summary (not fetched)". Many official gazette sites refused fetches (403 / JS-only), so a large share of rules cite a real URL whose page was NOT read in full. ~220 rules have `official_source` not true (law-firm trackers, news, unofficial translations). Re-verify before treating any rule as a primary citation.
+- Coverage is uneven: ~60 scopes have only 1-2 rules (mostly `personal data` + `cybercrime`). Absence of a topic means "not verifiable this pass", not "no such law". Bills/drafts were deliberately not recorded as rules.
+- Some laws were reported amended/replaced after the retrieved page (e.g. MX personal-data law replaced in 2025 — the pre-2025 `personal data`/`minor`/`child` citations in `mx.json` are stale; BD cyber law reportedly repealed by ordinance in 2025; Colorado AI Act effective date conflicts between sources). Each such rule says so in its snippet.
+- Matching is still whole-word on a lowercased request. English `condition` + per-rule `aliases`; aliases in unsegmented scripts (Chinese/Japanese/Thai/Lao/Khmer/Myanmar/Tibetan) match as substrings. Aliases were only added where the term appeared in the retrieved law title/text.
+- Nothing here is legal compliance. It is a place to hold cited rules and check them consistently.
+
+## How to expand or refresh jurisdiction content (the research how-to)
+
+1. Pick the scope. File = `assets/jurisdiction/national/<iso2 lowercase>.json` (stem = scope keyword; scope value uppercase `{"National":"XX"}`); sub-national = `us-ca.json` with `{"Local":"US-CA"}`; UN-level = append to `global.json` with scope `"Global"`. EU member states automatically get a relationship edge to `eu` (list: `JURISDICTION_EU_MEMBER_CODES` in `src/lib.rs`) — put EU-wide law in `eu.json`, member-state implementing law in the member file.
+2. Research (never from memory). For each topic in the checklist (personal data, data breach, child/minor online protection, consumer, cybercrime, hate speech/defamation, terrorism, copyright, AML/sanctions/crypto, health data, elections, AI law, gambling, interception, platform liability) run a web search against official domains (gazette, parliament, ministry, regulator, EUR-Lex, UN treaty bodies), then FETCH the page and confirm the statute title, number and year and a sentence you can quote. If the page cannot be fetched say so in the snippet. A smaller true file beats a larger guessed one.
+3. Write the rule: `{"scope":..., "condition":"<1-3 lowercase English words a prompt would contain>", "aliases":["<local-language terms taken from the retrieved law>"], "action":"Log", "source":"<law name, number, year> — <URL>", "retrieved_snippet":"<what the page actually said>", "official_source": true|false}`. `official_source` true only for an official government / parliament / gazette / treaty-body domain. Keep a non-empty `disclaimer` with the retrieval date. Unique `condition` per file. Do not record bills or unconfirmed amendments as rules.
+4. Validate: every file parses; conditions lowercase and unique; `action` is `Log` for anything you add (elevation is the operator's act, below); regenerate the registry.
+5. Deploy: (a) host with the 2026-10-27 build: new files are copied and registered at boot; changed files are upgraded automatically when the data-dir copy is unmodified since the last sync, otherwise set `OZONE_JURISDICTION_FORCE_SYNC=1` once (old copy kept as `<name>.bak`); (b) any build: `python3 tools/sync_jurisdiction_content.py` shows NEW / DIFFERS vs a data dir and `--apply [--overwrite]` copies (old copies saved as `.bak`). New scopes become rule sets only after a host restart; changed content in an existing rule set is picked up on the next request (rules re-read at stage 0). Check the stage-0 log line for `rules_loaded` / `rules_source`.
+6. Elevate deliberately, per rule, in the section above ("Elevating a rule from Log-only"). `assets/jurisdiction/ELEVATION_CANDIDATES.md` lists suggestions (UN layer, and DO/EU mapped onto real rule conditions) — suggestions only, nothing is applied by shipping content. A `RequireConfirmation` match costs a model review and an unjudged review halts the walk as ReviewPending; prefer specific conditions over everyday words.

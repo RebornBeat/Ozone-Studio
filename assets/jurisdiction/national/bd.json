@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Bangladesh (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this.",
+  "disclaimer": "Drafted from real web search results against named official/authoritative sources for Bangladesh (2026), as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. Every rule's action is deliberately set to Log only (never Block/Warn/RequireConfirmation) since this content has not been reviewed by counsel. Fast-moving amendments are not tracked automatically here — verify currency against the cited source before relying on this. Enriched 2026-10-27 (retrieved 2026-10-27) from search summaries via unb.com.bd, digitalpolicyalert.org, bfiu.org.bd.",
   "rules": [
     {
       "scope": {"National": "BD"},
@@ -23,6 +23,22 @@
       "action": "Log",
       "source": "Consumers' Right(s) Protection Act, 2009 (Act No.26 of 2009). Regulator: Directorate of National Consumer Rights Protection (DNCRP), founded 2009 by this Act, official site https://dncrp.portal.gov.bd/",
       "retrieved_snippet": "Provides for protection of consumer rights, prevention of anti-consumer practices, and both civil and criminal remedies, with a maximum penalty of 2 lakh taka for anti-consumer activities. DNCRP is a quasi-judicial department that hears and resolves consumer complaints over goods and services.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "BD"},
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Cyber Security Act, 2023 — reported repealed 21 May 2025 by the Cyber Security Ordinance, 2025 (Ordinance No. 25 of 2025; draft titled Cyber Surokkha/Cyber Protection Ordinance) — https://unb.com.bd/category/bangladesh/cyber-ordinance-draft-approved-scraping-9-provisions-to-end-harassment/159091 ; https://digitalpolicyalert.org/change/18746-cyber-security-ordinance-2025-ordinance-no-25-of-2025",
+      "retrieved_snippet": "Search summary only (secondary news/tracker; official bdlaws text not retrieved, exact final title unverified): the 2023 Act was repealed by the Cyber Security Ordinance 2025, which entered into force on gazette publication and dropped provisions penalising propaganda against the Liberation War, national anthem and flag.",
+      "official_source": false
+    },
+    {
+      "scope": {"National": "BD"},
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Money Laundering Prevention Act, 2012 (with Anti Terrorism Act, 2009 and Money Laundering Prevention Rules, 2019) — Bangladesh Financial Intelligence Unit FAQ https://www.bfiu.org.bd/index.php/others/faq",
+      "retrieved_snippet": "Search summary only (page not fetched): BFIU FAQ lists the Money Laundering Prevention Act, 2012 as the main AML statute, with the Anti Terrorism Act, 2009 and Money Laundering Prevention Rules, 2019; definition of money laundering is in s.2(v) per Bangladesh Customs; Act amended by ordinance on 11 October 2015 (law-firm note).",
       "official_source": true
     }
   ]

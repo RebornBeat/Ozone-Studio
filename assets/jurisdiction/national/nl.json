@@ -1,0 +1,64 @@
+{
+  "disclaimer": "Drafted from Dutch law information retrieved via live web fetch/search on 2026-10-27 from wetten.overheid.nl, belastingdienst.nl, kansspelautoriteit.nl and (where flagged official_source=false) secondary sources. Member-state law only; EU-wide instruments are in eu.json. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "NL"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "persoonsgegevens",
+        "gegevensbescherming",
+        "uavg"
+      ],
+      "action": "Log",
+      "source": "Uitvoeringswet Algemene verordening gegevensbescherming (UAVG), Wet van 16 mei 2018 — https://wetten.overheid.nl/BWBR0040940/",
+      "retrieved_snippet": "Fetched wetten.overheid.nl page: official title 'Uitvoeringswet Algemene verordening gegevensbescherming', Wet van 16 mei 2018, page shows a version in force from 1 September 2026; Artikel 1 (Definities) opens 'In deze wet en de daarop berustende bepalingen wordt verstaan onder:' and defines special categories of personal data, criminal-law personal data and the GDPR (Verordening (EU) 2016/679).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NL"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "computervredebreuk",
+        "binnendringen geautomatiseerd werk"
+      ],
+      "action": "Log",
+      "source": "Wetboek van Strafrecht, artikel 138ab (computervredebreuk) — https://wetten.overheid.nl/BWBR0001854/ (Titel V; article text not retrieved there); text via https://omgevingsweb.nl/wetgeving/wetboek-van-strafrecht/tweede-boek-misdrijven/titel-v-misdrijven-tegen-de-openbare-orde/artikel-138ab/",
+      "retrieved_snippet": "Fetched wetten.overheid.nl table of contents confirms art. 138ab sits in Titel V (Misdrijven tegen de openbare orde, arts 131-152). Search summary of secondary sources (omgevingsweb.nl, inview.nl): art. 138ab concerns intentionally and unlawfully entering an automated work; version in force since 15-05-2025 (Stb. 2025, 76) states a maximum of two years or a fourth-category fine; lid 2 raises to four years if data is then copied, intercepted or recorded. Verify on wetten.overheid.nl.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "NL"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "witwassen",
+        "terrorismefinanciering",
+        "wwft"
+      ],
+      "action": "Log",
+      "source": "Wet ter voorkoming van witwassen en financieren van terrorisme (Wwft) — https://www.belastingdienst.nl/wwft",
+      "retrieved_snippet": "Search summary of Belastingdienst page (official Dutch government site; statute page on wetten.overheid.nl not retrieved): the Wwft exists to counter money laundering and terrorist financing and requires risk-based client due diligence, reporting of unusual transactions, record-keeping and risk management; supervision by Bureau Toezicht Wwft. Per Dutch parliamentary sources the law merged the Wet identificatie bij dienstverlening and the Wet melding ongebruikelijke transacties (passed Eerste Kamer 8 July 2008).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NL"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "kansspelen",
+        "kansspelautoriteit",
+        "gokken"
+      ],
+      "action": "Log",
+      "source": "Wet op de kansspelen (Wok) incl. Wet kansspelen op afstand (Koa) — https://kansspelautoriteit.nl/",
+      "retrieved_snippet": "Search summary of Kansspelautoriteit (Ksa) sanction decisions (statute page not fetched): since 1 April 2021 companies can apply to the Ksa for a licence to offer remote gambling; art. 1(1)(a) Wok prohibits offering opportunity to take part in a game of chance without a licence; the Ksa supervises under art. 33b and can impose administrative enforcement orders under art. 35.",
+      "official_source": true
+    }
+  ]
+}

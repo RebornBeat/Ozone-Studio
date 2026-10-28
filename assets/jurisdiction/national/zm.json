@@ -1,0 +1,51 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from dataprotection.africa, bowmanslaw.com, zambialii.org, icnl.org, zambiapolice.gov.zm (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "ZM"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Data Protection Act, 2021 (Act No. 3 of 2021) — https://zambialii.org/akn/zm/act/2021/3/eng@2021-03-24",
+      "retrieved_snippet": "Search summary: assented 23 March 2021; creates the Office of the Data Protection Commissioner, which registers controllers and processors and licenses data auditors; Data Protection (Registration and Licensing) Regulations are SI No. 58 of 2021.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZM"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "Data Protection Act, 2021 (Act No. 3 of 2021) — https://dataprotection.africa/?p=19767",
+      "retrieved_snippet": "Search summary: secondary sources report mandatory notification to the Commissioner within 24 hours of a security breach affecting personal data; exact section not verified from the Act text.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZM"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cyber crimes"
+      ],
+      "action": "Log",
+      "source": "Cyber Crimes Act No. 4 of 2025 — https://zambialii.org/akn/zm/act/2025/4",
+      "retrieved_snippet": "Search summary: signed 8 April 2025, repeals and replaces the Cyber Security and Cyber Crimes Act 2021; sets cybercrime offences, protection against cyber-enabled crimes and child online protection; ZambiaLII notes commencement 12 May 2025; ICNL says it criminalizes computer dissemination of false information damaging reputation.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ZM"
+      },
+      "condition": "critical infrastructure",
+      "aliases": [
+        "cyber security"
+      ],
+      "action": "Log",
+      "source": "Cyber Security Act No. 3 of 2025 — https://zambialii.org/akn/zm/act/2025/3",
+      "retrieved_snippet": "Search summary (Bowmans): long title covers regulating security service providers and critical information infrastructure, establishing the Zambia Cyber Security Agency and registering critical information infrastructure; signed 8 April 2025.",
+      "official_source": false
+    }
+  ]
+}

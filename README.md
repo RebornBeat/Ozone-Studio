@@ -16,7 +16,7 @@
 - **GraphKit** (`ui/src/graphkit/`): our own graph-native UI library — one substrate (GraphProvider), CrossLinkStrip/NodeCard/ModalityWheel primitives, real-value-only indicators, and a lens registry covering every modality.
 - **Consciousness**: one implementation (the store), observed by the task manager; the emotion path feeds from the real TOML config.
 
-**Honest caveats**: several waves of edits are in the tree **awaiting the single build pass** (compile-clean is unproven until then — the tree is the record, `CHECKLIST.md` is the status); jurisdiction's national rules ship Log-only pending operator review; MCP tool routing is designed but not yet wired into blueprint steps (directive #46 ruling open); queued-task execution requires an operator approval gate before it is wired.
+**Honest caveats**: several waves of edits are in the tree **awaiting the single build pass** (compile-clean is unproven until then — the tree is the record, `CHECKLIST.md` is the status); jurisdiction content now covers the UN layer + 131 national/local scopes (648 rules, gathered by web search, mostly unverified-against-fetched-text, all Log-only except the operator's own elevations) pending operator review per rule (`docs/JURISDICTION_SETUP.md`); MCP tool routing is designed but not yet wired into blueprint steps (directive #46 ruling open); queued-task execution requires an operator approval gate before it is wired.
 
 **Meta work runs on OpenRouter** (free pool leading, BitNet backstop — switched 2026-10-26, reversible in config.toml). **EU instance deployed** (2026-10-26 binary + pipelines + switches via systemd drop-in). **Walk launches are memory-gated** (MemAvailable floor — the silent-death guard).
 

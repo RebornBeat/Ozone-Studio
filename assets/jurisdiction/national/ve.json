@@ -1,0 +1,32 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from oea.org, wipo.int (WIPO Lex, secondary), cpj.org (secondary); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "VE"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos informáticos"
+      ],
+      "action": "Log",
+      "source": "Ley Especial contra los Delitos Informáticos (Gaceta Oficial N° 37.313, October 2001) — https://iin.oea.org/badaj/wp-content/uploads/2014/07/Ley_Especial_contra_Delitos_Inform%c3%a1ticos.pdf ; https://www.wipo.int/wipolex/es/legislation/details/10223",
+      "retrieved_snippet": "Search summary (not fetched): published in Gaceta Oficial N° 37.313 (30 Oct 2001 per most sources); art. 1 sets as object the protection of systems using information technologies and punishment of crimes against or committed through them.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "VE"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "ley contra el odio",
+        "incitación al odio"
+      ],
+      "action": "Log",
+      "source": "Ley Constitucional contra el Odio, por la Convivencia Pacífica y la Tolerancia (approved by the Asamblea Nacional Constituyente 8 Nov 2017) — https://cpj.org/es/2017/11/nueva-ley-contra-el-odio-de-venezuela-se-propone-s/",
+      "retrieved_snippet": "Search summary (secondary press, text not retrieved): approved 8 November 2017; criticized by rights groups for use against critical voices; on 29 Sep 2026 the acting president asked the National Assembly for a partial reform to decriminalize some conduct (not confirmed enacted).",
+      "official_source": false
+    }
+  ]
+}

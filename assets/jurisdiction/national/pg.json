@@ -1,0 +1,16 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from secondary sources (law firms, trackers, PacLII/AustLII, CoE, UNODC); no official government page was successfully read, so official_source is false throughout and several snippets are search-result summaries. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "PG"
+      },
+      "condition": "cybercrime",
+      "aliases": [],
+      "action": "Log",
+      "source": "Cybercrime Code Act 2016 (No. 35 of 2016, certified 13 December 2016) — https://pacliirms.austlii.edu.au/pg/legis/num_act/cca2016135",
+      "retrieved_snippet": "Search-result summary of PacLII/AustLII (fetch failed): Act defines ICT-related offences, search and evidence procedures, ICT service provider duties and international co-operation; DataGuidance says NICTA regulates it; commentary lists hacking, cyber harassment, electronic fraud, identity theft and child exploitation material.",
+      "official_source": false
+    }
+  ]
+}

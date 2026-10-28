@@ -1,0 +1,27 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from secondary sources (law firms, trackers, PacLII/AustLII, CoE, UNODC); no official government page was successfully read, so official_source is false throughout and several snippets are search-result summaries. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "LA"
+      },
+      "condition": "cybercrime",
+      "aliases": [],
+      "action": "Log",
+      "source": "Law on Prevention and Combating Cyber Crime No. 61/NA (15 July 2015) — https://www.coe.int/web/octopus/-/lao-people-s-democratic-republic ; https://www.dfdl.com/publication/dfdl-lao-pdr_2018-year-review",
+      "retrieved_snippet": "Search-result summaries (pages not fetched; CoE fetch 403): CoE Octopus profile says the 2015 law criminalises cybercrime (offences in Articles 8-18) and establishes LaoCERT as national CSIRT.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "LA"
+      },
+      "condition": "personal data",
+      "aliases": [],
+      "action": "Log",
+      "source": "Law on Electronic Data Protection No. 25/NA (12 May 2017) — https://www.dfdl.com/publication/dfdl-lao-pdr_2018-year-review ; https://www.dlapiperdataprotection.com/?c=LA&t=law",
+      "retrieved_snippet": "Search-result summaries (pages not fetched): DFDL says the law was published in the Ministry of Justice Official Gazette on 5 October 2017, effective 20 October 2017; DLA Piper notes it delegates data protection matters to the Ministry of Post and Telecommunications (since renamed Ministry of Technology and Communication).",
+      "official_source": false
+    }
+  ]
+}

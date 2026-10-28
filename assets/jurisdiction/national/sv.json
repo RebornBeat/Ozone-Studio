@@ -1,0 +1,18 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from jurisprudencia.gob.sv, hrw.org; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify (retrieved 2026-10-27).",
+  "rules": [
+    {
+      "scope": {
+        "National": "SV"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "delitos informáticos"
+      ],
+      "action": "Log",
+      "source": "Ley Especial contra los Delitos Informáticos y Conexos, Decreto Legislativo 260 (2016) — https://www.jurisprudencia.gob.sv/DocumentosBoveda/D/2/2010-2019/2016/02/B6B74.PDF",
+      "retrieved_snippet": "Search summary (PDF not opened): object is to protect legal interests from criminal conduct committed by computer means; the law has been reformed (HRW reported broad reforms approved in December 2021 raising free-expression concerns; consolidated version should be checked at asamblea.gob.sv).",
+      "official_source": true
+    }
+  ]
+}

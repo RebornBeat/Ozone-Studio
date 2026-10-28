@@ -1,0 +1,48 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from digitalpolicyalert.org, cipit.org, coe.int, cipesa.org, article19.org (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "ET"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Personal Data Protection Proclamation No. 1321/2024 — https://cipit.org/?p=3121",
+      "retrieved_snippet": "Search summary: adopted by Parliament 4 April 2024, in force 24 July 2024 (per Digital Policy Alert); establishes the Ethiopian Communications Authority as supervisory authority; requires local storage of locally collected personal data and restricts transfers to countries without adequate protection.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ET"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "Personal Data Protection Proclamation No. 1321/2024 — https://digitalpolicyalert.org/event/24927-adopted-personal-data-protection-proclamation-proclamation-no-13212024-including-data-protection-authority-governance",
+      "retrieved_snippet": "Search summary: controllers must document personal data breaches and communicate them to data subjects within 72 hours unless certain conditions are met.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "ET"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Computer Crime Proclamation No. 958/2016 — https://www.coe.int/en/web/octopus/-/ethiopia",
+      "retrieved_snippet": "Council of Europe Octopus page (search summary): Proclamation 958/2016 entered into force 7 July 2016, with substantive offences (including illegal content data) and procedural powers.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ET"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "disinformation"
+      ],
+      "action": "Log",
+      "source": "Hate Speech and Disinformation Prevention and Suppression Proclamation No. 1185/2020 — https://www.article19.org/wp-content/uploads/2021/01/Hate-Speech-and-Disinformation-Prevention-and-Suppression-Proclamation.pdf",
+      "retrieved_snippet": "Search summary: defines and prohibits hate speech and disinformation (false information with high likelihood of public disturbance); platforms must act on flagged material (one summary: removal within 24 hours of notification); overseen by the Ethiopian Broadcast Authority.",
+      "official_source": false
+    }
+  ]
+}

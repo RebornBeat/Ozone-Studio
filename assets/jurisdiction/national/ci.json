@@ -1,0 +1,31 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from coe.int, osiris.sn, aip.ci, uvci.edu.ci (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "CI"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2013-450 du 19 juin 2013 relative à la protection des données à caractère personnel — https://www.coe.int/web/octopus/-/cote-ivoire",
+      "retrieved_snippet": "Search summary: law designates ARTCI as the Personal Data Protection Authority (independent administrative authority with regulatory, control and sanction powers; Article 46); prior declaration required; principles of lawful collection, specific purpose, limited retention, security, data subject rights.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "CI"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybercriminalité"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2013-451 du 19 juin 2013 (cybercriminalité), amended by Loi n° 2023-393 du 07 juin 2023 — https://www.coe.int/web/octopus/-/cote-ivoire",
+      "retrieved_snippet": "Council of Europe page (search summary): the law defines and punishes offences specific to ICT, IP infringements and unlawful acts on electronic communication networks, and sets out online service provider responsibilities; a UVCI course doc cites Article 8: 5 to 10 years for fraudulent interception of computer data; contents of the 2023 amendment not verified.",
+      "official_source": true
+    }
+  ]
+}

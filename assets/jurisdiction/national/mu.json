@@ -1,0 +1,15 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from fscmauritius.org, dlapiperdataprotection.com, applebyglobal.com (search summaries). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "MU"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Data Protection Act 2017 (Act No. 20 of 2017) — https://www.fscmauritius.org/media/ikoldflp/the-data-protection-act-2017.pdf",
+      "retrieved_snippet": "Search summary: enacted 8 December 2017, Gazette 23 December 2017, in force 15 January 2018 (Proclamation No. 3 of 2018); repealed the 2004 Act, modelled on the EU GDPR; Data Protection Office headed by the Data Protection Commissioner handles complaints and enforcement notices.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from sherloc.unodc.org and lawalpine.com via search summaries only; official lawcommission.gov.np not retrieved; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {"National": "NP"},
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Electronic Transactions Act, 2063 (2008) (Nepal) — UNODC SHERLOC copy https://sherloc.unodc.org/cld/uploads/res/document/the-electronic-transactions-act-_html/Nepal_Electronic_Transactions_Act.pdf",
+      "retrieved_snippet": "Search summary only (PDF fetch returned 403; official lawcommission.gov.np page not retrieved): Electronic Transactions Act 2063 (2008) gives legal effect to electronic records and digital signatures and defines cyber offences; secondary 2026 law-firm brief says it remains in force as of April 2026 with a replacement Information Technology and Cyber Security Bill pending; a challenge to s.47 (publishing illegal electronic material) is reported pending at the Supreme Court.",
+      "official_source": true
+    },
+    {
+      "scope": {"National": "NP"},
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Individual Privacy Act, 2075 (2018) (Nepal) — https://lawalpine.com/blog/privacy-laws-in-nepal",
+      "retrieved_snippet": "Search summary only (law-firm blog, secondary; official text not retrieved): the Act defines personal information, sets obligations on public bodies and institutions handling it, gives consent and rectification rights, prescribes criminal penalties, and implements the Article 28 constitutional privacy right.",
+      "official_source": false
+    }
+  ]
+}

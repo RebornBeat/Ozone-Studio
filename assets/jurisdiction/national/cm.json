@@ -1,0 +1,32 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from droitmediasfinance.com, digitalbusiness.africa, cyrilla.org, cio-mag.com (search summaries, in French). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "CM"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        "cybercriminalité",
+        "cybersécurité"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2010/012 relative à la cybersécurité et la cybercriminalité — https://cyrilla.org/en/entity/oem17trmwp",
+      "retrieved_snippet": "Search summary: governs security of electronic communication networks and information systems, defines and punishes ICT-related offences; covers electronic evidence, cryptography and e-certification; liability exemption for technical intermediaries conditional on prompt removal of known illicit content. Sources date it 21 December 2010 (one says 2 December).",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "CM"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données à caractère personnel"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2024/017 du 23 décembre 2024 relative à la protection des données à caractère personnel — https://droitmediasfinance.com/index.php/actualites/droit-tech-fintech/1297-cameroun-la-loi-sur-la-protection-des-donnees-a-caractere-personnel-entre-en-vigueur-ce-23-juin-2026",
+      "retrieved_snippet": "Search summary: promulgated 23 December 2024, creates the Autorité de protection des données à caractère personnel (APDP); restricts cross-border transfers (equivalent protection and prior authorization); 18-month grace period, reported in force 23 June 2026; implementing decrees not verified.",
+      "official_source": false
+    }
+  ]
+}

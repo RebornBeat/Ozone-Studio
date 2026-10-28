@@ -1,0 +1,77 @@
+{
+  "disclaimer": "Drafted from Spanish laws retrieved via live web fetch/search on 2026-10-27 from boe.es (Boletín Oficial del Estado) and aepd.es. Member-state law only; EU-wide instruments are in eu.json. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel. Every rule action is Log only. Laws change; re-verify. Snippets state whether they come from a fetched BOE page or a search summary.",
+  "rules": [
+    {
+      "scope": {
+        "National": "ES"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "datos personales",
+        "protección de datos",
+        "derechos digitales"
+      ],
+      "action": "Log",
+      "source": "Ley Orgánica 3/2018, de 5 de diciembre, de Protección de Datos Personales y garantía de los derechos digitales (LOPDGDD) — https://www.boe.es/buscar/act.php?id=BOE-A-2018-16673",
+      "retrieved_snippet": "Fetched BOE page: official title 'Ley Orgánica 3/2018, de 5 de diciembre, de Protección de Datos Personales y garantía de los derechos digitales', published BOE núm. 294, 6 December 2018; article 1(b) purpose: 'Garantizar los derechos digitales de la ciudadanía'. AEPD resolutions (search summary, aepd.es) cite art. 47 of the LOPDGDD for the Agencia Española de Protección de Datos supervising application of the law and the GDPR; Título VIII covers procedures for possible breaches.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ES"
+      },
+      "condition": "information society services",
+      "aliases": [
+        "servicios de la sociedad de la información",
+        "comercio electrónico",
+        "lssi"
+      ],
+      "action": "Log",
+      "source": "Ley 34/2002, de 11 de julio, de servicios de la sociedad de la información y de comercio electrónico (LSSI) — https://www.boe.es/buscar/act.php?id=BOE-A-2002-13758",
+      "retrieved_snippet": "Fetched BOE page: official title as stated, published BOE núm. 166, 12/07/2002; article 1(1) object: 'la regulación del régimen jurídico de los servicios de la sociedad de la información'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ES"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "blanqueo de capitales",
+        "financiación del terrorismo"
+      ],
+      "action": "Log",
+      "source": "Ley 10/2010, de 28 de abril, de prevención del blanqueo de capitales y de la financiación del terrorismo — https://www.boe.es/buscar/act.php?id=BOE-A-2010-6737",
+      "retrieved_snippet": "Fetched BOE page: published BOE núm. 103, 29/04/2010, in force 30/04/2010. Article 1 (page summary): purpose is protecting the financial system and other economic sectors from misuse by imposing duties to prevent money laundering and terrorist financing; defines money laundering as converting, concealing, acquiring or using assets known to come from criminal activity.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ES"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "juego",
+        "regulación del juego"
+      ],
+      "action": "Log",
+      "source": "Ley 13/2011, de 27 de mayo, de regulación del juego — https://www.boe.es/buscar/act.php?id=BOE-A-2011-9280",
+      "retrieved_snippet": "Search-result summary of BOE listing (page not fetched in full): published BOE núm. 127, 28/05/2011, in force 29/05/2011; regulates state-level gambling, including remote/electronic channels, aiming at public order, fraud prevention, preventing addictive behaviour and protecting minors; modified by Ley 23/2022, de 2 de noviembre (adds art. 7 bis, registry of gambling access bans).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "ES"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "consumidores y usuarios",
+        "defensa de los consumidores"
+      ],
+      "action": "Log",
+      "source": "Real Decreto Legislativo 1/2007, de 16 de noviembre, texto refundido de la Ley General para la Defensa de los Consumidores y Usuarios y otras leyes complementarias — https://www.boe.es/buscar/act.php?id=BOE-A-2007-20555",
+      "retrieved_snippet": "Search-result summary of BOE listing (not fetched in full): published BOE núm. 287, 30/11/2007, in force 01/12/2007; consolidates Ley 26/1984 with transposed EU consumer directives in four books; amended by Ley 3/2014 and Ley 4/2022.",
+      "official_source": true
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search on 2026-10-27 from expansao.co.ao, lex.ao, plmj.com (search summaries, in Portuguese). Several snippets come from search-result summaries rather than fetched statute pages; official gazette text was not directly fetched. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "AO"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "dados pessoais",
+        "protecção de dados"
+      ],
+      "action": "Log",
+      "source": "Lei n.º 22/11, de 17 de Junho — Lei da Protecção de Dados Pessoais; Decreto Presidencial n.º 214/16 (Agência de Protecção de Dados) — https://lex.ao/docs/presidente-da-republica/2016/decreto-presidencial-n-o-214-16-de-10-de-outubro/",
+      "retrieved_snippet": "Search summary: Data Protection Law 22/11 of 17 June 2011; the Agência de Protecção de Dados (APD) was set up by Presidential Decree 214/16 of 10 October 2016 with supervisory and sanctioning functions; entities must register with the APD (fees in Presidential Decree 60/21).",
+      "official_source": false
+    }
+  ]
+}

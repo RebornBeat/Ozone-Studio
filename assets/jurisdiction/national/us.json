@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from real, currently-published official U.S. federal statutes and regulator (FTC) guidance, verified via live web search against official government sources (ftc.gov, congress.gov) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only (minors' online privacy, general privacy enforcement authority, consumer protection), NOT a comprehensive survey of U.S. law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. State law (e.g. California's CCPA/CPRA) is deliberately NOT included here. Every rule's action is Log only — informational/auditable, never blocking or interrupting a real request — since this content has not been reviewed by counsel.",
+  "disclaimer": "Drafted from real, currently-published official U.S. federal statutes and regulator (FTC) guidance, verified via live web search against official government sources (ftc.gov, congress.gov) at compile time — never generated from training knowledge. This is an engineering starting point covering a small, fixed set of guardrail-relevant topics only (minors' online privacy, general privacy enforcement authority, consumer protection), NOT a comprehensive survey of U.S. law, NOT verified legal compliance, and NOT a substitute for review by qualified legal counsel before relying on it for any real compliance purpose. State law (e.g. California's CCPA/CPRA) is deliberately NOT included here. Every rule's action is Log only — informational/auditable, never blocking or interrupting a real request — since this content has not been reviewed by counsel. ENRICHMENT 2026-10-27: additional federal rules (CAN-SPAM, HIPAA, GLBA, CFAA, DMCA, FERPA, TCPA, TAKE IT DOWN Act, FCRA, EAR, OFAC, BSA, Section 230, EO 14365) drafted from laws retrieved via live web search on 2026-10-27 from ftc.gov, hhs.gov, justice.gov, copyright.gov, ed.gov, fcc.gov, govinfo.gov, bis.gov, ofac.treasury.gov, fincen.gov, federalregister.gov; engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify. Sub-national law is in separate us-XX.json files.",
   "rules": [
     {
       "scope": {"National": "US"},
@@ -47,6 +47,166 @@
       "action": "Log",
       "source": "ADA Title II (2024 DOJ rule) — state and local government websites/mobile apps must conform to WCAG 2.1 Level AA; compliance deadline April 24 2026 (extended one year for smaller jurisdictions). Note: this covers STATE/LOCAL GOVERNMENT entities specifically, not general private-sector services (private-sector ADA accessibility obligations arise under Title III case law, not this specific rule). https://www.section508.gov/manage/laws-and-policies/",
       "retrieved_snippet": "In 2024, DOJ adopted technical accessibility requirements under ADA Title II for the websites and mobile applications of state and local government entities, requiring conformance with WCAG 2.1 Level AA, with phased compliance deadlines extended by one year in 2026.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "spam",
+      "action": "Log",
+      "source": "CAN-SPAM Act (Controlling the Assault of Non-Solicited Pornography and Marketing Act of 2003); FTC CAN-SPAM Rule, 16 CFR Part 316 — https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide-business",
+      "retrieved_snippet": "FTC compliance guide: the law applies to all commercial email, with no business-to-business exception; requirements include accurate header information, non-deceptive subject lines, identifying the message as an ad, a valid physical postal address, a working opt-out honored within 10 business days; businesses remain responsible for email sent on their behalf.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "health data",
+      "action": "Log",
+      "source": "Health Insurance Portability and Accountability Act (HIPAA) Privacy Rule — https://www.hhs.gov/hipaa/for-professionals/privacy/laws-regulations/index.html",
+      "retrieved_snippet": "HHS summary: the Privacy Rule governs use and disclosure of protected health information by covered entities (health plans, clearinghouses, and providers conducting standard electronic transactions); a covered entity generally may not use or disclose PHI unless permitted or authorized in writing, subject to a minimum-necessary standard.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "financial information",
+      "action": "Log",
+      "source": "Gramm-Leach-Bliley Act; FTC Safeguards Rule, 16 CFR Part 314 — https://www.ftc.gov/business-guidance/privacy-security/gramm-leach-bliley-act",
+      "retrieved_snippet": "FTC page/search result: the Safeguards Rule requires covered financial institutions under FTC jurisdiction to maintain a written information security program with administrative, technical and physical safeguards for customer information and to oversee service providers.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "data breach",
+      "action": "Log",
+      "source": "FTC Safeguards Rule notification requirement (16 CFR Part 314, GLBA) — https://www.ftc.gov/business-guidance/blog/2024/05/safeguards-rule-notification-requirement-now-effect",
+      "retrieved_snippet": "FTC: an amendment effective May 13, 2024 requires covered financial institutions to notify the FTC as soon as possible and no later than 30 days after discovery of a breach involving at least 500 consumers. Applies to FTC-jurisdiction financial institutions only; not a general U.S. breach law.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "cybercrime",
+      "action": "Log",
+      "source": "Computer Fraud and Abuse Act (CFAA), 18 U.S.C. §1030 — Justice Manual 9-48.000 — https://www.justice.gov/jm/jm-9-48000-computer-fraud",
+      "retrieved_snippet": "DOJ Justice Manual section 9-48.000 sets charging policy for the CFAA, 18 U.S.C. §1030, including cases of access 'without authorization' or that 'exceeds authorized access' (defined by reference to §1030(e)(6)).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "unauthorized access",
+      "action": "Log",
+      "source": "Computer Fraud and Abuse Act (CFAA), 18 U.S.C. §1030 — https://www.justice.gov/jm/jm-9-48000-computer-fraud",
+      "retrieved_snippet": "DOJ Justice Manual 9-48.000: prosecutors must show how a person's permission was limited and how they went beyond it when charging 'exceeds authorized access'; the CFAA does not define 'without authorization'.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "copyright",
+      "action": "Log",
+      "source": "Digital Millennium Copyright Act, 17 U.S.C. §512 (online service provider safe harbors) — https://www.copyright.gov/512/",
+      "retrieved_snippet": "U.S. Copyright Office: §512 gives limited liability to four types of online service providers; three require notice-and-takedown; providers must designate a DMCA agent with the Office and have a repeat-infringer policy; removed material may be reposted 10 to 14 business days after a compliant counter-notice unless the sender notifies of a lawsuit.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "student records",
+      "action": "Log",
+      "source": "Family Educational Rights and Privacy Act (FERPA), 20 U.S.C. §1232g, 34 CFR Part 99 — https://studentprivacy.ed.gov/ferpa",
+      "retrieved_snippet": "Dept. of Education Student Privacy Policy Office: FERPA gives parents (and eligible students) rights of access to education records, to seek amendment, and some control over disclosure of personally identifiable information; applies to schools receiving Department of Education funds.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "robocall",
+      "action": "Log",
+      "source": "Telephone Consumer Protection Act (TCPA), 47 U.S.C. §227, FCC rules — https://www.fcc.gov/consumers/guides/political-campaign-robocalls-and-robotexts-rules",
+      "retrieved_snippet": "FCC: autodialed or prerecorded campaign calls and texts to mobile phones are prohibited without prior express consent; FCC declaratory ruling treats AI-generated voices as 'artificial' under the TCPA. A 2026 FCC order (FCC 26-67) proposes further changes whose adoption was not confirmed.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "deepfake",
+      "action": "Log",
+      "source": "TAKE IT DOWN Act, Public Law 119-12 (S. 146), enacted May 19, 2025 — https://www.govinfo.gov/app/details/PLAW-119publ12",
+      "retrieved_snippet": "GovInfo: 'Tools to Address Known Exploitation by Immobilizing Technological Deepfakes on Websites and Networks Act', Public Law 119-12, date approved May 19, 2025: 'An act to require covered platforms to remove nonconsensual intimate visual depictions, and for other purposes.' (A secondary tracker reports platform removal duties took effect May 19, 2026; not verified on an official page.)",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "credit report",
+      "action": "Log",
+      "source": "Fair Credit Reporting Act (FCRA), 15 U.S.C. §1681 et seq. — https://www.ftc.gov/legal-library/browse/statutes/fair-credit-reporting-act",
+      "retrieved_snippet": "FTC: the FCRA protects information collected by consumer reporting agencies, restricts who may receive consumer reports, requires furnishers to investigate disputes, and requires users of reports for credit, insurance or employment to give notice of adverse action.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "export controls",
+      "action": "Log",
+      "source": "Export Administration Regulations (EAR), 15 CFR Parts 730-774, administered by BIS — https://www.bis.gov/regulations/ear",
+      "retrieved_snippet": "BIS: the EAR regulate export, reexport and transfer (in-country) of commercial items with military or proliferation uses and some less sensitive military items; items are classified on the Commerce Control List by ECCN, with unlisted items designated EAR99.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "sanctions",
+      "action": "Log",
+      "source": "OFAC sanctions programs (Treasury Office of Foreign Assets Control) — https://ofac.treasury.gov/faqs/topic/1501",
+      "retrieved_snippet": "OFAC FAQs: persons subject to U.S. jurisdiction may be civilly liable for sanctions violations on a strict-liability basis even without knowledge; OFAC expects a risk-based sanctions compliance program; blocked property must be reported within 10 business days.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "money laundering",
+      "action": "Log",
+      "source": "Bank Secrecy Act (1970, as amended incl. USA PATRIOT Act 2001 and Anti-Money Laundering Act of 2020), administered by FinCEN — https://www.fincen.gov/resources/statutes-and-regulations/bank-secrecy-act",
+      "retrieved_snippet": "FinCEN: the BSA authorizes Treasury to impose reporting and recordkeeping requirements on financial institutions to detect and prevent money laundering, including currency transaction reports above $10,000 in daily aggregate and suspicious activity reports.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "intermediary liability",
+      "action": "Log",
+      "source": "Communications Decency Act §230, 47 U.S.C. §230 — https://www.govinfo.gov/link/uscode/47/230",
+      "retrieved_snippet": "Statute text: '[n]o provider or user of an interactive computer service shall be treated as the publisher or speaker of any information provided by another information content provider' (§230(c)(1)); §230(c)(2) protects good-faith action to restrict access to objectionable material.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "US"
+      },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Executive Order 14365, 'Ensuring a National Policy Framework for Artificial Intelligence' (Dec. 11, 2025) — https://public-inspection.federalregister.gov/2025-23092.pdf",
+      "retrieved_snippet": "Retrieved summary: directs the Attorney General to establish an AI Litigation Task Force to challenge state AI laws and Commerce to evaluate burdensome state AI laws; it is an executive order, not a statute, and does not itself regulate private AI use. Current status/litigation not verified; a March 20, 2026 White House legislative-recommendations document asks Congress to preempt state AI laws.",
       "official_source": true
     }
   ]

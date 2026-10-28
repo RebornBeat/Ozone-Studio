@@ -1,0 +1,25 @@
+{
+  "disclaimer": "Sub-national (US-TX) rules drafted from laws retrieved via live web search on 2026-10-27 from texasattorneygeneral.gov, capitol.texas.gov; contains only TX-specific law (federal law is in us.json); engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "Local": "US-TX"
+      },
+      "condition": "personal data",
+      "action": "Log",
+      "source": "Texas Data Privacy and Security Act (HB 4, 88th Leg.; Bus. & Com. Code ch. 541), effective July 1, 2024 — https://www.texasattorneygeneral.gov/consumer-protection/file-consumer-complaint/consumer-privacy-rights/texas-data-privacy-and-security-act",
+      "retrieved_snippet": "Texas AG: gives residents rights to confirm processing, correct, delete, and opt out of targeted advertising, sales and certain profiling; controllers respond within 45 days (extendable 45); AG has exclusive enforcement, no private right of action; GLBA and HIPAA entities exempt.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "Local": "US-TX"
+      },
+      "condition": "artificial intelligence",
+      "action": "Log",
+      "source": "Texas Responsible Artificial Intelligence Governance Act (TRAIGA), HB 149, 89th Leg., effective Jan. 1, 2026 — https://capitol.texas.gov/billlookup/BillSummary.aspx?Bill=HB149&LegSess=89R",
+      "retrieved_snippet": "Texas Legislature enrolled summary: effective 1-1-26; governs entities deploying AI in Texas, prohibits certain uses (e.g., AI to incite self-harm or crime, social scoring), requires government agencies to disclose AI interaction, AG has exclusive enforcement with 60-day notice, creates a sandbox and AI Council. Penalty amounts not verified against enrolled text.",
+      "official_source": true
+    }
+  ]
+}

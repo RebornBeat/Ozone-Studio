@@ -1,5 +1,5 @@
 {
-  "disclaimer": "Drafted from Norway's Personal Data Act 2018 (Personopplysningsloven, LOV-2018-06-15-38), which implements GDPR into Norwegian law via the EEA Agreement, retrieved via web search against summaries citing the official text on lovdata.no, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Norwegian legal counsel. Scope: National(\"NO\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it.",
+  "disclaimer": "Drafted from Norway's Personal Data Act 2018 (Personopplysningsloven, LOV-2018-06-15-38), which implements GDPR into Norwegian law via the EEA Agreement, retrieved via web search against summaries citing the official text on lovdata.no, as an engineering starting point. This is NOT verified legal compliance and NOT a substitute for review by qualified Norwegian legal counsel. Scope: National(\"NO\"). Every rule's action is a conservative, generic engineering policy, not a legal conclusion. This content will age — re-verify before relying on it. Enriched 2026-10-27: additional rules drafted from pages fetched live from lovdata.no on 2026-10-27 (retrieved 2026-10-27); Log only; laws change, re-verify.",
   "rules": [
     {
       "scope": { "National": "NO" },
@@ -12,6 +12,88 @@
       "condition": "child",
       "action": "Log",
       "source": "Personal Data Act 2018 (LOV-2018-06-15-38) — sets Norway's national age of consent for children's data processing at 13 years (lower than the EU GDPR Article 8 default of 16), one of the national-flexibility provisions GDPR permits member/EEA states to set themselves. Official text: lovdata.no."
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "cybercrime",
+      "aliases": [
+        
+        "innbrudd i datasystem"
+      ],
+      "action": "Log",
+      "source": "Lov om straff (straffeloven) LOV-2005-05-20-28, § 204 Innbrudd i datasystem — https://lovdata.no/dokument/NL/lov/2005-05-20-28/§204",
+      "retrieved_snippet": "Page heading '§ 204. Innbrudd i datasystem'; text: 'Med bot eller fengsel inntil 2 år straffes den som ved å bryte en beskyttelse eller ved annen uberettiget fremgangsmåte skaffer seg tilgang til datasystem eller del av det.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "hatefulle ytringer"
+      ],
+      "action": "Log",
+      "source": "Lov om straff (straffeloven) LOV-2005-05-20-28, § 185 Hatefulle ytringer — https://lovdata.no/dokument/NL/lov/2005-05-20-28/§185",
+      "retrieved_snippet": "Page heading '§ 185. Hatefulle ytringer'; opens 'Med bot eller fengsel inntil 3 år straffes den som forsettlig eller grovt uaktsomt offentlig setter frem…' a discriminatory or hateful statement; a separate offence covers such statements made to a targeted person in the presence of others (1 year max).",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "terrorism",
+      "aliases": [
+        "terrorhandlinger"
+      ],
+      "action": "Log",
+      "source": "Lov om straff (straffeloven) LOV-2005-05-20-28, § 131 Terrorhandlinger — https://lovdata.no/dokument/NL/lov/2005-05-20-28/§131",
+      "retrieved_snippet": "Page heading '§ 131. Terrorhandlinger'; opens 'En straffbar handling som nevnt i §§ 138 til 141, § 142 første ledd, §§ 143-144, 192, 238, 239, 240, 255,…'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "money laundering",
+      "aliases": [
+        "hvitvasking",
+        "terrorfinansiering"
+      ],
+      "action": "Log",
+      "source": "Lov om tiltak mot hvitvasking og terrorfinansiering (hvitvaskingsloven) LOV-2018-06-01-23, in force 15 Oct 2018 — https://lovdata.no/dokument/NL/lov/2018-06-01-23",
+      "retrieved_snippet": "§ 1: 'Lovens formål er å forebygge og avdekke hvitvasking og terrorfinansiering.'",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "copyright",
+      "aliases": [
+        "opphavsrett",
+        "åndsverk"
+      ],
+      "action": "Log",
+      "source": "Lov om opphavsrett til åndsverk mv. (åndsverkloven) LOV-2018-06-15-40, in force 1 July 2018 — https://lovdata.no/dokument/NL/lov/2018-06-15-40",
+      "retrieved_snippet": "Official title 'Lov om opphavsrett til åndsverk mv. (åndsverkloven)', Act of 15 June 2018 no. 40, in force 01.07.2018; § 1 states the Act's aims regarding rights of creators and balance with user interests.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "NO"
+      },
+      "condition": "consumer",
+      "aliases": [
+        "forbrukerforhold",
+        "markedsføring"
+      ],
+      "action": "Log",
+      "source": "Lov om kontroll med markedsføring og avtalevilkår mv. (markedsføringsloven) LOV-2009-01-09-2 — https://lovdata.no/dokument/NL/lov/2009-01-09-2",
+      "retrieved_snippet": "§ 1: 'Når ikke annet er bestemt, gjelder loven kontroll med markedsføring, handelspraksis og avtalevilkår i forbrukerforhold…'",
+      "official_source": true
     }
   ]
 }

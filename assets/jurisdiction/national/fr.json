@@ -1,0 +1,109 @@
+{
+  "disclaimer": "Drafted from French law information retrieved via live web search on 2026-10-27 (legifrance.gouv.fr result listings, cnil.fr, senat.fr/assemblee-nationale.fr documents, and secondary sources where flagged). legifrance.gouv.fr page fetch returned HTTP 403, so snippets are from search-result summaries, not full fetched statute text; each should be verified on Légifrance. Member-state law only; EU-wide instruments are in eu.json. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel. Every rule action is Log only. Laws change; re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "personal data",
+      "aliases": [
+        "données personnelles",
+        "données à caractère personnel",
+        "informatique et libertés"
+      ],
+      "action": "Log",
+      "source": "Loi n° 78-17 du 6 janvier 1978 relative à l'informatique, aux fichiers et aux libertés (loi Informatique et Libertés) — https://www.cnil.fr/fr/la-loi-informatique-et-libertes",
+      "retrieved_snippet": "Search summary of CNIL page: the CNIL publishes the consolidated text of loi 78-17 of 6 January 1978; Article 1 states information technology must serve every citizen and must not undermine human identity, human rights, privacy or individual and public freedoms; the CNIL notes the Légifrance version prevails if texts differ. (Not fetched in full.)",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "hosting provider",
+      "aliases": [
+        "hébergeur",
+        "confiance dans l'économie numérique"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2004-575 du 21 juin 2004 pour la confiance dans l'économie numérique (LCEN), article 6 — https://www.legifrance.gouv.fr/loda/id/JORFTEXT000000801164",
+      "retrieved_snippet": "Search summary of Légifrance result listing: article 6 sets the hosting-provider liability regime; hosts must hold and retain data allowing identification of anyone who contributed to content creation (failure criminally sanctioned per the summary: one year and EUR 250,000); Légifrance shows the text last modified by LOI n°2026-813 of 24 August 2026 (in force 26 August 2026). Full consolidated text not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "unauthorized access",
+      "aliases": [
+        "accès frauduleux",
+        "système de traitement automatisé de données",
+        "stad"
+      ],
+      "action": "Log",
+      "source": "Code pénal, article 323-1 (chapitre III, atteintes aux systèmes de traitement automatisé de données, arts 323-1 à 323-8) — https://www.legifrance.gouv.fr/codes/article_lc/LEGIARTI000030939438/",
+      "retrieved_snippet": "Search summary of Légifrance: art. 323-1 penalises fraudulently accessing or remaining in all or part of an automated data processing system — three years and EUR 100,000 base; five years and EUR 150,000 if data is deleted/altered or system operation disrupted; seven years and EUR 300,000 for State-run personal data systems; version in force since 26/01/2023 (LOI 2023-22). Page itself not fetched.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "defamation",
+      "aliases": [
+        "diffamation",
+        "injure",
+        "loi sur la liberté de la presse"
+      ],
+      "action": "Log",
+      "source": "Loi du 29 juillet 1881 sur la liberté de la presse, articles 23, 24, 29 — https://www.assemblee-nationale.fr/dyn/16/questions/QANR5L16QE10456.pdf",
+      "retrieved_snippet": "Search summary (Assemblée nationale written question and Sénat documents): defamation (art. 29 al. 1) and insult (art. 29 al. 2) are press offences committed through the means listed in art. 23; art. 24 covers provocation to crimes and public provocation to discrimination, hatred or violence (aggravating circumstance added by the law of 24 August 2021). Consolidated text not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "hate speech",
+      "aliases": [
+        "provocation à la haine",
+        "apologie",
+        "négationnisme"
+      ],
+      "action": "Log",
+      "source": "Loi du 29 juillet 1881 sur la liberté de la presse, articles 24 and 24 bis — https://www.assemblee-nationale.fr/dyn/16/questions/QANR5L16QE10456.pdf",
+      "retrieved_snippet": "Search summary: art. 24 covers provocation to hatred, discrimination or violence (alinéas 7 and 8, aggravated by the law of 24 August 2021) and apology; art. 24 bis covers contesting or minimising crimes against humanity. Consolidated text not retrieved.",
+      "official_source": true
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "online safety",
+      "aliases": [
+        "sécuriser et réguler l'espace numérique",
+        "sren",
+        "vérification de l'âge"
+      ],
+      "action": "Log",
+      "source": "Loi n° 2024-449 du 21 mai 2024 visant à sécuriser et réguler l'espace numérique (SREN) — https://better-internet-for-kids.europa.eu/en/rules-guidelines/law-no-2024-449-may-21-2024-aimed-securing-and-regulating-digital-space",
+      "retrieved_snippet": "Secondary-source search summary (no Légifrance page retrieved): law promulgated 21 May 2024, in force since 23 May 2024, aligns French law with the DSA (Reg. 2022/2065); gives Arcom the task of setting minimum technical requirements for age verification on pornographic sites; includes cloud-switching provisions. Verify on Légifrance.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "FR"
+      },
+      "condition": "gambling",
+      "aliases": [
+        "jeux d'argent",
+        "autorité nationale des jeux",
+        "anj"
+      ],
+      "action": "Log",
+      "source": "Ordonnance n° 2019-1015 du 2 octobre 2019 réformant la régulation des jeux d'argent et de hasard — https://twobirds.com/en/insights/2019/france/publication-de-l-ordonnance-2019-1015",
+      "retrieved_snippet": "Secondary law-firm summary (Bird & Bird, CMS; no official page retrieved): ordinance published 3 October 2019 under the PACTE law, effective 1 January 2020, created the Autorité nationale des jeux (ANJ) replacing ARJEL and strengthened sanctions. Verify on Légifrance.",
+      "official_source": false
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "disclaimer": "Drafted from laws retrieved via live web search/fetch on 2026-10-27 (retrieved 2026-10-27) from secondary sources (law firms, trackers, PacLII/AustLII, CoE, UNODC); no official government page was successfully read, so official_source is false throughout and several snippets are search-result summaries. Engineering starting point only; NOT legal compliance; not a substitute for qualified counsel; every rule action is Log only; laws change, re-verify.",
+  "rules": [
+    {
+      "scope": {
+        "National": "BN"
+      },
+      "condition": "personal data",
+      "aliases": [],
+      "action": "Log",
+      "source": "Personal Data Protection Order, 2025 (made 8 January 2025; most provisions in force 1 January 2026; enforced by AITI) — https://www.dlapiperdataprotection.com/index.html?c=BN&t=law",
+      "retrieved_snippet": "Search-result summary (page not fetched): PDPO governs private-sector collection, use and disclosure of personal data and does not apply to government agencies; sources conflict on enactment dates; the gazette (S 1/2025) was not retrieved.",
+      "official_source": false
+    },
+    {
+      "scope": {
+        "National": "BN"
+      },
+      "condition": "cybercrime",
+      "aliases": [],
+      "action": "Log",
+      "source": "Computer Misuse Order (Cap. 194, 2007 revision; commencement 21 June 2000) — https://sherloc.unodc.org/cld/uploads/res/document/computer-misuse-act_html/Brunei_Computer_Misuse.pdf",
+      "retrieved_snippet": "Search-result summary of the UNODC SHERLOC copy (fetch returned 403): the Order criminalises unauthorised access to and modification of computer material; the text itself was not read. Verify against agc.gov.bn.",
+      "official_source": false
+    }
+  ]
+}
