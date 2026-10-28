@@ -196,8 +196,33 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
     });
   }
 
+  // Convert other containers + files into renderable 3D nodes — without
+  // this, text-only projects (no ModalityGraphs) render as empty 3D space.
+  const containerNodes: GraphViewNode[] = [];
+  for (const [cid, cref] of Object.entries(containers)) {
+    const id = Number(cid);
+    containerNodes.push({
+      id: `container:${id}`,
+      modality: "container",
+      nodeType: cref.containerType,
+      label: cref.name ?? `${cref.containerType} #${id}`,
+      isReal: true,
+      sourceContainerId: id,
+      raw: { node_id: id, node_type: cref.containerType, properties: {} },
+    });
+  }
+  const fileNodes: GraphViewNode[] = files.map(f => ({
+    id: `file:${f.containerId}`,
+    modality: "container" as const,
+    nodeType: f.kind,
+    label: f.name,
+    isReal: true,
+    sourceContainerId: f.containerId,
+    raw: { node_id: f.containerId, node_type: f.kind, properties: {} },
+  }));
+
   return {
-    nodes,
+    nodes: [...nodes, ...containerNodes, ...fileNodes],
     edges,
     sourceContainers,
     containerRelations,

@@ -6114,3 +6114,20 @@ A graph-activity heartbeat chip: lit when the GraphKit substrate received a real
 
 ### 3. CapturePresence — deferred to the next polish pass
 Needs a per-view mapping of which S10-S13 stores back which view's data. Small but not blocking.
+
+## 2026-10-27 (zcode, FINAL-CONTINUE) — the operator's green-light items executed: jurisdiction elevations APPLIED (3 rules from Log to RequireConfirmation across DO+EU), GraphProvider now renders ALL container types as 3D nodes (not just ModalityGraphs), chatRendering fontSize cast, GraphWorld3D dash fix, three.js deps installed. Edits + deploy; NO builds, NO tests.
+
+### 1. Jurisdiction elevations APPLIED ✅
+DO: "personal data" → RequireConfirmation (Law 172-13). EU: "data breach" → RequireConfirmation (GDPR Art 6); "personal data" → RequireConfirmation. The graph copy re-seeds at next boot. Verified: both files now have non-Log actions on the matched rules.
+
+### 2. GraphProvider renders ALL container types as 3D nodes ✅
+Previously only ModalityGraph nodes were rendered — text-only projects (no attachments → no ModalityGraphs) showed as empty 3D space. NOW: all other containers (AMT, blueprint, insight, experience, coordination) and file containers are converted into renderable GraphViewNode objects with `modality: "container"`. The 3D world is non-empty for any project.
+
+### 3. chatRendering fontSize cast ✅
+`fontSize: (level <= 2 ? '1.1em' : '1em') as string` — resolves the pre-existing TS2322 "number not assignable to string" error.
+
+### 4. GraphWorld3D EdgeClass dash fix ✅
+`e.edgeClass !== "real"` → `e.edgeClass !== "structural"` — "real" doesn't exist in the EdgeClass union (structural/dependency/semantic/cross-modal/lineage). The dash pattern now correctly differentiates structural (solid) from the rest (dashed).
+
+### 5. tsc status after all fixes + npm install
+**1 pre-existing legacy error** (chatRendering markdown renderer — different aspect of the same line, the `level` variable typing). All graphkit files, all edited panels, GraphWorld3D, chatRendering: clean.
