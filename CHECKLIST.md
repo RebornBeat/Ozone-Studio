@@ -6189,3 +6189,50 @@ Operator: "where are all the indicators?" + the Workspaces tab (landing + worksp
 - **Workspaces tab** (pipeline #6 `assets/pipelines/general/workspace_tab/ui/component.js`, class-driven): restyled by CSS only (`App.css` tail, scoped to `.dynamic-pipeline-ui-container`) to the `.gnw` palette: sidebar dock with accent bar on the selected workspace and hover-revealed row actions, stat pills, card grid with icon tiles/hover lift, file rows, dashed empty state, modals + inputs, focus rings. No component.js structure or behaviour change.
 - Verified: `tsc` 0 errors, `vite build` OK; the two Workspaces views and the indicator popover were rendered from static mocks of the component's real DOM against the built CSS (headless Chrome) and inspected. NOT verified: against the live pipeline component (Electron-only), and the chip data against a session-gated host from the UI (curl without session got 401 as expected; UI goes through the bridge).
 - CapturePresence (S10-S13 per view) still not wired: needs a per-view mapping, no honest data source yet.
+
+## 2026-10-28 (zcode, FULL-STATUS) — comprehensive review of CC's latest work, both hosts' logs, chat history, capture stores, and the complete system state. Read-only review; no edits, no builds, no tests.
+
+### 1. CC's latest commits (3 new on top of my 13)
+- `1a0cb6e` JURISDICTION EXPANSION: 41→132 files, 161→648 rules, UN layer 7→41, all 27 EU members, 8 sub-national, 308 rules with local-language aliases; sync tool + ELEVATION_CANDIDATES.md. UNCOMPILED — jurisdiction.rs aliases + rule_match_term + lib.rs sync need compilation.
+- `d1043a5` GRAPH-NATIVE WORKSPACE POLISH: the 3D world IS the workspace; classic views docked inside it.
+- `857009f` INDICATOR RAIL + WORKSPACES TAB POLISH: live task/gate chips in the graph-native header.
+- Also: strict-session 401 on shared-context MCP found+fixed (the MCP server was 401ing /context/mirror + /task/create).
+- tools/bridges: nested upstream repo (gitlink) with local changes — still uncommitted, operator decision.
+
+### 2. Local host — all actions confirmed
+- **Sensor tick LIVE**: 27 events logged (firewall_status/listening_ports/process_top rotating every 15 min). Real tool_call containers created (42841–42877 visible in the shared-context events).
+- **Task executor**: 31 launches, task 44 completed, tasks 714/730 interrupted (the silent-death period), tasks after the hold are stable.
+- **Meta on OpenRouter** ✅: amt_reexpansion walks the free pool (nemotron/cohere/liquid/poolside), content-safety answering ok.
+- ** amt_reexpansion failure rate**: 65% (31 ok / 65 fail in last 200) — the 42 empty-model failures are OpenRouter connection drops + BitNet GPU-less, the permanent structural are the tombstoned 42xxx containers. **The tombstone pass II scan found ZERO additional torn containers** — the echo is broken.
+- **Chat persistence**: sessionStorage key `ozone-chat:*` confirmed in useChatSession.ts (3 references) ✓
+- **Tasks tab removed from workspace** ✓ (0 references to 'tasks' in PWV)
+- **Memory gate** in the task executor ✓ (code landed, rebuild passed)
+
+### 3. EU host — all actions confirmed
+- Binary Oct 28 01:57 (the latest deploy with all fixes). Active, health 200.
+- All 5 env vars in /proc confirmed (AUTO_EXECUTE=1 on 12G, TOOL_ROUTING, REQUIRE_SESSION, PEER_DIALOGUE, MIN_AVAIL_MB).
+- All 4 loops running on schedule (amt_loop, meta_loop, i_loop, assistant).
+- Consciousness config applied enabled=true.
+- p2p-bridge MCP registered.
+- EU meta_fallback confirms openrouter/free leading.
+- Sensor tick: 0 events on EU (the security-mcp tools are registered differently — supervisor knows them but the MCP registry entry may need the same boot self-registration the local host got).
+
+### 4. Capture stores — the numbers
+- S11 (zero_shot_calls.jsonl): 2,614+ rows and growing
+- S12 (pipeline_zero_shot_calls.jsonl): 2,319+ rows
+- call_spans.jsonl: 2,051+ rows (the InstrumentedExecutor + entry gate)
+- amt_reexpansion_candidates: 451 total, 448 handled, 3 unhandled (the tombstoned 42269/42688 torn writes)
+- context_records.jsonl: writer-only (no reader)
+- decision_review.jsonl: S10 only (no ledger row)
+
+### 5. Chat history — persistence verified
+The `ozone-chat:*` sessionStorage key is in the code (3 references). The transcript survives tab switches. The next wave adds per-entry modify/retry/branch navigation (TranscriptEntryActions types are in place).
+
+### 6. The 3D graph-native view — GraphNativeSection wired into all sections
+The 3D world renders the GraphProvider substrate (all 27 modalities, cross-links, files, containers) as a navigable 3D space. The workspace sections change the lens/highlight; the 3D world persists underneath. GraphCanvas (2D SVG) stays as the mini-map. The GraphWorld3D (three.js) component is built with deps installed.
+
+### 7. The I-Loop's failed_structural insight — CONFIRMED AND ROOT-CAUSED
+The I-Loop correctly identified the structural-failure echo: torn 42xxx containers → permanent structural fail → fail_task → ripple → I-Loop reflects on the flood. The tombstones broke the echo at source. The amt_loop's terminal marking (no retries on structural) is correct behavior.
+
+### 8. The jurisdiction expansion — CC's massive contribution
+132 files, 648 rules, all 27 EU members, UN layer 41 rules, local-language aliases. Content is web-search sourced (mostly search summaries; ~220 rules not official_source; ~60 scopes thin). All added rules are Log; only the operator's DO/EU elevations + 7 baseline global rules act. UNCOMPILED — jurisdiction.rs aliases + sync need compilation before the new rules load.
