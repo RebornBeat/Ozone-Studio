@@ -106,6 +106,11 @@ export function hostGet<T = unknown>(httpPath: string): Promise<T> {
   return bridgeOrHttp<T>("", httpPath);
 }
 
+/** Plain JSON POST through the same bridge-first path (see hostGet). */
+export function hostPost<T = unknown>(httpPath: string, body?: unknown): Promise<T> {
+  return postHttp<T>(httpPath, body ?? {});
+}
+
 async function postHttp<T>(httpPath: string, body: unknown): Promise<T> {
   const oz = (window as any).ozone;
   if (oz?.http?.post) {

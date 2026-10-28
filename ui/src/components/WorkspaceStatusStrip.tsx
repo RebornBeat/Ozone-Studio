@@ -8,8 +8,8 @@
  */
 import React, { useEffect, useState } from "react";
 import { useGraphKit } from "../graphkit/graphProvider";
-import { hostGet } from "../ozoneClient";
-import { PeerState, ActivityPulse } from "../graphkit/indicators";
+import { hostGet, hostPost } from "../ozoneClient";
+import { PeerState, ActivityPulse, TaskStateIcon, GateState } from "../graphkit/indicators";
 
 export const WorkspaceStatusStrip: React.FC = () => {
   const [peerCount, setPeerCount] = useState(0);
@@ -56,24 +56,100 @@ export const WorkspaceStatusStrip: React.FC = () => {
   if (!available) return null; // honest absence: no strip when the host doesn't answer
 
   return (
-    <div
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 10,
-        fontSize: 11,
-        color: "var(--color-text-muted)",
-        border: "1px solid var(--color-border-faint)",
-        borderRadius: 8,
-        padding: "2px 8px",
-      }}
-    >
+    <div className="gnw-ind">
+      <TaskChip />
+      <GateChip />
+      <span className="gnw-ind-sep" />
       <PeerState peerCount={peerCount} pairedCount={pairedCount} />
       <ActivityPulse active={nodeEventCount > 0} label={`${nodeEventCount} live construction events this session`} />
       <LoopChips />
     </div>
   );
 };
+
+/** Poll a host route; null until the first answer, null again on failure
+ * (honest absence — a chip never shows a stale or invented number). */
+function usePolled<T>(fetcher: () => Promise<T>, ms: number): T | null {
+  const [v, setV] = useState<T | null>(null);
+  useEffect(() => {
+    let dead = false;
+    const run = async () => {
+      try { const r = await fetcher(); if (!dead) setV(r); } catch { if (!dead) setV(null); }
+    };
+    run();
+    const t = setInterval(run, ms);
+    return () => { dead = true; clearInterval(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return v;
+}
+
+interface TaskRow { task_id: number; status: string; progress: number; description?: string | null; blueprint_name?: string; error?: string | null }
+
+/** TaskChip — real /task/list: running / queued / failed counts, click for the
+ * most recent tasks with their own status + progress (never an invented %). */
+function TaskChip() {
+  const data = usePolled(() => hostPost<{ tasks: TaskRow[] }>("/task/list", { limit: 30 }), 8000);
+  const [open, setOpen] = useState(false);
+  if (!data || !Array.isArray(data.tasks)) return null;
+  const tasks = data.tasks;
+  const n = (st: string) => tasks.filter((t) => t.status.toLowerCase() === st).length;
+  const running = n("running"), queued = n("queued"), failed = n("failed"), interrupted = n("interrupted");
+  const lead = running ? "running" : failed ? "failed" : interrupted ? "interrupted" : queued ? "queued" : "completed";
+  return (
+    <span className="gnw-ind-wrap">
+      <button
+        className={`gnw-ind-chip${open ? " on" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        title={`${tasks.length} most recent tasks — ${running} running, ${queued} queued, ${failed} failed, ${interrupted} interrupted`}
+      >
+        <TaskStateIcon status={lead} size={12} />
+        <span>{running ? `${running} running` : tasks.length ? "tasks idle" : "no tasks"}</span>
+        {failed > 0 && <span className="gnw-ind-n bad">{failed}</span>}
+        {queued > 0 && <span className="gnw-ind-n">{queued}</span>}
+      </button>
+      {open && (
+        <div className="gnw-ind-pop" role="dialog" aria-label="Recent tasks">
+          <div className="gnw-ind-pop-h">Recent tasks <span>live from /task/list</span></div>
+          {tasks.length === 0 && <div className="gnw-ind-pop-empty">No tasks recorded.</div>}
+          {tasks.slice(0, 8).map((t) => (
+            <div key={t.task_id} className="gnw-ind-row" title={t.error ?? undefined}>
+              <TaskStateIcon status={t.status} size={12} />
+              <span className="gnw-ind-id">#{t.task_id}</span>
+              <span className="gnw-ind-txt">{t.description || t.blueprint_name || t.status}</span>
+              <span className="gnw-ind-pct">{t.status === "running" ? `${Math.round((t.progress ?? 0) * (t.progress <= 1 ? 100 : 1))}%` : t.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+/** GateChip — the consciousness gate's real posture: reviews awaiting a human
+ * (amber), else the most recent decision-review outcome. */
+function GateChip() {
+  const pending = usePolled(() => hostGet<{ count?: number; rows?: any[] }>("/consciousness/reviews/pending"), 15000);
+  const last = usePolled(() => hostGet<{ rows?: any[] }>("/capture/decision-reviews"), 30000);
+  const pendingN = pending ? Number(pending.count ?? pending.rows?.length ?? 0) : null;
+  const lastRow = last?.rows?.length ? last.rows[last.rows.length - 1] : null;
+  if (pendingN === null && !lastRow) return null;
+  if (pendingN && pendingN > 0) {
+    return (
+      <span className="gnw-ind-chip warn" title={`${pendingN} consciousness-gate review${pendingN === 1 ? "" : "s"} waiting for a human decision — nothing proceeds on an unjudged chunk`}>
+        <GateState decision="pending" size={12} />
+        <span>{pendingN} to review</span>
+      </span>
+    );
+  }
+  const d = String(lastRow?.decision ?? "");
+  return (
+    <span className="gnw-ind-chip" title={lastRow ? `Last gate decision-review: ${d || "unknown"}${lastRow.ts ? ` (${lastRow.ts})` : ""}; none waiting` : "No reviews waiting"}>
+      <GateState decision={d} size={12} />
+      <span>{lastRow ? "gate clear" : "no reviews"}</span>
+    </span>
+  );
+}
 
 export default WorkspaceStatusStrip;
 

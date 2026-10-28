@@ -6181,3 +6181,11 @@ Operator direction: "polish the full graph native view — the non-native view i
 
 ### Open (UI)
 Task/gate/capture indicators as in-space objects (substrate has no task rows yet), saved views + deep links, path-finding, time scrubber, port the 9 dedicated engine bodies to lens renders, Electron verification. **Next (operator order): jurisdiction polish — ingest each country's constitution/legal code PDF through the text modality and source rules to ONE book, not blogs.**
+
+
+## 2026-10-28 (cc) — INDICATOR RAIL + WORKSPACES TAB POLISH
+Operator: "where are all the indicators?" + the Workspaces tab (landing + workspace view) should match the new polished look. No forks.
+- **Indicator rail** (`ui/src/components/WorkspaceStatusStrip.tsx`, shown in the graph-native header on the Workspace tab AND the global Files/Fabric/Hierarchy/Engines tabs): TaskChip (real `/task/list`: running/queued/failed counts, click -> 8 most recent tasks with TaskStateIcon + the record's own status/progress), GateChip (real `/consciousness/reviews/pending` count in amber, else last `/capture/decision-reviews` outcome via GateState), plus the existing PeerState / ActivityPulse / graph heartbeat. Polled 8-30 s; a chip disappears (honest absence) when its route does not answer. Added `hostPost` to `ozoneClient.ts` (bridge-first JSON POST).
+- **Workspaces tab** (pipeline #6 `assets/pipelines/general/workspace_tab/ui/component.js`, class-driven): restyled by CSS only (`App.css` tail, scoped to `.dynamic-pipeline-ui-container`) to the `.gnw` palette: sidebar dock with accent bar on the selected workspace and hover-revealed row actions, stat pills, card grid with icon tiles/hover lift, file rows, dashed empty state, modals + inputs, focus rings. No component.js structure or behaviour change.
+- Verified: `tsc` 0 errors, `vite build` OK; the two Workspaces views and the indicator popover were rendered from static mocks of the component's real DOM against the built CSS (headless Chrome) and inspected. NOT verified: against the live pipeline component (Electron-only), and the chip data against a session-gated host from the UI (curl without session got 401 as expected; UI goes through the bridge).
+- CapturePresence (S10-S13 per view) still not wired: needs a per-view mapping, no honest data source yet.
