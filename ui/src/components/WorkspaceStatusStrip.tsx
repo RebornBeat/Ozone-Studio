@@ -7,9 +7,9 @@
  * honest absence.
  */
 import React, { useEffect, useState } from "react";
+import { useGraphKit } from "../graphkit/graphProvider";
 import { getGraphEventClient } from "../graphEventClient";
 import { PeerState, ActivityPulse } from "../graphkit/indicators";
-import { useGraphKit } from "../graphkit/graphProvider";
 
 export const WorkspaceStatusStrip: React.FC = () => {
   const [peerCount, setPeerCount] = useState(0);
@@ -58,8 +58,37 @@ export const WorkspaceStatusStrip: React.FC = () => {
     >
       <PeerState peerCount={peerCount} pairedCount={pairedCount} />
       <ActivityPulse active={nodeEventCount > 0} label={`${nodeEventCount} live construction events this session`} />
+      <LoopChips />
     </div>
   );
 };
 
 export default WorkspaceStatusStrip;
+
+/** LoopChips — per-loop heartbeat chips. Lit by the GraphKit substrate's
+ * nodeEventCount delta over the last poll interval. In a future pass, these
+ * would subscribe to per-loop capture events; today the pulse is honest
+ * aggregate activity (real event count from the live WS stream). */
+function LoopChips() {
+  const lastEventAt = useGraphKit((s) => s.lastEventAt);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 5000);
+    return () => clearInterval(t);
+  }, []);
+  const recent = lastEventAt > 0 && now - lastEventAt < 30_000;
+  if (lastEventAt === 0) return null;
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span style={{
+        width: 6, height: 6, borderRadius: '50%',
+        background: recent ? '#4fc3f7' : 'var(--color-border)',
+        display: 'inline-block',
+        animation: recent ? 'pulse 1.2s ease-in-out infinite' : undefined,
+      }} />
+      <span style={{ fontSize: 10, color: 'var(--color-text-muted)' }}>
+        graph {recent ? 'active' : `${Math.round((now - lastEventAt) / 1000)}s ago`}
+      </span>
+    </span>
+  );
+}

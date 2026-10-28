@@ -6103,3 +6103,14 @@ When the operator opens a project workspace:
 - LoopPulse (amt/meta/i-loop/assistant heartbeat chips — needs loop cadence data reaching the UI)
 - CapturePresence (needs capture-store non-empty status per view)
 - The full workspace shell revamp (guide §4.7 — ModalityWheel, left rail mini-graph, breadcrumb navigation)
+
+## 2026-10-27 (zcode, INDICATORS-PHASE2) — GateState wired into OrchestrationStatusPanel (stage-8 + stage-14 rows); LoopChips wired into WorkspaceStatusStrip (real WS activity heartbeat). tsc clean. The indicator set is now substantially visible across the running UI.
+
+### 1. GateState → OrchestrationStatusPanel ✅
+Stage-8 (Consciousness Gate) rows show a GateState icon parsed from the stage summary text ("Decision: Proceed/Decline"). Stage-14 (Jurisdiction Full Gate) rows show "⚖ cleared" when `blocked=false`. Both render next to the stage name, not buried in a tooltip.
+
+### 2. LoopChips → WorkspaceStatusStrip ✅
+A graph-activity heartbeat chip: lit when the GraphKit substrate received a real WS event in the last 30s, dimmed otherwise. Shows "graph active" or "graph Ns ago". The substrate's `lastEventAt` + `nodeEventCount` are real WS-stream values (not fabricated).
+
+### 3. CapturePresence — deferred to the next polish pass
+Needs a per-view mapping of which S10-S13 stores back which view's data. Small but not blocking.

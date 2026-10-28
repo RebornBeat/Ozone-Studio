@@ -28,6 +28,7 @@
  * per-request id would be needed for genuine multi-user/multi-tab isolation.
  */
 import React, { useEffect, useRef, useState } from "react";
+import { GateState } from "../graphkit/indicators";
 import {
   getGraphEventClient,
   OrchestrationStageFrame,
@@ -268,6 +269,17 @@ export const OrchestrationStatusPanel: React.FC<{ isRunning: boolean }> = ({ isR
               >
                 {r.status === "completed" ? "✓" : r.status === "failed" ? "✗" : r.status === "skipped" ? "—" : r.status === "current" ? "●" : "○"}
               </span>
+              {r.stage === 8 && r.status === "completed" && (
+                <GateState decision={(() => {
+                  const d = r.summary?.match(/Decision:\s*(\w+)/)?.[1] ?? "";
+                  if (d.toLowerCase() === "proceed") return "Proceed";
+                  if (d.toLowerCase() === "decline") return "Decline";
+                  return "ReviewPending";
+                })()} />
+              )}
+              {r.stage === 14 && r.status === "completed" && r.summary?.includes("blocked=false") && (
+                <span style={{ fontSize: 10, color: "#7bd88f", flex: "none" }} title="Jurisdiction: not blocked">⚖ cleared</span>
+              )}
               <span style={{ color: r.status === "current" ? "var(--color-text)" : "var(--color-text-secondary)", minWidth: 90 }}>
                 {r.name}
               </span>
