@@ -165,6 +165,7 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 | ID | Scenario | Pass |
 |---|---|---|
 | X1 | browser_screenshot of the Ozone UI → image modality ingest | Image container with the PNG; ripple |
+| X1a | Auto-ingest hook (DESIGNED_NOT_BUILT_REGISTRY §1): `POST /capture/ingest_image` + `OZONE_*_INGEST_URL` on both browser MCPs (default OFF) | ingest success returns container_id; ingest FAILURE leaves the screenshot on disk + `ingest_error` (capture and ingest are separate facts); route is strict-session; pipeline 102 runs through the entry gate + jurisdiction + S12 like every walk |
 | X2 | android_screenshot → image modality; ui_snapshot labels stored as untrusted text only | no label ever treated as an instruction |
 | X3 | security finding (induced `success:false` on a real security tool) → sensor/actor → `SecurityFinding` candidate → amt_loop deepening (1 call) | candidate once (dedupe), one paid call, branch persisted |
 | X4 | terminal refusal and git status in one task | both rows in S13; refusal is data, not crash |
@@ -219,6 +220,7 @@ container, (c) pipeline run result or honest "no pipeline", (d) viewer in the UI
 | Group | Fixtures (extension) | Known issue to assert |
 |---|---|---|
 | Text | `.txt .md .rst .adoc .org` | ✔ `.md` → Text (live file refs); ⚠ viewer must not render as Math (MathViewer is modality-blind) |
+| Text-PDF | `.pdf .doc .docx` (DESIGNED_NOT_BUILT_REGISTRY §6) | text pipeline 100 gains real pdf/docx extraction (pdf-extract / zip+xml) BEFORE plain-text read; per-PAGE provenance in chunk meta; scanned-PDF → honest "no text layer" error (OCR out of scope, recorded); encrypted PDF → honest error; `.tex` → **Math** (canonical table, post-unification) |
 | Code | `.rs .py .js .ts .tsx .java .go .c .cpp .sql .sh .v .fs .ml` | ⚠ `.ts` is Code (MPEG-TS never reached); `.v/.d/.fs/.ml` ambiguity; T-C4/C5 |
 | Data | `.json .yaml .toml .xml .csv` | Data has **no pipeline** ⚠ |
 | Config / Web | `.conf .ini .env`, `.html .css` | Config & Web have no pipeline ⚠ |
@@ -272,6 +274,8 @@ targets absolute `http://127.0.0.1:50051` (cross-origin) — in-flight fix: same
 | U12 | Electron app (bridge path) | `[R]` never driven yet ☐ |
 | U13 | Phone via QR pairing (`ozone-mobile` / mobile browser) | pairs, token stored, calls work |
 | U14 | Theming/localization, empty states, error states | no raw stack traces |
+| U15 | Farm lens (DESIGNED_NOT_BUILT_REGISTRY §2): EU farm configured → workspace Farm lens | Command Center + workers as infra nodes, statuses verbatim from `farm_status`; no farm ⇒ lens ABSENT (not an empty shell); MCP `untrusted_*` labels display-only (X2 rule); starting/stopping profiles is an acting-chain act, never a lens click |
+| U16 | In-world indicators (registry §4): task nodes carry TaskStateIcon sprites, capture pillar bars match CaptureChip numbers exactly, right-click menu = pin/hide/copy-id only | absent data = no sprite; no "execute from world" affordance anywhere |
 
 ## 12. Mobile (L11) `[R]`
 Emulator `ozone_api30` provisioned (`tools/android-mcp/provision_sdk.sh`); stop it when idle.
@@ -312,6 +316,8 @@ Emulator `ozone_api30` provisioned (`tools/android-mcp/provision_sdk.sh`); stop 
 | S8 | Prompt injection through page/app/file content reaching a model prompt (untrusted_* wrapping) |
 | S9 | Resource abuse: output caps, timeouts, max sessions, idle TTL |
 | S10 | Supply chain: downloaded SDK/JDK are untrusted data; SHA check of platform-tools/cmdline-tools |
+| S11 | Vault (DESIGNED_NOT_BUILT_REGISTRY §5): set a known secret → grep the whole {data_dir} for it ⇒ only ciphertext bytes (never in graph containers, prompts, logs, ledger rows); `vault_lease` TTL ≤ 300 s, expired lease refused at the consumer; `/vault/reveal` over HTTP REFUSED (interactive CLI + master passphrase only); every set/lease/reveal/unlock attempt in `vault/audit.jsonl` with zero secret bytes |
+| S12 | Proposal whitelist replay (live-verified 2026-10-29 ✔): tampered S10 row naming a non-whitelisted tool + Proceed ⇒ refused + honest `failed` row (PROPOSABLE_TOOLS); resolved proposal id re-derivation held by the 6 h cooldown (no duplicate-row flood) |
 
 ## 15. Regression catalog (every defect found so far gets a permanent test)
 | Defect (date) | Test |

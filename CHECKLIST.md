@@ -6364,3 +6364,24 @@ operator's explicit gate. Verification happens at the next build pass.
   ingest route (pipeline 102 call from HTTP) — a feature + build, queued in MASTER_TEST_GUIDE X1's
   orbit, not an env-flag pretense. Farm lens + 3D call-graph lens + in-world indicators + vault +
   PDF pipeline: same status — designed, queued, not fake-landed.
+
+## 2026-10-29 (zc, final) — DESIGNED-NOT-BUILT REGISTRY: all six deferred features captured implementation-ready (no build, no tests)
+Operator asked whether the six "deliberately not faked" items were fully captured. Now they are — each is
+implementation-ready in **docs/DESIGNED_NOT_BUILT_REGISTRY.md** (exact files/functions/routes, guardrail data
+flow, wiring order, acceptance rows): (1) **screenshot→ingest hook** = new strict-session `POST
+/capture/ingest_image` route running pipeline 102 through the SAME entry gate every walk takes, then default-OFF
+`OZONE_*_INGEST_URL` hooks on both browser MCPs (ingest failure never fails the capture); (2) **farm lens** =
+farm state through the EXISTING /mcp/call door (agent "ui", metered), substrate GKFarmProfile[], FARM_LENS +
+infra cluster in layout3d; view-only — start/stop is an acting-chain act, never a lens click; (3) **3D
+call-graph lens** = lazy GetContainerContent → callGraphByContainer, call-DEPTH layered layout, honest
+"external: name" stub nodes for the same-file-only boundary (T-C4 rendered visually); (4) **in-world
+indicators** = the EXISTING indicator set as world sprites (TaskStateIcon/GateState/capture pillar), no new
+data sources, no execute-from-world affordance; (5) **vault** = XChaCha20+Argon2id at-rest, session unlock,
+lease-only tooling access (TTL ≤300s), HTTP reveal REFUSED (CLI + passphrase only), audit.jsonl with zero
+secret bytes, vault-mcp broker phase 2, farm credential integration phase 3; (6) **PDF/DOCX pipeline** =
+extend text pipeline 100 with pdf-extract + zip/xml docx extraction BEFORE plain-text read, per-PAGE chunk
+provenance (law-book citations), scanned-PDF → honest "no text layer" error (OCR out of scope, recorded).
+Acceptance rows WIRED into MASTER_TEST_GUIDE: X1a (§7b), Text-PDF (L8), U15+U16 (§11), S11+S12 (§14 — S12
+marks the live-verified proposal-whitelist replay ✔). §7 of the registry is the completeness matrix proving
+every other queued item (key rotation, elevation review, data mutations, koi/valence, CC continuation) has its
+capture location. Nothing else is deferred-and-uncaptured.
