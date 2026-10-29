@@ -145,3 +145,21 @@ tool-contract defect (methodology 45), not consciousness misbehaving.
 6. The host was found stopped ("Shutdown signal received" 10:15:26) while another agent has uncommitted edits in
    `src/consciousness/assistant.rs` / `mod.rs` — not restarted by me to avoid colliding with a rebuild. [live]
 7. Methodologies 45–50 captured (`assets/methodologies/`, indexed in `src/bootstrap.rs`) — **index edit is uncompiled**.
+
+## 8. In-flight conflict to decide (zcode, uncommitted, uncompiled): `src/consciousness/proposals.rs`
+Found 2026-10-29 while committing. It adds "assistant proposals" as **review rows** on the existing S10 store
+(`review_kind: assistant-proposal`, `decision: review_pending`), listed by `/consciousness/reviews/pending`; when the operator
+resolves one **Proceed**, `execute_resolved` runs a whitelisted tool (`browser_open`, `browser_navigate`, `browser_screenshot`,
+`farm_screenshot`, `farm_command`) through `mcp::call_global` under its own trace root and appends an `executed`/`failed` row.
+Rules are deterministic (no model call; a finding without concrete data proposes nothing). Its own header already states the
+operator correction: no private acting path — proposals are review rows like every other "needs a human" item.
+How it relates to this registry:
+- **Consistent with** §0 point 2 and methodology 50 in spirit: the assistant itself still makes no tool call; a human disposition
+  gates execution; the call goes through the one door (`/mcp/call` path: metered, jurisdiction-gated, rippled).
+- **In tension with** §4 "Acts only by enqueuing follow-up tasks": this is a second action channel (review resolve → tool
+  call) beside the task executor. Decide ONE: (a) keep it, and add it to §2c/§2d as the *human-gated tool channel*, with the
+  whitelist owned by policy not code; or (b) express the same intent as a task (Order item) executed by the gated executor.
+- Open risks to test (MASTER_TEST_GUIDE A8/A9 + new): tampered review row naming a non-whitelisted tool; resolve replay
+  (idempotency); `farm_command` is a Command-Center write — confirm the whitelist is intended; proposals must not be created
+  from page/app text (untrusted); the `/consciousness/reviews/resolve` route's session requirement.
+I did not edit or review the code line by line; this is a design note, not a verdict.
