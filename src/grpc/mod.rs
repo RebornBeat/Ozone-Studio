@@ -604,6 +604,7 @@ async fn session_gate(
         "/task/",
         "/context/mirror",
         "/consciousness/reviews/resolve",
+        "/capture/ingest_image",
         "/pipelines/register",
     ];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
@@ -1805,6 +1806,112 @@ async fn get_cross_modal_pairs(
         Err(e) => serde_json::json!({ "error": e.to_string() }),
     };
     Json(json)
+}
+
+/// POST /capture/ingest_image — DESIGNED_NOT_BUILT_REGISTRY §1: turn a host-side
+/// screenshot into a REAL Image-modality graph container by running pipeline 102
+/// through the SAME entry every execution takes (entry gate trace, jurisdiction,
+/// S12 capture, graph ripple). Strict-session protected; LOCAL files under the
+/// host data dir ONLY (screenshots live in {data_dir}/.ozone-context/…) — no
+/// arbitrary filesystem reads, no URLs. Surface analysis + text detection by
+/// default so the call returns in seconds; object/face detection is opt-in.
+#[derive(Debug, Deserialize)]
+pub struct IngestImageRequest {
+    pub path: String,
+    #[serde(default)]
+    pub project_id: Option<u64>,
+    #[serde(default)]
+    pub workspace_id: Option<u64>,
+    #[serde(default)]
+    pub session_token: String,
+    #[serde(default)]
+    pub detect_objects: bool,
+    #[serde(default)]
+    pub detect_faces: bool,
+}
+
+async fn ingest_image(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<IngestImageRequest>,
+) -> Json<serde_json::Value> {
+    let data_dir = {
+        let runtime = state.runtime.read().await;
+        runtime.config.general.data_dir.clone()
+    };
+    // LOCAL-UNDER-DATA-DIR ONLY: canonicalize both sides so `..` games die.
+    let (canon, canon_dir) = match (
+        std::fs::canonicalize(&req.path),
+        std::fs::canonicalize(&data_dir),
+    ) {
+        (Ok(p), Ok(d)) => (p, d),
+        (Err(e), _) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("path unreadable: {}", e)
+            }))
+        }
+        (_, Err(e)) => {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("data dir unreadable: {}", e)
+            }))
+        }
+    };
+    if !canon.starts_with(&canon_dir) {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "refused: only files under the host data dir can be ingested"
+        }));
+    }
+    if !canon.is_file() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "refused: path is not a file"
+        }));
+    }
+
+    // Pipeline 102 contract (assets/pipelines/modalities/image/main.rs): the
+    // full PipelineInput envelope with data.action = ImageAction::Analyze and
+    // ImageData::FilePath — the binary unwraps `data` on stdin.
+    let input = crate::types::pipeline::PipelineInput {
+        data: vec![(
+            "action".to_string(),
+            json_to_typed_value(serde_json::json!({
+                "type": "Analyze",
+                "image_data": { "FilePath": canon.to_string_lossy() },
+                "depth": "Surface",
+                "detect_objects": req.detect_objects,
+                "detect_faces": req.detect_faces,
+                "detect_text": true,
+            })),
+        )]
+        .into_iter()
+        .collect(),
+        context: crate::types::pipeline::ExecutionContext {
+            user_id: 0,
+            device_id: 0,
+            workspace_id: req.workspace_id,
+            project_id: req.project_id,
+            task_context_id: None,
+            // ExecutionContext.metadata is HashMap<String, String>.
+            metadata: [("source".to_string(), "screenshot-ingest".to_string())]
+                .into_iter()
+                .collect(),
+        },
+    };
+
+    let runtime = state.runtime.read().await;
+    match runtime.execute_pipeline(102, input).await {
+        Ok(out) => Json(serde_json::json!({
+            "success": out.success,
+            "error": out.error,
+            "output": out.data.get("result").cloned().unwrap_or(serde_json::Value::Null),
+        })),
+        Err(e) => Json(serde_json::json!({
+            "success": false,
+            "error": e.to_string()
+        })),
+    }
 }
 
 /// GET /capture/decision-reviews — B4.
@@ -3271,6 +3378,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         // CAPTURE STORES — decision-review / zero-shot-call JSONL reads,
         // outside the ZSEI container system (Batch B: B4/B5).
         .route("/capture/decision-reviews", get(get_decision_reviews))
+        .route("/capture/ingest_image", post(ingest_image))
         .route("/capture/zero-shot-calls", get(get_zero_shot_calls))
         .route(
             "/capture/pipeline-zero-shot-calls",

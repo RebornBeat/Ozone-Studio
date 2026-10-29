@@ -6385,3 +6385,27 @@ Acceptance rows WIRED into MASTER_TEST_GUIDE: X1a (§7b), Text-PDF (L8), U15+U16
 marks the live-verified proposal-whitelist replay ✔). §7 of the registry is the completeness matrix proving
 every other queued item (key rotation, elevation review, data mutations, koi/valence, CC continuation) has its
 capture location. Nothing else is deferred-and-uncaptured.
+
+## 2026-10-29 (zc, late) — DOMORPHER: SEAM IDENTIFIED (library/crate vs tool vs MCP vs Ozone) + conversion guide + campaign progress
+Operator directive reframed the campaign: DOMorpher is PRE-Ozone software being REBUILT as an Ozone-Studio
+tool with MCP use — the compile effort continues only as review-enablement for the harvest. **The seam is
+now identified** (docs/DOMORPHER_CONVERSION_GUIDE.md §2.0): domorpher today entangles four layers in one
+binary (its own llm clients, actix API server, storage, monitoring, enterprise modules, browser drivers —
+all infrastructure Ozone already owns). The rebuild cuts at: **LAYER 1 `domorpher-core`** (library crate:
+dom preprocessing, action/perception/reasoning types + pure strategies, forms/extraction/instruction/
+interactive/execution-logic, session-cookie-auth state transforms, chunking/schema/reconciliation — deps
+limited to pure crates; THREE trait seams where Ozone injects: DecisionSource → pipeline 9 + fallback,
+PageDriver → browser-mcp's CDP, StateStore → farm profiles); **LAYER 2 tool surface** (1 verb = 1 tool,
+16-tool table from the ActionType vocabulary; ExecuteScript = eval-gated; Custom(String) NOT ported — no
+honest allowlist); **LAYER 3 the MCP** (terminal-mcp hardening pattern: locked-by-default, refusals tested,
+tags, loopback, optional token); **LAYER 4 Ozone** owns everything above (orchestration, gating, metering,
+capture, Order, proposals chain). AG1–AG6 acceptance rows wired into MASTER_TEST_GUIDE §7c.
+**Campaign state** (each fix proven by the error moving past it): Cargo.toml restored (~50 crates, crate-
+name corrections, playwright removed — its build.rs driver download fails; call sites routed to the CDP
+PuppeteerDriver); 29+ broken raw strings fixed (`r"...\"..."` → `r#"..."#`); THREE files found TRUNCATED
+MID-FUNCTION by the original capture (action.rs, perception.rs, reasoning.rs — each completed from its own
+sibling patterns with verified-only constructors; NavigationLink/NavigationStructure defined at point of
+use); parse layer nearly clean — 3 open items mapped BY SEAM: api/rpc = drop (OUT-list), chunking/utils =
+stub (IN-list), semantic_markdown.rs tail = complete (IN). Latent name-resolution wave queued behind parse
+(~11 `ActionTarget::Selector/None` sites against a struct). **AG6 enforces the seam structurally**: the
+crate's dependency tree may contain no http-server, llm-client, or storage-engine crates.
