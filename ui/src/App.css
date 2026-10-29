@@ -7520,3 +7520,23 @@ button.gnw-ind-chip:hover, .gnw-ind-chip.on { background: rgba(79,195,247,.1); b
 .dynamic-pipeline-ui-container .workspace-aggregate .hint { padding: 0 2px 8px !important; }
 .dynamic-pipeline-ui-container .workspace-aggregate .project-stats { margin-top: 10px; }
 .dynamic-pipeline-ui-container .item-card .card-meta .created-date { flex-basis: 100%; }
+
+/* 2026-10-29 — tab strip vs floating search/bell overlay (found by driving the real UI through
+   browser-mcp): the absolutely-positioned search anchor sat ON TOP of the right end of the tab
+   strip, hiding Monitor/Tools/Devices/Graph View/…, and the strip's default (white) scrollbar
+   showed. On wide windows the strip now ends where the toolbar begins; the scrollbar is thin
+   and themed. */
+.dashboard-tabs { scrollbar-width: thin; scrollbar-color: var(--color-border) transparent; }
+.dashboard-tabs::-webkit-scrollbar { height: 6px; }
+.dashboard-tabs::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+.dashboard-tabs::-webkit-scrollbar-track { background: transparent; }
+.tab-btn { flex-shrink: 0; }
+@media (min-width: 1100px) {
+  .home-dashboard { position: relative; }
+  .dashboard-tabs { margin-right: 410px; border-bottom: 0; }
+  .home-dashboard::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 49px; z-index: 0;
+    border-bottom: 1px solid var(--color-border); background: var(--color-bg-secondary); pointer-events: none;
+  }
+  .dashboard-tabs { position: relative; z-index: 1; height: 49px; box-sizing: border-box; }
+}

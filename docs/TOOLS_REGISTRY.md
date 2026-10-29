@@ -59,6 +59,17 @@ add a registry entry; N models run in parallel on the same image.
 The agent coordination surface — now routing mirrors through `/mcp/call`
 when `OZONE_THROUGH_HOST=1` (the ordered layer).
 
+### 6. Browser (11 tools) — `tools/browser-mcp/`  *(2026-10-29)*
+`browser_status/open/navigate/snapshot/click/type/scroll/screenshot/eval/console/close`. Pattern A. Locked until
+`OZONE_BROWSER_ALLOW_HOSTS`; origin guard before every interaction; eval off by default; page content returned as
+`untrusted_*`. Feeds the **image modality (102)** via `browser_screenshot` paths. Guide:
+`docs/BROWSER_AUTOMATION_GUIDE.md`. Register with `tools/register-browser-tools.mjs`.
+
+### 7. Browser-Farm bridge (13 tools) — `tools/browser-farm-mcp/`  *(2026-10-29)*
+`farm_status/profiles/profile/profile_start|pause|stop/navigate/screenshot/metrics/state_get|state_set/command/result`.
+Pattern B bridge to `~/Projects/Browser-Farm` (Command Center channel via shared state). Locked until a farm + API key
+are configured; no script/vault/proxy-credential tools by design. Proven against a mock farm only; live acceptance open.
+
 ## Registration rules (every new tool, no exceptions)
 
 1. Security model written before the first execution path; locked-by-default.

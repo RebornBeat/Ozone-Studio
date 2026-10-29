@@ -12,6 +12,7 @@
 
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback } from 'react';
 import { InjectedTab } from './themes/home_dashboard/HomeDashboard';
+import { hostPost } from './ozoneClient';
 import SettingsPanel from './components/SettingsPanel';
 import PipelinesPanel from './components/PipelinesPanel';
 import MonitoringPanel from './components/MonitoringPanel';
@@ -111,6 +112,13 @@ export async function fetchPipelineRegistry(): Promise<PipelineRegistryEntry[]> 
         return registryCache!;
       }
     }
+    if (!window.ozone) {
+      const result: any = await hostPost('/pipeline/registry', { session_token: '' });
+      if (result?.success && result?.registry) {
+        registryCache = result.registry;
+        return registryCache!;
+      }
+    }
   } catch (e) {
     console.warn('Failed to fetch pipeline registry:', e);
   }
@@ -173,7 +181,22 @@ export async function loadPipelineUIModule(
         result?.error ?? `No UI module found for pipeline ${pipelineId}`
       );
     }
-    console.warn(`[PipelineUI ${pipelineId}] getUIComponent bridge unavailable`);
+    // WEB MODE (no Electron bridge — paired phone/browser, or an agent driving the UI through
+    // browser-mcp): the host serves the same component over plain HTTP. Not session-gated.
+    console.warn(`[PipelineUI ${pipelineId}] getUIComponent bridge unavailable — using HTTP`);
+    const result: any = await withTimeout(
+      hostPost('/pipeline/ui-component', { pipeline_id: pipelineId, session_token: '' }),
+      8000,
+      `UI component fetch over HTTP (pipeline ${pipelineId})`,
+    );
+    if (result?.component_js) {
+      const mod = evalPipelineModule(result.component_js, pipelineId);
+      if (mod) {
+        moduleCache.set(pipelineId, mod);
+        return mod;
+      }
+    }
+    throw new Error(result?.error ?? `No UI module found for pipeline ${pipelineId}`);
   } catch (e) {
     console.error(`Failed to load UI module for pipeline ${pipelineId}:`, e);
     throw e;
@@ -418,6 +441,15 @@ export function DynamicPipelineUI({
   const executePipeline = useCallback(async (pid: number, input: any): Promise<any> => {
     if (window.ozone?.pipeline?.execute) {
       return await window.ozone.pipeline.execute(pid, input);
+    }
+    if (!window.ozone) {
+      // Web mode: same envelope the Electron bridge builds; the host validates the paired
+      // device's session token (localStorage, from the QR pairing flow) — no token, no execution.
+      const data = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+      const payload = 'data' in data ? data : { data, context: { user_id: 0, device_id: 0, workspace_id: null, project_id: null, task_context_id: null, metadata: {} } };
+      let token = '';
+      try { token = localStorage.getItem('ozone_session_token') ?? ''; } catch { /* storage blocked */ }
+      return await hostPost('/pipeline/execute', { pipeline_id: pid, input: payload, session_token: token });
     }
     throw new Error('Pipeline execution not available');
   }, []);
