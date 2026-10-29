@@ -17,3 +17,5 @@ Launch (operator shell / supervisor; agent sessions reap children): `target/rele
 (adb at `~/Android/platform-tools`). Register: `node tools/register-browser-tools.mjs android`.
 Test: `PATH=$HOME/Android/platform-tools:$PATH node tools/android-mcp/selftest.mjs [serial]` — real adb; device-facing
 checks are SKIPPED (never faked) when no device is attached.
+
+Provision a real SDK + headless AVD (user-space, no sudo): `tools/android-mcp/provision_sdk.sh` (shared with ZCode's android-emulator plugin).

@@ -42,6 +42,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, writeFile, realpath } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -84,10 +85,15 @@ function shellPolicy(command) {
   if (deny && deny(parts.slice(1))) throw new InputError(`'${command.slice(0, 40)}' is refused — destructive/state-changing device verb`);
 }
 
+// One SDK shared with ZCode's android-emulator plugin (same ANDROID_HOME / default location),
+// so adb, the emulator and AVDs are provisioned once (tools/android-mcp/provision_sdk.sh).
+const SDK_ROOT = [process.env.ANDROID_HOME, process.env.ANDROID_SDK_ROOT, path.join(os.homedir(), "Android", "Sdk")].find((p) => p && existsSync(p)) ?? null;
+const JAVA_HOME = process.env.JAVA_HOME || (existsSync(path.join(os.homedir(), "Android", "jdk17")) ? path.join(os.homedir(), "Android", "jdk17") : undefined);
 function findAdb() {
   if (process.env.OZONE_ADB) return process.env.OZONE_ADB;
-  if (process.env.ANDROID_HOME) {
-    const p = path.join(process.env.ANDROID_HOME, "platform-tools", "adb");
+  for (const root of [SDK_ROOT, path.join(os.homedir(), "Android")]) {
+    if (!root) continue;
+    const p = path.join(root, "platform-tools", "adb");
     if (existsSync(p)) return p;
   }
   return "adb";
@@ -254,7 +260,7 @@ const tools = {
     const bin = findAdb();
     let adbVersion = null;
     try { adbVersion = (await adb(["version"])).split("\n")[0].trim(); } catch (e) { adbVersion = null; }
-    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? null;
+    const sdk = SDK_ROOT;
     const emu = sdk && existsSync(path.join(sdk, "emulator", "emulator")) ? path.join(sdk, "emulator", "emulator") : null;
     const kvm = existsSync("/dev/kvm");
     let kvmUsable = false;
@@ -274,7 +280,7 @@ const tools = {
   },
 
   async android_avd_list() {
-    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
+    const sdk = SDK_ROOT;
     const emu = sdk && path.join(sdk, "emulator", "emulator");
     if (!emu || !existsSync(emu)) throw new Error("Android emulator not installed (set ANDROID_HOME to an SDK with the emulator package)");
     const { stdout } = await execFileP(emu, ["-list-avds"], { timeout: 15000 });
@@ -289,7 +295,7 @@ const tools = {
     if (!pre.emulator_binary) throw new Error("Android emulator not installed");
     if (!pre.kvm.usable_by_this_user && input.allow_software !== true) throw new InputError("no usable /dev/kvm — an x86 emulator would be unusably slow; pass allow_software:true to try anyway");
     const { spawn } = await import("node:child_process");
-    const child = spawn(pre.emulator_binary, ["-avd", avd, "-no-window", "-no-audio", "-no-snapshot", "-gpu", "swiftshader_indirect"], { detached: true, stdio: "ignore" });
+    const child = spawn(pre.emulator_binary, ["-avd", avd, "-no-window", "-no-audio", "-no-snapshot", "-no-boot-anim", "-gpu", "swiftshader_indirect"], { detached: true, stdio: "ignore", env: { ...process.env, ANDROID_SDK_ROOT: SDK_ROOT, ...(JAVA_HOME ? { JAVA_HOME } : {}) } });
     child.unref();
     return { avd, pid: child.pid, headless: true, next: "poll android_devices until state=device, then android_ui_snapshot" };
   },
@@ -379,7 +385,7 @@ const tools = {
 
   async android_termux_status(input) {
     await requireDevice(input.serial);
-    const out = await adb(["-s", input.serial, "shell", "pm path com.termux"]);
+    const out = await adb(["-s", input.serial, "shell", "pm path com.termux || true"]);
     return { serial: input.serial, installed: out.includes("package:"), how: "Install Termux from F-Droid, then `pkg install openssh; sshd`; use android_forward remote=8022." };
   },
 };

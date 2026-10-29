@@ -26,11 +26,31 @@ Not absorbed (needs SDK/Gradle, no value without an emulator): create_app/build_
 4. **iOS:** no equivalent (no adb); only the Expo app + pairing. Out of scope.
 Nothing runs by itself: the Personal Assistant may only *propose* an action (see MASTER_REMAINING_WORK_GUIDE W2).
 
-## 3. Emulator feasibility (measured)
-`/dev/kvm` IS usable here (ACL, although the user is not in the `kvm` group) -> hardware-accelerated x86_64 emulation is
-possible. Missing: Android SDK (cmdline-tools, emulator, a system image ~1.5-2.5 GB), a JDK (none installed), and RAM
-(2.7 GB available at review, ZCode itself using ~4.7 GB). Local emulator run = operator go + close other apps; EU VPS
-untested (KVM unknown). Real adb (platform-tools 37.0.1) is installed at `~/Android/platform-tools` and verified.
+## 3. Emulator — RUN and verified (2026-10-29)
+Provisioned user-space, no sudo, by `tools/android-mcp/provision_sdk.sh`: JDK 17 (`~/Android/jdk17`), SDK at `~/Android/Sdk`
+(cmdline-tools, emulator, platform-tools 37.0.1, `system-images;android-30;default;x86_64`), AVD `ozone_api30` (1.5 GB RAM,
+swiftshader GPU, 2 GB data). 4.8 GB on disk. `/dev/kvm` is usable via ACL -> **booted headless in ~65 s**. Started and driven
+ONLY through `/mcp/call` (gate not blocked, metered). Acceptance: `selftest.mjs emulator-5554` = **22/22, 0 skipped**;
+live script: device_info (Android 11 / API 30 / x86_64 / uid 2000, root:false), ui_snapshot, tap-by-label ("Messaging"),
+re-snapshot shows the Messaging app, term cd/ls/getprop in a tracked-cwd session, refusals (`su`, `rm -rf`, pipes, forward :22),
+screenshot, logcat, termux_status (not installed), forward 8022. Evidence: `docs/evidence/android-mcp/`.
+Note: `sdkmanager --licenses` was accepted (Google SDK license) because the operator directed running an emulator.
+Cost: with the emulator up, available RAM fell to ~1.5-2.2 GB on this 7.6 GB box (ZCode alone ~4-5 GB) — stop it when idle
+(`android_emulator_stop`).
+
+## 3b. Relationship to ZCode's emulator plugin — "are we creating our own?"
+Two different layers, deliberately not duplicates:
+- **ZCode's `android-emulator` plugin** (Apache-2.0, stdio MCP, 22 tools): a *developer workflow* for ZCode — create/build a
+  Compose app with Gradle, run it, screenshot, UI-describe. It had no SDK/JDK/AVD on this machine either (it only discovers
+  one at `ANDROID_PLUGIN_SDK_PATH`/`ANDROID_HOME`/`~/Android/Sdk`). It does not pass through Ozone's gate, ledger or jurisdiction.
+- **Ozone `android-mcp`**: the *governed* layer — locked-by-default policy, metering, gate, ripple into the graph — so the
+  orchestrator / Personal Assistant / any agent can use a phone or emulator under Ozone's rules.
+They now SHARE one SDK (`~/Android/Sdk`, same default path both discover), so provisioning is done once. How ZCode benefits:
+its plugin can now build+install apps against a real AVD with zero extra setup (point `default_avd` at `ozone_api30`).
+How Ozone benefits: a test device for the mobile companion app (`tools/ozone-mobile`) and for agent-driven UI testing with
+screenshots into the image modality. Not absorbed from ZCode (needs Gradle, only matters when building apps): create_app,
+build_app, discover_project, ui_describe semantic resolver. Candidate next step if wanted: a thin Ozone Pattern-B bridge that
+calls ZCode's stdio server for build/run and keeps Ozone's door in front.
 
 ## 4. Security review — findings and fixes
 | # | Finding | Evidence | Fix |
@@ -47,5 +67,5 @@ echo until the next sensor cycle proves #1 (verify at the next 15-min tick, do n
 ## 5. Open
 - Deploy `security-mcp` (exposure_report) and the terminal-mcp deny rules to EU (`/opt/ozone-tools/...`, then restart units) — small, not yet done.
 - Register terminal-mcp changes need no re-registration (same tools); new android/security tools ARE registered locally (18+2).
-- Emulator acceptance run; phone pairing test with a real device; Termux sshd path test.
+- Phone pairing test with a real device; Termux sshd path test (install Termux in the emulator or a phone); `ozone-mobile` APK on the AVD.
 - Android tools not yet in `capability_ids` planning (same gap as browser tools).

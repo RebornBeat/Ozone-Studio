@@ -358,3 +358,5 @@ Operator: review security MCP + logs local & EU, identify mobile MCP, terminal-l
 - **Registered on the real local host:** 16 android + 2 security tools; verified through `/mcp/call` (gate not blocked, ledger counted). New launcher `target/release/launch-ops-mcps.sh`.
 - **ZCode android-emulator plugin:** ZCode-private (22 tools, needs SDK/JDK/Gradle); capability list absorbed, plugin not wrapped.
 - **NOT done / unverified:** no emulator or phone run (no SDK/JDK; RAM tight; /dev/kvm IS usable); EU deploy of the new security/terminal code; next 15-min sensor tick to prove the I-Loop echo stops.
+
+- **EMULATOR RUN (same day):** user-space SDK+JDK17+AVD via `tools/android-mcp/provision_sdk.sh` (4.8 GB); KVM headless boot ~65 s; started through `/mcp/call`. `selftest.mjs emulator-5554` **22/22, 0 skipped**; live perceive->tap->verify on the Messaging app; screenshots `docs/evidence/android-mcp/`. Fixed `termux_status` (pm path exit code). ZCode plugin relationship: separate layers sharing one SDK (guide §3b). Emulator stopped afterwards to free RAM.
