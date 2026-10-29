@@ -25,6 +25,12 @@
 //! - Link not duplicate
 //! - Integrity always
 
+// The bootstrap embedded methodology index (a large `serde_json::json!`
+// literal, src/bootstrap.rs) grew past the default 128 macro recursion
+// limit when methodologies 45+ landed — raise the ceiling, don't shrink
+// the index.
+#![recursion_limit = "512"]
+
 pub mod auth;
 pub mod blueprints;
 pub mod bootstrap;

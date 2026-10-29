@@ -13,9 +13,21 @@
  * logins.
  */
 
+// WEB MODE (no Electron bridge, page served over http/https): talk to the
+// SAME origin the page came from — the host itself, a reverse proxy, or
+// ui-harness.mjs. Headless Chrome refuses cross-origin loopback fetches
+// even when CORS permits them ("Failed to fetch", 2026-10-29), and a
+// paired browser reaching the host through nginx (EU deploy) is same-origin
+// by construction. window.OZONE_HOST_URL stays the explicit override for
+// split deployments. Electron (file:// renderer) keeps the absolute default.
+const WEB_MODE =
+  typeof window !== "undefined" &&
+  !("ozone" in window) &&
+  /^https?:$/.test(window.location?.protocol ?? "");
+
 export const OZONE_HOST: string =
   (typeof window !== "undefined" && (window as any).OZONE_HOST_URL) ||
-  "http://127.0.0.1:50051";
+  (WEB_MODE ? "" : "http://127.0.0.1:50051");
 
 export interface AgentInfo {
   pipeline_id: number;

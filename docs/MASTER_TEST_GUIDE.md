@@ -128,8 +128,8 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 | terminal | 3215 | light | `tools/terminal-mcp/selftest.mjs` (18) | ✔ 2026-10-29 18/18 (arg-bypass classes); also through host ☐ |
 | security | 3240 | light | `tools/security-mcp/selftest.mjs` (5) | ✔ 5/5; through `/mcp/call`: firewall_status unprivileged ⇒ `inspectable:false` ✔, exposure_report ✔; EU privileged rules ✔ (direct) |
 | android | 3277 | device | `tools/android-mcp/selftest.mjs [serial]` (22) | ✔ 22/22 on real emulator ozone_api30 (KVM, boot ~65 s); live perceive→tap→verify ✔; Termux/phone/mobile-app ☐ |
-| browser | 3280 | medium | `tools/browser-mcp/selftest.mjs <fixture>` (18) | ✔ 18/18 direct + via host (scratch host 2026-10-28); **re-run on real host after re-registration at new port** ☐ |
-| browser-farm | 3281 | light | `tools/browser-farm-mcp/selftest.mjs` | contract-only vs mock (20/20) — **`[R]` live farm acceptance ☐** (EU VPS or local user-space Postgres) |
+| browser | 3280 | medium | `tools/browser-mcp/selftest.mjs <fixture>` (18) | ✔ 18/18 direct + via host (scratch host 2026-10-28); ✔ **real host 2026-10-29 (zcode)**: paired-browser drive of the real UI through `/mcp/call` — open→snapshot→screenshot, metered ledger rows, gate evaluated; web-mode same-origin fix + paired Bearer boot probe landed (UI connected: Consciousness ON, I-Loop 179 insights visible) |
+| browser-farm | 3281 | light | `tools/browser-farm-mcp/selftest.mjs` | ✔ **live farm acceptance 2026-10-29 (zcode, EU VPS)**: real farm deployed (systemd + Postgres, loopback-only); command-center profile RUNNING with the bridge script in real Chromium/Xvfb; `farm_command` ping → bridge consumed in 0.4 s → `farm_result` pong; `farm_navigate` (allowlisted example.com) → real 87 KB screenshot pulled as evidence (`docs/evidence/browser-farm-eu/`); locked-by-default nav verified; MCP `farm_profile_start` 422 bug found by the REAL farm (missing `accounts` body) — fixed |
 | web | 3225 | light | – | ✔ earlier (web_search config-disabled ≠ broken); re-run ☐ |
 | code | 3230 | light | – | ✔ earlier (callgraph); re-run ☐ |
 | git | 3235 | light | – | ✔ earlier (note double-nested `{output:{output}}`); re-run ☐ |
@@ -193,6 +193,23 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 | A13 | **Watchdog** (REVIEW_WATCHDOG): kill-on-silence not kill-on-age; retry/escalation cycles through all fallbacks | stuck call detected by silence; state marked truthfully (method 43); host never silently dies |
 | A14 | Memory-envelope soak: executor + emulator + browser simultaneously | host survives; gate skips are loud |
 | A15 | Generic MCP-failure actor (proposed) | n/a until built ⚠ |
+
+### 8a. Assistant proposals — the acting chain's propose half (built 2026-10-29, zcode, per the operator's ACTING-FACTORS correction)
+The Personal Assistant works ALONGSIDE the system: it never calls tools. Proposals are REVIEW rows in the EXISTING S10 store
+(`review_kind: assistant-proposal`), listed by the EXISTING `/consciousness/reviews/pending`; the operator's "Proceed" at the
+EXISTING `/consciousness/reviews/resolve` executes through the EXISTING gated `call_global` door (metered, jurisdiction-gated,
+rippling) and appends an honest `executed`/`failed` row. Derivation is deterministic (no LLM): meeting-soon with a real URL →
+`browser_open` it; slippage-cascade → open the Order board; overdue(≥3) with an external link → open it; a finding without
+concrete data proposes NOTHING. Deduped while unresolved (stable kind-scoped ids); after a Decline, the next check-up may
+re-propose. Whitelist (`PROPOSABLE_TOOLS`) bounds what a tampered row can reach — closes the A8/A9 open risk.
+| ID | Test | Expected |
+|---|---|---|
+| A16 | Check-up pass with a meeting holding a real `meeting_url` inside the 2 h window | one final S10 row, kind `assistant-proposal`, decision `review_pending`, payload JSON in `reasoning_preview`; appears at `/consciousness/reviews/pending` |
+| A17 | Resolve A16's row `Proceed` | `proposal_execution` in the response; tool ran via `/mcp/call` (ledger row, gate verdict); follow-up S10 row `executed` with real output — or `failed` with the real error (never fabricated) |
+| A18 | Resolve `Decline` | resolution recorded; NO execution; next check-up may re-propose (re-derivable) |
+| A19 | Tampered row naming a non-whitelisted tool + Proceed | refused (`not on the proposable whitelist`), `failed` row recorded, nothing executed |
+| A20 | Unchanged findings on the next pass | no duplicate proposal while unresolved (stable id dedupe) |
+| A21 | Proposal for an unregistered tool + Proceed | honest `failed` row ("mcp global handles"/unreachable), never a silent no-op |
 
 ## 9. Modalities and file types (L8) — fixture matrix `[R]`
 Pipelines: 28 modality dirs (3D, audio, BCI, biology, CAD, chemistry, code, control, depth, dna, eeg, electromagnetic,
@@ -323,3 +340,18 @@ Emulator `ozone_api30` provisioned (`tools/android-mcp/provision_sdk.sh`); stop 
 6. Record each suite in `docs/evidence/test-runs/<date>-<suite>.md`; update the ✔/☐ marks here **in the same commit** as the evidence.
 Operator decisions that gate sections: host rebuild/deploy (W0) → P5/P6, C5, A8, B6; EU consent → E4–E7; test APK → M4/M8;
 Browser-Farm location → §7; GPU/Electron run → W9/U12.
+
+## 17. Review additions (cc, 2026-10-29) — proposals hardening and cross-surface integration
+Source and evidence: `docs/REVIEW_PROPOSALS_FARM_UI_2026-10-29.md` (claim-by-claim verification; insights R1–R10).
+**Annotations on rows above that carry ✔ from the same day:**
+- *browser-farm (§7)* — the farm itself is verified real on EU (services, loopback bindings, Xvfb+Chromium, real screenshot).
+  **But** EU's registry still maps the 13 farm tools to `:3252` while farm-mcp listens on `:3281`; `farm_status` through EU
+  `/mcp/call` returns `Connection refused` (2026-10-29 11:34 UTC). Not a pass for registry correctness (I-MCP1) until re-registered
+  from an up-to-date registrar.
+- *A16/A17* — live data shows two `slippage-cascade` action proposals, both resolved Proceed (one twice), both outcomes `failed`
+  (allowlist / connection refused). The chain records honestly; no successful action has been observed yet.
+**New rows:** A22–A30 (proposals: notification acknowledge, idempotent Proceed, no re-nag, detail-change re-propose, allowlisted
+success, real failure, session gate, payload length, strict-mode-off posture) and I-WS1..2, I-EN1..3, I-UI1..4, I-3D1..4,
+I-MOD1..3, I-MCP1..3 (workspace attribution, engine actors/planner/executor, Inbox UI, graph-block from UI snapshots, modality
+ingest of screenshots, per-host endpoint and checksum drift). Tables are in §6 of the review document; run them in L4/L7/L10/L6.
+⚠ currently expected to FAIL: A23, A24, I-WS1, I-EN1, I-EN2, I-3D1, I-3D2, I-UI1/UI2 (not built), I-UI3 (vite dev), I-MCP1 on EU.

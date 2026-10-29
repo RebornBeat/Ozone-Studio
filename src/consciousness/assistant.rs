@@ -377,6 +377,21 @@ async fn run_one_check_up(
         return None; // free, silent
     }
     stats.candidates_consumed = findings.len() as u64;
+
+    // PROPOSALS (the propose half of the acting chain — the assistant works
+    // ALONGSIDE the system like every other component: proposals are REVIEW
+    // rows in the EXISTING S10 store, kind "assistant-proposal", listed by
+    // the EXISTING /consciousness/reviews/pending route and executed through
+    // the EXISTING gated call door on Proceed). Derived deterministically
+    // from the SAME findings; free — no model call anywhere in this path.
+    let drafts = crate::consciousness::proposals::derive_proposals(&all, &findings, now);
+    if !drafts.is_empty() {
+        let added = crate::consciousness::proposals::record_pending(drafts, &mut stats.notes);
+        if added > 0 {
+            tracing::info!(added, "assistant: new pending proposals recorded (awaiting operator resolve)");
+        }
+    }
+
     // CHANGE DETECTION: an identical findings set to the last paid digest
     // would buy the same prose again. Skip the PAID call only — the free
     // filter and the derived /assistant/feed route are untouched, so nothing

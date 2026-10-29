@@ -695,7 +695,38 @@ async fn resolve_review_route(
         &req.decision,
         &req.note,
     ) {
-        Ok(record) => Json(serde_json::json!({ "success": true, "resolution": record })),
+        Ok(record) => {
+            // ASSISTANT-PROPOSAL EXECUTION (the acting chain's completion):
+            // a proposal is an S10 review row; the operator's "Proceed" IS
+            // the approval — execute the proposed action through the same
+            // metered, jurisdiction-gated call_global door every MCP call
+            // takes, and append the honest executed/failed row. "Decline"
+            // needs nothing extra — the resolution row IS the record.
+            let execution = if record["decision"] == "Proceed" {
+                let kind = crate::orchestrator::decision_review::review_row_kind(
+                    &data_dir,
+                    &req.review_id,
+                );
+                if kind.as_deref() == Some(crate::consciousness::proposals::PROPOSAL_REVIEW_KIND) {
+                    Some(
+                        crate::consciousness::proposals::execute_resolved(
+                            &data_dir,
+                            &req.review_id,
+                        )
+                        .await,
+                    )
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            Json(serde_json::json!({
+                "success": true,
+                "resolution": record,
+                "proposal_execution": execution,
+            }))
+        }
         Err(e) => Json(serde_json::json!({ "success": false, "error": e })),
     }
 }

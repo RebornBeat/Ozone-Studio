@@ -19,6 +19,7 @@
 //! ```
 
 pub mod assistant;
+pub mod proposals;
 pub mod review;
 pub mod store;
 

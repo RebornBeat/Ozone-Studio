@@ -259,9 +259,14 @@ export function graphEventVisibleTo(
 }
 
 /** Derives the `/ws` URL from OZONE_HOST (http→ws, https→wss) rather than a
- * separately-hardcoded base. */
+ * separately-hardcoded base. Same-origin web mode (OZONE_HOST === "") derives
+ * it from the page location instead. */
 export function graphEventsWsUrl(): string {
   const base = OZONE_HOST.replace(/^http/, "ws").replace(/\/+$/, "");
+  if (base === "" && typeof window !== "undefined") {
+    const scheme = window.location.protocol === "https:" ? "wss" : "ws";
+    return `${scheme}://${window.location.host}/ws`;
+  }
   return `${base}/ws`;
 }
 

@@ -217,6 +217,23 @@ pub fn list_pending_reviews(data_dir: &str) -> Vec<serde_json::Value> {
         .collect()
 }
 
+/// The kind of a review's latest final row ("mcp-call", "chat-request",
+/// "assistant-proposal", …) — lets the resolve route tell proposal rows
+/// (whose Proceed completes an action) from judgment rows (whose Proceed
+/// just un-halts a request). None when the id is unknown.
+pub fn review_row_kind(data_dir: &str, review_id: &str) -> Option<String> {
+    read_jsonl(&format!("{}/model_calls/decision_review.jsonl", data_dir))
+        .into_iter()
+        .filter(|r| r.get("review_id").and_then(|v| v.as_str()) == Some(review_id))
+        .filter(|r| r.get("final").and_then(|f| f.as_bool()) == Some(true))
+        .last()
+        .and_then(|r| {
+            r.get("review_kind")
+                .and_then(|k| k.as_str())
+                .map(|s| s.to_string())
+        })
+}
+
 /// Record the operator's resolution of a pending review. `decision` is
 /// "Proceed" or "Decline" (case-insensitive). The review must exist as a
 /// final row in the S10 store. Persisted append-only in

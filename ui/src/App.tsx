@@ -209,9 +209,16 @@ function App() {
               // Web mode still initializes store state (consciousness flag,
               // model selection) from the live host config over HTTP.
               try {
+                // A PAIRED browser holds its device session in localStorage
+                // (the QR pairing flow) — send it so /config/get passes the
+                // strict-session gate too (OZONE_REQUIRE_SESSION=1 hosts).
+                const devToken = localStorage.getItem("ozone_session_token");
                 const cfgRes = await fetch(`${OZONE_HOST}/config/get`, {
                   method: "POST",
-                  headers: { "Content-Type": "application/json" },
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(devToken ? { Authorization: `Bearer ${devToken}` } : {}),
+                  },
                   body: JSON.stringify({ section: "", session_token: "" }),
                 });
                 const cfg = await cfgRes.json();
