@@ -18,7 +18,7 @@
                                    │
         ┌──────────────────────────┼───────────────────────────────┐
         ▼                          ▼                               ▼
-  browser-mcp (:3250)      browser-farm-mcp (:3252)       DOMorpher  (library, not yet buildable)
+  browser-mcp (:3280)      browser-farm-mcp (:3281)       DOMorpher  (library, not yet buildable)
   local governed browser   commander of a farm            DOM→semantic prep · chunking · extraction · agent loop
   CDP · snapshot/click/…   REST + X-API-Key ─▶ Browser-Farm server(s) ─▶ profiles (Xvfb+proxy+fingerprint)
                                    └─ shared state ◀──▶ COMMAND_CENTER profile script ──▶ worker profiles

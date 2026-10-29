@@ -1,0 +1,27 @@
+{
+  "principles": [
+    {
+      "statement": "Things act through one path: every write and every MCP call ripples through the ZSEI choke point; registered actors filter it for free; matches become AMT candidates or tasks; paid steps run only in existing loops. Consciousness observes windows-first; the Personal Assistant is its operator-facing voice (derived feed + follow-up tasks) and never calls tools.",
+      "rationale": "ACTING_LOOP_GUIDE + PERSONAL_ASSISTANT_GUIDE + src/lib.rs boot block. An earlier plan to have the assistant propose browser actions that it then executes was wrong: new MCPs are ripple sources and tool surfaces; if something should react to them it is a RippleActor (free gate) feeding candidates/tasks, and execution stays with the approval-gated task executor and orchestrator.",
+      "applicability": [
+        "acting_loop",
+        "ripple",
+        "assistant",
+        "mcp"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Making the system react to a new signal",
+      "description": "Make it a ripple source (it already is if it writes ZSEI/context_mirror); add a RippleActor only where the AMT route does not already cover it; keep evaluate() free and non-semantic.",
+      "when_to_apply": "Any new MCP, sensor or coordination kind."
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "An agent wants Ozone to perform an action",
+      "action": "Create a task (Order item); execution goes through the approval-gated executor/orchestrator and /mcp/call; the assistant may remind or propose, not execute."
+    }
+  ]
+}

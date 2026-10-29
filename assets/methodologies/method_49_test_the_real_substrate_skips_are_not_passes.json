@@ -1,0 +1,26 @@
+{
+  "principles": [
+    {
+      "statement": "Acceptance is a run against the real thing (real adb and emulator, real Chrome and UI, real host, real farm/VPS). A mock proves only your reading of the API. When the real substrate is absent, report SKIP with the reason — never fake a pass.",
+      "rationale": "Operator ruling 2026-10-29. Mock farm 20/20 was not acceptance; android selftest reported 17 pass + 1 SKIP with no device, then 22/22 after a real emulator was provisioned and booted (KVM, ~65 s).",
+      "applicability": [
+        "testing",
+        "acceptance",
+        "no_mocks"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Real substrate unavailable",
+      "description": "Record SKIP with the exact missing prerequisite and the step to provide it; provision it (user-space where possible) and re-run before claiming done.",
+      "when_to_apply": "All MCP/UI/host acceptance."
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A mock is the only thing available",
+      "action": "Label it contract-only in the test name, the doc and the handoff; schedule the real run."
+    }
+  ]
+}

@@ -27,7 +27,7 @@ browser_scroll browser_screenshot browser_eval browser_console browser_close`.
 Agent tool-call sessions reap background children. Start it from the operator shell or a supervisor:
 ```
 OZONE_BROWSER_ALLOW_HOSTS=localhost OZONE_BROWSER_ALLOW_GLOBALS=OZONE_HOST_URL \
-  node tools/browser-mcp/server.mjs            # :3250 (OZONE_BROWSER_PORT)
+  node tools/browser-mcp/server.mjs            # :3280 (OZONE_BROWSER_PORT)
 node tools/register-browser-tools.mjs browser   # registry persists across restarts; re-run only if an endpoint changes
 ```
 Chrome discovery: `OZONE_BROWSER_CHROME` → google-chrome → Playwright's bundled Chromium → distro chromium

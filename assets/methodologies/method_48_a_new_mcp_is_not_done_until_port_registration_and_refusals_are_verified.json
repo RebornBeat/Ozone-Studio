@@ -1,0 +1,26 @@
+{
+  "principles": [
+    {
+      "statement": "An MCP is finished only when (1) its port is unique across the supervisor map and docs, (2) its tools are registered against that endpoint, (3) refusals travel as HTTP 200 success:false with a reason, and (4) the whole path is exercised through /mcp/call, not just directly.",
+      "rationale": "Found 2026-10-29: browser-mcp defaulted to :3250 (threed-mcp's port in mcp_supervisor facts) so a restart with browser-mcp down could spawn threed-mcp for the browser tools; android-mcp returned HTTP 400 for refusals and the host hid the body ('tool returned HTTP 400'); the persisted registry kept the stale endpoint. TOOLS_REGISTRY.md also lists connectome/threed ports that do not match the supervisor.",
+      "applicability": [
+        "mcp",
+        "registry",
+        "supervisor"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Choosing a port for a new MCP",
+      "description": "Check src/mcp_supervisor.rs facts_for_port, the tools/*/server.mjs defaults and docs; take an unused port; after changing ports, re-register AND patch/replace persisted endpoints.",
+      "when_to_apply": "Every new or moved MCP."
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "An MCP refuses or fails a call",
+      "action": "Respond HTTP 200 with {success:false,error:<reason>}; non-2xx bodies are dropped by the host."
+    }
+  ]
+}

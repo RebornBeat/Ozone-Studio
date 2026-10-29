@@ -883,7 +883,13 @@ impl BootstrapManager {
                 {"methodology_id":41,"name":"New Nodes Link Through Relationship Paths First","categories":["graph","linking","relevance"],"file":"method_41_new_nodes_link_through_relationship_paths_first.json"},
                 {"methodology_id":42,"name":"Planning Artifacts Outlive the Process That Made Them","categories":["planning","persistence","sessions"],"file":"method_42_planning_artifacts_outlive_the_process_that_made_them.json"},
                 {"methodology_id":43,"name":"Every Failure Path Marks State Truthfully","categories":["honesty","reliability","state_machines"],"file":"method_43_every_failure_path_marks_state_truthfully.json"},
-                {"methodology_id":44,"name":"Session Token Metering","categories":["metering","budget","multi_agent"],"file":"method_44_session_token_metering.json"}
+                {"methodology_id":44,"name":"Session Token Metering","categories":["metering","budget","multi_agent"],"file":"method_44_session_token_metering.json"},
+                {"methodology_id":45,"name":"Honest Unknown Is Not a Failure Finding","categories":["honesty", "monitoring", "sensors"],"file":"method_45_honest_unknown_is_not_a_failure_finding.json"},
+                {"methodology_id":46,"name":"Perceive-Decide-Act-Verify for Governed Surfaces","categories":["agents", "browser", "mobile", "safety"],"file":"method_46_perceive_decide_act_verify_for_governed_surfaces.json"},
+                {"methodology_id":47,"name":"Allowlist by Argument, Not Just by Command","categories":["security", "terminal", "allowlists"],"file":"method_47_allowlist_by_argument_not_just_by_command.json"},
+                {"methodology_id":48,"name":"A New MCP Is Not Done Until Port, Registration and Refusal Shape Are Verified","categories":["mcp", "registration", "ports"],"file":"method_48_a_new_mcp_is_not_done_until_port_registration_and_refusals_are_verified.json"},
+                {"methodology_id":49,"name":"Test the Real Substrate; Skips Are Not Passes","categories":["testing", "honesty", "verification"],"file":"method_49_test_the_real_substrate_skips_are_not_passes.json"},
+                {"methodology_id":50,"name":"Acting Is the Living Network, Not a Per-Source Poller","categories":["architecture", "acting_loop", "consciousness"],"file":"method_50_acting_is_the_living_network_not_a_per_source_poller.json"}
             ]
         })
     }

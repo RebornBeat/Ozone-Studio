@@ -24,7 +24,7 @@ mutating tool. Plain http is allowed only for loopback/private hosts unless `OZO
 `farm~<id>~inbox`). Everything else is refused on the CC side too.
 
 ## Launch / tests
-`node tools/browser-farm-mcp/server.mjs` (:3252) from the operator shell/supervisor, then
+`node tools/browser-farm-mcp/server.mjs` (:3281) from the operator shell/supervisor, then
 `node tools/register-browser-tools.mjs farm`.
 `node tools/browser-farm-mcp/selftest.mjs` — 20 checks against a **mock** farm built from the real API
 shapes. A live Browser-Farm run still needs PostgreSQL, Playwright, Xvfb on the farm machine.

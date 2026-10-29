@@ -31,7 +31,7 @@
 // host-side; this process never trusts its caller.
 //
 // Endpoints: POST /call {tool, agent, input}   GET /status
-// Env: OZONE_BROWSER_PORT (3250), OZONE_BROWSER_ALLOW_HOSTS, OZONE_BROWSER_ALLOW_EVAL,
+// Env: OZONE_BROWSER_PORT (3280), OZONE_BROWSER_ALLOW_HOSTS, OZONE_BROWSER_ALLOW_EVAL,
 //      OZONE_BROWSER_ALLOW_FILE, OZONE_BROWSER_TOKEN, OZONE_BROWSER_CHROME,
 //      OZONE_BROWSER_ALLOW_GLOBALS (page globals browser_open may pre-set, e.g. OZONE_HOST_URL),
 //      OZONE_BROWSER_SHOT_DIR, OZONE_BROWSER_MAX_SESSIONS (3),
@@ -45,7 +45,7 @@ import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const PORT = Number(process.env.OZONE_BROWSER_PORT ?? 3250);
+const PORT = Number(process.env.OZONE_BROWSER_PORT ?? 3280);
 const ALLOW_HOSTS = (process.env.OZONE_BROWSER_ALLOW_HOSTS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const ALLOW_EVAL = process.env.OZONE_BROWSER_ALLOW_EVAL === "1";
 const ALLOW_FILE = process.env.OZONE_BROWSER_ALLOW_FILE === "1";

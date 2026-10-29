@@ -1,9 +1,9 @@
 // browser-mcp self-test (NEW_MCP_GUIDE §6: positive path AND refusal paths).
-// Usage: node selftest.mjs <fixtureBaseUrl on an allowlisted host> [mcpPort=3250] [lockedPort=3251]
+// Usage: node selftest.mjs <fixtureBaseUrl on an allowlisted host> [mcpPort=3280] [lockedPort=3282]
 //   The MCP on <mcpPort> must run with OZONE_BROWSER_ALLOW_HOSTS=<fixture host> + OZONE_BROWSER_ALLOW_EVAL=1;
 //   the one on <lockedPort> with NO env (proves locked-by-default). Fixture needs: #q input, a Search
 //   submit button, #add button, and a link to a host that is NOT allowlisted.
-const [, , FIX, P = "3250", LP = "3251"] = process.argv;
+const [, , FIX, P = "3280", LP = "3282"] = process.argv;
 let pass = 0, fail = 0;
 // OZONE_THROUGH_HOST=http://127.0.0.1:50051 routes EVERY call through the host's /mcp/call (metered,
 // jurisdiction-gated, rippled) — the only door agents are supposed to use. The locked-by-default checks

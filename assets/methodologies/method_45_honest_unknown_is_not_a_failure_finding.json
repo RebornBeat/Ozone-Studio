@@ -1,0 +1,26 @@
+{
+  "principles": [
+    {
+      "statement": "A monitoring tool that cannot observe (no privilege, no device) must report UNKNOWN with the reason, as a successful answer — never as a tool failure that the acting loop will treat as a finding every cycle.",
+      "rationale": "Found live 2026-10-29: local security-mcp ran unprivileged, firewall_status returned success:false every 15 minutes, the sensor tick mirrored it, SecurityFindingActor queued it, and the I-Loop reflected on its own echo. The EU unit (CAP_NET_ADMIN) returned real rules. Fix: success:true, inspectable:false, ruleset:null, plus unprivileged evidence (service states). inspectable:false means unknown, never 'no rules'.",
+      "applicability": [
+        "monitoring",
+        "honesty",
+        "acting_loop"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Capability-limited sensor",
+      "description": "When a probe is refused for permission/device reasons, classify the refusal at the source: permission/absence -> success:true + inspectable:false + reason + non-privileged evidence; genuine breakage (binary missing, crash) -> success:false.",
+      "when_to_apply": "Any read-only posture/sensor tool that feeds the sensor tick or an actor."
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A sensor result is inspectable:false",
+      "action": "Do not queue an AMT candidate or finding for it; record it as data. Re-evaluate only when privilege/device state changes."
+    }
+  ]
+}

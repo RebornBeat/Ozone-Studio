@@ -2,7 +2,7 @@
 // (docs/NEW_MCP_GUIDE.md §1.4). Re-registration REPLACES and bumps server_version;
 // the registry persists ({data_dir}/mcp_tool_registry.json), so re-run only when an endpoint changes.
 //   node tools/register-browser-tools.mjs [browser|farm|all]
-// Env: OZONE_HOST (http://127.0.0.1:50051), OZONE_BROWSER_PORT (3250), OZONE_FARM_PORT (3252),
+// Env: OZONE_HOST (http://127.0.0.1:50051), OZONE_BROWSER_PORT (3280), OZONE_FARM_PORT (3281),
 //      OZONE_INTERNAL_TOKEN / OZONE_INTERNAL_TOKEN_FILE / OZONE_DATA_DIR (strict-session hosts)
 import fs from "node:fs";
 import path from "node:path";
@@ -20,7 +20,7 @@ function internalToken() {
   return "";
 }
 const FAMILIES = {
-  browser: { port: Number(process.env.OZONE_BROWSER_PORT ?? 3250), version: "0.1.0", tools: {
+  browser: { port: Number(process.env.OZONE_BROWSER_PORT ?? 3280), version: "0.1.0", tools: {
     browser_status: "browser MCP posture: locked?, allowlist, sessions",
     browser_open: "open an isolated headless browser session on an allowlisted URL",
     browser_navigate: "navigate a session to an allowlisted URL",
@@ -33,7 +33,7 @@ const FAMILIES = {
     browser_console: "recent console/exception lines (untrusted)",
     browser_close: "close a session",
   } },
-  farm: { port: Number(process.env.OZONE_FARM_PORT ?? 3252), version: "0.1.0", tools: {
+  farm: { port: Number(process.env.OZONE_FARM_PORT ?? 3281), version: "0.1.0", tools: {
     farm_status: "Browser-Farm MCP posture + per-farm health",
     farm_profiles: "list farm profiles (secrets stripped)", farm_profile: "one farm profile",
     farm_profile_start: "start a farm profile", farm_profile_pause: "pause a farm profile", farm_profile_stop: "stop a farm profile",

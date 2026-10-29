@@ -40,14 +40,14 @@
 // Tools: farm_status farm_profiles farm_profile farm_profile_start farm_profile_pause
 //        farm_profile_stop farm_navigate farm_screenshot farm_metrics
 //        farm_state_get farm_state_set farm_command farm_result
-// Env:   OZONE_FARM_PORT (3252) + the OZONE_FARM_* vars above.
+// Env:   OZONE_FARM_PORT (3281) + the OZONE_FARM_* vars above.
 
 import { createServer } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const PORT = Number(process.env.OZONE_FARM_PORT ?? 3252);
+const PORT = Number(process.env.OZONE_FARM_PORT ?? 3281);
 const READONLY = process.env.OZONE_FARM_READONLY === "1";
 const ALLOW_INSECURE = process.env.OZONE_FARM_ALLOW_INSECURE === "1";
 const ALLOW_HOSTS = (process.env.OZONE_FARM_ALLOW_HOSTS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -141,7 +141,10 @@ async function handle(tool, input) {
   switch (tool) {
     case "farm_profiles": { const l = await farmFetch(f, "GET", "/profiles"); return untrusted({ farm: f.name, profiles: (Array.isArray(l) ? l : l.profiles ?? []).map(safeProfile) }); }
     case "farm_profile": return untrusted(safeProfile(await farmFetch(f, "GET", `/profiles/${pid(input)}`)));
-    case "farm_profile_start": mutating(); return { farm: f.name, result: await farmFetch(f, "POST", `/profiles/${pid(input)}/start`) };
+    // The farm's start endpoint requires an `accounts` JSON body (a map) —
+    // a bodyless POST fails FastAPI validation with HTTP 422 (found live on
+    // the real EU farm, 2026-10-29; the mock never validated this).
+    case "farm_profile_start": mutating(); return { farm: f.name, result: await farmFetch(f, "POST", `/profiles/${pid(input)}/start`, { body: {} }) };
     case "farm_profile_pause": mutating(); return { farm: f.name, result: await farmFetch(f, "POST", `/profiles/${pid(input)}/pause`) };
     case "farm_profile_stop": mutating(); return { farm: f.name, result: await farmFetch(f, "POST", `/profiles/${pid(input)}/stop`) };
     case "farm_navigate": mutating(); navPolicy(String(input.url ?? "")); return { farm: f.name, result: await farmFetch(f, "POST", `/profiles/${pid(input)}/navigate`, { query: { url: String(input.url) } }) };

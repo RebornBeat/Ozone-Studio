@@ -1,0 +1,26 @@
+{
+  "principles": [
+    {
+      "statement": "A first-token command allowlist is not a security boundary: any allowlisted interpreter or runner (node, python3, find, git, npm, systemctl) can execute arbitrary code or change state through arguments.",
+      "rationale": "Found and fixed 2026-10-29 in terminal-mcp: node -e, python3 -c, find -exec/-delete, git -c/config, npm exec and systemctl restart all passed the old check while ; | & $ were blocked. Per-command argument denies now refuse them; 18/18 selftest. Residual by design: running a script file in the repo.",
+      "applicability": [
+        "security",
+        "terminal",
+        "android_shell"
+      ]
+    }
+  ],
+  "heuristics": [
+    {
+      "name": "Adding a command to an allowlist",
+      "description": "Enumerate its code-execution and state-changing flags/subcommands and deny them in the same change; add a selftest case per bypass class.",
+      "when_to_apply": "Every allowlist: terminal-mcp roles, android shell allowlist, any future shell-like tool."
+    }
+  ],
+  "decision_rules": [
+    {
+      "condition": "A command can run arbitrary code via its arguments",
+      "action": "Deny the flag/subcommand, return success:false with the reason in an HTTP 200 body, and prefer a script file inside the repo."
+    }
+  ]
+}
