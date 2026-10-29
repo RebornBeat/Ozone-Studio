@@ -6409,3 +6409,14 @@ use); parse layer nearly clean — 3 open items mapped BY SEAM: api/rpc = drop (
 stub (IN-list), semantic_markdown.rs tail = complete (IN). Latent name-resolution wave queued behind parse
 (~11 `ActionTarget::Selector/None` sites against a struct). **AG6 enforces the seam structurally**: the
 crate's dependency tree may contain no http-server, llm-client, or storage-engine crates.
+
+## 2026-10-29 (zc, late II) — DOMORPHER CONVERSION CLEANED: farm-primary execution + provenance resolved
+Operator: "it is my work" (provenance CLOSED — the license-boundary blocker is gone; absorb-into-tree
+unblocked when wanted, reference copy untouched) and "browser farm is now what really handles this" —
+the PageDriver/StateStore seams corrected in docs/DOMORPHER_CONVERSION_GUIDE.md: **Browser-Farm is the
+PRIMARY execution home** (profiles + Command Center channel, live-verified ping→pong 0.4 s on EU);
+browser-mcp local CDP demoted to the ISOLATED-use backend. `OZONE_AGENT_BACKEND=farm|local` selects;
+same gate/metering/ripple on both — backend is config, never a bypass. StateStore maps to farm profiles
+NATIVELY (persistent-profile aging is already a farm feature — AG4 updated). AG7 added (backend selection:
+default farm, no bypass path). domorpher's own browser drivers retired in both backends. Capture clean;
+nothing dropped from the campaign or the harvest lists.

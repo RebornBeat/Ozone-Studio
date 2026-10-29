@@ -182,9 +182,10 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 | AG1 | agent-mcp selftest incl. a refusal per dangerous class; registration carries platform + version tags | locked-by-default; refusals are data |
 | AG2 | `agent_navigate` to a non-allowlisted host | refused (farm_navigate precedent) |
 | AG3 | `agent_exec_script` with OZONE_AGENT_ALLOW_EVAL unset | refused (browser-mcp eval-gate precedent) |
-| AG4 | session/cookie aging: profile restart keeps cookies with correct relative ages | farm profile persistence holds |
+| AG4 | session/cookie aging: profile restart keeps cookies with correct relative ages | FARM-NATIVE (persistent profiles are a Browser-Farm feature — StateStore seam maps to farm profiles) |
 | AG5 | `agent_extract` output | untrusted-labeled tool result (X2 rule — never an instruction) |
-| AG6 | `domorpher-core` dependency tree | NO http-server / llm-client / storage-engine crates — the seam enforced by the dependency graph itself |
+| AG6 | `domorpher-core` dependency tree | NO http-server / llm-client / storage-engine / browser-driver crates — the seam enforced by the dependency graph itself |
+| AG7 | Backend selection: `OZONE_AGENT_BACKEND=farm` (default) vs `local` | farm backend executes via farm tools/Command Center (live-verified round-trip); local via browser-mcp CDP for isolated use; SAME gate/metering/ripple on both — backend is config, never a bypass |
 
 ## 8. Acting loop and watchdogs (L7) — see ACTING_FACTORS_REGISTRY
 | ID | Test | Expected |

@@ -15,10 +15,11 @@
   perception.rs, reasoning.rs all ended mid-expression; `api/rpc` and
   `chunking/utils` modules are declared but their files were never
   captured).
-- **NO LICENSE FILE exists in either copy.** Before any absorb-into-tree
-  step (Pattern B), the operator confirms provenance (own code? fetched
-  from where, under what terms?). Until then domorpher stays OUTSIDE the
-  Ozone tree (it is: `~/Projects/`, sibling to Ozone-Studio).
+- **PROVENANCE RESOLVED (operator, 2026-10-29): "it is my work."** The
+  license-boundary question is closed — this is the operator's own code,
+  so absorb-into-tree (Pattern B step 1) is unblocked when wanted. Until
+  absorbed, domorpher stays at `~/Projects/domorpher` (sibling to
+  Ozone-Studio) as the reference copy; nothing is deleted from it.
 
 ## 1. What the compile campaign actually was (and now is)
 
@@ -119,11 +120,19 @@ spawns a server, or talks to a model.
 host — the actual "point where" the library ends):
 - `DecisionSource` — model judgment. Ozone impl: pipeline 9 + fallback
   chain. (Replaces llm/anthropic + llm/local entirely.)
-- `PageDriver` — launch/navigate/click/type/screenshot/eval. Ozone impl:
-  browser-mcp's hardened CDP layer, or the farm's. (Replaces
-  browser/puppeteer + headless + javascript.)
-- `StateStore` — session/cookie/profile persistence. Ozone impl: farm
-  profiles / data_dir. (Replaces storage/.)
+- `PageDriver` — launch/navigate/click/type/screenshot/eval. PRIMARY
+  Ozone impl: **Browser-Farm** (operator, 2026-10-29: the farm "is now
+  what really handles this") — profiles, navigation, screenshots, and
+  multi-step behaviors ride the LIVE-VERIFIED farm surfaces
+  (farm_profile_start/navigate/screenshot + the Command-Center channel,
+  ping→pong proven 0.4 s). SECONDARY impl: browser-mcp's local CDP layer
+  for ISOLATED single-session use. domorpher's own drivers
+  (puppeteer.rs/headless.rs/javascript.rs) are retired in BOTH cases.
+  (Replaces browser/puppeteer + headless + javascript.)
+- `StateStore` — session/cookie/profile persistence. Ozone impl:
+  **farm profiles natively** (persistent-profile aging is already a
+  Browser-Farm feature — cookies/localstorage surviving restarts is
+  exactly AG4), local fallback via data_dir. (Replaces storage/.)
 
 **OUT of the crate entirely** (Ozone already owns; never ported): `llm/`,
 `api/`, `enterprise/`, `monitoring/`, `storage/`, `pipeline/`,
@@ -151,9 +160,24 @@ loopback-only `/call` accepting `{tool, agent, input, context}`;
 allowlists REQUIRED (unconfigured = LOCKED); per-tool locks
 (`agent_exec_script` off without OZONE_AGENT_ALLOW_EVAL=1); navigation
 host allowlist; timeout/output caps; optional shared secret; platform +
-version tags on registration. The MCP is the only thing that holds a
-PageDriver and runs the library — nothing calls the library around the
-door.
+version tags on registration. The MCP holds the PageDriver and runs the
+library — nothing calls the library around the door.
+
+**DUAL BACKEND (operator directive, 2026-10-29): execution routes via
+Browser-Farm by default** — the farm IS the browser infrastructure now
+(profiles, Xvfb, Command Center), live-verified end-to-end on the EU
+VPS. `OZONE_AGENT_BACKEND=farm|local` selects:
+- `farm` (default): actions execute as farm operations — profile-scoped
+  navigate/screenshot through the registered farm tools; multi-step
+  behaviors (human-type, form fills, multi-pass runs) ride the Command
+  Center channel as farm scripts the operator authored or approved;
+  session/cookie state IS the farm profile (aging native).
+- `local` (isolated use): browser-mcp's local CDP for a quick
+  single-session drive with no farm configured. Same library, same
+  gate — a different PageDriver impl.
+CC and the other actors reach both backends the same way: through
+`/mcp/call`, metered and rippled — the backend choice is configuration,
+never a second code path around the guardrails.
 
 ### 2.0d Layer 4 — Ozone-Studio
 
