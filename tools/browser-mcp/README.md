@@ -28,7 +28,7 @@ Agent tool-call sessions reap background children. Start it from the operator sh
 ```
 OZONE_BROWSER_ALLOW_HOSTS=localhost OZONE_BROWSER_ALLOW_GLOBALS=OZONE_HOST_URL \
   node tools/browser-mcp/server.mjs            # :3250 (OZONE_BROWSER_PORT)
-node tools/register-browser-tools.mjs browser   # re-run after every host restart (registry is in-memory)
+node tools/register-browser-tools.mjs browser   # registry persists across restarts; re-run only if an endpoint changes
 ```
 Chrome discovery: `OZONE_BROWSER_CHROME` → google-chrome → Playwright's bundled Chromium → distro chromium
 (the Ubuntu `chromium-browser` snap stub cannot expose a debug port and is tried last).

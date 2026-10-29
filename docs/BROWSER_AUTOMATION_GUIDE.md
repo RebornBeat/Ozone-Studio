@@ -1,3 +1,9 @@
+> **CORRECTIONS (2026-10-29, same day — see `docs/MASTER_REMAINING_WORK_GUIDE.md` §0):** (1) the MCP registry **is
+> persisted** (`{data_dir}/mcp_tool_registry.json`, restored at boot); statements below that it is in-memory / must be
+> re-registered after every restart are wrong — re-register only when an endpoint changes. (2) `browser-farm-mcp` has
+> **only** been tested against a mock farm I wrote; that is not proof against Browser-Farm. The operator's direction is
+> to test the real farm (locally or on the EU VPS) and retire the mock.
+
 # Browser automation in Ozone-Studio — browser-mcp, browser-farm-mcp, DOMorpher
 
 > 2026-10-29 (cc). Operator direction: *"you tested with Chrome by hand — now set that up through Ozone-Studio
@@ -57,7 +63,7 @@ Screenshots: `docs/evidence/browser-mcp/01…03`.
 
 **Not done / honest limits:** no Electron driving (this drives web mode; Electron needs its own CDP attach); the
 host forwards no token header, so `OZONE_BROWSER_TOKEN` only protects *direct* callers; host→tool timeout is 30 s;
-the host registry is in-memory (re-run `tools/register-browser-tools.mjs` after every restart). The registrar
+(correction: the registry persists; re-register only if an endpoint changes). The registrar
 could only be proven against a **scratch host** (fresh data dir ⇒ first-run exemption): the operator's real host
 is not running and its binary predates the `x-oz-internal` token code, so registration there will 401 until the
 rebuilt binary is deployed.
@@ -135,7 +141,7 @@ white scrollbar.
 3. **CDP clicks need `mouseMoved` first and `buttons` on press/release**, or they are silently dropped (applied).
 4. Web-mode Ozone UI could not host any pipeline-delivered tab (fixed, §5). Web-mode execution without a paired
    device session is refused by the host — correct, and the Workspace tab then shows its empty state rather than data.
-5. The host registry is in-memory; the strict-session host 401s registration without `x-oz-internal` — the registrar
+5. (Corrected: the registry persists.) The strict-session host 401s registration without `x-oz-internal` — the registrar
    reads the token from the usual places and says so when it cannot.
 
 ## 7. Open items

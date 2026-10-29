@@ -1,6 +1,6 @@
 // Register browser-mcp + browser-farm-mcp tools into the Ozone host registry
 // (docs/NEW_MCP_GUIDE.md §1.4). Re-registration REPLACES and bumps server_version;
-// the registry is in-memory, so re-run after every host restart.
+// the registry persists ({data_dir}/mcp_tool_registry.json), so re-run only when an endpoint changes.
 //   node tools/register-browser-tools.mjs [browser|farm|all]
 // Env: OZONE_HOST (http://127.0.0.1:50051), OZONE_BROWSER_PORT (3250), OZONE_FARM_PORT (3252),
 //      OZONE_INTERNAL_TOKEN / OZONE_INTERNAL_TOKEN_FILE / OZONE_DATA_DIR (strict-session hosts)
