@@ -41,6 +41,19 @@ const FAMILIES = {
     farm_metrics: "profile memory/cpu/uptime", farm_state_get: "read farm shared state", farm_state_set: "write farm shared state (object)",
     farm_command: "issue a COMMAND to the Command Center profile via shared state", farm_result: "read the Command Center's RESULT record",
   } },
+  android: { port: Number(process.env.OZONE_ANDROID_PORT ?? 3277), version: "0.2.0", tools: {
+    android_preflight: "adb/SDK/KVM/policy readiness (honest)", android_avd_list: "list emulator AVDs",
+    android_emulator_start: "start a headless emulator AVD (OZONE_ANDROID_ALLOW_EMULATOR=1, needs usable KVM)", android_emulator_stop: "stop an emulator-NNNN (never a physical device)",
+    android_shell: "run ONE allowlisted device command (locked unless OZONE_ANDROID_SHELL_ALLOW; confirm:true)",
+    android_screenshot: "device screenshot -> PNG for image-modality ingest", android_input: "tap/swipe/text/keyevent",
+    android_install: "install an APK from the apks dir", android_logcat: "last N logcat lines",
+    android_ui_snapshot: "perceive the screen: numbered interactive elements via uiautomator (untrusted labels)", android_ui_tap_element: "tap an element by snapshot index or label text",
+    android_term_open: "open a terminal-like session (tracked cwd)", android_term_exec: "run an allowlisted command in a session", android_term_close: "close a session",
+    android_forward: "adb forward to a whitelisted device port (Termux sshd 8022)", android_termux_status: "is Termux installed on the device?",
+  } },
+  security: { port: Number(process.env.OZONE_SECURITY_PORT ?? 3240), version: "0.2.0", tools: {
+    exposure_report: "listeners split loopback/external, risky ports flagged", security_status: "security-mcp self posture (privileged?, tools)",
+  } },
 };
 const which = process.argv[2] ?? "all";
 const tok = internalToken();

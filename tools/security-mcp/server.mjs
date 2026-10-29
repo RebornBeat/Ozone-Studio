@@ -167,12 +167,67 @@ const server = createServer((req, res) => {
           });
           return;
         }
-        // Both real backends refused — report honestly, do not claim an
-        // empty ruleset (that would misleadingly imply no firewall rules).
+        // Both real backends refused. A PERMISSION refusal is a known limit of this
+        // deployment (the EU unit holds CAP_NET_ADMIN; the local dev host does not),
+        // not a posture finding: reporting it as a failure made the sensor tick raise
+        // the same finding every 15 min and fed the I-Loop an echo. Answer
+        // success:true with inspectable:false — UNKNOWN, never "no rules".
+        if (/permitted|permission|denied|superuser|must be root|root privileges/i.test(`${nft.stderr} ${ipt.stderr}`)) {
+          const services = {};
+          for (const u of ["ufw", "nftables", "firewalld"]) {
+            const r = await run("systemctl", ["is-active", u]);
+            services[u] = (r.stdout || r.stderr || "unknown").trim().split("\n")[0];
+          }
+          reply(res, 200, {
+            success: true,
+            output: {
+              backend: "unprivileged",
+              inspectable: false,
+              ruleset: null,
+              services,
+              reason: `ruleset not readable without CAP_NET_ADMIN — nft: "${nft.stderr}"; iptables: "${ipt.stderr}"`,
+              note: "This server never escalates privileges. inspectable:false means UNKNOWN, not 'no firewall rules'. Run under AmbientCapabilities=CAP_NET_ADMIN (as the EU unit does) for the real ruleset.",
+            },
+          });
+          return;
+        }
         reply(res, 200, {
           success: false,
-          error: `firewall inspection requires elevated privileges on this host — nft: "${nft.stderr}"; iptables: "${ipt.stderr}". This server never escalates privileges (no sudo); re-run the host process with CAP_NET_ADMIN or as root to enable this tool.`,
+          error: `firewall inspection failed — nft: "${nft.stderr}"; iptables: "${ipt.stderr}"`,
         });
+      } else if (tool === "exposure_report") {
+        // Read-only, from `ss -tulnH`: which listeners are bound beyond loopback, and
+        // which of those are well-known data-store / admin ports.
+        const r = await run("ss", ["-tulnH"]);
+        if (!r.ok && !r.stdout) { reply(res, 200, { success: false, error: r.stderr || "ss failed" }); return; }
+        const RISKY = { 22: "ssh", 23: "telnet", 2375: "docker-api", 3306: "mysql", 5432: "postgres", 6379: "redis", 9200: "elasticsearch", 11211: "memcached", 27017: "mongodb" };
+        const seen = new Set();
+        const listeners = [];
+        for (const line of r.stdout.split("\n")) {
+          const c = line.trim().split(/\s+/);
+          if (c.length < 5) continue;
+          const local = c[4];
+          const i = local.lastIndexOf(":");
+          const host = local.slice(0, i).replace(/%.*$/, "").replace(/^\[|\]$/g, "");
+          const port = Number(local.slice(i + 1));
+          const key = `${c[0]}/${host}/${port}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const loopback = host === "::1" || host.startsWith("127.");
+          listeners.push({ proto: c[0], host, port, scope: loopback ? "loopback" : "external", risky_service: RISKY[port] ?? null });
+        }
+        const external = listeners.filter((l) => l.scope === "external");
+        reply(res, 200, {
+          success: true,
+          output: {
+            listeners,
+            external_count: external.length,
+            external_risky: external.filter((l) => l.risky_service),
+            note: "'external' = bound to a non-loopback address; actual reachability still depends on the firewall (see firewall_status.inspectable)",
+          },
+        });
+      } else if (tool === "security_status") {
+        reply(res, 200, { success: true, output: { tool: "security-mcp", read_only: true, privileged: process.getuid?.() === 0, tools: ["net_connections", "listening_ports", "firewall_status", "exposure_report", "process_top"] } });
       } else if (tool === "process_top") {
         const sortField = input.sort === "mem" ? "-%mem" : "-%cpu";
         const limit = Math.max(1, Math.min(100, Number(input.limit ?? 15)));
@@ -193,7 +248,7 @@ const server = createServer((req, res) => {
       } else {
         reply(res, 200, {
           success: false,
-          error: `unknown security tool '${tool}' (net_connections, listening_ports, firewall_status, process_top)`,
+          error: `unknown security tool '${tool}' (net_connections, listening_ports, firewall_status, exposure_report, security_status, process_top)`,
         });
       }
     } catch (e) {

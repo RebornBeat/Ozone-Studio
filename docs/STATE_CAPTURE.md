@@ -347,3 +347,14 @@ RequireConfirmation / Warn actions.
 Everything routes through the task system. Everything is observable
 through the monitor. Everything is scoped through the graph. Everything
 is documented in the docs. Nothing is claimed without a test.
+
+
+## 2026-10-29 (cc) — MOBILE/ANDROID + SECURITY/TERMINAL MCP ENRICHMENT (guide: `docs/MOBILE_ANDROID_GUIDE.md`)
+Operator: review security MCP + logs local & EU, identify mobile MCP, terminal-like Android, ZCode's emulator -> Ozone MCP, enrich security/terminal/mobile, test.
+- **Reviewed:** local host.log + security-mcp log; EU over SSH (read-only): EU sensor tick HEALTHY (133 events, all success, EU unit has CAP_NET_ADMIN, real ufw rules) — zcode's "0 sensor events" was a log-only-failures artifact. Local `firewall_status` failed every 15 min (unprivileged) feeding the I-Loop.
+- **security-mcp:** unprivileged firewall = success + `inspectable:false`; new `exposure_report`, `security_status`. Selftest 5/5.
+- **terminal-mcp:** closed interpreter/arg bypass of the first-token allowlist (node -e, python3 -c, find -exec, git -c, npm exec, systemctl restart…). Selftest 18/18 (new file).
+- **android-mcp:** 7 -> 18 tools; shell locked-by-default allowlist + deny verbs + token; preflight; AVD/emulator (KVM-gated, opt-in); ui_snapshot/tap_element; term_* sessions; forward/Termux; refusals now HTTP 200 + reason. Selftest 17/17 + 1 SKIP (no device) against REAL adb 37.0.1 (installed ~/Android/platform-tools).
+- **Registered on the real local host:** 16 android + 2 security tools; verified through `/mcp/call` (gate not blocked, ledger counted). New launcher `target/release/launch-ops-mcps.sh`.
+- **ZCode android-emulator plugin:** ZCode-private (22 tools, needs SDK/JDK/Gradle); capability list absorbed, plugin not wrapped.
+- **NOT done / unverified:** no emulator or phone run (no SDK/JDK; RAM tight; /dev/kvm IS usable); EU deploy of the new security/terminal code; next 15-min sensor tick to prove the I-Loop echo stops.

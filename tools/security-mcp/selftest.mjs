@@ -1,0 +1,22 @@
+// security-mcp selftest — spawns the real server on a test port and calls it.
+import { spawn } from "node:child_process";
+const PORT = 3290;
+const srv = spawn("node", [new URL("./server.mjs", import.meta.url).pathname], { env: { ...process.env, OZONE_SECURITY_PORT: String(PORT) }, stdio: "ignore" });
+await new Promise((r) => setTimeout(r, 800));
+let pass = 0, fail = 0;
+const call = async (tool, input = {}) => (await fetch(`http://127.0.0.1:${PORT}/call`, { method: "POST", body: JSON.stringify({ tool, input }) })).json();
+const ok = (n, c, x = "") => { c ? pass++ : fail++; console.log(`${c ? "PASS" : "FAIL"}  ${n}${x ? "  — " + x : ""}`); };
+let r = await call("security_status");
+ok("security_status read-only", r.success && r.output.read_only === true, JSON.stringify(r.output));
+const privileged = r.output.privileged;
+r = await call("firewall_status");
+if (privileged) ok("firewall_status privileged returns ruleset", r.success && r.output.backend !== "unprivileged");
+else ok("firewall_status unprivileged = success + inspectable:false (no false finding)", r.success === true && r.output.inspectable === false && r.output.ruleset === null, r.output?.backend);
+r = await call("exposure_report");
+ok("exposure_report classifies listeners", r.success && Array.isArray(r.output.listeners) && r.output.listeners.every((l) => l.scope === "loopback" || l.scope === "external"), `${r.output?.listeners?.length} listeners, ${r.output?.external_count} external`);
+r = await call("sec_listening_ports");
+ok("sec_ alias accepted", r.success);
+r = await call("rm_rf");
+ok("unknown tool refused", !r.success && /unknown security tool/.test(r.error));
+srv.kill();
+console.log(`\n${pass} passed, ${fail} failed`); process.exit(fail ? 1 : 0);

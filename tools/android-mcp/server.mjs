@@ -17,6 +17,14 @@
 //   android_input {serial, kind:"tap"|"swipe"|"text"|"keyevent", ...}
 //   android_install {serial, apk}                       → adb install -r of data/apks/<apk>
 //   android_logcat {serial, lines?}                     → last N logcat lines
+//   android_preflight {}                                → adb/SDK/KVM/policy readiness, honest
+//   android_avd_list / android_emulator_start|stop       → headless emulator lifecycle (OZONE_ANDROID_ALLOW_EMULATOR=1, needs usable KVM)
+//   android_ui_snapshot / android_ui_tap_element        → perceive (uiautomator) -> act loop, labels untrusted
+//   android_term_open|exec|close                        → terminal-like session with tracked cwd
+//   android_forward / android_termux_status             → reach a human-installed Termux sshd (real shell, no root)
+//
+// android_shell and term_exec are LOCKED unless OZONE_ANDROID_SHELL_ALLOW is set (comma list or *).
+// Optional OZONE_ANDROID_TOKEN adds header x-ozone-android-token for direct callers.
 //
 // Notes:
 //   - android_shell runs an arbitrary command on the device by design. It
@@ -48,6 +56,33 @@ const SERIAL_RE = /^[A-Za-z0-9._:-]{1,80}$/;
 const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 class InputError extends Error {}
+
+// ---- Shell policy (locked by default, same doctrine as terminal-mcp) ----------
+// The old android_shell ran ANY device command given confirm:true — "nothing here
+// filters commands". Now the first token must be in OZONE_ANDROID_SHELL_ALLOW
+// (comma list; "*" is an explicit opt-in to anything). Unset = LOCKED. Shell
+// operators are refused (one command per call) and a deny list covers the
+// state-destroying verbs even for an allowlisted tool.
+const SHELL_ALLOW = (process.env.OZONE_ANDROID_SHELL_ALLOW ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const ALLOW_EMULATOR = process.env.OZONE_ANDROID_ALLOW_EMULATOR === "1";
+const TOKEN_SECRET = process.env.OZONE_ANDROID_TOKEN ?? "";
+const FORBIDDEN = /[;|&`$><\n\r\0]/;
+const SHELL_DENY = {
+  su: () => true, reboot: () => true, recovery: () => true, dd: () => true, mkfs: () => true, rm: (a) => a.some((x) => /^-[a-z]*[rf]/.test(x)),
+  pm: (a) => a.some((x) => /^(uninstall|clear|disable|disable-user|hide|suspend)$/.test(x)),
+  settings: (a) => a[0] === "put" || a[0] === "delete",
+  am: (a) => a.some((x) => /^(force-stop|kill|kill-all|crash)$/.test(x)),
+  svc: () => true, wipe: () => true, setprop: () => true, chmod: () => true, chown: () => true,
+};
+function shellPolicy(command) {
+  if (!SHELL_ALLOW.length) throw new InputError("android_shell is LOCKED: OZONE_ANDROID_SHELL_ALLOW is not configured (comma list of device commands, or * to opt in to all)");
+  if (FORBIDDEN.test(command)) throw new InputError("shell operators (; | & ` $ < > and newlines) are rejected — one command per call");
+  const parts = command.trim().split(/\s+/);
+  const first = parts[0];
+  if (!SHELL_ALLOW.includes("*") && !SHELL_ALLOW.includes(first)) throw new InputError(`command '${first}' is not in OZONE_ANDROID_SHELL_ALLOW (${SHELL_ALLOW.join(", ")})`);
+  const deny = SHELL_DENY[first];
+  if (deny && deny(parts.slice(1))) throw new InputError(`'${command.slice(0, 40)}' is refused — destructive/state-changing device verb`);
+}
 
 function findAdb() {
   if (process.env.OZONE_ADB) return process.env.OZONE_ADB;
@@ -94,6 +129,7 @@ function intIn(name, value, min, max) {
   return n;
 }
 
+const TERMS = new Map();
 const tools = {
   async android_devices() {
     const out = await adb(["devices", "-l"]);
@@ -140,9 +176,10 @@ const tools = {
     if (input.confirm !== true) {
       throw new InputError("android_shell runs an arbitrary device command; pass confirm:true to run it");
     }
-    await requireDevice(input.serial);
     const command = String(input.command ?? "");
     if (!command.trim() || command.length > 2000) throw new InputError("command must be 1-2000 characters");
+    shellPolicy(command); // policy first: cheap, and a refused command never touches the device
+    await requireDevice(input.serial);
     const timeoutS = input.timeout_s === undefined ? 30 : intIn("timeout_s", input.timeout_s, 1, 300);
     const wrapped = `${command}\n__ozone_rc=$?; echo __OZONE_EXIT:$__ozone_rc`;
     const out = await adb(["-s", input.serial, "shell", wrapped], { timeoutMs: timeoutS * 1000 });
@@ -212,6 +249,139 @@ const tools = {
     const out = await adb(["-s", input.serial, "shell", `logcat -d -t ${lines}`]);
     return { serial: input.serial, lines, text: out };
   },
+
+  async android_preflight() {
+    const bin = findAdb();
+    let adbVersion = null;
+    try { adbVersion = (await adb(["version"])).split("\n")[0].trim(); } catch (e) { adbVersion = null; }
+    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT ?? null;
+    const emu = sdk && existsSync(path.join(sdk, "emulator", "emulator")) ? path.join(sdk, "emulator", "emulator") : null;
+    const kvm = existsSync("/dev/kvm");
+    let kvmUsable = false;
+    try { const fs = await import("node:fs"); fs.accessSync("/dev/kvm", fs.constants.R_OK | fs.constants.W_OK); kvmUsable = true; } catch { /* no access */ }
+    let devices = [];
+    if (adbVersion) { try { devices = (await tools.android_devices()).devices; } catch { /* reported below */ } }
+    return {
+      adb: { path: bin, version: adbVersion, ok: Boolean(adbVersion) },
+      sdk_root: sdk, emulator_binary: emu, avdmanager: sdk ? existsSync(path.join(sdk, "cmdline-tools", "latest", "bin", "avdmanager")) : false,
+      kvm: { present: kvm, usable_by_this_user: kvmUsable, note: kvm && !kvmUsable ? "add the user to the 'kvm' group (needs sudo); without KVM an x86 emulator is unusably slow" : undefined },
+      policy: { shell_locked: SHELL_ALLOW.length === 0, shell_allow: SHELL_ALLOW, emulator_allowed: ALLOW_EMULATOR, token_required: Boolean(TOKEN_SECRET) },
+      devices,
+      ready_for_device: Boolean(adbVersion),
+      ready_for_emulator: Boolean(adbVersion && emu && kvmUsable),
+      termux_path: "Real-terminal feel on a stock phone: install Termux, run `pkg install openssh && sshd` (port 8022), then android_forward {serial, local:8022, remote:8022} and ssh -p 8022 localhost. No root needed.",
+    };
+  },
+
+  async android_avd_list() {
+    const sdk = process.env.ANDROID_HOME ?? process.env.ANDROID_SDK_ROOT;
+    const emu = sdk && path.join(sdk, "emulator", "emulator");
+    if (!emu || !existsSync(emu)) throw new Error("Android emulator not installed (set ANDROID_HOME to an SDK with the emulator package)");
+    const { stdout } = await execFileP(emu, ["-list-avds"], { timeout: 15000 });
+    return { avds: stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean) };
+  },
+
+  async android_emulator_start(input) {
+    if (!ALLOW_EMULATOR) throw new InputError("emulator control is LOCKED: set OZONE_ANDROID_ALLOW_EMULATOR=1");
+    const avd = String(input.avd ?? "");
+    if (!/^[A-Za-z0-9._-]{1,64}$/.test(avd)) throw new InputError("avd name required (see android_avd_list)");
+    const pre = await tools.android_preflight();
+    if (!pre.emulator_binary) throw new Error("Android emulator not installed");
+    if (!pre.kvm.usable_by_this_user && input.allow_software !== true) throw new InputError("no usable /dev/kvm — an x86 emulator would be unusably slow; pass allow_software:true to try anyway");
+    const { spawn } = await import("node:child_process");
+    const child = spawn(pre.emulator_binary, ["-avd", avd, "-no-window", "-no-audio", "-no-snapshot", "-gpu", "swiftshader_indirect"], { detached: true, stdio: "ignore" });
+    child.unref();
+    return { avd, pid: child.pid, headless: true, next: "poll android_devices until state=device, then android_ui_snapshot" };
+  },
+
+  async android_emulator_stop(input) {
+    if (!ALLOW_EMULATOR) throw new InputError("emulator control is LOCKED: set OZONE_ANDROID_ALLOW_EMULATOR=1");
+    if (!/^emulator-\d{4,5}$/.test(String(input.serial ?? ""))) throw new InputError("serial must be an emulator-NNNN serial (never a physical device)");
+    await adb(["-s", input.serial, "emu", "kill"]);
+    return { serial: input.serial, stopped: true };
+  },
+
+  // PERCEIVE: uiautomator dump -> numbered elements (same loop as browser_snapshot).
+  // Text comes from the app under inspection = untrusted data, never instructions.
+  async android_ui_snapshot(input) {
+    await requireDevice(input.serial);
+    const xml = await adb(["-s", input.serial, "exec-out", "uiautomator", "dump", "/dev/tty"], { timeoutMs: 30000 });
+    const body = xml.slice(xml.indexOf("<?xml"));
+    const els = [];
+    for (const m of body.matchAll(/<node\b([^>]*?)\/?>/g)) {
+      const attr = (k) => (m[1].match(new RegExp(`\\b${k}="([^"]*)"`)) ?? [])[1] ?? "";
+      const b = attr("bounds").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
+      if (!b) continue;
+      const interactive = attr("clickable") === "true" || attr("long-clickable") === "true" || attr("checkable") === "true" || attr("scrollable") === "true";
+      const label = attr("text") || attr("content-desc");
+      if (!interactive && !label) continue;
+      const [x1, y1, x2, y2] = b.slice(1).map(Number);
+      els.push({ index: els.length, label: label.slice(0, 80), id: attr("resource-id"), class: attr("class").split(".").pop(), clickable: attr("clickable") === "true", bounds: [x1, y1, x2, y2], center: [Math.round((x1 + x2) / 2), Math.round((y1 + y2) / 2)] });
+      if (els.length >= 150) break;
+    }
+    return { serial: input.serial, untrusted_elements: els, count: els.length };
+  },
+
+  async android_ui_tap_element(input) {
+    const snap = await tools.android_ui_snapshot({ serial: input.serial });
+    const el = input.index !== undefined ? snap.untrusted_elements[intIn("index", input.index, 0, 1000)]
+      : snap.untrusted_elements.find((e) => input.text && e.label.toLowerCase().includes(String(input.text).toLowerCase()));
+    if (!el) throw new InputError("no matching element (take android_ui_snapshot, then use index or text)");
+    await tools.android_input({ serial: input.serial, kind: "tap", x: el.center[0], y: el.center[1] });
+    return { tapped: { index: el.index, label: el.label, center: el.center } };
+  },
+
+  // TERMINAL-SENSE: a session that remembers cwd, so the agent works like a shell.
+  // Every exec goes through the same policy as android_shell.
+  async android_term_open(input) {
+    await requireDevice(input.serial);
+    const id = "t" + Math.random().toString(36).slice(2, 9);
+    if (TERMS.size >= 4) throw new InputError("max 4 terminal sessions — android_term_close one");
+    TERMS.set(id, { serial: input.serial, cwd: "/sdcard", at: Date.now() });
+    return { term: id, cwd: "/sdcard", note: "stateless on the device side; cwd is tracked here. Same allowlist as android_shell." };
+  },
+
+  async android_term_exec(input) {
+    const t = TERMS.get(String(input.term ?? ""));
+    if (!t) throw new InputError("unknown terminal session (android_term_open first)");
+    if (input.confirm !== true) throw new InputError("pass confirm:true to run a device command");
+    const command = String(input.command ?? "").trim();
+    if (!command || command.length > 2000) throw new InputError("command must be 1-2000 characters");
+    const first = command.split(/\s+/)[0];
+    if (first === "cd") {
+      if (!SHELL_ALLOW.length) throw new InputError("terminal is LOCKED: OZONE_ANDROID_SHELL_ALLOW is not configured");
+      const target = command.split(/\s+/)[1] ?? "/sdcard";
+      const next = target.startsWith("/") ? target : path.posix.normalize(path.posix.join(t.cwd, target));
+      if (!/^[A-Za-z0-9._\/-]{1,200}$/.test(next)) throw new InputError("invalid path");
+      const chk = await adb(["-s", t.serial, "shell", `[ -d '${next}' ] && echo yes || echo no`]);
+      if (!chk.includes("yes")) throw new InputError(`no such directory: ${next}`);
+      t.cwd = next;
+      return { term: input.term, cwd: t.cwd, stdout: "", exit_code: 0 };
+    }
+    shellPolicy(command);
+    const out = await adb(["-s", t.serial, "shell", `cd '${t.cwd}' && ${command}\n__rc=$?; echo __OZONE_EXIT:$__rc`], { timeoutMs: 60000 });
+    const m = out.match(/__OZONE_EXIT:(\d+)\s*$/);
+    return { term: input.term, cwd: t.cwd, stdout: m ? out.slice(0, m.index) : out, exit_code: m ? Number(m[1]) : null };
+  },
+
+  async android_term_close(input) { return { closed: TERMS.delete(String(input.term ?? "")) }; },
+
+  // Lets a human-installed Termux sshd (or similar) be reached from the host. Only
+  // loopback forwards, only to a small set of ports; never `adb reverse`.
+  async android_forward(input) {
+    await requireDevice(input.serial);
+    const local = intIn("local", input.local, 1024, 65535);
+    const remote = intIn("remote", input.remote, 1024, 65535);
+    if (![8022, 8080, 8081, 5555, 9222].includes(remote)) throw new InputError("remote port must be one of 8022 (Termux sshd), 8080, 8081, 5555, 9222");
+    await adb(["-s", input.serial, "forward", `tcp:${local}`, `tcp:${remote}`]);
+    return { serial: input.serial, forwarded: `127.0.0.1:${local} -> device:${remote}` };
+  },
+
+  async android_termux_status(input) {
+    await requireDevice(input.serial);
+    const out = await adb(["-s", input.serial, "shell", "pm path com.termux"]);
+    return { serial: input.serial, installed: out.includes("package:"), how: "Install Termux from F-Droid, then `pkg install openssh; sshd`; use android_forward remote=8022." };
+  },
 };
 
 function reply(res, code, body) {
@@ -222,6 +392,10 @@ function reply(res, code, body) {
 const server = createServer((req, res) => {
   if (req.method !== "POST" || !(req.url ?? "").startsWith("/call")) {
     reply(res, 404, { error: "POST /call only" });
+    return;
+  }
+  if (TOKEN_SECRET && (req.headers["x-ozone-android-token"] ?? "") !== TOKEN_SECRET) {
+    reply(res, 401, { success: false, error: "invalid or missing x-ozone-android-token" });
     return;
   }
   const chunks = [];
@@ -246,8 +420,9 @@ const server = createServer((req, res) => {
       const output = await fn(input);
       reply(res, 200, { success: true, output });
     } catch (err) {
-      const code = err instanceof InputError ? 400 : 500;
-      reply(res, code, { success: false, error: err.message });
+      // 200 + success:false for every refusal/failure: the host drops the body of a non-2xx
+      // answer ("tool returned HTTP 400"), which hid WHY a call was refused from the agent.
+      reply(res, 200, { success: false, error: err.message });
     }
   });
 });
@@ -261,5 +436,5 @@ server.on("error", (err) => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.error(`[android-mcp] /call on 127.0.0.1:${PORT} — android_devices, android_device_info, android_shell, android_screenshot, android_input, android_install, android_logcat (adb: ${findAdb()})`);
+  console.error(`[android-mcp] /call on 127.0.0.1:${PORT} — android_preflight + devices/info/shell(locked)/screenshot/input/install/logcat + avd/emulator + ui_snapshot/tap_element + term_* + forward + termux_status (adb: ${findAdb()})`);
 });

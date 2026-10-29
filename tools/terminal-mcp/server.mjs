@@ -96,7 +96,35 @@ function exec_allowed(command, agent) {
   if (!allow.some((a) => first === a || (a.length > 0 && /[\s/]$/.test(a) && first.startsWith(a)))) {
     return { ok: false, reason: `command '${first}' is not in the allowlist for role of '${agent}' (${allow.join(", ")})` };
   }
+  // Argument-level denies. First-token allowlisting alone is bypassable by any
+  // allowlisted interpreter or runner: `node -e`, `python3 -c`, `find -exec`,
+  // `git -c core.sshCommand=…`, `npm exec`, `systemctl start`. These are the
+  // flags/subcommands that turn "run this tool" into "run arbitrary code/state change".
+  const args = command.trim().split(/\s+/).slice(1);
+  const denied = argDenied(first, args);
+  if (denied) return { ok: false, reason: `'${first} ${denied}' is refused — it executes arbitrary code or changes system state (use a script file inside the repo instead)` };
   return { ok: true };
+}
+
+const ARG_DENY = {
+  node: (a) => a.find((x) => /^(-e|--eval|-p|--print|--input-type|-r|--require|--import)(=|$)/.test(x)),
+  python3: (a) => a.find((x) => /^-[A-Za-z]*c[A-Za-z]*$/.test(x)),
+  python: (a) => a.find((x) => /^-[A-Za-z]*c[A-Za-z]*$/.test(x)),
+  pip: (a) => a.find((x) => /^(install|uninstall|download)$/.test(x)),
+  pip3: (a) => a.find((x) => /^(install|uninstall|download)$/.test(x)),
+  find: (a) => a.find((x) => /^-(exec|execdir|ok|okdir|delete|fprint|fprintf|fls)$/.test(x)),
+  git: (a) => a.find((x) => x === "-c" || /^--(exec-path|upload-pack|receive-pack|config-env)/.test(x) || /^(config|filter-branch|daemon|credential)$/.test(x)),
+  npm: (a) => a.find((x) => /^(exec|x|publish|login|adduser|token|config)$/.test(x)),
+  cargo: (a) => a.find((x) => /^(login|publish|owner|yank|install)$/.test(x)),
+  systemctl: (a) => a.find((x) => /^(start|stop|restart|reload|enable|disable|mask|unmask|kill|edit|daemon-reload|isolate|poweroff|reboot)$/.test(x)),
+  grep: () => undefined,
+  ls: () => undefined,
+  ss: () => undefined,
+  blender: (a) => a.find((x) => /^(--python-expr|--python-console)$/.test(x)),
+};
+function argDenied(cmd, args) {
+  const f = ARG_DENY[cmd];
+  return f ? f(args) : undefined;
 }
 
 function run_command(command, cwd, timeoutSecs) {

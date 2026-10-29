@@ -6260,3 +6260,14 @@ Operator: capture everything left before further edits; review vault/Personal-As
 - **Binary gate:** deployed binary predates jurisdiction aliases/sync, x-oz-internal, I-Loop budget; local host not running; RAM 7.6G (2.7G avail), disk 18G free. One build+deploy unblocks most items (W0).
 - **MCP index/registry guide found:** TOOLS_PIPELINES_MCP_GUIDE §11–13 (MCP=AMT expansion, capability_ids in stages 4/7 NOT built, edge-identification K-registry, persistence, security, versioning gaps). Personal Assistant = internal consciousness pipeline, proposals only → browser actions must be proposed/approved via Order, executed via /mcp/call.
 - **Browser-Farm repo** has 15 uncommitted changes of its own (README still advertises mouse coalescing while GhostCursor/useMouseBatcher are deleted) — confirm before running; not touched.
+
+
+## 2026-10-29 (cc) — MOBILE/ANDROID + SECURITY/TERMINAL MCP ENRICHMENT (guide: `docs/MOBILE_ANDROID_GUIDE.md`)
+Operator: review security MCP + logs local & EU, identify mobile MCP, terminal-like Android, ZCode's emulator -> Ozone MCP, enrich security/terminal/mobile, test.
+- **Reviewed:** local host.log + security-mcp log; EU over SSH (read-only): EU sensor tick HEALTHY (133 events, all success, EU unit has CAP_NET_ADMIN, real ufw rules) — zcode's "0 sensor events" was a log-only-failures artifact. Local `firewall_status` failed every 15 min (unprivileged) feeding the I-Loop.
+- **security-mcp:** unprivileged firewall = success + `inspectable:false`; new `exposure_report`, `security_status`. Selftest 5/5.
+- **terminal-mcp:** closed interpreter/arg bypass of the first-token allowlist (node -e, python3 -c, find -exec, git -c, npm exec, systemctl restart…). Selftest 18/18 (new file).
+- **android-mcp:** 7 -> 18 tools; shell locked-by-default allowlist + deny verbs + token; preflight; AVD/emulator (KVM-gated, opt-in); ui_snapshot/tap_element; term_* sessions; forward/Termux; refusals now HTTP 200 + reason. Selftest 17/17 + 1 SKIP (no device) against REAL adb 37.0.1 (installed ~/Android/platform-tools).
+- **Registered on the real local host:** 16 android + 2 security tools; verified through `/mcp/call` (gate not blocked, ledger counted). New launcher `target/release/launch-ops-mcps.sh`.
+- **ZCode android-emulator plugin:** ZCode-private (22 tools, needs SDK/JDK/Gradle); capability list absorbed, plugin not wrapped.
+- **NOT done / unverified:** no emulator or phone run (no SDK/JDK; RAM tight; /dev/kvm IS usable); EU deploy of the new security/terminal code; next 15-min sensor tick to prove the I-Loop echo stops.
