@@ -6329,3 +6329,38 @@ Operator: review what zcode is doing, capture it, give insights; review integrat
 - **Flags for the operator:** zcode committed inside Browser-Farm (`b603436`) and touched the `tools/bridges` gitlink — contrary to the standing "do not touch Browser-Farm / do not commit tools/bridges" rules.
 - **E2E rows added:** A22–A30, I-WS1..2, I-EN1..3, I-UI1..4, I-3D1..4, I-MOD1..3, I-MCP1..3 (MASTER_TEST_GUIDE §17). Not run — stated and captured.
 - **Not done by me:** any fix (docs only); EU re-registration (zcode is on EU); no builds/tests (cargo running).
+
+## 2026-10-29 (zc, later still) — EDITS-ONLY SWEEP (operator: "no tests no builds until all edits captured")
+All edits below are LANDED UNVERIFIED — nothing compiled, typechecked, or tested this sweep, per the
+operator's explicit gate. Verification happens at the next build pass.
+- **DOMorpher phase 1 (~/Projects/domorpher, separate repo)**: (1) **29 broken raw-string literals fixed**
+  across action.rs (7), preprocessor.rs (6), perception.rs (7), reasoning.rs (8), semantic_first.rs (1) —
+  `r"...\"..."` literals (the \" escape is not honored inside a raw string, so the first " terminated
+  the literal = the 27 lexer errors CC found) rewritten with `r#"..."#` delimiters; zero remaining
+  matches of the broken pattern. (2) **Cargo.toml [dependencies] restored** — was EMPTY, so none of the
+  ~50 imported external crates could ever resolve; list derived by scanning every `use` statement;
+  versions are compatible-range guesses, flagged finicky ones (opentelemetry_*, jsonrpc_*, playwright,
+  tiktoken_rs, sqlx features, wasm_bindgen) for the compile pass. lib.rs exists (bin+lib split, so
+  `use domorpher::` in main resolves). Build deliberately NOT run.
+- **Modality-table unification (the 4-tables defect, host side)**: `graphs.rs detect_file_modality`
+  deferred entirely to the canonical `types::ModalityType::from_extension().path_name()` — the
+  disagreeing local table is gone (it answered "unknown" for rtf/adoc/org/ipynb/… and called .tex
+  "text" while the canonical table calls it Math). `.tex` removed from Text's extension list (the
+  math pipeline consumes it; first-match order would otherwise give Text) with a doc comment pinning
+  the rationale. Path hints (radar/sonar/thermal/…) kept above the extension call — they disambiguate.
+- **CapturePresence — the LAST unwired GraphKit indicator, now wired**: `indicators.tsx` gains the
+  presentational component (S10–S13 chips; null route = honest "–", zero = dimmed literal 0);
+  `WorkspaceStatusStrip` gains CaptureChip polling the four REAL read routes
+  (/capture/decision-reviews, zero-shot-calls, pipeline-zero-shot-calls, tool-calls — each returns
+  {total}) every 60 s via the strip's usePolled helper. Per-store independent failure = per-store
+  honest absence. UNVERIFIED (no tsc this sweep).
+- **Reverse file weave (GraphKit wave 8)**: GKContainerRef gains `sourceFile` (the FileReference a
+  container was derived from — the mirror of the file's own linkedContainers); graphProvider builds
+  it (real relationship data, first writer wins); the inspector shows "Derived from file" with a
+  jump chip. No dead ends from the container side either.
+- **tools/launch-browser-stack.sh**: the durable browser-stack launcher moved INTO the repo
+  (repo-relative paths, syntax-checked) — it previously lived only in gitignored target/release.
+- **Captured, deliberately NOT faked**: the screenshot→visual_ingest auto-hook needs a host-side
+  ingest route (pipeline 102 call from HTTP) — a feature + build, queued in MASTER_TEST_GUIDE X1's
+  orbit, not an env-flag pretense. Farm lens + 3D call-graph lens + in-world indicators + vault +
+  PDF pipeline: same status — designed, queued, not fake-landed.

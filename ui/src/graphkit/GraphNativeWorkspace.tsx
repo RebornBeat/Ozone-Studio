@@ -179,6 +179,13 @@ const Inspector: React.FC<{
     node.kind === "file"
       ? substrate.files.find((f) => f.containerId === node.containerId)?.linkedContainers ?? []
       : [];
+  // REVERSE FILE WEAVE: a container node shows the file it was derived from
+  // (the mirror of the file's own linkedContainers — no dead ends from the
+  // container side either).
+  const sourceFile =
+    node.kind === "container" && node.containerId !== null
+      ? substrate.containers[node.containerId]?.sourceFile ?? null
+      : null;
   const modality = node.modality !== "container" ? (node.modality as Modality) : null;
   return (
     <div className="gnw-insp">
@@ -254,6 +261,21 @@ const Inspector: React.FC<{
                 graph #{c}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+
+      {sourceFile && (
+        <div className="gnw-insp-sec">
+          <div className="gnw-sec-title">Derived from file</div>
+          <div className="gnw-chips">
+            <button
+              className="gnw-chip"
+              onClick={() => onSelectContainer(sourceFile.containerId)}
+              title={`FileReference container #${sourceFile.containerId}`}
+            >
+              {sourceFile.name}
+            </button>
           </div>
         </div>
       )}

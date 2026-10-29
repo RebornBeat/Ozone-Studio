@@ -143,7 +143,21 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
       containerType: type,
       name,
       keywords: c.local_state.context.keywords ?? [],
+      sourceFile: null,
     };
+  }
+
+  // REVERSE FILE WEAVE (wave 8): containers learn which file they came from —
+  // the mirror of each file's own linkedContainers, so a container node can
+  // answer "derived from file X" without the no-dead-ends law breaking at the
+  // container side. Real relationship data, first writer wins.
+  for (const f of files) {
+    for (const cid of f.linkedContainers) {
+      const target = containers[cid];
+      if (target && target.sourceFile === null) {
+        target.sourceFile = { containerId: f.containerId, name: f.name };
+      }
+    }
   }
 
   // Cross-links: real context.relationships of every fetched container + the

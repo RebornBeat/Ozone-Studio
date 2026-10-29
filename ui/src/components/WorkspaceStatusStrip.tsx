@@ -9,7 +9,7 @@
 import React, { useEffect, useState } from "react";
 import { useGraphKit } from "../graphkit/graphProvider";
 import { hostGet, hostPost } from "../ozoneClient";
-import { PeerState, ActivityPulse, TaskStateIcon, GateState } from "../graphkit/indicators";
+import { PeerState, ActivityPulse, TaskStateIcon, GateState, CapturePresence } from "../graphkit/indicators";
 
 export const WorkspaceStatusStrip: React.FC = () => {
   const [peerCount, setPeerCount] = useState(0);
@@ -59,6 +59,7 @@ export const WorkspaceStatusStrip: React.FC = () => {
     <div className="gnw-ind">
       <TaskChip />
       <GateChip />
+      <CaptureChip />
       <span className="gnw-ind-sep" />
       <PeerState peerCount={peerCount} pairedCount={pairedCount} />
       <ActivityPulse active={nodeEventCount > 0} label={`${nodeEventCount} live construction events this session`} />
@@ -82,6 +83,25 @@ function usePolled<T>(fetcher: () => Promise<T>, ms: number): T | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return v;
+}
+
+interface CaptureTotal { total?: number }
+/** CaptureChip — the S10–S13 capture stores' REAL totals from their read
+ * routes, fed to the GraphKit CapturePresence indicator. Each store polls
+ * independently; a route that fails renders honest absence for that store
+ * only. The last unwired indicator of the GraphKit set (wave 8, 2026-10-29). */
+function CaptureChip() {
+  const s10 = usePolled(() => hostGet<CaptureTotal>("/capture/decision-reviews?limit=1"), 60_000);
+  const s11 = usePolled(() => hostGet<CaptureTotal>("/capture/zero-shot-calls?limit=1"), 60_000);
+  const s12 = usePolled(() => hostGet<CaptureTotal>("/capture/pipeline-zero-shot-calls?limit=1"), 60_000);
+  const s13 = usePolled(() => hostGet<CaptureTotal>("/capture/tool-calls?limit=1"), 60_000);
+  const n = (r: CaptureTotal | null): number | null =>
+    r && typeof r.total === "number" ? r.total : null;
+  return (
+    <CapturePresence
+      counts={{ S10: n(s10), S11: n(s11), S12: n(s12), S13: n(s13) }}
+    />
+  );
 }
 
 interface TaskRow { task_id: number; status: string; progress: number; description?: string | null; blueprint_name?: string; error?: string | null }

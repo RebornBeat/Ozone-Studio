@@ -744,33 +744,20 @@ impl PromptOrchestrator {
             return "imu".to_string();
         }
 
-        // Extension-based detection
+        // Extension-based detection — THE canonical table lives in
+        // types::ModalityType (file_extensions + from_extension): one
+        // disagreeing table used to live here (four existed codebase-wide,
+        // .tex was Text here and Math there — unified 2026-10-29). Deferring
+        // also picks up every extension the old table lacked (rtf/adoc/org/
+        // ipynb/smf/… — the old table answered "unknown" for those).
         let ext = std::path::Path::new(file_path)
             .extension()
             .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
+            .unwrap_or("");
 
-        match ext.as_str() {
-            "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "rb" | "swift" | "kt"
-            | "sql" | "yaml" | "yml" | "toml" | "json" | "xml" => "code".to_string(),
-            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "tiff" | "svg" => "image".to_string(),
-            "mp3" | "wav" | "flac" | "ogg" | "aac" | "m4a" => "audio".to_string(),
-            "mp4" | "mkv" | "avi" | "mov" | "webm" => "video".to_string(),
-            "blend" | "obj" | "glb" | "gltf" | "fbx" | "stl" | "usd" | "urdf" => "3d".to_string(),
-            "pdb" | "mol" | "sdf" | "cif" => "chemistry".to_string(),
-            "fasta" | "fa" | "fastq" | "vcf" | "gff" | "bam" | "sam" => "dna".to_string(),
-            "edf" | "bdf" | "gdf" | "fif" => "eeg".to_string(),
-            "geojson" | "kml" | "shp" | "gpx" => "geospatial".to_string(),
-            "step" | "stp" | "iges" | "brep" => "parametric_cad".to_string(),
-            "pcd" | "las" | "laz" => "depth".to_string(),
-            "xtf" | "jsf" | "s7k" | "gsf" => "sonar".to_string(),
-            "iq" | "cphd" | "sicd" | "nitf" => "radar".to_string(),
-            "hdr" | "bil" | "bip" | "bsq" | "h4" => "hyperspectral".to_string(),
-            "tex" | "latex" | "nb" => "math".to_string(),
-            "txt" | "md" | "rst" | "pdf" | "docx" | "doc" => "text".to_string(),
-            _ => "unknown".to_string(),
-        }
+        crate::types::modality::ModalityType::from_extension(ext)
+            .path_name()
+            .to_string()
     }
 
     /// Map modality name string to pipeline ID.

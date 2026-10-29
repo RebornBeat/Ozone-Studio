@@ -50,8 +50,12 @@ impl ModalityType {
     pub fn file_extensions(&self) -> &[&str] {
         match self {
             // ── Core ───────────────────────────────────────────────────────────
+            // NOTE: "tex" is deliberately NOT here — it lives in Math's list
+            // below (the math pipeline consumes it; first-match in
+            // from_extension would otherwise give Text). This table is THE
+            // single source: graphs.rs detect_file_modality defers to it.
             ModalityType::Text => &[
-                "txt", "md", "doc", "docx", "pdf", "rtf", "rst", "adoc", "org", "tex",
+                "txt", "md", "doc", "docx", "pdf", "rtf", "rst", "adoc", "org",
             ],
             ModalityType::Code => &[
                 "rs",

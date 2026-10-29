@@ -47,6 +47,11 @@ export interface GKContainerRef {
   containerType: string;
   name: string | null;
   keywords: string[];
+  /** REVERSE FILE WEAVE (wave 8): the FileReference this container was
+   * derived from — the mirror of the file's own linkedContainers. Null for
+   * containers with no file origin. Real relationship data, first writer
+   * wins when several files reference one container. */
+  sourceFile: { containerId: number; name: string } | null;
 }
 
 /** One cross-container link, resolved to citable labels. Sources: the real

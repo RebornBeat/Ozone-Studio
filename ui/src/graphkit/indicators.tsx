@@ -212,3 +212,42 @@ export const ActivityPulse: React.FC<{ active: boolean; label: string }> = ({ ac
     }}
   />
 );
+
+/** CapturePresence — the last of the GraphKit indicator set: per-store S10–S13
+ * non-empty status (decision reviews, zero-shot calls, pipeline zero-shot
+ * calls, tool calls). Pure presentational: the caller feeds REAL totals from
+ * the /capture/* read routes; null store = honest absence ("–"), zero = a
+ * dimmed literal 0 (a store that exists and is empty is a REAL fact). */
+export const CapturePresence: React.FC<{
+  counts: { S10?: number | null; S11?: number | null; S12?: number | null; S13?: number | null };
+}> = ({ counts }) => {
+  const chip = (label: string, total: number | null | undefined) => {
+    const text = total === null || total === undefined ? "–" : String(total);
+    const live = typeof total === "number" && total > 0;
+    return (
+      <span
+        key={label}
+        title={`${label} capture store: ${live ? `${total} rows` : text === "–" ? "no answer" : "empty"}`}
+        style={{
+          fontSize: 10,
+          fontFamily: "var(--font-mono, monospace)",
+          padding: "1px 6px",
+          borderRadius: 8,
+          border: "1px solid var(--color-border)",
+          color: live ? "var(--color-fg, inherit)" : "var(--color-border)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {label} {text}
+      </span>
+    );
+  };
+  return (
+    <span style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+      {chip("S10", counts.S10)}
+      {chip("S11", counts.S11)}
+      {chip("S12", counts.S12)}
+      {chip("S13", counts.S13)}
+    </span>
+  );
+};
