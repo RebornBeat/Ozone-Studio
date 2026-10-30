@@ -6608,3 +6608,10 @@ sha2/selectors/markup5ever_rcdom/base64 added; extraction::extractor public. Rem
 forms/instruction files importing LlmClient/LlmProvider join the SPLIT-PENDING set (above-the-seam
 per the corrected doctrine — the core gets no llm shim), ~40 type-alias/variant/visibility items.
 domorpher carries each grind step; the loop continues next session.
+
+## 2026-10-30 (zc, XI) — GRIND: 82 → 72 (structural pass)
+execution/ parent shim restored (actions/evaluator IN; multi_pass + recovery SPLIT-PENDING —
+model-escalation choice is above the seam per the corrected doctrine); BrowserError recreated
+(16 census-driven variants + From<BrowserError>); Result alias generalized (T, E = DOMorpherError);
+reconciliation declared in core. Remaining 72: utils sub-file imports (tokenizer's own crate::llm
+use — split-pending next), type homes, visibility — the census loop continues.
