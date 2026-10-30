@@ -6623,3 +6623,9 @@ table is declarative per-install with autostart none|mcps|scan; everything throu
 four new findings (F-NEW-1..4: untested domain MCPs, audio has no tool face, video→frames→image
 chain, modality:<name> capability tags). Grind: domorpher-core 72 → 65 (ChunkRelation WithData
 variant — original unit-only enum vs struct-style builders; extraction split-pending noted).
+
+## 2026-10-30 (zc, XIII) — GRIND: 65 → 63 (recreations + re-points)
+TokenCounter + count_tokens recreated in tokenizer.rs (callers' contracts exact); extractor
+split-pending (crate::llm above seam); converter rcdom re-pointed to markup5ever_rcdom. Next:
+tokenizer's own internals (TokenizerModel Clone/Into). The census loop is established and each
+step is proven by the count moving; domorpher carries every step.
