@@ -1,6 +1,8 @@
 # OZONE STUDIO — COMPREHENSIVE STATE CAPTURE
 ## 2026-09-17 · ZCode + Claude Code joint session · living graph operational
 
+> **LATEST 2026-10-30 (zc, INGEST LIVE)** — /capture/ingest_image END-TO-END on EU: strict gate → entry gate → registry → image binary → real analysis (bit depth/sRGB/composition scoring) on a live farm screenshot. Fix: WorkingDirectory=/opt/ozone-studio + binary at CWD-relative pipelines path. Local host restored (monitor posture; VPS-primary testing). 
+
 > **LATEST 2026-10-30 (zc, VPS-PRIMARY)** — Local crashed 4× → testing moved to the VPS (operator-confirmed). Ingest route LIVE on EU through the full guarded chain (strict gate → entry gate → registry dispatch → honest pipeline-not-built); two hardenings landed (locality: data_dir OR CWD; registry+entry_gate directly — the legacy app-session is None after restart). Left open, both captured: the image binary's exact candidate path on EU (one journal line pins it) and the MCP hooks' x-oz-internal auth option. Stale 3252 farm endpoints caught + re-registered (X9 live). Local host left DOWN by choice; systemd watchdog recommended.
 
 > **LATEST 2026-10-29 (zc, BUILD GATE)** — domorpher-core IN-list PARSES CLEAN (campaign milestone): 447 name-resolution errors remain (enumerated by file — the never-compiled debt, multi-session); error.rs recreated census-driven (62 variants); agent-mcp selftest refusal paths all green (status token-exempt fix); EU farm-mcp carries the ingest wiring; host rebuild for the ingest route is the next gate item.

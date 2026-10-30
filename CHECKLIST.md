@@ -6496,3 +6496,16 @@ Operator: "continue with all" after the captured sweep — verification resumed.
   an empty body → the MCP parses "Unexpected end of JSON input". Fix designed: hooks send
   `x-oz-internal: <OZONE_*_INGEST_TOKEN>` when set. One small edit + redeploy.
 - **EU transient network blip** (ssh "No route to host" once; recovered on retry — VPS or route flap).
+
+## 2026-10-30 (zc, II) — INGEST FULLY LIVE ON EU (end-to-end) + local host restored
+- **THE MILESTONE**: `/capture/ingest_image` on EU ran the COMPLETE chain — strict gate → entry gate
+  (trace root + span) → registry → image pipeline binary → **REAL image analysis returned** (bit_depth
+  8, sRGB, composition/rule-of-thirds/symmetry/visual-weight scoring) on a live farm screenshot. The
+  fix that closed it: the executor's candidate paths are CWD-RELATIVE (`pipelines/modalities/image/
+  image`); the EU unit had no WorkingDirectory (cwd=/). Set `WorkingDirectory=/opt/ozone-studio` +
+  placed the binary at `/opt/ozone-studio/pipelines/modalities/image/image`. NOTE: candidate 1 is
+  CARGO_MANIFEST_DIR-relative (a build-machine path — harmless dead candidate at runtime).
+- **Local host UP again** (operator: "shouldn't be down, let it up to monitor") — host-only, healthy;
+  testing stays VPS-primary. Watchdog recommendation unchanged.
+- Both hosts audited since last update: EU binary current + ingest live; local healthy on the previous
+  binary (ingest route rides the next local rebuild — EU-first testing per operator).
