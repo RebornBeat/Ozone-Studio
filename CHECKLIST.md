@@ -6509,3 +6509,18 @@ Operator: "continue with all" after the captured sweep — verification resumed.
   testing stays VPS-primary. Watchdog recommendation unchanged.
 - Both hosts audited since last update: EU binary current + ingest live; local healthy on the previous
   binary (ingest route rides the next local rebuild — EU-first testing per operator).
+
+## 2026-10-30 (zc, II) — MODALITY→TOOL AFFINITY + production-path doctrine captured
+Operator's cluster captured in DESIGNED_NOT_BUILT_REGISTRY §7-8: (1) YOLO already HAS its MCP
+(tools/visual-mcp :3220 — yolo_detect/yolo_graph/yolo_segment/depth_graph; yolo_graph ALREADY
+graph-expands via CreateGraph; needs `pip install ultralytics`); (2) the modality→tool AFFINITY
+registry specified (one declarative table: modality → tools that CAN run on it, read by the
+orchestrator + UI ModalityBadge + the auto-runner); (3) auto-run on launch specified (mirrors
+autostart MCPs: affinity rows carry autostart=none|mcps|scan — mcps generalizes the supervisor's
+boot spawn, scan auto-runs one registered tool over new modality content, feeding graphs + the
+EXISTING GraphRipple→AMT route; operator-assignable per install; everything metered/gated);
+acceptance row X11 designed (drop a PNG → yolo_graph auto-runs → detections as nodes/edges +
+ripple, hands-free). (4) Production-path doctrine captured: runtime paths resolve against the
+INSTALL ROOT never the build machine (CARGO_MANIFEST_DIR candidate = dead at production; the
+WorkingDirectory fix on EU is the working pattern; next build pass sweeps remaining
+CARGO_MANIFEST_DIR runtime uses).

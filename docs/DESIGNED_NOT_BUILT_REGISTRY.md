@@ -243,3 +243,48 @@ documents once extracted.
 **Nothing else is deferred-and-uncaptured.** The EDITS-ONLY sweep items (modality
 unification, CapturePresence, reverse file weave, launcher) are LANDED UNVERIFIED and
 await the build gate with the rest.
+
+---
+
+## 7. Modality → tool auto-run registry — SPECIFIED (operator, 2026-10-30)
+
+**The questions**: YOLO — another MCP or a tool for image modality? Should the system KNOW which
+tools run on top of each modality? Should launch AUTO-RUN per-modality tools (like autostart MCPs)?
+**The answers, grounded in what exists:**
+
+- **YOLO already has its MCP**: `tools/visual-mcp` (:3220) — `yolo_detect`, `yolo_graph`
+  (detections → CreateGraph — ALREADY graph-expanding!), `yolo_segment`, `depth_graph`. Its
+  `yolo_detect` needs `pip install ultralytics` (documented). This is TOOL-tier capability latent to
+  image modality (102) — exactly TOOLS_PIPELINES_MCP_GUIDE §11.6's design: each detection model is a
+  registry entry; N models fan out in parallel over the SAME image graph; every detection lands as
+  nodes + F.3-typed edges through the standard choke point.
+- **The modality → tool AFFINITY registry** (to build): one declarative table (seeded like the
+  jurisdiction sync, editable in data_dir) mapping modality → tools that CAN run on it:
+  `image → [visual-mcp.yolo_detect, visual-mcp.yolo_graph, visual-mcp.depth_graph]`,
+  `text → [extraction tools]`, `3d → [bridges.blender_*]`, `code → [code-graph-mcp]`, … This is
+  what makes the system "aware of which tools to run on top of each modality" — the orchestrator,
+  the UI (ModalityBadge → available tools), and the auto-runner all read ONE table.
+- **Auto-run on launch** (mirrors autostart MCPs): each affinity entry carries
+  `autostart: none | mcps | scan` — `mcps` = the modality's MCPs are launched/registered at boot
+  (the supervisor already does this for security/p2p-bridge; the affinity table generalizes it),
+  `scan` = after boot (or after a modality graph updates) ONE registered tool auto-runs over new
+  content and its graph output feeds the modality + ripples into the graph-native expansion
+  (GraphRipple → AMT candidates — the existing route, no new machinery). Assignments are
+  per-installation config (operator-assignable), all metered/gated like every call.
+- **Wiring points**: affinity table file + loader (host, small); supervisor reads the affinity's
+  `mcps` rows at boot; a post-boot pass runs `scan` rows over un-analyzed modality content; the UI's
+  ModalityBadge surfaces the affinity (hover → "runs: yolo_detect, depth_graph"); /mcp/call already
+  captures everything.
+- **Acceptance**: new row (X11): drop a PNG into a project → the image affinity auto-runs
+  yolo_graph → detections land as graph nodes/edges + ripple (the X1/X7 chain, hands-free).
+
+## 8. Production-path doctrine — CAPTURED (operator: "what users experience upon downloading")
+
+The EU ingest debugging surfaced the rule the codebase now follows: **runtime paths resolve against
+the INSTALL ROOT, never the build machine.** The executor's candidate #1 (`CARGO_MANIFEST_DIR/
+target/pipelines/release`) is a build-machine path — dead at production; candidates 2-3 are
+CWD-relative — live ONLY because the EU unit now sets `WorkingDirectory=/opt/ozone-studio`. The
+production contract is `docs/DEPLOY_WITH_OZONE_GUIDE.md`'s tarball layout: everything under the
+install root. Standing rule for every new path in code: relative to CWD (= install root under
+systemd), and the DEPLOY guide's layout is the test. Captured in CHECKLIST 2026-10-30; the next
+build pass should sweep for remaining CARGO_MANIFEST_DIR runtime uses.
