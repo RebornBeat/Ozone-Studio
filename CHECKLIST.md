@@ -6572,3 +6572,11 @@ docs/evidence/browser-farm-eu/google-com-through-farm.png; Command-Center shared
 collaboration: the farm is the execution home both actors share through /mcp/call.
 **domorpher-core census: 145 errors** (down from 447): remaining = missing use-imports + crate-path
 shims in dom/forms/extraction/interactive/schema — mechanical.
+
+## 2026-10-30 (zc, VI) — CAPABILITY PARITY MANIFEST (operator: "ensure we aren't dropping any")
+docs/DOMORPHER_CAPABILITY_PARITY.md: all 21 modules × real line counts, each in exactly one of four
+dispositions — ~66k IN core, ~55k above-the-seam/retired (EVERY retirement names its live replacement:
+Ozone host API, model layer, monitor, StateStore/farm, pipeline registry), ~13k merge/parked (visual
+→ image-modality+visual-mcp; extension parked), 16 tool verbs + 2 seams. Two living guarantees: (1)
+the reasoning.rs split makes a per-item checklist before re-entering the IN-list; (2) no retirement
+without a named, verified-live replacement. NOTHING unaccounted.
