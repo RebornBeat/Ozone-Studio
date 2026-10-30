@@ -6602,3 +6602,9 @@ farm executes) but the skeleton stays GENERAL for reusability per the operator's
 Dep wave 2 + html_text.rs recreated (from_read/extract_text — chunking's only use) + escape_yaml_string
 recreated + crate::html_text imports. Remaining 102: crate-path shims, type homes, private-module
 visibility, locals — census-driven loop continues (domorpher repo carries each step).
+
+## 2026-10-30 (zc, X) — GRIND: 102 → 82 (dep wave 3 + visibility)
+sha2/selectors/markup5ever_rcdom/base64 added; extraction::extractor public. Remaining 82 mapped:
+forms/instruction files importing LlmClient/LlmProvider join the SPLIT-PENDING set (above-the-seam
+per the corrected doctrine — the core gets no llm shim), ~40 type-alias/variant/visibility items.
+domorpher carries each grind step; the loop continues next session.
