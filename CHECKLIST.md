@@ -6524,3 +6524,26 @@ ripple, hands-free). (4) Production-path doctrine captured: runtime paths resolv
 INSTALL ROOT never the build machine (CARGO_MANIFEST_DIR candidate = dead at production; the
 WorkingDirectory fix on EU is the working pattern; next build pass sweeps remaining
 CARGO_MANIFEST_DIR runtime uses).
+
+## 2026-10-30 (zc, III) — OPEN-WORK MASTER INDEX (everything left, each wired to its capture home)
+**IN PROGRESS (active campaigns):**
+1. domorpher-core 447 name-resolution errors (domorpher 92c0d97+; by-file census in CHECKLIST late-I
+   entry; target = core/ crate check) → then harvest behind agent-mcp tools (session/cookie aging
+   first — farm-native). Doctrine: DOMORPHER_CONVERSION_GUIDE.md; tests AG1-AG7 (MASTER_TEST_GUIDE §7c).
+2. Ingest finishing line: EU route LIVE; remaining = MCP hook x-oz-internal option
+   (OZONE_*_INGEST_TOKEN env, design in CHECKLIST 2026-10-30 entry) + local rebuild for the route.
+**SPECIFIED, BUILD-GATED (DESIGNED_NOT_BUILT_REGISTRY; all with acceptance rows wired):**
+3. §2 farm lens (U15) · §3 3D call-graph lens (T-C4 visual) · §4 in-world indicators (U16) ·
+   §5 vault + vault-mcp (S11) · §6 PDF/DOCX in text pipeline 100 (L8 Text-PDF).
+4. §7 modality→tool affinity registry + auto-run per modality (X11) — YOLO already in visual-mcp
+   (:3220, yolo_graph graph-expands; needs ultralytics).
+**BOTH HOSTS:**
+5. systemd watchdog units (local host crashed 4×; EU already systemd) — local + browser-stack +
+   agent-mcp under supervision.
+6. Production-path sweep: remaining CARGO_MANIFEST_DIR runtime uses (doctrine: registry §8).
+**OPERATOR-GATED (waiting on you):**
+7. OpenRouter key rotation · elevation-queue review (assets/jurisdiction/elevation-queue/) ·
+   data mutations (FileRef backfill, math↔text dedupe, stale worktrees) · push the 16 commits.
+**TEST GUIDE (docs/MASTER_TEST_GUIDE.md)**: ☐ rows are the standing audit — L0-L13, X-rows, AG-rows,
+U-rows, S-rows; ✔ rows carry evidence. **QUEUED WAVES**: GraphKit 7-8 remainder, koi S11 analysis,
+valence next-digest, CC jurisdiction continuation (thin countries + per-rule elevation).
