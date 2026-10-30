@@ -1857,10 +1857,17 @@ async fn ingest_image(
             }))
         }
     };
-    if !canon.starts_with(&canon_dir) {
+    // LOCAL-TO-THE-HOST: data_dir (zsei_data) OR the process working dir
+    // (.ozone-context browser-shots live there). Both checks canonicalized;
+    // anything else (tmp, home-wide paths) is refused.
+    let cwd_ok = std::env::current_dir()
+        .ok()
+        .and_then(|c| std::fs::canonicalize(c).ok())
+        .map_or(false, |c| canon.starts_with(&c));
+    if !canon.starts_with(&canon_dir) && !cwd_ok {
         return Json(serde_json::json!({
             "success": false,
-            "error": "refused: only files under the host data dir can be ingested"
+            "error": "refused: only files under the host data dir or working dir can be ingested"
         }));
     }
     if !canon.is_file() {
@@ -1901,7 +1908,19 @@ async fn ingest_image(
     };
 
     let runtime = state.runtime.read().await;
-    match runtime.execute_pipeline(102, input).await {
+    // Registry + entry gate DIRECTLY (not runtime.execute_pipeline — that
+    // demands the legacy app-session, which is None on a restarted host;
+    // this route is ALREADY operator-authenticated by the strict gate, and
+    // entry_gate::gated provides the same trace root + span row every
+    // external dispatch takes).
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    match crate::orchestrator::entry_gate::gated(
+        102u64,
+        registry.execute(102, input, None),
+    )
+    .await
+    {
         Ok(out) => Json(serde_json::json!({
             "success": out.success,
             "error": out.error,

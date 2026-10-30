@@ -6474,3 +6474,25 @@ Operator: "continue with all" after the captured sweep — verification resumed.
 - **EU**: farm-mcp carries the ingest hook + data-dir shot dir (service active); host binary rebuild
   (ingest route) still pending — next gate item.
 - domorpher repo: a817b25 + 92c0d97. Ozone: this commit.
+
+## 2026-10-30 (zc) — VPS-PRIMARY TESTING (operator: local crashed 4×) + ingest route LIVE on EU (one deploy artifact left)
+- **Local host crashed AGAIN (4th stop; heavy builds + host + browser + farm on 7.6G)** — operator asked
+  "should we test on the VPS?" → YES, confirmed: EU (11G, farm-primary, systemd) is the test home. Local
+  left DOWN deliberately; recommendation stands: systemd unit for the local host (like EU's).
+- **Ingest route hardened twice through real tests**: (1) locality widened (data_dir OR process CWD —
+  browser-shots live under .ozone-context, not zsei_data); (2) **registry + entry_gate::gated DIRECTLY
+  instead of runtime.execute_pipeline** (which demands the legacy app-session — None after a host
+  restart; the route is already operator-authenticated by the strict gate; same trace root + span row).
+- **EU deployed (binary 21:15 + image pipeline binary shipped to BOTH candidate paths)**. Live proof of
+  the full chain: strict gate passed → entry gate traced → registry dispatched → honest
+  `"Pipeline image binary not built"` — a DEPLOYMENT artifact (the executor's candidate paths are
+  CARGO_MANIFEST_DIR-relative (build machine!) + builtin_path/category/alias/alias). Placed the binary
+  at candidate 2; still not found → the exact `searched = ?candidates` line in the EU host log at next
+  test pins the residual path mismatch (5-min follow-up; the journal grep window missed it).
+- **Stale-endpoint regression caught live (X9)**: EU registry still had farm tools at 3252 after the
+  port move — re-registered at 3281 (13/13); screenshot then worked (220 KB PNG from the RUNNING
+  command-center profile — still alive since yesterday).
+- **MCP ingest-hook auth gap (captured)**: the hooks send Bearer session_token; strict hosts 401 with
+  an empty body → the MCP parses "Unexpected end of JSON input". Fix designed: hooks send
+  `x-oz-internal: <OZONE_*_INGEST_TOKEN>` when set. One small edit + redeploy.
+- **EU transient network blip** (ssh "No route to host" once; recovered on retry — VPS or route flap).
