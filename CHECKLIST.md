@@ -6547,3 +6547,10 @@ CARGO_MANIFEST_DIR runtime uses).
 **TEST GUIDE (docs/MASTER_TEST_GUIDE.md)**: ☐ rows are the standing audit — L0-L13, X-rows, AG-rows,
 U-rows, S-rows; ✔ rows carry evidence. **QUEUED WAVES**: GraphKit 7-8 remainder, koi S11 analysis,
 valence next-digest, CC jurisdiction continuation (thin countries + per-rule elevation).
+
+## 2026-10-30 (zc, IV) — GRIND: domorpher-core 447 → 301 (dep wave)
+Census-driven loop (fix error CLASSES, not instances): the largest class was MISSING DEPENDENCIES —
+tokio/log/url/rand/html5ever/encoding_rs/reqwest added to domorpher-core (AG6-clean: async runtime +
+client libs + pure parsers, no servers/llm/storage). Remaining 301 mapped: crate::llm ×12 (the
+DecisionSource seam threading — next), crate-path shims, missing use-imports for dom::analyzer types.
+domorpher 7ead114. Loop continues next session.
