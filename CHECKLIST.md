@@ -6629,3 +6629,9 @@ TokenCounter + count_tokens recreated in tokenizer.rs (callers' contracts exact)
 split-pending (crate::llm above seam); converter rcdom re-pointed to markup5ever_rcdom. Next:
 tokenizer's own internals (TokenizerModel Clone/Into). The census loop is established and each
 step is proven by the count moving; domorpher carries every step.
+
+## 2026-10-30 (zc, XIV) — GRIND: 63 → 60
+rcdom/SerializableHandle re-pointed (preprocessor, security, converter); decode_html_entities
+recreated (named + numeric forms). The remaining 60 are singletons (file-by-file) — the loop is
+established; domorpher carries every step. Ozone at 30+ commits ready for push; the full campaign
+state: ingest live on EU, domorpher-agent registered, affinity guide + parity manifest current.
