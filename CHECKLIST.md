@@ -6589,3 +6589,11 @@ that graph as guests (detections → nodes + F.3 edges), never replacing the run
 graph-native expansion. visual/ (6,620 lines) SPLITS BY FUNCTION: screen/UI-understanding →
 visual-mcp tool surface (captures go through the modality run first); generic image processing →
 the modality's detection-model registry (§11.6). Parity manifest corrected.
+
+## 2026-10-30 (zc, VIII) — GRIND: 145 → 111 (dep wave 2)
+uuid/serde_yaml/toml/futures/once_cell/scraper added (AG6-clean); core carries its own VERSION const.
+Remaining classes mapped: html_text (never-captured helper — stub next), CACHE_MANAGER/start_time
+locals, SemanticSection/QualityThresholdsBuilder type homes, crate-path shims. domorpher 7ead114→.
+Also captured: the operator's clarification — everything routes through Ozone-Studio (the CC Command
+Center commands included); the domorpher-agent MCP is the enforcement edge (currently unused — the
+farm executes) but the skeleton stays GENERAL for reusability per the operator's original intent.
