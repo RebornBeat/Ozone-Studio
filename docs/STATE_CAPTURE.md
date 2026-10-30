@@ -1,6 +1,8 @@
 # OZONE STUDIO — COMPREHENSIVE STATE CAPTURE
 ## 2026-09-17 · ZCode + Claude Code joint session · living graph operational
 
+> **LATEST 2026-10-30 (zc, SEAM CORRECTED)** — the library is JUST the library: DecisionSource REMOVED (model judgment is above; the core receives decisions as data via the tool/MCP contract); reasoning.rs split-pending OUT of the core (core census 301 → 145); agent-mcp renamed tools/domorpher-agent (16 domorpher_* verbs, farm backend, re-registered 16/16); google.com farm test GREEN (no proxies: navigate ok, 199 KB screenshot evidence committed, Command-Center state marked for the DOM-field harvest; CC shares the farm through /mcp/call).
+
 > **LATEST 2026-10-30 (zc, INGEST LIVE)** — /capture/ingest_image END-TO-END on EU: strict gate → entry gate → registry → image binary → real analysis (bit depth/sRGB/composition scoring) on a live farm screenshot. Fix: WorkingDirectory=/opt/ozone-studio + binary at CWD-relative pipelines path. Local host restored (monitor posture; VPS-primary testing). 
 
 > **LATEST 2026-10-30 (zc, VPS-PRIMARY)** — Local crashed 4× → testing moved to the VPS (operator-confirmed). Ingest route LIVE on EU through the full guarded chain (strict gate → entry gate → registry dispatch → honest pipeline-not-built); two hardenings landed (locality: data_dir OR CWD; registry+entry_gate directly — the legacy app-session is None after restart). Left open, both captured: the image binary's exact candidate path on EU (one journal line pins it) and the MCP hooks' x-oz-internal auth option. Stale 3252 farm endpoints caught + re-registered (X9 live). Local host left DOWN by choice; systemd watchdog recommended.

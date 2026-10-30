@@ -20,16 +20,16 @@ function internalToken() {
   return "";
 }
 const FAMILIES = {
-  agent: { port: Number(process.env.OZONE_AGENT_PORT ?? 3283), version: "0.1.0", tools: {
-    agent_click: "click a page element (DOMorpher conversion; farm-primary backend)",
-    agent_hover: "hover an element", agent_scroll: "scroll the page",
-    agent_key: "press keys", agent_drag: "drag and drop",
-    agent_input: "type into a field (human-like, harvest)", agent_select: "select an option",
-    agent_check: "check/uncheck a checkbox", agent_upload: "upload a file",
-    agent_navigate: "navigate to an allowlisted host", agent_wait: "wait/condition",
-    agent_switch_frame: "switch frame context", agent_extract: "structured extraction (read-only)",
-    agent_dialog: "accept/dismiss a dialog (confirm)", agent_exec_script: "eval-equivalent (OZONE_AGENT_ALLOW_EVAL gate)",
-    agent_status: "backend + core posture",
+  domorpher_agent: { port: Number(process.env.OZONE_DOMORPHER_PORT ?? 3283), version: "0.1.0", tools: {
+    domorpher_click: "click a page element (DOMorpher conversion; farm-primary backend)",
+    domorpher_hover: "hover an element", domorpher_scroll: "scroll the page",
+    domorpher_key: "press keys", domorpher_drag: "drag and drop",
+    domorpher_input: "type into a field (human-like, harvest)", domorpher_select: "select an option",
+    domorpher_check: "check/uncheck a checkbox", domorpher_upload: "upload a file",
+    domorpher_navigate: "navigate to an allowlisted host", domorpher_wait: "wait/condition",
+    domorpher_switch_frame: "switch frame context", domorpher_extract: "structured extraction (read-only)",
+    domorpher_dialog: "accept/dismiss a dialog (confirm)", domorpher_exec_script: "eval-equivalent (OZONE_AGENT_ALLOW_EVAL gate)",
+    domorpher_status: "backend + core posture",
   } },
   browser: { port: Number(process.env.OZONE_BROWSER_PORT ?? 3280), version: "0.1.0", tools: {
     browser_status: "browser MCP posture: locked?, allowlist, sessions",

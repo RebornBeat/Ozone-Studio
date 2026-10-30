@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// agent-mcp selftest — refusal paths FIRST (CREATING_NEW_MCPS_GUIDE §6:
+// domorpher-agent selftest — refusal paths FIRST (CREATING_NEW_MCPS_GUIDE §6:
 // "Refusal path TESTED, not just the happy path"). This skeleton's
 // happy-path capability work is pending by design, so the selftest
 // asserts the HONEST refusals + the status contract. Run:
-//   node tools/agent-mcp/selftest.mjs
+//   node tools/domorpher-agent/selftest.mjs
 
 import { spawn } from "node:child_process";
 import { mkdtempSync } from "node:fs";
@@ -31,9 +31,9 @@ const server = spawn(process.execPath, [
 ], {
   env: {
     ...process.env,
-    OZONE_AGENT_PORT: String(PORT),
-    OZONE_AGENT_ALLOW_HOSTS: "example.com",
-    OZONE_AGENT_TOKEN: "selftest-token",
+    OZONE_DOMORPHER_PORT: String(PORT),
+    OZONE_DOMORPHER_ALLOW_HOSTS: "example.com",
+    OZONE_DOMORPHER_TOKEN: "selftest-token",
   },
   stdio: ["ignore", "ignore", "pipe"],
 });
@@ -53,19 +53,19 @@ try {
   const post = async (body) => (await fetch(`${BASE}/call`, { method: "POST", headers: authed, body: JSON.stringify(body) })).json();
 
   // 2. Unknown tool refused.
-  const unk = await post({ tool: "agent_remote_control", input: {} });
+  const unk = await post({ tool: "domorpher_remote_control", input: {} });
   check("unknown tool refused", unk.success === false && /unknown tool/.test(unk.error));
 
   // 3. Nav allowlist: non-allowlisted host refused (AG2 shape).
-  const nav = await post({ tool: "agent_navigate", input: { url: "https://evil.example.net/" } });
+  const nav = await post({ tool: "domorpher_navigate", input: { url: "https://evil.example.net/" } });
   check("navigate to non-allowlisted host refused (AG2)", nav.success === false && /LOCKED/.test(nav.error));
 
-  // 4. Eval gate: exec script refused without OZONE_AGENT_ALLOW_EVAL (AG3).
-  const ev = await post({ tool: "agent_exec_script", input: { expression: "1+1" } });
+  // 4. Eval gate: exec script refused without OZONE_DOMORPHER_ALLOW_EVAL (AG3).
+  const ev = await post({ tool: "domorpher_exec_script", input: { expression: "1+1" } });
   check("exec_script LOCKED without eval opt-in (AG3)", ev.success === false && /ALLOW_EVAL/.test(ev.error));
 
   // 5. Harvest-pending honesty: an allowed tool answers honestly, not mock.
-  const click = await post({ tool: "agent_click", input: { selector: "#q" } });
+  const click = await post({ tool: "domorpher_click", input: { selector: "#q" } });
   check("click answers harvest-pending honestly (no mock success)", click.success === false && /harvest pending/.test(click.error));
 
   // 6. Status contract: backend, locked, tool list.

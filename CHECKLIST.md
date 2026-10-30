@@ -6554,3 +6554,21 @@ tokio/log/url/rand/html5ever/encoding_rs/reqwest added to domorpher-core (AG6-cl
 client libs + pure parsers, no servers/llm/storage). Remaining 301 mapped: crate::llm ×12 (the
 DecisionSource seam threading — next), crate-path shims, missing use-imports for dom::analyzer types.
 domorpher 7ead114. Loop continues next session.
+
+## 2026-10-30 (zc, V) — SEAM CORRECTED (library receives DATA, no LLM provider) + renamed domorpher-agent + google.com farm test
+Operator corrections applied: (1) **the core is JUST the library — it does NOT need an LLM provider**;
+DecisionSource REMOVED from seams.rs (model judgment lives ABOVE the library — Ozone pipelines + the
+orchestrator decide; the library receives decisions as DATA via the tool/MCP contract). Seams now:
+PageDriver + StateStore only. reasoning.rs moved OUT of the core IN-list (split pending: its pure
+strategies IN, its direct LlmClient calls are above the seam) — that killed 156 errors (301 → 145).
+**Browser-Farm LOADS the crate** and the Command Center channel drives it — the farm is the host.
+(2) **Renamed agent-mcp → tools/domorpher-agent** ("it's just for domorpher"): dir, self-id, env
+(OZONE_DOMORPHER_*), all 16 verbs agent_* → domorpher_*, registrar family domorpher_agent, launcher;
+syntax-checked; relaunched + re-registered 16/16 locally (backend=farm, locked, honest).
+(3) **Google.com farm test (no proxies, normal setup)**: google.com allowlisted on the EU farm MCP;
+the RUNNING CC profile navigated successfully; 199 KB screenshot captured + pulled to
+docs/evidence/browser-farm-eu/google-com-through-farm.png; Command-Center shared-state marked
+(dom-field/google) as the DOM-traversable-field capture point for the domorpher-core harvest. CC
+collaboration: the farm is the execution home both actors share through /mcp/call.
+**domorpher-core census: 145 errors** (down from 447): remaining = missing use-imports + crate-path
+shims in dom/forms/extraction/interactive/schema — mechanical.
