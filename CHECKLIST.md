@@ -6615,3 +6615,11 @@ model-escalation choice is above the seam per the corrected doctrine); BrowserEr
 (16 census-driven variants + From<BrowserError>); Result alias generalized (T, E = DOMorpherError);
 reconciliation declared in core. Remaining 72: utils sub-file imports (tokenizer's own crate::llm
 use — split-pending next), type homes, visibility — the census loop continues.
+
+## 2026-10-30 (zc, XII) — MODALITY AFFINITY GUIDE + grind 72 → 65
+docs/MODALITY_TOOL_AFFINITY_GUIDE.md: the per-modality affinity map (all modalities × owning run ×
+tools today × specified) + the three operational rules (modality first, tools second; the affinity
+table is declarative per-install with autostart none|mcps|scan; everything through /mcp/call) +
+four new findings (F-NEW-1..4: untested domain MCPs, audio has no tool face, video→frames→image
+chain, modality:<name> capability tags). Grind: domorpher-core 72 → 65 (ChunkRelation WithData
+variant — original unit-only enum vs struct-style builders; extraction split-pending noted).
