@@ -20,6 +20,17 @@ function internalToken() {
   return "";
 }
 const FAMILIES = {
+  agent: { port: Number(process.env.OZONE_AGENT_PORT ?? 3283), version: "0.1.0", tools: {
+    agent_click: "click a page element (DOMorpher conversion; farm-primary backend)",
+    agent_hover: "hover an element", agent_scroll: "scroll the page",
+    agent_key: "press keys", agent_drag: "drag and drop",
+    agent_input: "type into a field (human-like, harvest)", agent_select: "select an option",
+    agent_check: "check/uncheck a checkbox", agent_upload: "upload a file",
+    agent_navigate: "navigate to an allowlisted host", agent_wait: "wait/condition",
+    agent_switch_frame: "switch frame context", agent_extract: "structured extraction (read-only)",
+    agent_dialog: "accept/dismiss a dialog (confirm)", agent_exec_script: "eval-equivalent (OZONE_AGENT_ALLOW_EVAL gate)",
+    agent_status: "backend + core posture",
+  } },
   browser: { port: Number(process.env.OZONE_BROWSER_PORT ?? 3280), version: "0.1.0", tools: {
     browser_status: "browser MCP posture: locked?, allowlist, sessions",
     browser_open: "open an isolated headless browser session on an allowlisted URL",

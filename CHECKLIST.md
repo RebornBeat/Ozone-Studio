@@ -6420,3 +6420,35 @@ same gate/metering/ripple on both — backend is config, never a bypass. StateSt
 NATIVELY (persistent-profile aging is already a farm feature — AG4 updated). AG7 added (backend selection:
 default farm, no bypass path). domorpher's own browser drivers retired in both backends. Capture clean;
 nothing dropped from the campaign or the harvest lists.
+
+## 2026-10-29 (zc, late III) — GREENLIGHT SWEEP: domorpher-core crate + agent-mcp skeleton + §1 ingest hooks wired BOTH hosts
+Operator greenlight (edits-only, no builds/tests until captured — verification deferred to the build gate).
+- **domorpher-core EXISTS** (`~/Projects/domorpher/core/`): the Layer-1 crate at the seam — pure-deps
+  Cargo.toml (AG6 comment: additions must pass "would this crate still be a library without it"),
+  `core/src/seams.rs` = the THREE trait seams (DecisionSource → pipeline 9+fallback; PageDriver →
+  **farm-primary, browser-mcp CDP = isolated secondary**, AG7; StateStore → **farm profiles natively**);
+  IN-list modules `#[path]`-included single-source from the reference tree (dom, agent, forms,
+  extraction, instruction, interactive, chunking, schema) — no copying, one truth. OUT-list never
+  declared. NOT yet compiled — the core-crate cargo check IS the campaign's next gate target.
+- **Reference-tree parse completions**: semantic_markdown.rs tail completed (was cut mid
+  `if let Some(`); chunking's stale local `mod utils` dropped (engine uses the ROOT utils/tokenizer —
+  which exists); api/rpc mod line dropped (OUT-list, never captured). Remaining reference-tree errors
+  are ALL OUT-list (enterprise/api.rs + auth.rs) — bounded by the crate extraction, not carried.
+- **tools/agent-mcp/** (Layer 3 skeleton, declared-but-honest): server.mjs (16-tool table from the
+  ActionType vocabulary; locked-by-default; nav allowlist; eval gate; optional shared secret;
+  OZONE_AGENT_BACKEND=farm|local; OZONE_AGENT_CORE gate — unwired tools answer `harvest pending`
+  honestly, NEVER a mock success); selftest.mjs (refusal paths FIRST: token gate, unknown tool, AG2
+  nav refusal, AG3 eval refusal, harvest-pending honesty, status contract); README (env table +
+  persistent-process doctrine). NOT test-run this sweep (gate) — syntax-checked only.
+- **Registrar**: agent family added (16 tools, port 3283). **Launcher**: agent-mcp added to
+  tools/launch-browser-stack.sh (pid-cleanup + launch + status probe).
+- **§1 ingest hooks LANDED both MCPs** (default OFF): browser-mcp `OZONE_BROWSER_INGEST_URL`,
+  farm-mcp `OZONE_FARM_INGEST_URL` (+ SHOT_DIR must sit under the host data dir — the ingest route's
+  local-only rule). **EU wired**: farm-mcp unit now sets SHOT_DIR=/opt/ozone-studio/zsei_data/.ozone-
+  context/farm-shots + the ingest URL; updated server.mjs deployed; service active. End-to-end ingest
+  verification waits for the host build gate (route is committed; binary rebuild pending).
+- **Local registry: 58/58 tools registered** (browser 11 + farm 13 + android 16 + security 2 +
+  agent 16) after an external host stop (~18:33, not zcode) was recovered. agent-mcp status honest:
+  backend=farm, locked (no allowlist), core not wired.
+- **domorpher repo git-captured**: `git init` + initial commit a817b25 (reference copy + all campaign
+  fixes + core/ crate) — the operator's "use git history" now has history to use.

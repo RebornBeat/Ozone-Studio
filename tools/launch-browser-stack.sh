@@ -17,6 +17,7 @@ mkdir -p "$L"
 
 pkill -f "tools/browser-mcp/server.mjs" 2>/dev/null
 pkill -f "tools/browser-farm-mcp/server.mjs" 2>/dev/null
+pkill -f "tools/agent-mcp/server.mjs" 2>/dev/null
 sleep 1
 
 cd "$R"
@@ -30,9 +31,15 @@ setsid nohup env OZONE_BROWSER_ALLOW_HOSTS=localhost \
 setsid nohup env OZONE_FARM_PORT=3281 \
   node "$R/tools/browser-farm-mcp/server.mjs" >> "$L/browser-farm-mcp.log" 2>&1 &
 
+# agent-mcp (DOMorpher conversion, Layer 3): skeleton — LOCKED/honest until
+# domorpher-core is wired; farm-primary backend per AG7.
+setsid nohup env OZONE_AGENT_PORT=3283 \
+  node "$R/tools/agent-mcp/server.mjs" >> "$L/agent-mcp.log" 2>&1 &
+
 sleep 2
 echo "browser-mcp:   $(curl -s -m3 localhost:3280/status | head -c 120)"
 echo "farm-mcp:      $(curl -s -m3 localhost:3281/status | head -c 120)"
+echo "agent-mcp:     $(curl -s -m3 localhost:3283/status | head -c 120)"
 
 # android-mcp (adb at ~/Android/platform-tools). Shell is LOCKED unless OZONE_ANDROID_SHELL_ALLOW is set;
 # emulator control needs OZONE_ANDROID_ALLOW_EMULATOR=1. Read-only allowlist below = safe inspection verbs.

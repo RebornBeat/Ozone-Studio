@@ -325,6 +325,24 @@ async function handle(tool, input) {
       const file = path.join(SHOT_DIR, `${s.id}-${Date.now()}.png`);
       fs.writeFileSync(file, Buffer.from(r.data, "base64"));
       const out = { path: file, bytes: Buffer.byteLength(r.data, "base64"), note: "feed to visual_describe / visual_ingest (image modality 102) for graph capture" };
+      // AUTO-INGEST HOOK (DESIGNED_NOT_BUILT_REGISTRY §1, default OFF):
+      // OZONE_BROWSER_INGEST_URL=<host>/capture/ingest_image — a failed
+      // ingest NEVER fails the screenshot (capture and ingest are separate
+      // facts); the honest ingest_error rides in the output.
+      if (process.env.OZONE_BROWSER_INGEST_URL) {
+        try {
+          const ir = await fetch(process.env.OZONE_BROWSER_INGEST_URL, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...(input.session_token ? { Authorization: `Bearer ${input.session_token}` } : {}) },
+            body: JSON.stringify({ path: file, project_id: input.project_id ?? null, workspace_id: input.workspace_id ?? null }),
+            signal: AbortSignal.timeout(120000),
+          });
+          const ij = await ir.json();
+          out.ingested = ij.success ? { container_hint: ij.output ?? null } : { error: ij.error ?? `HTTP ${ir.status}` };
+        } catch (e) {
+          out.ingested = { error: String(e).slice(0, 200) };
+        }
+      }
       if (input.inline && r.data.length < 400000) out.base64 = r.data;
       return out;
     }

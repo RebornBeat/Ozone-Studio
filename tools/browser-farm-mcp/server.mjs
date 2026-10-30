@@ -159,7 +159,27 @@ async function handle(tool, input) {
       fs.mkdirSync(SHOT_DIR, { recursive: true });
       const file = path.join(SHOT_DIR, `${f.name}-${id}-${Date.now()}.png`);
       fs.writeFileSync(file, bytes);
-      return { farm: f.name, path: file, bytes: bytes.length, farm_id: shot.id, note: "feed to visual_describe / visual_ingest (image modality 102) for graph capture" };
+      const out = { farm: f.name, path: file, bytes: bytes.length, farm_id: shot.id, note: "feed to visual_describe / visual_ingest (image modality 102) for graph capture" };
+      // AUTO-INGEST HOOK (DESIGNED_NOT_BUILT_REGISTRY §1, default OFF):
+      // OZONE_FARM_INGEST_URL=<host>/capture/ingest_image. The ingest
+      // route only accepts files under the host data dir, so set
+      // OZONE_FARM_SHOT_DIR under {data_dir} when this is on. A failed
+      // ingest NEVER fails the screenshot (separate facts).
+      if (process.env.OZONE_FARM_INGEST_URL) {
+        try {
+          const ir = await fetch(process.env.OZONE_FARM_INGEST_URL, {
+            method: "POST",
+            headers: { "content-type": "application/json", ...(input.session_token ? { Authorization: `Bearer ${input.session_token}` } : {}) },
+            body: JSON.stringify({ path: file, project_id: input.project_id ?? null, workspace_id: input.workspace_id ?? null }),
+            signal: AbortSignal.timeout(120000),
+          });
+          const ij = await ir.json();
+          out.ingested = ij.success ? { container_hint: ij.output ?? null } : { error: ij.error ?? `HTTP ${ir.status}` };
+        } catch (e) {
+          out.ingested = { error: String(e).slice(0, 200) };
+        }
+      }
+      return out;
     }
     // ── Command Center channel: shared state is the wire ───────────────────
     case "farm_state_get": return untrusted({ key: String(input.key), value: await farmFetch(f, "GET", `/state/${encodeURIComponent(stateKey(input.key))}`) });
