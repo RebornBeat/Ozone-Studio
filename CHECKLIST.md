@@ -6597,3 +6597,8 @@ locals, SemanticSection/QualityThresholdsBuilder type homes, crate-path shims. d
 Also captured: the operator's clarification — everything routes through Ozone-Studio (the CC Command
 Center commands included); the domorpher-agent MCP is the enforcement edge (currently unused — the
 farm executes) but the skeleton stays GENERAL for reusability per the operator's original intent.
+
+## 2026-10-30 (zc, IX) — GRIND: 145 → 111 → 102
+Dep wave 2 + html_text.rs recreated (from_read/extract_text — chunking's only use) + escape_yaml_string
+recreated + crate::html_text imports. Remaining 102: crate-path shims, type homes, private-module
+visibility, locals — census-driven loop continues (domorpher repo carries each step).
