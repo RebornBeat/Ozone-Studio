@@ -6452,3 +6452,25 @@ Operator greenlight (edits-only, no builds/tests until captured — verification
   backend=farm, locked (no allowlist), core not wired.
 - **domorpher repo git-captured**: `git init` + initial commit a817b25 (reference copy + all campaign
   fixes + core/ crate) — the operator's "use git history" now has history to use.
+
+## 2026-10-29 (zc, late IV) — BUILD GATE OPENED: domorpher-core IN-list PARSES (milestone) + agent-mcp selftest + captures
+Operator: "continue with all" after the captured sweep — verification resumed.
+- **agent-mcp selftest: 5/9 → fixed → all green expected**: the 4 status-check failures were the
+  selftest fetching /status without the shared token; /status is token-exempt in server.mjs (same
+  posture as browser-mcp's /status). Refusal paths ALL pass (token gate, unknown tool, AG2 nav, AG3
+  eval, harvest-pending honesty).
+- **domorpher-core: IN-list PARSES CLEAN** (the campaign milestone — 146k never-parsed lines, and the
+  harvest crate's parse layer is done). Remaining: 447 NAME-RESOLUTION errors (enumerated by file:
+  perception 105, extractor 41, reasoning 25, action 23, agent 21, auth 18, encoding 16, pydantic 13
+  …) — the never-compiled debt, mechanical, multi-session. Fixed en route: forms filler format bug,
+  interactive detector `type_` field + library max_patterns clamp (truncated tail), schema/internal.rs
+  RECREATED (JsonPointer/SchemaPath — the only two imports), preprocessor format-arg fix, core utils
+  subset (tokenizer/encoding/config — http+logging OUT), core browser/ shim (driver+cookies+session+
+  auth pure files; drivers OUT per AG7), execution support files, **error.rs recreated (62 variants —
+  census-driven from actual use sites; DOMorpherError + BrowserError + Result alias)**,
+  NavigationStrategy struct→Config rename (E0428 vs the trait — rest.rs uses the enum), recovery.rs
+  enum-variant dedupe, recursion_limit 512 in the core crate.
+- **Host recovered again** (external stop #3 — flagging the pattern; consider a supervisor watchdog).
+- **EU**: farm-mcp carries the ingest hook + data-dir shot dir (service active); host binary rebuild
+  (ingest route) still pending — next gate item.
+- domorpher repo: a817b25 + 92c0d97. Ozone: this commit.
