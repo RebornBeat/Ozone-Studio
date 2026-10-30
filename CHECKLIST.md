@@ -6580,3 +6580,12 @@ Ozone host API, model layer, monitor, StateStore/farm, pipeline registry), ~13k 
 → image-modality+visual-mcp; extension parked), 16 tool verbs + 2 seams. Two living guarantees: (1)
 the reasoning.rs split makes a per-item checklist before re-entering the IN-list; (2) no retirement
 without a named, verified-live replacement. NOTHING unaccounted.
+
+## 2026-10-30 (zc, VII) — RUN-VS-TOOLS DOCTRINE (operator insight; manifest corrected)
+The operator's question — "are these from the modality running itself on it, or tools on top?" —
+formalized: BOTH, in order. The image modality (102) RUNS ITSELF on content first (the owning
+analysis → the base graph; verified live on EU ingest); tools (YOLO/visual-mcp) then run ON TOP of
+that graph as guests (detections → nodes + F.3 edges), never replacing the run. Both ripple into the
+graph-native expansion. visual/ (6,620 lines) SPLITS BY FUNCTION: screen/UI-understanding →
+visual-mcp tool surface (captures go through the modality run first); generic image processing →
+the modality's detection-model registry (§11.6). Parity manifest corrected.

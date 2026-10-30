@@ -27,7 +27,7 @@
 | `pipeline/` (6,181) | domorpher's own pipeline concept | **ABOVE the seam** — retired | Ozone's pipeline registry + AMT |
 | `parallel/` (7,996) | parallel execution | **ABOVE the seam** — retired | Ozone task executor + farm's own parallelism |
 | `extension/` (6,971) | browser content scripts | **MAYBE — parked** | only if in-page assistance is wanted; else retires |
-| `visual/` (6,620) | visual processing | **MERGES** | Ozone image modality (102) + visual-mcp (yolo_* already graph-expands) |
+| `visual/` (6,620) | visual processing | **SPLITS BY FUNCTION** — see the run-vs-tools doctrine below | image-modality run (owner) vs visual-mcp tools (guests on its graph) |
 
 **The two living guarantees:**
 1. **The split-pending promise** (`agent/reasoning.rs`, 45 pub items): when the
@@ -37,6 +37,19 @@
 2. **The retire-replacement rule**: no module retires without the replacement
    named above — all replacements are LIVE Ozone surfaces (host API, model
    layer, monitor, farm), verified working this session.
+
+**The run-vs-tools doctrine (operator insight, 2026-10-30 — answers "is the
+image modality running itself on it, or are we calling tools on top?"): BOTH,
+in order, with different roles.** Content arrives → **the modality RUNS itself
+on it first** (pipeline 102: the owning analysis — bit depth, sRGB, composition
+→ the BASE graph; verified live on EU). **Then tools run on TOP of that graph**
+(YOLO/visual-mcp: detections become nodes, F.3-typed edges — guests extending
+the owner's graph, never replacing its run). Both feed the graph-native
+expansion; the modality run is always first and owning. domorpher's `visual/`
+splits accordingly: screen/UI-understanding parts (windows, controls,
+occlusion, affordances) → the visual-MCP tool surface (whose captures go
+through the modality run FIRST); generic image processing → the image
+modality's detection-model registry (§11.6 fan-out).
 
 **Totals**: 146k lines → ~66k IN core (agent-pure + browser-support + chunking +
 dom + execution + extraction + forms + instruction + interactive + schema +
