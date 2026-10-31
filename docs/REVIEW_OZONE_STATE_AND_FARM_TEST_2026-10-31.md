@@ -1,4 +1,4 @@
-# Review — Ozone-Studio state, tool/MCP guide conformance, and the Browser-Farm test (2026-10-31)
+# Review — Ozone-Studio state, tool/MCP guide conformance, and the google.com DOMorpher test (2026-10-31)
 
 Review and capture only. No source edits, builds or tests run. Facts below
 were read live from the local host (:50051, uptime ~15.5 h, healthy), the EU
@@ -95,35 +95,58 @@ What Ozone still needs before the test is a full pass (ranked):
 | 7 | systemd watchdog for the local host | it was stopped externally several times | quick |
 | 8 | Secrets hygiene: OpenRouter key sits in git-ignored config.toml | rotate | operator |
 
-## 4. The test (proposed, runs on the VPS first, then local)
+## 4. The test — CORRECTED by the operator: it is the google.com DOMORPHER test, not a screenshot test
 
-**T-FARM-CC — a CC-driven farm round trip observed by Ozone.** Real
-substrate only; no mock farm.
+My first draft (T-FARM-CC) tested only navigate + screenshot. That is the
+farm's own capability and is already proven (google.com navigation + 199 KB
+screenshot, `docs/evidence/browser-farm-eu/google-com-through-farm.png`). The
+test that was defined is: **prove domorpher works on google.com** — the page's
+DOM becomes a DOM-traversable field that the library then acts on, through
+the CC / farm / Ozone chain.
 
-1. Preconditions: EU farm status healthy, command-center profile running,
-   `google.com` and `example.com` on the farm nav allowlist, strict session
-   on, ingest URL set in the farm-mcp unit.
-2. CC issues `farm_command` ping, expects pong < 2 s (baseline already 0.4 s).
-3. CC issues `farm_navigate` to an allowlisted host; expects `success:true`
-   and a screenshot file under the host data dir.
-4. Negative: navigate to a non-allowlisted host; expects `success:false`,
-   HTTP 200, a reason, and a ledger row. (Locked-by-default proof.)
-5. Ingest: the screenshot is ingested (hook once #1 lands, manual call
-   until then); expects analysis output and a graph container.
-6. Observation: within one consciousness cycle a tool_calls row (S13) exists
-   for steps 2-4; the failed step 4 is visible as data. Today it will NOT
-   produce a finding (#3); record that as the expected-to-fail row and keep it
-   red until the actor exists.
-7. Scope: the call row carries the workspace/project that CC passed. Expected
-   to fail today (#2).
-8. Notification path: a reminder-style item reaches `/assistant/feed` and
-   stays awaiting clarification; resolving it as Acknowledge sets
-   `acknowledged` once and does not reappear on the next check-up (R2).
-9. Persistence: restart the host; the farm tool set and endpoints are
-   unchanged (P8).
+**Honest status, read live from the EU farm (read-only `farm_state_get`):**
+`dom-field/google` holds only a label
+`{by:"zcode+CC", captured_at:"2026-10-30", note:"DOM traversable-field capture
+for domorpher-core harvest", url:"https://www.google.com"}`. No DOM, no field,
+no extracted element exists. So the domorpher-on-google test has NOT run; the
+marker only reserves the place. Also `domorpher-core` does not compile yet
+(last reported 145 errors) and the guide's statement "Browser-Farm loads the
+crate" has no mechanism: the farm is Python (FastAPI/Playwright), the library
+is Rust. A decision is needed (section 4b).
 
-Pass bar: steps 2-5 and 9 must pass today. Steps 6-8 are listed with their
-known current result so a red is information, not surprise.
+### T-DOM-GOOGLE (stages; each has a pass bar and a current expectation)
+
+| stage | action | pass bar | today |
+|---|---|---|---|
+| D0 | library gate: `cargo check` on domorpher-core, `cargo tree` shows no http/llm/storage crate (AG6) | 0 errors; no reqwest/tiktoken/jsonwebtoken | blocked: model-call removal edits just landed uncompiled; census unknown |
+| D1 | capture real DOM: farm `navigate` google.com on the running CC profile; CC pulls the rendered HTML/DOM (not only a PNG) into `dom-field/google` (or a file under the host data dir) | stored HTML is the real page, hash recorded, size > 0 | not done: marker only |
+| D2 | OFFLINE field build: run domorpher-core on the D1 HTML (no browser, no model) | traversable field with the search input, the Search / I'm Feeling Lucky buttons, language and footer links; each element has role, text, stable selector, bounding info if supplied | not done |
+| D3 | field -> Ozone graph: field nodes/edges ingested through the `graph` block path | containers visible under the workspace; ripple event emitted | not done (graph block hook exists; farm result has none) |
+| D4 | ACT: Ozone (not the library) supplies the decision as data: "type this query"; library produces the human-like action sequence (typing cadence, pauses); farm executes via CC channel on the CC profile | query text appears in the search box; screenshot proves it; allowlist still holds | not done; typing sequences exist only in the unported reference |
+| D5 | EXTRACT: after Enter, library extracts the result list from the new DOM | N results with title/url/snippet, matching the screenshot | not done |
+| D6 | trail: every step went through `/mcp/call` | ledger rows, S13 tool_calls rows, ripple per step; a forced failure (non-allowlisted host) is refused as data with HTTP 200 | partly proven for navigate/screenshot only |
+| D7 | consciousness: the run is observable; the failure in D6 yields a finding (needs the failure actor from fork 6) and a reminder-style item awaits clarification once | one finding, no repeats | depends on uncompiled edits |
+| D8 | repeat on EU, then local; no proxies, normal setup (as defined) | same results | pending |
+
+Order and honesty rule: D1 and D2 can be proven BEFORE the farm integration
+exists (real DOM from the real farm, library run offline). That gives an
+early, real, non-mock signal for "domorpher works" the moment D0 passes.
+D4-D5 need the host mechanism below.
+
+### 4b. How the farm "loads" the crate — decision needed
+Options (the taxonomy in TOOLS_PIPELINES_MCP_GUIDE §1 decides which is right):
+1. **A thin compiled binary wrapping the crate, run as an Ozone pipeline**:
+   reads `{data:{html|decision}, context}` on stdin, prints the field /
+   action sequence as JSON. Fits the pipeline tier exactly (own crate,
+   own workspace root, envelope contract, gated by the registry). The farm
+   or CC calls it through `/mcp/call` -> pipeline, or the farm bridge script
+   shells out to it. Recommended: no new tier, no Python-Rust FFI, testable
+   offline.
+2. A `cdylib`/PyO3 module imported by the farm's Python: tighter but couples
+   the Browser-Farm repo (which we are not to alter) to Rust builds.
+3. A serve-mode bridge process (tier 3) the farm talks to over HTTP.
+`domorpher-agent` stays unused in all three; the verbs are the vocabulary the
+decision data uses.
 
 ## 5. Consciousness vs internal/external (the "either, or, both" point)
 
@@ -136,6 +159,7 @@ failure actor (#3) and attribution (#2). No new agent layer is required.
 
 ## 6. Do next (all captured; nothing dropped)
 
+0. Operator decision 4b (how the farm runs the crate); recommended option 1.
 1. Operator decision: delete `seams.rs` traits (keep the data types) and
    confirm `domorpher-agent` stays unregistered while unused.
 2. Remove the 16 stale `agent_*` rows; correct MASTER_TEST_GUIDE AG rows.
