@@ -15,7 +15,7 @@ rule packs (data) over a small engine. It has no model client, no network, no
 browser driver. Reasoning belongs to Ozone.
 
 ## DOM is live, not a picture
-The html/dom flavor handles the **live DOM** (a tree the page keeps mutating), through JavaScript running in the page. Layout numbers (bounding boxes) are asked of the browser; they are not read from pixels. Screenshots are a separate artifact handled by the image modality and linked by a `Renders` edge.
+The html/dom flavor handles the **live DOM** (a tree the page keeps mutating), through JavaScript running in the page. Geometry (boxes, transforms, z-order) is intrinsic: captured with every node and kept current, in a named frame; relations are computed centrally and span graphs (`docs/SPATIAL_GEOMETRY_LAYER.md`). It is never read from pixels. Screenshots are a separate artifact handled by the image modality and linked by a `Renders` edge.
 
 ## What it is not
 Not an agent, not a scraper, not a form filler, not a browser. Acting on a page

@@ -110,8 +110,12 @@ How it works:
 Rule families:
 - *live structure*: delta -> `ChildOf` add/remove; node identity is stable
   across deltas (backend node id), so history is traceable
-- *geometry (layout numbers)*: `getBoundingClientRect` -> `Above`, `NearTo`,
-  `Overlaps`; absent until requested, never guessed
+- *geometry (intrinsic, captured with every node)*: the observer records each
+  node's box (`getBoundingClientRect`) when it is seen and keeps it current via
+  ResizeObserver / IntersectionObserver / scroll / layout-affecting mutations.
+  Relations (`Above`, `NearTo`, `Overlaps`, `Contains`, `InFrontOf`...) are
+  computed centrally from `geom` + `frame` (SPATIAL_GEOMETRY_LAYER.md). Absent
+  only when no layout engine ran, never guessed
 - *occlusion*: `elementFromPoint` at an element's centre -> `covered_by`
 - *real interactability*: listener inventory + not covered + visible +
   not `pointer-events:none` -> flag `actionable`
@@ -145,6 +149,9 @@ code (language lint and structure rules), chemistry (valence and bond rules),
 network topology, jurisdiction (already data). UiDocument is the first example
 because HTML/CSS/ARIA are public specs with clear rules. Each other modality
 can adopt a `rules/` directory and the same loader.
+
+## 4b. Geometry is a shared layer, not a UiDocument feature
+See `docs/SPATIAL_GEOMETRY_LAYER.md`: all modalities contribute geometry in named frames; one engine computes relations; relations span graphs. UiDocument gains an `svg` flavor (exact lines/shapes) there.
 
 ## 5. What is deliberately NOT here
 Forms filling, human-like input, session/cookie aging, navigation, extraction,
