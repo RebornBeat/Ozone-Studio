@@ -1,5 +1,8 @@
 # DOMorpher capability parity manifest (2026-10-30)
 
+> **SUPERSEDED 2026-10-31 (operator: start fresh).** The module-by-module parity premise no longer applies: nothing is ported. Old code is archived for review (`~/Projects/_archive/`). New direction: rules per format in `docs/UIDOCUMENT_RULES_GUIDE.md`.
+
+
 > Operator question: "are we dropping any capabilities due to this?" — every
 > module of the 146k-line tree accounted: NOTHING is dropped. Each of the 21
 > modules lands in exactly one of four dispositions, with the replacement

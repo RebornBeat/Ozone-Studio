@@ -1,10 +1,9 @@
 // Register browser-mcp + browser-farm-mcp tools into the Ozone host registry
 // (docs/NEW_MCP_GUIDE.md §1.4). Re-registration REPLACES and bumps server_version;
 // the registry persists ({data_dir}/mcp_tool_registry.json), so re-run only when an endpoint changes.
-//   node tools/register-browser-tools.mjs [browser|farm|android|security|all|domorpher_agent]
+//   node tools/register-browser-tools.mjs [browser|farm|android|security|all]
 //   node tools/register-browser-tools.mjs --prune agent_      (unregister stale rows by name prefix)
-// `all` EXCLUDES the domorpher_agent family while it is unused (operator, 2026-10-31):
-// it registers only when named explicitly (`domorpher_agent`).
+// (domorpher_agent family REMOVED 2026-10-31: fresh start; archived under ~/Projects/_archive)
 // --prune <prefix> asks the host to drop every currently-registered tool whose name starts with
 // <prefix> via POST /mcp/tools/unregister {name} (live host route; removes from the persisted
 // registry too). Safe to combine: `--prune agent_ all`.
@@ -26,17 +25,6 @@ function internalToken() {
   return "";
 }
 const FAMILIES = {
-  domorpher_agent: { port: Number(process.env.OZONE_DOMORPHER_PORT ?? 3283), version: "0.1.0", tools: {
-    domorpher_click: "click a page element (DOMorpher conversion; farm-primary backend)",
-    domorpher_hover: "hover an element", domorpher_scroll: "scroll the page",
-    domorpher_key: "press keys", domorpher_drag: "drag and drop",
-    domorpher_input: "type into a field (human-like, harvest)", domorpher_select: "select an option",
-    domorpher_check: "check/uncheck a checkbox", domorpher_upload: "upload a file",
-    domorpher_navigate: "navigate to an allowlisted host", domorpher_wait: "wait/condition",
-    domorpher_switch_frame: "switch frame context", domorpher_extract: "structured extraction (read-only)",
-    domorpher_dialog: "accept/dismiss a dialog (confirm)", domorpher_exec_script: "eval-equivalent (OZONE_AGENT_ALLOW_EVAL gate)",
-    domorpher_status: "backend + core posture",
-  } },
   browser: { port: Number(process.env.OZONE_BROWSER_PORT ?? 3280), version: "0.1.0", tools: {
     browser_status: "browser MCP posture: locked?, allowlist, sessions",
     browser_open: "open an isolated headless browser session on an allowlisted URL",
@@ -77,7 +65,7 @@ const pi = argv.indexOf("--prune");
 const prunePrefix = pi >= 0 ? (argv[pi + 1] ?? "") : "";
 if (pi >= 0) argv.splice(pi, 2);
 const which = argv[0] ?? (pi >= 0 ? "none" : "all");
-const OPT_IN = new Set(["domorpher_agent"]); // never part of `all`
+const OPT_IN = new Set([]); // no opt-in families (domorpher_agent removed 2026-10-31: fresh start)
 const tok = internalToken();
 const headers = { "Content-Type": "application/json", ...(tok ? { "x-oz-internal": tok } : {}) };
 let ok = 0, bad = 0;

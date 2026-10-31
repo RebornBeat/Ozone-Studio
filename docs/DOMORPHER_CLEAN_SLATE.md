@@ -1,5 +1,8 @@
 # DOMorpher — clean slate (2026-10-31)
 
+> **UPDATE 2026-10-31 (operator decisions):** start fresh instead of keeping a 'true core'. Forms, interactive, agent machinery and the domorpher-agent MCP are dropped, not ported; domorpher-py is deferred; no domorpher-cli. The modality decision stands (one `UiDocument`, pipeline 127, flavors as rule packs) and moved to `assets/pipelines/modalities/uidocument/README.md` + `docs/UIDOCUMENT_RULES_GUIDE.md`. Sections 6 (retire list) remains accurate; section 7 (core/Python layout) is superseded.
+
+
 Operator questions answered here: do we truly understand what domorpher is;
 are we treating it as if a modality wraps it; does the graph need a DOM
 modality; what about HTML and CSS; what is retired; what is the true core for

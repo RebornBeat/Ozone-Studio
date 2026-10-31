@@ -1,5 +1,8 @@
 # DOMorpher → Ozone-Studio conversion guide (2026-10-29, operator directive)
 
+> **SUPERSEDED 2026-10-31 (operator: start fresh).** DOMorpher, its core crate plan and the domorpher-agent MCP were archived (`~/Projects/_archive/domorpher-2026-10-31.bundle` + `-worktree.tar.gz`, `domorpher-agent-2026-10-31.tar.gz`) and removed. Kept as history only. The replacement is the UiDocument modality: `assets/pipelines/modalities/uidocument/README.md` and `docs/UIDOCUMENT_RULES_GUIDE.md`.
+
+
 > "This was PRE our Ozone-Studio connection — we are totally rebuilding this
 > as an Ozone-Studio tool with MCP use, reasoning it through Ozone-Studio."
 > The compile campaign continues ONLY as review-enablement (make the source
