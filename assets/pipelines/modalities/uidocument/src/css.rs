@@ -395,6 +395,10 @@ pub struct CascadeStats {
     pub rules_matched: usize,
     pub unsupported_selectors: usize,
     pub truncated: bool,
+    /// (sheet index, rule index) of every rule that matched >= 1 element —
+    /// the graph materializes ONLY these (the real-page fix: 66 unmatched
+    /// StyleRule nodes crowded google.com's graph, 2026-10-31).
+    pub matched_rules: std::collections::BTreeSet<(usize, usize)>,
 }
 
 fn consider(map: &mut BTreeMap<String, CascadeWin>, prop: &str, win: CascadeWin) {
@@ -447,6 +451,7 @@ pub fn cascade(dom: &Dom, sheets: &[Sheet]) -> (Vec<BTreeMap<String, CascadeWin>
                 }
                 if let Some(spec) = rule.selector.matches(dom, i) {
                     stats.rules_matched += 1;
+                    stats.matched_rules.insert((sheet.index, rule.order));
                     for d in &wanted {
                         let win = CascadeWin {
                             value: d.value.trim().to_ascii_lowercase(),

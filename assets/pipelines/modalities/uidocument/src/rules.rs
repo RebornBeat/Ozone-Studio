@@ -194,6 +194,12 @@ pub struct Facts {
     pub edges: Vec<EdgeOut>,
     pub rules_applied: BTreeMap<String, usize>,
     pub notes: Vec<String>,
+    /// Which cascade rules matched (the style-rule crowding fix reads this).
+    pub cascade_stats: Option<crate::css::CascadeStats>,
+    /// Css-only documents have no elements BY DESIGN — their stylesheet IS
+    /// the document, so every rule materializes (the crowding gate is for
+    /// element-bearing flavors).
+    pub materialize_all_style_rules: bool,
 }
 
 impl Facts {
@@ -320,12 +326,27 @@ pub struct Engine<'a> {
 }
 
 /// Run every rule of `packs` (ordered by phase, then pack order, then rule order).
-pub fn run(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTreeMap<String, CascadeWin>]) -> Facts {
-    run_with_svg(dom, packs, sheets, computed, None)
+pub fn run(
+    dom: &Dom,
+    packs: &[Pack],
+    sheets: &[Sheet],
+    computed: &[BTreeMap<String, CascadeWin>],
+    stats: Option<&crate::css::CascadeStats>,
+    materialize_all_style_rules: bool,
+) -> Facts {
+    run_with_svg(dom, packs, sheets, computed, None, stats, materialize_all_style_rules)
 }
 
 /// Same as `run`, with the SVG geometry model for flavor svg (UNCOMPILED pending the build gate).
-pub fn run_with_svg(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTreeMap<String, CascadeWin>], svg: Option<&SvgModel>) -> Facts {
+pub fn run_with_svg(
+    dom: &Dom,
+    packs: &[Pack],
+    sheets: &[Sheet],
+    computed: &[BTreeMap<String, CascadeWin>],
+    svg: Option<&SvgModel>,
+    stats: Option<&crate::css::CascadeStats>,
+    materialize_all_style_rules: bool,
+) -> Facts {
     let mut id_index = HashMap::new();
     for i in 1..dom.nodes.len() {
         if let Some(id) = dom.nodes[i].attrs.get("id") {
@@ -340,7 +361,12 @@ pub fn run_with_svg(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTr
         dom,
         sheets,
         computed,
-        facts: Facts { nodes: vec![NodeFacts::default(); dom.nodes.len()], ..Facts::default() },
+        facts: Facts {
+            nodes: vec![NodeFacts::default(); dom.nodes.len()],
+            cascade_stats: stats.cloned(),
+            materialize_all_style_rules,
+            ..Facts::default()
+        },
         edge_set: HashSet::new(),
         extra_counter: 0,
         id_index,
@@ -901,11 +927,45 @@ impl<'a> Engine<'a> {
     fn stylesheet_facts(&mut self, rule: &Rule) {
         let sheets = self.sheets;
         let mut materialized = 0usize;
+        // STYLE-RULE CROWDING FIX (2026-10-31, CC's real-page finding): only
+        // rules that MATCHED >= 1 element in the cascade are materialized as
+        // StyleRule nodes — unmatched rules are summarized in the StyleSheet
+        // node's facts (on google.com they were 41% of the graph with 2
+        // cascade matches).
+        // Stats absent (a caller that didn't run the cascade): treat as
+        // "nothing matched" and say so — honest degradation, not an error.
+        // Cloned so &mut self calls (new_extra) below don't fight the borrow.
+        let matched: std::collections::BTreeSet<(usize, usize)> = self
+            .facts
+            .cascade_stats
+            .as_ref()
+            .map(|cs| cs.matched_rules.clone())
+            .unwrap_or_default();
+        let mut unmatched = 0usize;
         for sheet in sheets {
             let mut props: BTreeMap<String, Value> = BTreeMap::new();
             props.insert("facts".to_string(), sheet.summary());
+            let matched_in_sheet = sheet
+                .rules
+                .iter()
+                .enumerate()
+                .filter(|(ri, _)| matched.contains(&(sheet.index, *ri)))
+                .count();
+            props.insert(
+                "rules_matched".to_string(),
+                json!(matched_in_sheet),
+            );
+            props.insert(
+                "rules_total".to_string(),
+                json!(sheet.rules.len()),
+            );
             let sheet_key = self.new_extra("doc".to_string(), "StyleSheet", sheet.label.clone(), props, rule);
             for (ri, r) in sheet.rules.iter().enumerate() {
+                let is_matched = matched.contains(&(sheet.index, ri));
+                if !is_matched && !self.facts.materialize_all_style_rules {
+                    unmatched += 1;
+                    continue;
+                }
                 if materialized >= MAX_STYLE_RULE_NODES {
                     self.style_rules_uncounted += 1;
                     continue;
@@ -935,9 +995,15 @@ impl<'a> Engine<'a> {
                 materialized += 1;
             }
         }
+        if unmatched > 0 {
+            self.facts.notes.push(format!(
+                "{} style rule(s) matched nothing in the cascade: summarized in their StyleSheet node's facts, not materialized as nodes",
+                unmatched
+            ));
+        }
         if self.style_rules_uncounted > 0 {
             self.facts.notes.push(format!(
-                "{} style rule(s) beyond the {}-node cap were counted in StyleSheet facts but not materialized as nodes",
+                "{} matched style rule(s) beyond the {}-node cap were counted in StyleSheet facts but not materialized as nodes",
                 self.style_rules_uncounted, MAX_STYLE_RULE_NODES
             ));
         }

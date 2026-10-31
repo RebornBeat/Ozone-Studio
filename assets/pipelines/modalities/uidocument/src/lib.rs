@@ -101,10 +101,16 @@ fn analyse_dom(dom: &Dom, sheets: &[css::Sheet], flavor: &str) -> Result<Analysi
 }
 
 /// `model` = the SVG geometry model (flavor svg only).
-fn analyse_dom_ext(dom: &Dom, sheets: &[css::Sheet], flavor: &str, model: Option<&svg::SvgModel>) -> Result<Analysis, String> {
+fn analyse_dom_ext(
+    dom: &Dom,
+    sheets: &[css::Sheet],
+    flavor: &str,
+    model: Option<&svg::SvgModel>,
+) -> Result<Analysis, String> {
     let (computed, stats) = css::cascade(dom, sheets);
     let packs = rules::load_builtin(flavor)?;
-    let mut facts = rules::run_with_svg(dom, &packs, sheets, &computed, model);
+    let materialize_all = flavor == "css";
+    let mut facts = rules::run_with_svg(dom, &packs, sheets, &computed, model, Some(&stats), materialize_all);
     if let Some(m) = model {
         facts.notes.extend(m.notes.iter().cloned());
     }

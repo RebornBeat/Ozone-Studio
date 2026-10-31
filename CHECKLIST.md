@@ -6798,3 +6798,18 @@ semantics/provenance/graph, confirmed. ACCEPTED weaknesses + fix order:
 5. **SVG swap-check**: usvg/svgtypes vs the hand-rolled svg.rs — evaluated at the build gate.
 Gate 2 (frame_relations) proceeds independently. UNIQUELY OURS (kept): untrusted marking, provenance,
 form/label edges, the reasoner view, the live observer, graph persistence, the shared geometry layer.
+
+## 2026-10-31 (zc, CC-ASSESSMENT FIXES 1+3) — StyleRule crowding fixed + charset decode; 36/36 tests; host 0 errors
+**FIX 1 (StyleRule crowding — CC's top weakness)**: the cascade now tracks WHICH rules matched
+(CascadeStats.matched_rules BTreeSet); stylesheet_facts materializes ONLY matched rules — unmatched
+rules are summarized in their StyleSheet node's facts (rules_matched/rules_total + a note). On
+google.com this removes the 41% StyleRule crowding (66 rules, 2 matches → ~2 nodes + summary). The
+css-only flavor is EXEMPT (materialize_all_style_rules=true — a css document's stylesheet IS the
+document; the failing lib test caught the exemption need and now passes). **36/36 tests green.**
+**FIX 3 (encoding — CC's finding)**: /capture/ingest_uidocument accepts bytes_b64 + charset — decodes
+UPSTREAM of the engine (BOM sniff UTF-8/16 + explicit charset via encoding_rs + UTF-8 replacement
+fallback); provided-count updated; the engine contract (string in) unchanged. base64+encoding_rs
+added to the host. **Host cargo check: 0 errors.** Both fixes ride the next EU build+deploy.
+Queued (CC's remaining recommendations): the selectors-crate swap for the hand-written cascade
+matcher; usvg/svgtypes evaluation for svg.rs; the live-path doctrine (CDP DOMSnapshot +
+Accessibility.getFullAXTree); Gate 2's frame_relations fixture test on EU.

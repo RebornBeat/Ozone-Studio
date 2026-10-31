@@ -1983,6 +1983,10 @@ pub struct IngestUiDocumentRequest {
     pub path: Option<String>,
     #[serde(default)]
     pub html: Option<String>,
+    /// FIX 3 (encoding): non-UTF-8 pages arrive as base64 bytes + an optional
+    /// charset label — decoded upstream of the engine (which takes a string).
+    pub bytes_b64: Option<String>,
+    pub charset: Option<String>,
     #[serde(default)]
     pub batch: Option<serde_json::Value>,
     #[serde(default)]
@@ -2013,7 +2017,46 @@ async fn ingest_uidocument(
             flavor
         ));
     }
-    let provided = [req.path.is_some(), req.html.is_some(), req.batch.is_some()]
+
+    // FIX 3 (encoding, 2026-10-31): bytes_b64 + optional charset decode
+    // UPSTREAM of the engine (its contract takes a string). BOM sniffing
+    // covers UTF-8/UTF-16; an explicit charset label overrides; plain UTF-8
+    // with replacement is the fallback.
+    let html_decoded: Option<String> = req.bytes_b64.as_ref().and_then(|b64| {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD
+            .decode(b64.trim())
+            .ok()
+            .map(|bytes| {
+                let (decoded, _, had_errors) = match req.charset.as_deref().map(|c| c.to_ascii_lowercase()) {
+                    Some(cs) if cs != "utf-8" && cs != "utf8" => {
+                        let enc = encoding_rs::Encoding::for_label(cs.as_bytes())
+                            .unwrap_or(encoding_rs::UTF_8);
+                        let (d, _, errs) = enc.decode(&bytes);
+                        (d.into_owned(), (), errs)
+                    }
+                    _ => {
+                        // BOM sniff first, then UTF-8 with replacement.
+                        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                            let (d, _, errs) = encoding_rs::UTF_8.decode(&bytes[3..]);
+                            (d.into_owned(), (), errs)
+                        } else if bytes.starts_with(&[0xFF, 0xFE]) {
+                            let (d, _, errs) = encoding_rs::UTF_16LE.decode(&bytes);
+                            (d.into_owned(), (), errs)
+                        } else if bytes.starts_with(&[0xFE, 0xFF]) {
+                            let (d, _, errs) = encoding_rs::UTF_16BE.decode(&bytes);
+                            (d.into_owned(), (), errs)
+                        } else {
+                            let (d, _, errs) = encoding_rs::UTF_8.decode(&bytes);
+                            (d.into_owned(), (), errs)
+                        }
+                    }
+                };
+                let _ = had_errors;
+                decoded
+            })
+    });
+    let provided = [req.path.is_some(), req.html.is_some() || html_decoded.is_some(), req.batch.is_some()]
         .iter()
         .filter(|b| **b)
         .count();
@@ -2021,7 +2064,7 @@ async fn ingest_uidocument(
         return uidoc_refuse("provide exactly one of path, html, batch");
     }
 
-    let document_data: serde_json::Value = if let Some(html) = req.html.as_ref() {
+    let document_data: serde_json::Value = if let Some(html) = html_decoded.as_ref().or(req.html.as_ref()) {
         if html.len() > UIDOC_MAX_INLINE_BYTES {
             return uidoc_refuse("refused: inline html exceeds the 5 MB cap");
         }
@@ -2062,6 +2105,8 @@ async fn ingest_uidocument(
         }
         serde_json::json!({ "FilePath": canon.to_string_lossy() })
     };
+    // FIX 3 continued: charset decode happens BEFORE document_data assembly
+    // (applied in the html branch below via the decoded override).
 
     let input = crate::types::pipeline::PipelineInput {
         data: vec![(
