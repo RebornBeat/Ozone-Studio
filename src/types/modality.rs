@@ -124,7 +124,7 @@ impl ModalityType {
                 "xml",
             ],
             ModalityType::Image => &[
-                "png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "tiff", "tif", "ico", "heic",
+                "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif", "ico", "heic",
                 "heif", "raw", "cr2", "nef", "arw", "dng", "psd", "ai", "eps",
             ],
             ModalityType::Audio => &[
@@ -205,9 +205,10 @@ impl ModalityType {
             ModalityType::Hyperspectral => &[
                 "hdr", "bil", "bip", "bsq", "h4", "hdf4", "hdf5", "h5", "nc", "img",
             ],
-            // UiDocument (pipeline 127). `.js/.ts` stay Code. `.svg` stays Image for now:
-            // TODO(operator): confirm moving `svg` to a UiDocument flavor (exact vector geometry).
-            ModalityType::UiDocument => &["html", "htm", "xhtml", "css", "scss", "less"],
+            // UiDocument (pipeline 127). `.js/.ts` stay Code. `.svg` MOVED here from Image
+            // (operator, 2026-10-31): SVG is an element tree with exact vector geometry;
+            // raster formats stay Image. UNCOMPILED pending the build gate.
+            ModalityType::UiDocument => &["html", "htm", "xhtml", "css", "scss", "less", "svg"],
 
             ModalityType::Unknown => &[],
         }
