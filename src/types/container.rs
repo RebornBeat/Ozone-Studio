@@ -747,6 +747,9 @@ pub enum Modality {
     TimeSeries = 7,
     Structured = 8,
     External = 9,
+    /// UiDocument (pipeline 127): interface-element trees — html/css/dom-live/
+    /// svg flavors (2026-10-31, the modality-127 wiring).
+    UiDocument = 10,
     Multimodal = 255,
 }
 
