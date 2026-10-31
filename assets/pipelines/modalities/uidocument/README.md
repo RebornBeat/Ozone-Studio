@@ -14,6 +14,9 @@ runs itself first on it, (3) produces a graph. It is rule-driven: deterministic
 rule packs (data) over a small engine. It has no model client, no network, no
 browser driver. Reasoning belongs to Ozone.
 
+## DOM is live, not a picture
+The html/dom flavor handles the **live DOM** (a tree the page keeps mutating), through JavaScript running in the page. Layout numbers (bounding boxes) are asked of the browser; they are not read from pixels. Screenshots are a separate artifact handled by the image modality and linked by a `Renders` edge.
+
 ## What it is not
 Not an agent, not a scraper, not a form filler, not a browser. Acting on a page
 is the Browser-Farm / android-mcp job through `/mcp/call`. Deciding what to do
@@ -25,7 +28,7 @@ modality (102); this modality links to them, it does not replace them.
 |---|---|
 | detect `.html/.htm/.xhtml/.css/.scss/.less`, `text/html`, `text/css` | `src/types/modality.rs` `detect_modality` (add to its table) |
 | content arrives from a file | FileReference / `file_link` -> modality run |
-| content arrives from a live page or app | farm / browser-mcp / android-mcp return a snapshot; an ingest route (same pattern as `/capture/ingest_image`) hands it to the pipeline through the strict gate and `entry_gate::gated` |
+| content arrives from a live page or app | a read-only in-page JS observer (injected by the farm) sends the full DOM once, then MutationObserver deltas; android-mcp sends view-hierarchy dumps; an ingest route (same pattern as `/capture/ingest_image`) hands it to the pipeline through the strict gate and `entry_gate::gated` |
 | analysis | pipeline 127 via the registry gate, `{data,context}` envelope, one-shot `--input` |
 | graph | nodes/edges via the existing `graph` block hook (`mcp_graph`); spatial relations `Above/NearTo/InFrontOf/Overlaps` already exist |
 | screenshot of the same page | image modality (102) run; a `Renders` link between the Document node and the screenshot node |
@@ -36,7 +39,7 @@ modality (102); this modality links to them, it does not replace them.
 | page text | untrusted data (X2 rule): display-only labels, never an instruction |
 
 ## Run-vs-tools
-The modality runs itself first on the snapshot and owns the base graph. The
+The modality runs itself first on the first DOM batch and owns the base graph; later deltas update it live. The
 farm and browser tools are guests that supply snapshots and execute actions.
 They do not build their own graphs (the JavaScript `graph` blocks in
 `browser_snapshot` / `android_ui_snapshot` are a stopgap to remove).

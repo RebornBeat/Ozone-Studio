@@ -219,7 +219,7 @@ CC/Ozone reasoning decides -> farm_navigate (gated /mcp/call)
 |---|---|---|
 | UD1 | `detect_modality("page.html")`, `("style.css")` | UiDocument (not Unknown); `.js` still Code |
 | UD2 | pipeline 127 on the captured google.com HTML | nodes: search input, Search and "I'm Feeling Lucky" buttons, links; `ChildOf` tree; no script executed |
-| UD3 | same page with a live DOMSnapshot | adds `visible`, `Above/NearTo/Overlaps`; static HTML alone adds none |
+| UD3 | same page with the live in-page observer | full tree then deltas; adds `visible`, `Above/NearTo/Overlaps`, `actionable`; static HTML alone adds none |
 | UD4 | standalone `.css` | StyleSheet/StyleRule nodes; media/keyframes/custom properties captured |
 | UD5 | cascade | `display:none` element has `visible:false`; higher specificity wins |
 | UD6 | android `uiautomator` dump | same node/edge shape as UD2 (flavor `android-xml`) |

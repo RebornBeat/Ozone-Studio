@@ -85,12 +85,45 @@ assets/pipelines/modalities/uidocument/rules/<flavor>.json
 - *responsive*: `@media` variants recorded as alternates, not merged
 - A standalone `.css` file yields the StyleSheet/StyleRule subgraph only.
 
-### dom-live (a rendered snapshot, from the farm)
-- *geometry*: boxes -> `Above`, `NearTo`, `Overlaps`
-- *occlusion*: box + z-order -> `covered_by` (can the user actually click it)
-- *scroll containers and fixed/sticky layers*
-- *shadow DOM*: open roots are flattened with `Embeds`; closed roots are opaque
-- *dynamic change*: two snapshots -> a graph delta (added/removed/changed)
+### dom-live (the LIVE DOM, handled in JS — not a picture, not a one-shot dump)
+Correction (operator, 2026-10-31): my earlier "rendered snapshot with geometry"
+wording was wrong. The DOM is not an image. It is a living tree inside the
+page that scripts read and the page itself mutates. Pixels are the image
+modality (102); this flavor is the tree, live.
+
+How it works:
+- A small **in-page JavaScript observer** (injected by the farm/CC bridge
+  before page scripts, e.g. Playwright init script or CDP
+  `Page.addScriptToEvaluateOnNewDocument`) walks the live DOM once and then
+  streams **deltas** from `MutationObserver` (added / removed / attribute /
+  text changes), plus on-demand queries: `getComputedStyle`,
+  `getBoundingClientRect` (layout numbers the browser holds, not pixels),
+  `elementFromPoint`, `document.activeElement`, shadow roots, same-origin
+  frames. Event-listener inventory comes from CDP `DOMDebugger.getEventListeners`
+  (listeners are not visible from plain DOM attributes).
+- Batches go farm bridge -> ingest route -> pipeline 127. The first batch
+  builds the base graph; later batches are **graph deltas** emitted through
+  the existing GraphEventHub ripple, so the living graph in Ozone follows the
+  living page.
+- Rules apply to the stream: they re-evaluate only what a delta touched.
+
+Rule families:
+- *live structure*: delta -> `ChildOf` add/remove; node identity is stable
+  across deltas (backend node id), so history is traceable
+- *geometry (layout numbers)*: `getBoundingClientRect` -> `Above`, `NearTo`,
+  `Overlaps`; absent until requested, never guessed
+- *occlusion*: `elementFromPoint` at an element's centre -> `covered_by`
+- *real interactability*: listener inventory + not covered + visible +
+  not `pointer-events:none` -> flag `actionable`
+- *focus and state*: `activeElement`, `:checked`, `:disabled`, `value` length
+  (never the value of password fields), scroll position
+- *scroll containers, sticky/fixed layers*
+- *shadow DOM*: open roots flattened with `Embeds`; closed roots opaque
+- *frames*: same-origin walked; cross-origin = opaque stub node (honest)
+- *change significance*: bursts of mutations (ads, tickers) are summarized
+  into one delta with a count, so the graph and the ripple are not flooded
+- *safety*: the observer is read-only: it never clicks, types, or evals
+  caller-supplied code; page text in deltas is `untrusted`
 
 ### android-xml / a11y-json
 - *view hierarchy*: class -> role map, resource-id, content-desc as name,
@@ -121,7 +154,7 @@ persistent profiles. If one of these is later needed it is designed from a
 need, not carried over.
 
 ## 6. Language and Python
-Engine in Rust (a pipeline like the 82 others). A Python library is **deferred**:
+Engine in Rust (a pipeline like the 82 others). The **in-page observer is JavaScript** (it must run inside the page), a small read-only script stored with the pipeline and injected by the farm; tagged `lang:javascript`, `kind:library` in the language registry. A Python library is **deferred**:
 the Browser-Farm already has its own human-like behaviors and persistent
 profiles, and the farm only needs to hand over a snapshot. Revisit when a real
 farm-side need appears; the language-tagging scheme (`TOOLS_BY_LANGUAGE.md`)
@@ -131,7 +164,7 @@ already allows it.
 1. Add html/css to `detect_modality`; stub the pipeline registry entry 127.
 2. Rule-pack loader + html pack (structure, forms, links, a11y name, visibility).
 3. css pack (stylesheet facts, cascade, computed visibility).
-4. Ingest route for snapshots; farm snapshot via CDP `DOMSnapshot` (verify).
-5. dom-live pack (geometry, occlusion); android-xml pack.
+4. Ingest route for batches (first full tree, then deltas); CDP `DOMSnapshot.captureSnapshot` may seed the first batch (verify), the in-page observer streams the rest.
+5. dom-live pack (deltas, geometry, occlusion, actionable); android-xml pack.
 6. patterns pack; remove the JavaScript `graph` stopgaps.
 Tests: UD1-UD12 plus one row per rule family (id = rule id prefix).
