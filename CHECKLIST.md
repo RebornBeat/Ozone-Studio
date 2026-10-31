@@ -6635,3 +6635,8 @@ rcdom/SerializableHandle re-pointed (preprocessor, security, converter); decode_
 recreated (named + numeric forms). The remaining 60 are singletons (file-by-file) — the loop is
 established; domorpher carries every step. Ozone at 30+ commits ready for push; the full campaign
 state: ingest live on EU, domorpher-agent registered, affinity guide + parity manifest current.
+
+## 2026-10-30 (zc, XV) — GRIND: 60 → 58 (singleton phase)
+cssparser/wasm-bindgen/chardetng deps; the reference execution defaults (0.7/3/60) carried into the
+core shim — evaluator's super:: imports resolve. The remaining 58 are singletons (file-by-file) —
+the census loop continues; domorpher carries every step.
