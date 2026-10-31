@@ -906,3 +906,57 @@ mod spatial_tests {
         }
     }
 }
+
+
+#[cfg(test)]
+mod spatial_fixture_tests {
+    // GATE 2 FIXTURE (2026-10-31): the 0-spatial-edges question from the
+    // live svg test, reproduced in-process. rect1 ENCLOSES rect2; the
+    // circle is separate. frame_relations must produce Encloses/Within
+    // for rect1/rect2 and nothing for the circle pair.
+    use super::compute_spatial_relations;
+
+    fn node(key: &str, frame: &str, x: f64, y: f64, w: f64, h: f64) -> serde_json::Value {
+        serde_json::json!({
+            "key": key,
+            "attributes": {"geom": {"frame": frame, "kind": "box", "x": x, "y": y, "w": w, "h": h}},
+        })
+    }
+
+    #[test]
+    fn enclosing_boxes_produce_encloses_within_edges() {
+        let nodes = vec![
+            node("rect1", "svg:fig", 10.0, 10.0, 80.0, 40.0),
+            node("rect2", "svg:fig", 20.0, 20.0, 40.0, 20.0),
+            node("circle", "svg:fig", 130.0, 10.0, 40.0, 40.0),
+        ];
+        let (edges, note) = compute_spatial_relations(&nodes, 20000);
+        assert!(note.is_none() || !note.as_ref().unwrap().contains("truncated"));
+        let rels: Vec<(&str, &str, &str)> = edges
+            .iter()
+            .filter_map(|e| {
+                Some((
+                    e.get("from")?.as_str()?,
+                    e.get("relation")?.as_str()?,
+                    e.get("to")?.as_str()?,
+                ))
+            })
+            .collect();
+        assert!(
+            rels.contains(&("rect1", "Encloses", "rect2")),
+            "rect1 should Enclose rect2; edges: {rels:?}"
+        );
+        assert!(
+            rels.contains(&("rect2", "Within", "rect1")),
+            "rect2 should be Within rect1; edges: {rels:?}"
+        );
+        // The circle pair: rect1 (10..90) vs circle (130..170) — disjoint,
+        // no overlap relation (NearTo may appear if within threshold; both
+        // are acceptable per the relation set).
+        assert!(
+            !rels.iter().any(|(f, r, t)| (*r == "Overlaps" || *r == "Encloses")
+                && ((*f == "circle" && *t == "rect1") || (*f == "rect1" && *t == "circle"))),
+            "the disjoint circle must not Overlap/Enclose rect1; edges: {rels:?}"
+        );
+    }
+}

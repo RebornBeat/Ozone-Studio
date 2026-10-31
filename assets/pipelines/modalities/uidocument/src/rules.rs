@@ -964,15 +964,6 @@ impl<'a> Engine<'a> {
                 "rules_total".to_string(),
                 json!(sheet.rules.len()),
             );
-            props.insert(
-                "STYLE_DEBUG".to_string(),
-                json!({
-                    "stats_present": self.facts.cascade_stats.is_some(),
-                    "matched_set_len": matched.len(),
-                    "sheet_index": sheet.index,
-                    "first_rule_order": sheet.rules.first().map(|r| r.order),
-                }),
-            );
             // LOSSLESS RULE PAYLOAD (D23 — CC review 2026-10-31: counts-only dropped
             // selectors/declarations). Every rule, matched or not.
             let rules_payload: Vec<Value> = sheet

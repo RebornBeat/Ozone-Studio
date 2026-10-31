@@ -6836,3 +6836,17 @@ CC's review of 38a1c93 accepted in full; the items addressed:
    matched flags correct, only matched materializes); the css-only exemption test; the FilePath
    BOM+source_encoding test. CC's remaining items acknowledged: the selectors-crate cascade swap
    (next), usvg deferred per D27 (svgtypes+kurbo first), Gate 2 frame_relations fixture test pending.
+
+## 2026-10-31 (zc, GATE 2 PASSED) — spatial relations LIVE on the svg fixture + rule_hits finding CORRECTED
+1. **Gate 2 PASSED**: the frame_relations fixture test (added to mcp_graph.rs: rect1 encloses rect2,
+   disjoint circle) PASSES in-process; the LIVE svg ingest on the current EU binaries persists **6
+   spatial relations** (viewport box Encloses/Within both rects + rect1 Encloses/rect2 Within — the
+   viewport participates as an svg element with geom). The earlier 0-relations run is NOT reproducible
+   on the current binaries — most likely the intermediate uidocument binary state (pre-svg-engine
+   refinements); the spatial code itself was verified correct by the fixture.
+2. **rule_hits finding CORRECTED**: "empty rule_hits aggregation" was a wrong-level parse (mine —
+   and likely CC's audit's). The real data lives at graph.BOUNDS.rule_hits: the fresh google.com ingest
+   shows **429 hits across 37 rules** (vis.effective 162, struct.child-of 80, a11y.role 21, script.ref
+   20, a11y.name 16). NEVER a bug; the queued "display fix" item is CLOSED.
+3. The STYLE_DEBUG diagnostic prop removed; the uidocument binary rebuilt + redeployed with the
+   clean rules.rs. Both hosts healthy.
