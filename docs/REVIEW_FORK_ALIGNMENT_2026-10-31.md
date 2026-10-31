@@ -55,3 +55,53 @@ the diffs against the findings.
    registrar copy, token env) -> T-DOM-GOOGLE D1/D2 -> SC/MF/PR rows.
 4. Operator: rotate the OpenRouter key; decide on Browser-Farm repo commit
    b603436 / tools/bridges gitlink.
+
+---
+# CORRECTION (operator, same day): the removal pass went too far in the wrong direction
+
+The operator's point, verified against the Ozone tree: stripping the model calls
+out of `reasoning`, `multi_pass`, `recovery`, `engine`, `extractor`, `parser`
+and the navigation strategies still LEFT their orchestration in the library.
+That machinery duplicates what Ozone already has. I followed "remove the LLM"
+literally instead of re-applying the taxonomy test ("is this Ozone's job
+already?"). The rewrites (extractor 1500->640, reasoning, recovery, engine)
+were effort spent recreating redundant parts. Own it; do not continue it.
+
+| library part | Ozone already has | verdict |
+|---|---|---|
+| agent/reasoning, agent, goals, memory | pipeline 9 prompt, AMT/amt_loop, ZSEI + context graph | RETIRE |
+| agent/navigation/* (breadth/depth/semantic/structure-first) | context traversal: `traversal_ml`, `context_aggregation`, LOCALIZATION_TRAVERSAL_GUIDE | RETIRE |
+| execution/multi_pass | `decision_review` multi-pass, `consensus` pipeline, fallback chain | RETIRE |
+| execution/recovery | TaskFailed + McpFailure actors, fallback chain, amt_loop | RETIRE |
+| execution/engine | orchestrator (stages, dispatch, entry_gate) | RETIRE |
+| extraction/* | text/code modality pipelines, `zero_shot` (S11), `text_analysis` | RETIRE |
+| instruction/* (NL -> plan) | prompt pipeline 9 + `task_recommendation` | RETIRE |
+| schema/*, reconciliation/* | `integrity_check`, `consensus`, graph merge | RETIRE unless a DOM-only need is shown |
+| chunking/ | text pipeline 100 | RETIRED (earlier) |
+
+**What stays (DOM handling with a contract):** `dom/` (preprocessor,
+semantic_markdown, accessibility, analyzer), `interactive/` (what is
+interactable: detector, events), `forms/` mechanics (human-like typing, Bezier,
+applying a mapping Ozone supplied), `browser/` cookies/session/auth state
+transforms, and the action/perception TYPES (`agent/action.rs`,
+`agent/perception.rs`) once two couplings are cut
+(`action.rs -> execution::evaluator`, `perception.rs -> extraction::relevance`).
+
+**Consequences**
+- AG9 (unify four judgment shapes) is MOOT: the library no longer asks for
+  judgment. Ozone's reasoning decides and sends a command; the library
+  executes DOM mechanics. `NeedsJudgment`/`EscalationRequest` machinery is
+  retired with the files that held it.
+- The Python API shrinks to: `dom_to_field(html, opts)`, `perceive(field)`,
+  `plan_input(text, profile)` (human-like input timings for a text Ozone chose),
+  `cookie_age(state, now)`, `version()`. No `extract`, no `plan_actions` from a
+  decision, no `needs_judgment`.
+- Core size: the lean set is roughly dom + interactive + forms + cookies/session
+  + two type files (the earlier "<=76k IN" figure is withdrawn; recount at the
+  census from the actual `#[path]` list, not estimated here).
+- Ozone side needs nothing new for these retired roles; the farm tools plus
+  Ozone's reasoning already cover them. The one real gap stays the OUTPUT path:
+  DOM field -> `graph` block -> context traversal in the graph.
+- The expensive edits in `954a5c7` stay in git history; they are not carried
+  into the lean core. The `core/src/execution` and `core/src/browser` shims
+  existed to support retired modules and should be pruned at the census.

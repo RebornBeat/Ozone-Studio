@@ -67,13 +67,17 @@ Why a Python library and not only a binary:
 - domorpher-cli keeps the offline path (D2 in the google.com test) and
   matches the pipeline tier, so Ozone can also call it directly.
 
-Python API (pure functions, JSON in / JSON out; decisions arrive as data):
+Python API (LEAN, revised 2026-10-31 after the operator's correction; pure
+functions, JSON in / JSON out; Ozone's reasoning decides, the library only does
+DOM mechanics):
 - `dom_to_field(html: str, opts: dict) -> dict`  traversable field
-- `plan_actions(field: dict, decision: dict) -> list[dict]`  action sequence
-  (human-like typing, pauses) from a decision supplied by Ozone
-- `extract(html: str, spec: dict) -> dict`  items from the DOM
-- `needs_judgment(...) -> dict | None`  the outward signal
+- `perceive(field: dict) -> dict`  interactable elements, roles, regions
+- `plan_input(text: str, profile: dict) -> list[dict]`  human-like typing /
+  pointer timing for text Ozone chose
+- `cookie_age(state: dict, now: str) -> dict`  session/cookie state transform
 - `version() -> str`
+(Removed from the earlier draft: `extract`, `plan_actions`, `needs_judgment` —
+extraction, planning and judgment are Ozone's.)
 
 Rules (carried from the doctrine): no model client, no sockets, no
 persistence in the library; every call that touches the web is executed by
