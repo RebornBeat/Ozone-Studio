@@ -1992,7 +1992,7 @@ pub struct IngestUiDocumentRequest {
 }
 
 const UIDOC_MAX_INLINE_BYTES: usize = 5 * 1024 * 1024;
-const UIDOC_FLAVORS: [&str; 5] = ["html", "css", "dom-live", "android-xml", "a11y-json"];
+const UIDOC_FLAVORS: [&str; 6] = ["html", "css", "dom-live", "svg", "android-xml", "a11y-json"];
 
 fn uidoc_refuse(msg: &str) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "success": false, "error": msg }))

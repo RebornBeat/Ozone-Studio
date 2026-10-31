@@ -6769,3 +6769,13 @@ minor, captured; (2) the route+binary handled 90 KB production HTML without trun
 flavor on the LIVE page (the JS observer through the farm CC-bridge) remains operator-gated (G12).
 Gates: 0 ✓ 1 ✓ 3(static) ✓ — Gate 2 (the spatial pass at the choke point) is next.
 **2026-10-31 (cc) ENGINE REVIEW CAPTURED (docs/UIDOCUMENT_ENGINE_REVIEW_2026-10-31.md):** measured on live google.com (EU, 69 KB): 80/80 source elements present as nodes (complete); 160 nodes/25 edges; 66 StyleRule nodes = 41% of graph; cascade matched only 2 selectors (9 unsupported) — hand matcher is the weak part; `normalize_input` fails on non-UTF-8 (read_to_string bug); `rule_hits` aggregation empty. Decisions D23-D30 closed: nothing dropped (lossless StyleSheet payload + on-match materialization + per-class budgets; keep all rules until matching is fixed); `selectors` crate for static; browser DOMSnapshot/AX tree/paint order for live (closes G3); svgtypes+kurbo for SVG; encoding_rs/chardetng at the boundary; fix rule_hits. BS4 vs domorpher vs UiDocument table recorded. Work queue + rows UE-ENC/CSS/CAP/HITS/SVG/LIVE/CMP + REG-MIG1 (MASTER_TEST_GUIDE §24). Gate 2 in flight with ZCode (src files untouched by this capture). Stale CC claims on uidocument src files released. Discrepancy flagged: Gate-3 "164 entities" vs 160 nodes on this fetch.
+
+## 2026-10-31 (zc, XVIII) — SVG FLAVOR LIVE ON EU + Gate 2 scoped
+The svg flavor is LIVE in production: route svg flavor added (UIDOC_FLAVORS 6), rebuilt+deployed;
+a real SVG fixture ingested → **4 nodes with EXACT vector geometry computed from the file** (the
+svg.rs engine — viewBox frame svg:fig, transforms, shapes — working in production). The spatial pass
+is fully wired in the shared persist path (compute → edges.extend → persisted; verified by read).
+**Remaining Gate 2 item (scoped)**: the fixture produced 0 spatial edges despite rect1 enclosing
+rect2 — the question is inside frame_relations' grid bucketing (SPATIAL_MAX_CELLS_PER_BOX big-box
+path). FAST DIAGNOSTIC next session: a unit test on EU running frame_relations directly with the
+3-box fixture. Also minor: the wire nodes carry geom in attributes.geom ✓ parse-compatible.
