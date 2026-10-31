@@ -6640,3 +6640,10 @@ state: ingest live on EU, domorpher-agent registered, affinity guide + parity ma
 cssparser/wasm-bindgen/chardetng deps; the reference execution defaults (0.7/3/60) carried into the
 core shim — evaluator's super:: imports resolve. The remaining 58 are singletons (file-by-file) —
 the census loop continues; domorpher carries every step.
+
+## 2026-10-30 (zc, XVI) — GRIND: instruction parser exclusion revealed its cascade (expected)
+58 → ~60s per-file granular: excluding instruction/parser surfaced every referencing file
+(enhancement.rs, feedback.rs, forms::analyzer crate::Result, auth.rs session::Session import,
+cssparser::RGBA path) — THE SPLIT IS THE REMAINING WORK, now file-granular. Fixes landed: browser
+mod re-exports + doc order; execution consts carried; RGBA path. The census loop continues; each
+cascade node gets the same treatment (exclude + re-export or recreate).
