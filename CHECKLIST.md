@@ -6874,3 +6874,14 @@ FINDINGS (open):
  (4) Gate 2 passed through the `mcp_graph` persistence path; modality pipelines that persist directly (image `persist_image_graph`, geospatial, 3D…) still bypass it (G1 stands until the pass is at the ZSEI choke point).
  Rows added: SCOPE1 screenshot ingest with no ids -> default workspace/project from env; SCOPE2 ripple carries ws:/proj: for ingest_image and ingest_uidocument; IMG-PERSIST1 screenshot ingest creates a ZSEI container (parent=project) and a ripple; XLINK1 Renders from a REAL screenshot container to its page root (image<->UiDocument).
 MODALITY GROUP FORKS LAUNCHED (edits only, no build/test until each group is captured; builds on EU afterwards): A image/video/depth, B 3D/CAD/kinematics, C chemistry/proteomics/dna/biology, D geospatial/network, E audio/sound/EEG/BCI, F IMU/haptic/thermal/hyperspectral/EM/radar/sonar, G text/code/math/control, H UiDocument android-xml + a11y-json. ZCode keeps Gate 4 (Locates, screenshot container, scope).
+
+## 2026-10-31 (zc) — HOST FIX (CC finding 1 + D31): screenshots become containers; ingest defaults
+- **/capture/ingest_image now PERSISTS**: after Analyze, the route dispatches CreateGraph (pipeline
+  102) through the same entry gate with the SAME analysis — the screenshot becomes a real container
+  (+ ripple). Response gains persisted/persist_error/container. A failed CreateGraph is recorded
+  (persist_error) without failing the screenshot (capture and persistence are separate facts).
+- **D31 ingest defaults**: OZONE_INGEST_WORKSPACE_ID / OZONE_INGEST_PROJECT_ID fill absent
+  workspace/project on both ingest routes (caller-supplied wins).
+- Fork A's image/main.rs pixel-statistics work is respected: CreateGraph carries the full analysis
+  (geom "image-px" grid frame included via metadata) — the host route change is compatible.
+Uncompiled pending the EU build gate (fork A's main.rs edits share the build).
