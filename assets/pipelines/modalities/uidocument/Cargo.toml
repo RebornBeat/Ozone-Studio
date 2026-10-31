@@ -17,7 +17,11 @@ path = "src/lib.rs"
 name = "uidocument"
 path = "src/main.rs"
 
+[dev-dependencies]
+base64 = "0.22"
+
 [dependencies]
+encoding_rs = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 scraper = "0.20"

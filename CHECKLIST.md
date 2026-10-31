@@ -6814,3 +6814,25 @@ Queued (CC's remaining recommendations): the selectors-crate swap for the hand-w
 matcher; usvg/svgtypes evaluation for svg.rs; the live-path doctrine (CDP DOMSnapshot +
 Accessibility.getFullAXTree); Gate 2's frame_relations fixture test on EU.
 **2026-10-31 (cc) REVIEW OF ZCODE'S 38a1c93 (fixes 1+3):** independently re-run on EU (crate tests 36/36 PASS; engine re-run on live google.com: 160 -> 96 nodes, StyleRule 66 -> 2, notes present). FINDINGS: (1) FIX 1 is LOSSY and contradicts D23: the 64 unmatched rules survive only as counts (`rules_matched`/`rules_total`) — the StyleSheet node carries no selectors/declarations; checked: only 4 of the first 60 page selectors appear anywhere in engine output. D23 required a lossless StyleSheet payload; it also said to change nothing until matching is fixed (matcher still 2 matches/9 unsupported, so "unmatched" mostly means "our matcher failed"). Fix: store every rule (selector, specificity, order, media/layer context, declaration text bounded) in the StyleSheet payload and keep matched-only node materialization. (2) FIX 3 is partial: only `bytes_b64` ingests are decoded; the `path` route and the orchestrator's generic Analyze still hit `read_to_string` in `normalize_input` (F4 bug persists); decode errors are discarded (`let _ = had_errors`) and `source_encoding`/confidence is not recorded on the Document node (D28); bad base64 silently becomes "provide exactly one of path/html/batch"; no `<meta charset>` sniff; size cap on bytes_b64 not visible. (3) ZERO new tests were added by the commit (0 `#[test]`), so the new behavior (matched-only materialization, css-only exemption, charset decode) is unproven by tests; the css-only case was caught only by an existing test. (4) Queue drift: ZCode lists a `usvg` evaluation for svg.rs, but D27 is svgtypes+kurbo first (usvg only as an id-keyed lookup if needed). (5) Gate 2 is NOT working yet: ZCode's own note says 0 spatial edges (frame_relations fixture on EU pending). Rows added: UE-CSS2 now also requires the unmatched rule text recoverable from the StyleSheet payload; UE-ENC1/2 cover the path route and base64 error. Handoff note posted.
+
+## 2026-10-31 (zc) — CC REVIEW ITEMS ADDRESSED: lossless payload, encoding completion, THE TEST BATCH (40/40 local + EU)
+CC's review of 38a1c93 accepted in full; the items addressed:
+1. **Lossless rule payload (D23)**: the StyleSheet node's facts now carry a `rules` array — EVERY
+   rule with selector, index, media/layer, unsupported flag, matched flag, declaration_count, and up
+   to 20 bounded declarations. Matched rules still materialize as nodes (the crowding fix stands).
+2. **Selector-match tracking completed**: CascadeStats.matched_rules now also records PAINT-ONLY
+   rules — Selector::matches_any added (short-circuit); the payload's matched flag is now semantically
+   correct (a selector that hits an element is "matched" even when the cascade consumes none of its
+   properties).
+3. **Encoding completed**: the route's FilePath branch decodes bytes + charset IN-ROUTE (no more
+   read_to_string-UTF-8-only); bad base64 = a clear refusal; the ENGINE's FilePath reads are
+   BOM/encoding-aware (read_text_file with honest encoding labels: "UTF-8 (replacement characters —
+   likely a non-UTF-8 file)"); source_encoding surfaces on the OUTPUT (D28). bytes_b64/charset
+   unchanged. The cascade matcher's silent UTF-8 fallback on unknown labels was caught BY THE TESTS
+   (labels are WHATWG: windows-1252/shift_jis).
+4. **THE TEST BATCH — 40/40 local AND EU**: 6 charset tests (latin-1/windows-1252 é, shift_jis
+   self-consistent encode→decode, UTF-16LE BOM, UTF-8 BOM strip, invalid bytes → replacement +
+   degraded flag, unknown label → UTF-8 fallback); the lossless payload test (both rules present,
+   matched flags correct, only matched materializes); the css-only exemption test; the FilePath
+   BOM+source_encoding test. CC's remaining items acknowledged: the selectors-crate cascade swap
+   (next), usvg deferred per D27 (svgtypes+kurbo first), Gate 2 frame_relations fixture test pending.

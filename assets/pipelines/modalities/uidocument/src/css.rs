@@ -441,6 +441,13 @@ pub fn cascade(dom: &Dom, sheets: &[Sheet]) -> (Vec<BTreeMap<String, CascadeWin>
             }
             let wanted: Vec<&Decl> = rule.decls.iter().filter(|d| CASCADE_PROPS.contains(&d.prop.as_str())).collect();
             if wanted.is_empty() {
+                // SELECTOR-MATCH TRACKING (2026-10-31): paint-only rules still
+                // MATCHED if the selector hits any element — the crowding
+                // materialization and the payload's matched flag key on this.
+                if rule.selector.matches_any(dom) {
+                    stats.rules_matched += 1;
+                    stats.matched_rules.insert((sheet.index, rule.order));
+                }
                 continue;
             }
             for i in 1..n {

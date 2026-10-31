@@ -726,6 +726,23 @@ impl Selector {
     pub fn is_match(&self, dom: &Dom, node: usize) -> bool {
         self.matches(dom, node).is_some()
     }
+
+    /// Short-circuit probe: does this selector match ANY element? Used by the
+    /// cascade's match tracking for rules whose declarations are outside
+    /// CASCADE_PROPS (paint-only) — the selector still matched an element.
+    pub fn matches_any(&self, dom: &Dom) -> bool {
+        for alt in &self.alternatives {
+            if alt.parts.is_empty() {
+                continue;
+            }
+            for i in 1..dom.nodes.len() {
+                if match_from(dom, &alt.parts, alt.parts.len() - 1, i) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 // ───────────────────────── reasoner view ─────────────────────────

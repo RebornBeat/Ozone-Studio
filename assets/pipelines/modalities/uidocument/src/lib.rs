@@ -15,6 +15,34 @@
 //! open a socket, compute spatial relations (the host does, from `geom`+`frame`),
 //! or guess a fact whose inputs are missing.
 
+
+/// Reads a file as text with encoding honesty (2026-10-31, CC review): BOM
+/// sniffing (UTF-8/UTF-16), then UTF-8 with replacement. The declared
+/// encoding is returned so callers can record it on the Document node.
+fn read_text_file(p: &str) -> Result<(String, &'static str), String> {
+    let bytes = std::fs::read(p).map_err(|e| format!("cannot read {}: {}", p, e))?;
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        let (d, _, had_errors) = encoding_rs::UTF_8.decode(&bytes[3..]);
+        return Ok((
+            d.into_owned(),
+            if had_errors { "UTF-8 (replacement characters)" } else { "UTF-8" },
+        ));
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) {
+        let (d, _, _) = encoding_rs::UTF_16LE.decode(&bytes);
+        return Ok((d.into_owned(), "UTF-16LE (BOM)"));
+    }
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let (d, _, _) = encoding_rs::UTF_16BE.decode(&bytes);
+        return Ok((d.into_owned(), "UTF-16BE (BOM)"));
+    }
+    let (d, _, had_errors) = encoding_rs::UTF_8.decode(&bytes);
+    Ok((
+        d.into_owned(),
+        if had_errors { "UTF-8 (replacement characters — likely a non-UTF-8 file)" } else { "UTF-8" },
+    ))
+}
+
 pub mod a11y;
 pub mod css;
 pub mod geom;
@@ -83,6 +111,7 @@ fn collect_sheets(dom: &Dom, provided: &[String]) -> Vec<css::Sheet> {
     let mut inline = 0usize;
     for i in 1..dom.nodes.len() {
         if dom.nodes[i].tag == "style" && !dom.nodes[i].raw.is_empty() {
+            eprintln!("STYLE-RAW: {:?}", dom.nodes[i].raw.chars().take(120).collect::<String>());
             inline += 1;
             let idx = sheets.len();
             sheets.push(css::parse_sheet(idx, &format!("inline-style-{}", inline), &dom.nodes[i].raw));
@@ -108,6 +137,13 @@ fn analyse_dom_ext(
     model: Option<&svg::SvgModel>,
 ) -> Result<Analysis, String> {
     let (computed, stats) = css::cascade(dom, sheets);
+    eprintln!("CASCADE-DEBUG: matched={} set={:?} sheets={}", stats.rules_matched, stats.matched_rules, sheets.len());
+    let anchor_idx = dom.nodes.iter().position(|nd| nd.tag == "a");
+    if let (Some(ai), Some(sh)) = (anchor_idx, sheets.first()) {
+        let m = sh.rules.first().map(|r| r.selector.matches(dom, ai));
+        eprintln!("DIRECT-DEBUG: anchor_idx={:?} alternatives={:?} match={:?}", ai, sh.rules[0].selector.alternatives.len(), m);
+        eprintln!("DIRECT-DEBUG: selector_src={:?} raw_node_tag={:?}", sh.rules[0].selector.source, dom.nodes[ai].tag);
+    }
     let packs = rules::load_builtin(flavor)?;
     let materialize_all = flavor == "css";
     let mut facts = rules::run_with_svg(dom, &packs, sheets, &computed, model, Some(&stats), materialize_all);
@@ -142,6 +178,12 @@ fn finish_ext(flavor: &str, dom: &Dom, a: &Analysis, input: &Value, geometry_rea
         "view": {"semantic_markdown": md},
         "rule_packs": a.packs,
     });
+    // D28: the source encoding (from the FilePath decode) surfaces on the
+    // output when the normalized input carried it.
+    let mut out = out;
+    if let Some(enc) = input.get("source_encoding").cloned() {
+        out["source_encoding"] = enc;
+    }
     (out, built)
 }
 
@@ -343,17 +385,23 @@ pub fn normalize_input(input: &Value) -> Value {
             out.insert("batch".into(), b.clone());
             if flavor.is_none() { flavor = Some("dom-live".into()); }
         } else if let Some(p) = dd.get("FilePath").and_then(|v| v.as_str()) {
-            match std::fs::read_to_string(p) {
-                Ok(t) => put_text(&mut out, &mut flavor, t, Some(p)),
-                Err(e) => { out.insert("read_error".into(), Value::String(format!("cannot read {}: {}", p, e))); }
+            match read_text_file(p) {
+                Ok((t, enc)) => {
+                    put_text(&mut out, &mut flavor, t, Some(p));
+                    out.insert("source_encoding".into(), Value::String(enc.to_string()));
+                }
+                Err(e) => { out.insert("read_error".into(), Value::String(e)); }
             }
         }
     } else if let Some(t) = act.get("text").or_else(|| act.get("content")).and_then(|v| v.as_str()) {
         let hint = act.get("path").and_then(|v| v.as_str());
         put_text(&mut out, &mut flavor, t.to_string(), hint);
     } else if let Some(p) = act.get("path").and_then(|v| v.as_str()) {
-        match std::fs::read_to_string(p) {
-            Ok(t) => put_text(&mut out, &mut flavor, t, Some(p)),
+        match read_text_file(p) {
+            Ok((t, enc)) => {
+                put_text(&mut out, &mut flavor, t, Some(p));
+                out.insert("source_encoding".into(), Value::String(enc.to_string()));
+            }
             Err(e) => { out.insert("read_error".into(), Value::String(format!("cannot read {}: {}", p, e))); }
         }
     }
@@ -552,6 +600,96 @@ mod tests {
     }
 
     #[test]
+
+    // ── FIX-1 TEST BATCH (CC review item 3, 2026-10-31) ──────────────────
+
+    #[test]
+    fn style_rule_payload_is_lossless_matched_or_not() {
+        // Two rules: one matches (a), one matches nothing (.never-applied).
+        // BOTH must appear in the StyleSheet's lossless rules payload with
+        // their selectors and declarations; only the matched one becomes a
+        // StyleRule NODE (the crowding fix).
+        let out = analyze(&json!({
+            "flavor": "html",
+            "html": "<html><head><style>a{color:red}.never-applied{color:blue}</style></head><body><a href=\"x\">y</a></body></html>",
+            "css": [],
+        }));
+        assert_eq!(out["success"], true);
+        let sheet = node(&out, |n| n["kind"] == "StyleSheet").expect("StyleSheet node");
+        let rules = sheet["attributes"]["rules"].as_array().expect("payload");
+        assert_eq!(rules.len(), 2, "lossless: both rules in the payload");
+        assert_eq!(rules[0]["selector"], "a");
+        eprintln!("NOTES: {:?}", out["graph"]["notes"]);
+        eprintln!("PAYLOAD: {}", serde_json::to_string_pretty(&sheet["attributes"]).unwrap_or_default());
+        assert_eq!(rules[0]["matched"], true);
+        assert_eq!(rules[0]["declarations"][0]["prop"], "color");
+        assert_eq!(rules[1]["selector"], ".never-applied");
+        assert_eq!(rules[1]["matched"], false);
+        // The crowding fix: only the MATCHED rule materializes as a node
+        // (the StyleRule node's label is the SELECTOR; declarations live in
+        // the node's payload).
+        assert!(node(&out, |n| n["kind"] == "StyleRule"
+            && n["label"] == "a").is_some());
+        assert!(node(&out, |n| n["kind"] == "StyleRule"
+            && n["label"].as_str().unwrap_or("").contains("never-applied")).is_none());
+    }
+
+    #[test]
+    fn css_only_flavor_materializes_all_rules() {
+        // The css-only exemption: a stylesheet IS the document — every rule
+        // materializes even though nothing matches.
+        let out = analyze(&json!({
+            "flavor": "css",
+            "css": ["a{color:red}", ".x{color:blue}"],
+        }));
+        assert_eq!(out["success"], true);
+        let style_rules = (out["graph"]["nodes"].as_array())
+            .map(|ns| ns.iter().filter(|n| n["kind"] == "StyleRule").count())
+            .unwrap_or(0);
+        assert_eq!(style_rules, 2, "css-only: every rule materializes");
+    }
+
+    #[test]
+    fn file_path_reads_are_bom_and_encoding_aware() {
+        // ENGINE-SIDE read honesty: a UTF-8-BOM file decodes cleanly and the
+        // Document records the source encoding. (The bytes_b64/charset decode
+        // is the HOST route's job — covered by the host's charset_decode
+        // tests 6/6 — the engine's contract stays string-based.)
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("udoc-bom-{}.html", std::process::id()));
+        let bytes: Vec<u8> = [0xEF, 0xBB, 0xBF]
+            .iter()
+            .chain("<html><body><p>café</p></body></html>".as_bytes())
+            .copied()
+            .collect();
+        std::fs::write(&path, &bytes).unwrap();
+        // The route/document_data shape (normalize_input's FilePath route).
+        let out = analyze(&json!({
+            "action": {"type": "Analyze", "flavor": "html", "document_data": {"FilePath": path.to_string_lossy()}},
+        }));
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(out["success"], true);
+        assert!(out["source_encoding"].as_str().unwrap_or("").starts_with("UTF-8"));
+        let view = out["view"]["semantic_markdown"].as_str().unwrap_or("");
+        assert!(view.contains("café"), "BOM file decoded: {view}");
+    }
+
+
+    #[test]
+    fn cascade_matches_a_basic_type_selector() {
+        let out = analyze(&json!({
+            "flavor": "html",
+            "html": "<html><body><a href=\"x\">link</a></body></html>",
+            "css": ["a{color:red}"],
+        }));
+        let notes = out["graph"]["notes"].as_array().cloned().unwrap_or_default();
+        eprintln!("CASCADE NOTES: {notes:?}");
+        // The engine's output graph should carry the styled color on the link
+        // (cascade match proof — the matcher regression CC measured).
+        assert!(serde_json::to_string(&out).unwrap().contains("red"),
+            "the cascade must apply color:red to the <a> element; notes: {notes:?}");
+    }
+
     fn normalize_accepts_ingest_route_shape_and_engine_shape() {
         let route = serde_json::json!({"action":{"type":"Analyze","flavor":"html","url":"https://x.test","document_data":{"Html":"<p id=a>hi</p>"}}});
         let n = normalize_input(&route);

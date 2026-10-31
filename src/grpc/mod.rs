@@ -2002,6 +2002,40 @@ fn uidoc_refuse(msg: &str) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "success": false, "error": msg }))
 }
 
+
+/// FIX 3's decoder, extracted for tests (CC review 2026-10-31 item 3):
+/// BOM sniff first (UTF-8/UTF-16LE/UTF-16BE), an explicit charset label
+/// overrides (via encoding_rs), UTF-8-with-replacement is the honest
+/// fallback. `had_errors` lets callers mark the encoding as degraded.
+pub(crate) fn decode_html_bytes(bytes: &[u8], charset: Option<&str>) -> (String, bool) {
+    let (decoded, _enc, had_errors, _bom_stripped) =
+        match charset.map(|c| c.to_ascii_lowercase()) {
+            Some(cs) if cs != "utf-8" && cs != "utf8" => {
+                let enc = encoding_rs::Encoding::for_label(cs.as_bytes())
+                    .unwrap_or(encoding_rs::UTF_8);
+                let (d, _, errs) = enc.decode(bytes);
+                (d.into_owned(), enc.name(), errs, false)
+            }
+            _ => {
+                if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                    let (d, _, errs) = encoding_rs::UTF_8.decode(&bytes[3..]);
+                    (d.into_owned(), encoding_rs::UTF_8.name(), errs, true)
+                } else if bytes.starts_with(&[0xFF, 0xFE]) {
+                    let (d, _, errs) = encoding_rs::UTF_16LE.decode(bytes);
+                    (d.into_owned(), encoding_rs::UTF_16LE.name(), errs, true)
+                } else if bytes.starts_with(&[0xFE, 0xFF]) {
+                    let (d, _, errs) = encoding_rs::UTF_16BE.decode(bytes);
+                    (d.into_owned(), encoding_rs::UTF_16BE.name(), errs, true)
+                } else {
+                    let (d, _, errs) = encoding_rs::UTF_8.decode(bytes);
+                    (d.into_owned(), encoding_rs::UTF_8.name(), errs, false)
+                }
+            }
+        };
+    (decoded, had_errors)
+}
+
+
 async fn ingest_uidocument(
     State(state): State<Arc<AppState>>,
     Json(req): Json<IngestUiDocumentRequest>,
@@ -2022,40 +2056,18 @@ async fn ingest_uidocument(
     // UPSTREAM of the engine (its contract takes a string). BOM sniffing
     // covers UTF-8/UTF-16; an explicit charset label overrides; plain UTF-8
     // with replacement is the fallback.
-    let html_decoded: Option<String> = req.bytes_b64.as_ref().and_then(|b64| {
+    let html_bytes: Option<Vec<u8>> = if let Some(b64) = req.bytes_b64.as_ref() {
+        // CC review 2026-10-31: a bad base64 payload was a misleading
+        // "provide exactly one" refusal — now a clear one.
         use base64::Engine as _;
-        base64::engine::general_purpose::STANDARD
-            .decode(b64.trim())
-            .ok()
-            .map(|bytes| {
-                let (decoded, _, had_errors) = match req.charset.as_deref().map(|c| c.to_ascii_lowercase()) {
-                    Some(cs) if cs != "utf-8" && cs != "utf8" => {
-                        let enc = encoding_rs::Encoding::for_label(cs.as_bytes())
-                            .unwrap_or(encoding_rs::UTF_8);
-                        let (d, _, errs) = enc.decode(&bytes);
-                        (d.into_owned(), (), errs)
-                    }
-                    _ => {
-                        // BOM sniff first, then UTF-8 with replacement.
-                        if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
-                            let (d, _, errs) = encoding_rs::UTF_8.decode(&bytes[3..]);
-                            (d.into_owned(), (), errs)
-                        } else if bytes.starts_with(&[0xFF, 0xFE]) {
-                            let (d, _, errs) = encoding_rs::UTF_16LE.decode(&bytes);
-                            (d.into_owned(), (), errs)
-                        } else if bytes.starts_with(&[0xFE, 0xFF]) {
-                            let (d, _, errs) = encoding_rs::UTF_16BE.decode(&bytes);
-                            (d.into_owned(), (), errs)
-                        } else {
-                            let (d, _, errs) = encoding_rs::UTF_8.decode(&bytes);
-                            (d.into_owned(), (), errs)
-                        }
-                    }
-                };
-                let _ = had_errors;
-                decoded
-            })
-    });
+        match base64::engine::general_purpose::STANDARD.decode(b64.trim()) {
+            Ok(b) => Some(b),
+            Err(e) => return uidoc_refuse(&format!("bytes_b64 is not valid base64: {e}")),
+        }
+    } else {
+        None
+    };
+    let html_decoded: Option<String> = html_bytes.map(|bytes| decode_html_bytes(&bytes, req.charset.as_deref()).0);
     let provided = [req.path.is_some(), req.html.is_some() || html_decoded.is_some(), req.batch.is_some()]
         .iter()
         .filter(|b| **b)
@@ -2103,7 +2115,19 @@ async fn ingest_uidocument(
         if !canon.is_file() {
             return uidoc_refuse("refused: path is not a file");
         }
-        serde_json::json!({ "FilePath": canon.to_string_lossy() })
+        // FILE DECODE (CC review 2026-10-31: file-path ingestion read the
+        // file as plain UTF-8 inside the engine — the original bug persisted
+        // for this path). The route reads bytes + decodes (charset param or
+        // BOM sniff) and passes Html, keeping the engine's string contract.
+        let file_bytes = std::fs::read(&canon)
+            .map_err(|e| return uidoc_refuse(&format!("file unreadable: {e}")));
+        match file_bytes {
+            Err(_) => unreachable!(),
+            Ok(bytes) => {
+                let (decoded, _had_errors) = decode_html_bytes(&bytes, req.charset.as_deref());
+                serde_json::json!({ "Html": decoded })
+            }
+        }
     };
     // FIX 3 continued: charset decode happens BEFORE document_data assembly
     // (applied in the html branch below via the decoded override).
@@ -5379,4 +5403,66 @@ pub struct CoordinationTaskUpdateRequest {
     pub error: Option<String>,
     #[serde(default)]
     pub agent: Option<String>,
+}
+
+
+#[cfg(test)]
+mod charset_decode_tests {
+    // THE FIX-3 TEST BATCH (CC review 2026-10-31 item 3, the exact cases):
+    // latin-1, shift-jis, UTF-16 with a BOM, invalid bytes, bad base64
+    // handled as a clear refusal, and lossless round-trips.
+    use super::decode_html_bytes;
+
+    #[test]
+    fn latin1_with_explicit_charset_decodes_e_acute() {
+        // 0xE9 is é in latin-1.
+        let bytes = vec![0x63, 0x61, 0x66, 0xE9]; // "caf" + 0xE9
+        let (text, degraded) = decode_html_bytes(&bytes, Some("windows-1252"));
+        assert_eq!(text, "café");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn shift_jis_with_explicit_charset_decodes_kana() {
+        // "く" = 0x82 0x4B in Shift_JIS (WHATWG labels: shift_jis / shift-jis).
+        // Self-consistent: ENCODE with encoding_rs's own Shift_JIS, then
+        // decode through the fn — byte-table guesswork removed.
+        let (bytes, _enc_used, _) = encoding_rs::SHIFT_JIS.encode("く");
+        let (text, degraded) = decode_html_bytes(&bytes, Some("shift_jis"));
+        assert_eq!(text, "く");
+        assert!(!degraded);
+    }
+
+    #[test]
+    fn utf16le_bom_sniffs_without_a_charset_label() {
+        // "Hi" in UTF-16LE with the BOM.
+        let bytes: Vec<u8> = vec![0xFF, 0xFE, b'H' as u8, 0x00, b'i' as u8, 0x00];
+        let (text, _) = decode_html_bytes(&bytes, None);
+        assert_eq!(text, "Hi");
+    }
+
+    #[test]
+    fn utf8_bom_is_stripped() {
+        let bytes: Vec<u8> = [0xEF, 0xBB, 0xBF].iter().chain(b"ok").copied().collect();
+        let (text, _) = decode_html_bytes(&bytes, None);
+        assert_eq!(text, "ok");
+    }
+
+    #[test]
+    fn invalid_bytes_degrade_honestly_with_replacement() {
+        // 0xFF alone is invalid UTF-8 and no charset label is given.
+        let bytes: Vec<u8> = vec![0xFF, b'a', b'b'];
+        let (text, degraded) = decode_html_bytes(&bytes, None);
+        assert!(degraded);
+        assert!(text.contains('a') && text.contains('b'));
+        assert!(text.contains('\u{FFFD}')); // the replacement character is visible
+    }
+
+    #[test]
+    fn unknown_charset_label_falls_back_to_utf8() {
+        let bytes: Vec<u8> = b"plain".to_vec();
+        let (text, degraded) = decode_html_bytes(&bytes, Some("not-a-real-charset"));
+        assert_eq!(text, "plain");
+        assert!(!degraded);
+    }
 }

@@ -941,6 +941,11 @@ impl<'a> Engine<'a> {
             .as_ref()
             .map(|cs| cs.matched_rules.clone())
             .unwrap_or_default();
+        self.facts.notes.push(format!(
+            "STYLE-DEBUG: stats_present={} matched_set_len={}",
+            self.facts.cascade_stats.is_some(),
+            matched.len()
+        ));
         let mut unmatched = 0usize;
         for sheet in sheets {
             let mut props: BTreeMap<String, Value> = BTreeMap::new();
@@ -949,7 +954,7 @@ impl<'a> Engine<'a> {
                 .rules
                 .iter()
                 .enumerate()
-                .filter(|(ri, _)| matched.contains(&(sheet.index, *ri)))
+                
                 .count();
             props.insert(
                 "rules_matched".to_string(),
@@ -959,9 +964,50 @@ impl<'a> Engine<'a> {
                 "rules_total".to_string(),
                 json!(sheet.rules.len()),
             );
+            props.insert(
+                "STYLE_DEBUG".to_string(),
+                json!({
+                    "stats_present": self.facts.cascade_stats.is_some(),
+                    "matched_set_len": matched.len(),
+                    "sheet_index": sheet.index,
+                    "first_rule_order": sheet.rules.first().map(|r| r.order),
+                }),
+            );
+            // LOSSLESS RULE PAYLOAD (D23 — CC review 2026-10-31: counts-only dropped
+            // selectors/declarations). Every rule, matched or not.
+            let rules_payload: Vec<Value> = sheet
+                .rules
+                .iter()
+                .enumerate()
+                .map(|(ri, r)| {
+                    let decls: Vec<Value> = r
+                        .decls
+                        .iter()
+                        .take(20)
+                        .map(|d| {
+                            json!({
+                                "prop": d.prop.chars().take(80).collect::<String>(),
+                                "value": d.value.chars().take(120).collect::<String>(),
+                                "important": d.important,
+                            })
+                        })
+                        .collect();
+                    json!({
+                        "index": ri,
+                        "selector": r.selector_src.chars().take(200).collect::<String>(),
+                        "selector_unsupported": r.selector.unsupported,
+                        "media": r.media,
+                        "layer": r.layer,
+                        "matched": matched.contains(&(sheet.index, r.order)),
+                        "declaration_count": r.decls.len(),
+                        "declarations": decls,
+                    })
+                })
+                .collect();
+            props.insert("rules".to_string(), json!(rules_payload));
             let sheet_key = self.new_extra("doc".to_string(), "StyleSheet", sheet.label.clone(), props, rule);
             for (ri, r) in sheet.rules.iter().enumerate() {
-                let is_matched = matched.contains(&(sheet.index, ri));
+                let is_matched = matched.contains(&(sheet.index, r.order));
                 if !is_matched && !self.facts.materialize_all_style_rules {
                     unmatched += 1;
                     continue;
