@@ -345,6 +345,15 @@ pub enum RelationType {
     Behind = 90,
     Aligned = 91,
     Supports = 92,
+    // G6 (2026-10-31): the deterministic cross-graph links. Renders: an
+    // image renders a document/page. Locates: a detection in an image
+    // locates the DOM element under it. DepictsSameEntity: an image and a
+    // 3D/CAD/SVG model depict the same entity. RegisteredTo: a bridge/tool
+    // registration owns a graph surface.
+    Renders = 93,
+    Locates = 94,
+    DepictsSameEntity = 95,
+    RegisteredTo = 96,
 
     Custom = 65535,
 }

@@ -6850,3 +6850,18 @@ CC's review of 38a1c93 accepted in full; the items addressed:
    20, a11y.name 16). NEVER a bug; the queued "display fix" item is CLOSED.
 3. The STYLE_DEBUG diagnostic prop removed; the uidocument binary rebuilt + redeployed with the
    clean rules.rs. Both hosts healthy.
+
+## 2026-10-31 (zc, GATE 4 FIRST LINK) — Renders cross-graph link LIVE + relation variants in mcp_graph
+- **RelationType gains the cross-graph set**: Renders(93)/Locates(94)/DepictsSameEntity(95)/
+  RegisteredTo(96) + mcp_graph relation_from_name arms (graph blocks can carry them).
+- **The deterministic producer**: `link_containers` (pub(crate), grpc) — both containers validated,
+  the Relationship added via the ZSEI **UpdateContainer choke point** (discovered_via: ToolOutput,
+  confidence 1.0, duplicate-deleted), the write ripples.
+- **Wired**: `/capture/ingest_uidocument` accepts `renders_container: <u64>` — after persistence the
+  route links the named image container RENDERS the new graph root.
+- **LIVE PROOF**: an svg ingest with renders_container=1998 (the earlier svg graph root) →
+  persisted true (root 2006, 5 entities, 6 spatial relations) + **renders_link created=true**.
+  The first real cross-modality edge in the system.
+- Remaining Gate 4: **Locates** (a visual-mcp detection in a screenshot → the DOM element under it —
+  needs ultralytics on EU or the farm's own detection), DepictsSameEntity (image ↔ SVG model),
+  RegisteredTo (bridge registrations).

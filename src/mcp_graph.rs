@@ -151,6 +151,10 @@ fn relation_from_name(name: &str) -> Option<RelationType> {
         "Behind" => RelationType::Behind,
         "Aligned" => RelationType::Aligned,
         "Supports" => RelationType::Supports,
+        "Renders" => RelationType::Renders,
+        "Locates" => RelationType::Locates,
+        "DepictsSameEntity" => RelationType::DepictsSameEntity,
+        "RegisteredTo" => RelationType::RegisteredTo,
         _ => return None,
     })
 }

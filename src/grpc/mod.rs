@@ -1850,6 +1850,52 @@ pub struct IngestImageRequest {
     pub detect_faces: bool,
 }
 
+
+/// G6: create a deterministic cross-graph relation between two containers
+/// (the `from` container gains a Relationship toward `to`). Both must exist;
+/// duplicates are skipped (the same dedupe convention as the edge loop).
+pub(crate) async fn link_containers(
+    runtime: &crate::OzoneRuntime,
+    from_id: u64,
+    to_id: u64,
+    relation_type: crate::types::container::RelationType,
+    note: &str,
+) -> Result<bool, String> {
+    let zsei = runtime.zsei.read().await;
+    let source = zsei
+        .get_container(from_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("container {from_id} not found"))?;
+    let mut context = source.local_state.context.clone();
+    if context
+        .relationships
+        .iter()
+        .any(|r| r.target_id == to_id && r.relation_type == relation_type)
+    {
+        return Ok(false); // already linked
+    }
+    context.relationships.push(crate::types::container::Relation {
+        target_id: to_id,
+        relation_type,
+        confidence: 1.0,
+        discovered_via: crate::types::container::DiscoveryMethod::ToolOutput,
+        graph_hops: None,
+    });
+    zsei
+        .query(crate::types::zsei::ZSEIQuery::UpdateContainer {
+            container_id: from_id,
+            updates: crate::types::zsei::ContainerUpdate {
+                context: Some(context),
+                ..Default::default()
+            },
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    tracing::info!(from = from_id, to = to_id, ?relation_type, note, "cross-graph link created");
+    Ok(true)
+}
+
 async fn ingest_image(
     State(state): State<Arc<AppState>>,
     Json(req): Json<IngestImageRequest>,
@@ -1987,6 +2033,8 @@ pub struct IngestUiDocumentRequest {
     /// charset label — decoded upstream of the engine (which takes a string).
     pub bytes_b64: Option<String>,
     pub charset: Option<String>,
+    /// G6: an existing container this graph RENDERS.
+    pub renders_container: Option<u64>,
     #[serde(default)]
     pub batch: Option<serde_json::Value>,
     #[serde(default)]
@@ -2183,7 +2231,31 @@ async fn ingest_uidocument(
                 )
                 .await
                 {
-                    Some(Ok(summary)) => serde_json::json!({ "persisted": true, "summary": summary }),
+                    Some(Ok(summary)) => {
+                        let mut j = serde_json::json!({ "persisted": true, "summary": summary });
+                        // G6 (Renders): an optional deterministic cross-graph
+                        // link — the caller names an IMAGE container that
+                        // renders this page.
+                        if let Some(img) = req.renders_container {
+                            match crate::grpc::link_containers(
+                                &runtime,
+                                img,
+                                summary.root_id,
+                                crate::types::container::RelationType::Renders,
+                                "ingest_uidocument renders-link",
+                            )
+                            .await
+                            {
+                                Ok(created) => {
+                                    j["renders_link"] = serde_json::json!({ "created": created, "image_container": img });
+                                }
+                                Err(e) => {
+                                    j["renders_link_error"] = serde_json::Value::String(e);
+                                }
+                            }
+                        }
+                        j
+                    }
                     Some(Err(e)) => serde_json::json!({ "persisted": false, "error": e }),
                     None => serde_json::Value::Null,
                 }
