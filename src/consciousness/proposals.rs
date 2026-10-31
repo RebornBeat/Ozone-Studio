@@ -44,13 +44,15 @@ pub const PROPOSAL_REVIEW_KIND: &str = "assistant-proposal";
 /// Tools a proposal may ever name. The derive rules only ever emit
 /// `browser_open` today; this list bounds what a Proceed on a (tampered or
 /// future) review row can reach. Execution still goes through the registry,
-/// the usage meter, and the jurisdiction gate.
+/// the usage meter, and the jurisdiction gate. `farm_command` is
+/// deliberately NOT here: it drives a live profile through the Command
+/// Center channel (arbitrary multi-step behaviour) — an operator/CC act, not
+/// something an assistant proposal may name.
 pub const PROPOSABLE_TOOLS: &[&str] = &[
     "browser_open",
     "browser_navigate",
     "browser_screenshot",
     "farm_screenshot",
-    "farm_command",
 ];
 
 fn now_secs() -> u64 {
@@ -66,12 +68,83 @@ fn s10_dir() -> String {
     format!("{}/model_calls", data_dir)
 }
 
-fn fingerprint(class: &str, tool: &str, input: &serde_json::Value) -> u64 {
+/// Normalize a URL for dedupe: drop the fragment, lower-case scheme+host,
+/// trim a trailing slash — so `HTTP://Host/x/#a` and `http://host/x` are the
+/// same ask. Path/query case is preserved (it can be significant).
+fn normalize_url(u: &str) -> String {
+    let u = u.trim();
+    let u = u.split('#').next().unwrap_or(u);
+    let (head, rest) = match u.find("://") {
+        Some(i) => {
+            let after = &u[i + 3..];
+            let host_end = after.find('/').unwrap_or(after.len());
+            (
+                format!("{}://{}", u[..i].to_lowercase(), after[..host_end].to_lowercase()),
+                after[host_end..].to_string(),
+            )
+        }
+        None => (String::new(), u.to_string()),
+    };
+    let out = format!("{}{}", head, rest);
+    out.trim_end_matches('/').to_string()
+}
+
+/// The normalized TARGET of a proposal input: a `url` string is URL-
+/// normalized; anything else falls back to its compact JSON.
+fn normalize_input(input: &serde_json::Value) -> String {
+    match input.get("url").and_then(|v| v.as_str()) {
+        Some(u) => normalize_url(u),
+        None => input.to_string(),
+    }
+}
+
+/// Normalized DETAIL: lower-cased, digits dropped, whitespace collapsed — so
+/// "3 items overdue" and "4 items overdue" are one ask (a cascade that grows
+/// is the same alert, not a new one every check-up).
+fn normalize_detail(s: &str) -> String {
+    s.chars()
+        .filter(|c| !c.is_ascii_digit())
+        .collect::<String>()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Dedupe digest over (kind, class, tool, normalized target, normalized
+/// detail) — the identity of an ASK, not of a byte-exact payload.
+fn fingerprint(kind: &str, class: &str, tool: &str, target: &str, detail: &str) -> u64 {
     let mut h = DefaultHasher::new();
+    kind.hash(&mut h);
     class.hash(&mut h);
     tool.hash(&mut h);
-    input.to_string().hash(&mut h);
+    target.hash(&mut h);
+    detail.hash(&mut h);
     h.finish()
+}
+
+/// Cooldown window for re-proposing an ask that already reached a terminal
+/// state (resolved / acknowledged / executed / failed). Env-tunable:
+/// `OZONE_PROPOSAL_COOLDOWN_SECS`, default 6h.
+fn cooldown_secs() -> i64 {
+    std::env::var("OZONE_PROPOSAL_COOLDOWN_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<i64>().ok())
+        .filter(|v| *v >= 0)
+        .unwrap_or(REPROPOSE_COOLDOWN_SECS)
+}
+
+/// An ask the proposal system may be asked to execute only if it names a
+/// whitelisted gated tool; everything else is a notification (R1).
+fn normalize_kind(d: &mut ProposalDraft) {
+    if d.kind == ProposalKind::Action && !PROPOSABLE_TOOLS.contains(&d.tool.as_str()) {
+        d.kind = ProposalKind::Notification;
+    }
+}
+
+/// Decisions that mean "this proposal reached a terminal state".
+fn is_terminal_decision(d: &str) -> bool {
+    matches!(d, "acknowledged" | "executed" | "failed")
 }
 
 /// What kind of proposal this is. Most are NOTIFICATIONS (operator
@@ -84,6 +157,15 @@ fn fingerprint(class: &str, tool: &str, input: &serde_json::Value) -> u64 {
 pub enum ProposalKind {
     Notification,
     Action,
+}
+
+/// Notification is the DEFAULT kind: reminders and awaiting-clarification
+/// items are the common case; an Action must be earned (named gated tool on
+/// the whitelist — see `normalize_kind`).
+impl Default for ProposalKind {
+    fn default() -> Self {
+        ProposalKind::Notification
+    }
 }
 
 impl ProposalKind {
@@ -138,18 +220,22 @@ pub fn derive_proposals(
                     }
                 }
             }
-            // A slippage cascade: put the Order board in front of the
-            // operator so the cascade is seen, not just reported.
+            // A slippage cascade: a NOTIFICATION (R1, review 2026-10-29). A
+            // headless browser_open cannot make anything visible to the
+            // operator, so executing it on Proceed was an action that could
+            // never do what its rationale said. The row is the alert; the
+            // Order board link rides along for reference; Proceed
+            // acknowledges and nothing executes.
             "slippage-cascade" => {
                 let base = std::env::var("OZONE_UI_BASE_URL")
                     .unwrap_or_else(|_| "http://localhost:8767/".to_string());
                 out.push(ProposalDraft {
-                    kind: ProposalKind::Action,
+                    kind: ProposalKind::Notification,
                     class: f.class.to_string(),
                     tool: "browser_open".to_string(),
                     input: serde_json::json!({ "url": base }),
                     rationale: format!(
-                        "{} — open the Order board so the cascade is visible",
+                        "{} — see the Order board (link for reference)",
                         f.detail
                     ),
                     task_id: f.task_id,
@@ -200,7 +286,13 @@ fn proposal_review_id(d: &ProposalDraft) -> String {
         "{}-{}-{:016x}",
         PROPOSAL_REVIEW_KIND,
         d.class,
-        fingerprint(&d.class, &d.tool, &d.input)
+        fingerprint(
+            d.kind.as_str(),
+            &d.class,
+            &d.tool,
+            &normalize_input(&d.input),
+            &normalize_detail(&d.rationale),
+        )
     )
 }
 
@@ -234,28 +326,65 @@ fn read_s10_rows(dir: &str) -> Vec<serde_json::Value> {
 /// or re-derivable-after-decline proposals may be recorded again — a decline
 /// of "open X" does not forever silence the finding; the next check-up may
 /// re-propose and the operator may change their mind.)
-fn is_open(dir: &str, review_id: &str, resolutions: &std::collections::HashSet<String>) -> bool {
-    if resolutions.contains(review_id) {
-        // Resolved (or declined) — re-proposable, but only after the
-        // cooldown, else every wake after a Proceed would re-record it
-        // (found live 2026-10-29: 3 duplicate rows in 13 s). One per id
-        // per window, stateless, read from the same S10 store.
-        let now = chrono::Utc::now().timestamp();
-        let last = read_s10_rows(dir)
-            .into_iter()
-            .filter(|r| r.get("review_id").and_then(|v| v.as_str()) == Some(review_id))
-            .filter_map(|r| row_ts_secs(&r))
-            .max();
-        return !last.map_or(false, |t| now - t < REPROPOSE_COOLDOWN_SECS);
+/// Pure suppression decision (R2): should a draft with this `review_id` be
+/// SKIPPED rather than recorded? `rows` is the whole S10 decision_review
+/// store in file order; `resolved` = the id appears in the operator
+/// resolutions file.
+///
+/// - An OPEN proposal (the latest relevant row is a pending/review-failed
+///   row, no resolution, no terminal row after it) always suppresses.
+/// - A proposal that reached ANY terminal state — operator-resolved,
+///   acknowledged, executed, or failed — suppresses for the cooldown window
+///   measured from the id's most recent row. Previously only the resolutions
+///   file was consulted, so acknowledged/failed outcomes that never hit it
+///   (or hit a different data dir) were re-recorded on every check-up.
+fn suppressed_in(
+    rows: &[serde_json::Value],
+    review_id: &str,
+    resolved: bool,
+    now: i64,
+    cooldown: i64,
+) -> bool {
+    let mine: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|r| r.get("review_id").and_then(|v| v.as_str()) == Some(review_id))
+        .collect();
+    fn dec(r: &serde_json::Value) -> &str {
+        r.get("decision").and_then(|d| d.as_str()).unwrap_or("")
     }
-    read_s10_rows(dir).iter().any(|r| {
-        r.get("review_id").and_then(|v| v.as_str()) == Some(review_id)
-            && r.get("final").and_then(|f| f.as_bool()) == Some(true)
-            && matches!(
-                r.get("decision").and_then(|d| d.as_str()),
-                Some("review_pending") | Some("review-failed")
-            )
-    })
+    fn is_final(r: &serde_json::Value) -> bool {
+        r.get("final").and_then(|f| f.as_bool()) == Some(true)
+    }
+    let last_pending = mine
+        .iter()
+        .rposition(|r| is_final(r) && matches!(dec(r), "review_pending" | "review-failed"));
+    let last_terminal = mine.iter().rposition(|r| is_final(r) && is_terminal_decision(dec(r)));
+    let open = !resolved
+        && match (last_pending, last_terminal) {
+            (Some(_), None) => true,
+            (Some(p), Some(t)) => p > t,
+            _ => false,
+        };
+    if open {
+        return true;
+    }
+    if resolved || last_terminal.is_some() {
+        let last = mine.iter().filter_map(|r| row_ts_secs(r)).max();
+        return last.map_or(false, |t| now - t < cooldown);
+    }
+    false
+}
+
+/// Is this proposal already open, or still inside its cooldown after a
+/// terminal state? Reads the same S10 store the pending route reads.
+fn is_open(dir: &str, review_id: &str, resolutions: &std::collections::HashSet<String>) -> bool {
+    suppressed_in(
+        &read_s10_rows(dir),
+        review_id,
+        resolutions.contains(review_id),
+        chrono::Utc::now().timestamp(),
+        cooldown_secs(),
+    )
 }
 
 fn operator_resolved_ids() -> std::collections::HashSet<String> {
@@ -281,7 +410,10 @@ fn operator_resolved_ids() -> std::collections::HashSet<String> {
 pub fn record_pending(drafts: Vec<ProposalDraft>, notes: &mut Vec<String>) -> usize {
     let resolutions = operator_resolved_ids();
     let mut added = 0usize;
-    for d in drafts {
+    for mut d in drafts {
+        // R1: only a whitelisted gated tool may stay an Action; anything
+        // else degrades to a notification BEFORE the id is derived.
+        normalize_kind(&mut d);
         let review_id = proposal_review_id(&d);
         if is_open(&s10_dir(), &review_id, &resolutions) {
             continue; // already open — one open proposal per distinct ask
@@ -338,6 +470,74 @@ fn latest_row_for(dir: &str, review_id: &str) -> Option<serde_json::Value> {
         .last()
 }
 
+/// The already-recorded outcome of a proposal, if it has one: the id's
+/// latest terminal row (acknowledged / executed / failed) that comes AFTER
+/// its latest pending row, shaped exactly like a fresh `execute_resolved`
+/// answer plus `already_resolved: true`. `None` = never resolved (or
+/// re-proposed since, i.e. a newer pending row follows the last outcome).
+fn recorded_outcome(rows: &[serde_json::Value], review_id: &str) -> Option<serde_json::Value> {
+    let mine: Vec<&serde_json::Value> = rows
+        .iter()
+        .filter(|r| r.get("review_id").and_then(|v| v.as_str()) == Some(review_id))
+        .filter(|r| r.get("final").and_then(|f| f.as_bool()) == Some(true))
+        .collect();
+    let last_pending = mine
+        .iter()
+        .rposition(|r| r.get("decision").and_then(|d| d.as_str()) == Some("review_pending"));
+    let last_terminal = mine.iter().rposition(|r| {
+        r.get("decision")
+            .and_then(|d| d.as_str())
+            .map_or(false, is_terminal_decision)
+    });
+    let t = last_terminal?;
+    if let Some(p) = last_pending {
+        if p > t {
+            return None;
+        }
+    }
+    let row = mine[t];
+    let status = row.get("decision").and_then(|d| d.as_str()).unwrap_or("").to_string();
+    let outcome = row
+        .get("reasoning_preview")
+        .and_then(|r| r.as_str())
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+        .unwrap_or(serde_json::Value::Null);
+    Some(serde_json::json!({
+        "review_id": review_id,
+        "status": status,
+        "outcome": outcome,
+        "already_resolved": true,
+    }))
+}
+
+/// In-process single-flight set for `execute_resolved` (one execution per
+/// review id at a time). Released on drop, including on early return/panic.
+fn inflight() -> &'static std::sync::Mutex<std::collections::HashSet<String>> {
+    static SET: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    SET.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()))
+}
+
+struct FlightGuard(String);
+
+impl FlightGuard {
+    fn acquire(id: &str) -> Option<FlightGuard> {
+        let mut set = inflight().lock().unwrap_or_else(|e| e.into_inner());
+        if set.insert(id.to_string()) {
+            Some(FlightGuard(id.to_string()))
+        } else {
+            None
+        }
+    }
+}
+
+impl Drop for FlightGuard {
+    fn drop(&mut self) {
+        let mut set = inflight().lock().unwrap_or_else(|e| e.into_inner());
+        set.remove(&self.0);
+    }
+}
+
 /// The resolve route's execution half: called when an assistant-proposal
 /// review is resolved "Proceed". Parses the action back out of the row,
 /// enforces the whitelist, runs it through `call_global` under its own trace
@@ -347,6 +547,29 @@ pub async fn execute_resolved(data_dir: &str, review_id: &str) -> Result<serde_j
     // The route's config-driven data_dir is authoritative for the resolve
     // side; fall back to the env convention only when callers pass empty.
     let dir = if data_dir.is_empty() { s10_dir() } else { format!("{}/model_calls", data_dir) };
+    // R3 — IDEMPOTENT Proceed. A second Proceed (double click, retry, a
+    // client replaying the resolve) must neither re-execute the action nor
+    // append another outcome row: if the proposal already has a terminal
+    // row after its pending row, return that recorded outcome as-is.
+    if let Some(prev) = recorded_outcome(&read_s10_rows(&dir), review_id) {
+        return Ok(prev);
+    }
+    // In-process single-flight: two concurrent Proceeds on the same id
+    // both pass the check above before either has appended its outcome row.
+    let _flight = match FlightGuard::acquire(review_id) {
+        Some(g) => g,
+        None => {
+            return Err(format!(
+                "review {} is already being executed — retry to read the recorded outcome",
+                review_id
+            ))
+        }
+    };
+    // Re-check under the guard (the winner may have finished between the
+    // first check and acquiring).
+    if let Some(prev) = recorded_outcome(&read_s10_rows(&dir), review_id) {
+        return Ok(prev);
+    }
     let row = latest_row_for(&dir, review_id)
         .ok_or_else(|| format!("review {} not found in the S10 store", review_id))?;
     let kind = row.get("review_kind").and_then(|k| k.as_str()).unwrap_or("");
@@ -565,7 +788,8 @@ mod tests {
         let props = derive_proposals(&[t], &findings, now);
         assert_eq!(props.len(), 1);
         assert_eq!(props[0].kind, ProposalKind::Notification);
-        // The cascade proposal is the ACTION one.
+        // R1: the cascade is a NOTIFICATION too — a headless browser_open
+        // could never make the Order board visible, so it must not execute.
         let tasks: Vec<TaskData> = (30..33)
             .map(|i| {
                 let mut t = task(i);
@@ -575,7 +799,171 @@ mod tests {
             .collect();
         let findings = crate::consciousness::assistant::compute_findings(&tasks, now);
         let props = derive_proposals(&tasks, &findings, now);
-        assert!(props.iter().any(|p| p.kind == ProposalKind::Action));
+        let cascade: Vec<_> = props.iter().filter(|p| p.class == "slippage-cascade").collect();
+        assert!(!cascade.is_empty());
+        assert!(cascade.iter().all(|p| p.kind == ProposalKind::Notification));
+    }
+
+    #[test]
+    fn derive_never_emits_an_action_today() {
+        let now = now_secs();
+        let tasks: Vec<TaskData> = (40..44)
+            .map(|i| {
+                let mut t = task(i);
+                t.due_at = Some(now - 3 * 24 * 3600);
+                t.external_ref = Some(format!("https://tracker.example.com/{}", i).into());
+                t
+            })
+            .collect();
+        let findings = crate::consciousness::assistant::compute_findings(&tasks, now);
+        let props = derive_proposals(&tasks, &findings, now);
+        assert!(!props.is_empty());
+        assert!(props.iter().all(|p| p.kind == ProposalKind::Notification));
+    }
+
+    #[test]
+    fn default_kind_is_notification() {
+        assert_eq!(ProposalKind::default(), ProposalKind::Notification);
+    }
+
+    #[test]
+    fn farm_command_is_not_proposable() {
+        assert!(!PROPOSABLE_TOOLS.contains(&"farm_command"));
+    }
+
+    #[test]
+    fn action_on_a_non_whitelisted_tool_degrades_to_notification() {
+        let mut d = ProposalDraft {
+            kind: ProposalKind::Action,
+            class: "x".into(),
+            tool: "farm_command".into(),
+            input: serde_json::json!({}),
+            rationale: "r".into(),
+            task_id: 1,
+        };
+        normalize_kind(&mut d);
+        assert_eq!(d.kind, ProposalKind::Notification);
+        let mut ok = ProposalDraft { tool: "browser_open".into(), kind: ProposalKind::Action, ..d.clone() };
+        normalize_kind(&mut ok);
+        assert_eq!(ok.kind, ProposalKind::Action);
+    }
+
+    #[test]
+    fn review_id_ignores_url_noise_and_digit_churn() {
+        let a = ProposalDraft {
+            kind: ProposalKind::Notification,
+            class: "slippage-cascade".into(),
+            tool: "browser_open".into(),
+            input: serde_json::json!({"url": "HTTP://Localhost:8767/#board"}),
+            rationale: "3 items slipped — see the Order board".into(),
+            task_id: 1,
+        };
+        let b = ProposalDraft {
+            input: serde_json::json!({"url": "http://localhost:8767"}),
+            rationale: "4 items slipped — see the Order board".into(),
+            ..a.clone()
+        };
+        assert_eq!(proposal_review_id(&a), proposal_review_id(&b));
+        // kind is part of the identity
+        let c = ProposalDraft { kind: ProposalKind::Action, ..a.clone() };
+        assert_ne!(proposal_review_id(&a), proposal_review_id(&c));
+    }
+
+    fn row(id: &str, decision: &str, ts_secs_ago: i64, now: i64, preview: &str) -> serde_json::Value {
+        let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(now - ts_secs_ago, 0)
+            .unwrap()
+            .to_rfc3339();
+        serde_json::json!({
+            "ts": ts,
+            "decision": decision,
+            "review_id": id,
+            "review_kind": PROPOSAL_REVIEW_KIND,
+            "reasoning_preview": preview,
+            "final": true,
+        })
+    }
+
+    #[test]
+    fn open_proposal_suppresses_redraft() {
+        let now = 1_800_000_000;
+        let rows = vec![row("p1", "review_pending", 60, now, "{}")];
+        assert!(suppressed_in(&rows, "p1", false, now, 6 * 3600));
+        assert!(!suppressed_in(&rows, "other", false, now, 6 * 3600));
+    }
+
+    #[test]
+    fn acknowledged_proposal_is_not_rerecorded_within_cooldown_even_if_unlisted() {
+        let now = 1_800_000_000;
+        // acknowledged row exists but the id never reached the resolutions
+        // file (resolved=false): the terminal row alone must suppress.
+        let rows = vec![
+            row("p1", "review_pending", 600, now, "{}"),
+            row("p1", "acknowledged", 300, now, "{\"note\":\"n\"}"),
+        ];
+        assert!(suppressed_in(&rows, "p1", false, now, 6 * 3600));
+    }
+
+    #[test]
+    fn terminal_proposal_may_return_after_cooldown() {
+        let now = 1_800_000_000;
+        let rows = vec![
+            row("p1", "review_pending", 8 * 3600, now, "{}"),
+            row("p1", "failed", 7 * 3600, now, "{\"error\":\"e\"}"),
+        ];
+        assert!(!suppressed_in(&rows, "p1", false, now, 6 * 3600));
+        assert!(!suppressed_in(&rows, "p1", true, now, 6 * 3600));
+        // inside the window it is held back
+        assert!(suppressed_in(&rows, "p1", true, now, 8 * 3600));
+    }
+
+    #[test]
+    fn newer_pending_after_outcome_is_open_again() {
+        let now = 1_800_000_000;
+        let rows = vec![
+            row("p1", "review_pending", 20 * 3600, now, "{}"),
+            row("p1", "executed", 19 * 3600, now, "{}"),
+            row("p1", "review_pending", 60, now, "{}"),
+        ];
+        assert!(suppressed_in(&rows, "p1", false, now, 6 * 3600));
+    }
+
+    #[test]
+    fn zero_cooldown_never_holds_back_a_terminal_ask() {
+        let now = 1_800_000_000;
+        let rows = vec![
+            row("p1", "review_pending", 10, now, "{}"),
+            row("p1", "acknowledged", 5, now, "{}"),
+        ];
+        assert!(!suppressed_in(&rows, "p1", true, now, 0));
+    }
+
+    #[test]
+    fn proceed_is_idempotent_returns_recorded_outcome() {
+        let now = 1_800_000_000;
+        let rows = vec![
+            row("p1", "review_pending", 100, now, "{\"tool\":\"browser_open\"}"),
+            row("p1", "failed", 50, now, "{\"error\":\"connection refused\"}"),
+        ];
+        let prev = recorded_outcome(&rows, "p1").expect("recorded");
+        assert_eq!(prev["status"], "failed");
+        assert_eq!(prev["already_resolved"], true);
+        assert_eq!(prev["outcome"]["error"], "connection refused");
+        // never-resolved and re-proposed ids have no recorded outcome
+        assert!(recorded_outcome(&rows, "nope").is_none());
+        let reopened = vec![
+            row("p1", "review_pending", 100, now, "{}"),
+            row("p1", "executed", 50, now, "{}"),
+            row("p1", "review_pending", 5, now, "{}"),
+        ];
+        assert!(recorded_outcome(&reopened, "p1").is_none());
+    }
+
+    #[test]
+    fn flight_guard_is_single_flight_and_releases() {
+        let g = FlightGuard::acquire("flight-test-id").expect("first acquire");
+        assert!(FlightGuard::acquire("flight-test-id").is_none());
+        drop(g);
+        assert!(FlightGuard::acquire("flight-test-id").is_some());
     }
 
     #[test]

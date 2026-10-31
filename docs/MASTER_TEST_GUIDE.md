@@ -179,13 +179,13 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 ### 7c. agent-mcp — the DOMorpher conversion (docs/DOMORPHER_CONVERSION_GUIDE.md; seam: library crate `domorpher-core` → tool surface → MCP enforcement → Ozone above)
 | ID | Test | Pass |
 |---|---|---|
-| AG1 | agent-mcp selftest incl. a refusal per dangerous class; registration carries platform + version tags | locked-by-default; refusals are data |
-| AG2 | `agent_navigate` to a non-allowlisted host | refused (farm_navigate precedent) |
-| AG3 | `agent_exec_script` with OZONE_AGENT_ALLOW_EVAL unset | refused (browser-mcp eval-gate precedent) |
+| AG1 | domorpher-agent selftest (agent is UNUSED/unregistered while the farm tools are the door) incl. a refusal per dangerous class; registration carries platform + version tags | locked-by-default; refusals are data |
+| AG2 | `domorpher_navigate` to a non-allowlisted host | refused (farm_navigate precedent) |
+| AG3 | `domorpher_exec_script` with OZONE_DOMORPHER_ALLOW_EVAL unset | refused (browser-mcp eval-gate precedent) |
 | AG4 | session/cookie aging: profile restart keeps cookies with correct relative ages | FARM-NATIVE (persistent profiles are a Browser-Farm feature — StateStore seam maps to farm profiles) |
-| AG5 | `agent_extract` output | untrusted-labeled tool result (X2 rule — never an instruction) |
+| AG5 | `domorpher_extract` output | untrusted-labeled tool result (X2 rule — never an instruction) |
 | AG6 | `domorpher-core` dependency tree | NO http-server / llm-client / storage-engine / browser-driver crates — the seam enforced by the dependency graph itself |
-| AG7 | Backend selection: `OZONE_AGENT_BACKEND=farm` (default) vs `local` | farm backend executes via farm tools/Command Center (live-verified round-trip); local via browser-mcp CDP for isolated use; SAME gate/metering/ripple on both — backend is config, never a bypass |
+| AG7 | Backend selection: `OZONE_DOMORPHER_BACKEND=farm` (default) vs `local` | farm backend executes via farm tools/Command Center (live-verified round-trip); local via browser-mcp CDP for isolated use; SAME gate/metering/ripple on both — backend is config, never a bypass |
 
 ## 8. Acting loop and watchdogs (L7) — see ACTING_FACTORS_REGISTRY
 | ID | Test | Expected |
@@ -372,3 +372,23 @@ success, real failure, session gate, payload length, strict-mode-off posture) an
 I-MOD1..3, I-MCP1..3 (workspace attribution, engine actors/planner/executor, Inbox UI, graph-block from UI snapshots, modality
 ingest of screenshots, per-host endpoint and checksum drift). Tables are in §6 of the review document; run them in L4/L7/L10/L6.
 ⚠ currently expected to FAIL: A23, A24, I-WS1, I-EN1, I-EN2, I-3D1, I-3D2, I-UI1/UI2 (not built), I-UI3 (vite dev), I-MCP1 on EU.
+
+## §18 Library boundary, language identification, google.com DOMorpher test, host edits (2026-10-31, cc) — all UNCOMPILED/UNRUN until the gate
+Source docs: REVIEW_DOMORPHER_LIBRARY_BOUNDARY_2026-10-30, REVIEW_OZONE_STATE_AND_FARM_TEST_2026-10-31, TOOLS_BY_LANGUAGE.
+| id | check | expected |
+|---|---|---|
+| AG6a | `cargo tree` on domorpher-core | no reqwest/jsonwebtoken/tiktoken-rs/wasm-bindgen/http/llm/storage crate |
+| AG6b | grep public API of core for `Llm`/`LLM`/`DecisionSource`/`PageDriver`/`StateStore` | zero hits (LlmZeroShot->ExternalJudgment, LLMError->JudgmentError done) |
+| AG8 | every removed model call has an Ozone answerer row (instruction parse, extraction judgment, recovery alternative, escalation, form mapping) | each returns NeedsJudgment/JudgmentRequired outward, accepts the decision as data (`accept_judgment`, `accept_items`, `apply_mappings`, `decide_with`) |
+| AG9 | ONE judgment contract: the four request shapes (agent JudgmentRequest, extractor JudgmentRequest, engine ExtractionJudgmentRequest, recovery EscalationRequest) share one wire shape | single `{kind, reason, instruction, context}` JSON for Ozone/Python (OPEN: unify) |
+| T-DOM-GOOGLE D0-D8 | see REVIEW_OZONE_STATE_AND_FARM_TEST §4 | D1/D2 first (real google.com DOM from the CC farm profile -> library offline -> field) |
+| LANG1-7 | see TOOLS_BY_LANGUAGE §4 | tags `lang:`/`kind:`; domorpher-py wheel builds and imports in the farm venv |
+| SC1-SC4 | `/mcp/call` with context workspace/project | S13 row + ripple carry scope (global when absent) |
+| MF1-MF6 | failed browser_/farm_/android_/terminal_/domorpher_ call | one CoordinationReceived finding, cooldown 600 s, expected refusals ignored, project AMT routing |
+| PR1 | acknowledged/executed/failed proposal re-draft within cooldown (6 h, `OZONE_PROPOSAL_COOLDOWN_SECS`) | not re-recorded |
+| PR2 | Proceed twice on one review | one execution; second returns `already_resolved:true`, no duplicate resolution row |
+| PR3 | resolved id re-recorded after cooldown | visible again in `/consciousness/reviews/pending` (row newer than resolution) |
+| PR4 | resolve-route execution error | HTTP 200 `{success:false,error}` |
+| HK1 | ingest hooks send `x-oz-internal` from `OZONE_*_INGEST_TOKEN`; unset = off + one log line, token never logged | screenshot lands in graph without a manual call |
+| GB1 | `browser_snapshot` / `android_ui_snapshot` return a `graph` block (<=2000 edges, bounds stated) | containers visible under the workspace |
+| RG1 | `register-browser-tools.mjs all` excludes domorpher_agent; `--prune agent_` clears the 16 stale rows via `POST /mcp/tools/unregister` | registry has no `agent_*` |

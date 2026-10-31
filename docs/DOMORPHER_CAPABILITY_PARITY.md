@@ -9,7 +9,7 @@
 |---|---|---|---|
 | `agent/` (19,263) | action types, perception, goals, memory, navigation | **SPLIT** — pure parts → `domorpher-core`; `reasoning.rs`'s direct LlmClient calls → ABOVE the seam (Ozone pipelines decide; the library receives decisions as data) | core IN-list + Ozone orchestrator |
 | `browser/` (6,227) | driver traits, cookies/session/auth state, puppeteer/headless/js | **SPLIT** — driver traits + cookies/session/auth → core (already shimmed); the three drivers retired | PageDriver seam → Browser-Farm (primary) / browser-mcp CDP (isolated) |
-| `chunking/` (3,739) | text chunking | **IN core** | domorpher-core |
+| `chunking/` (3,739) | text chunking | **RETIRED** (taxonomy test: duplicates Ozone's job) | Ozone text pipeline 100 (chunking/entities/topics/grammar) |
 | `dom/` (8,514) | preprocessor, semantic_markdown, analyzer, accessibility, converter | **IN core** | domorpher-core |
 | `execution/` (5,975) | actions, evaluator, multi_pass, recovery, engine | **IN core** (logic); engine's driver calls go through PageDriver | domorpher-core |
 | `extraction/` (4,255) | data extraction | **IN core** | domorpher-core → `domorpher_extract` tool |
@@ -51,8 +51,20 @@ occlusion, affordances) → the visual-MCP tool surface (whose captures go
 through the modality run FIRST); generic image processing → the image
 modality's detection-model registry (§11.6 fan-out).
 
-**Totals**: 146k lines → ~66k IN core (agent-pure + browser-support + chunking +
-dom + execution + extraction + forms + instruction + interactive + schema +
-reconciliation + utils-subset), ~55k above-the-seam/retired (all replacements
-live), ~13k merge/parked (visual, extension), plus the tool surface (16 verbs)
-and the two seams. Nothing unaccounted.
+**Totals (recomputed 2026-10-31; method stated)**: the table's 21 modules sum
+to 142,240 lines (the ~146k tree total also counts main.rs/lib.rs/error.rs,
+not listed). Modules whose disposition is wholly IN core (`dom` 8,514 +
+`execution` 5,975 + `extraction` 4,255 + `forms` 5,037 + `instruction` 4,801 +
+`interactive` 6,485 + `schema` 8,287 + `reconciliation` 3,258 + `utils`
+3,953) sum to 50,565 lines. These are WHOLE-module sizes: execution, extraction,
+forms and instruction still hold model-call code that is deleted at split
+time, so the real in-core share is smaller. The two SPLIT modules (`agent`
+19,263 + `browser` 6,227 = 25,490) contribute only their pure parts, not yet
+measured. Honest bound: IN core is at most 76,055 lines and at least 50,565
+minus the model code still to be removed. The earlier "~66k" counted
+`chunking/` (3,739), now retired to Ozone text pipeline 100. Retired above the
+library (llm, api, enterprise, monitoring, storage, pipeline, parallel) sums
+to 48,855; parked/split-by-function (extension, visual) 13,591. No traits or
+seams remain in the library (see the conversion guide §2.0a correction); the
+tool surface is the farm's `farm_*` tools, with `domorpher-agent` (16 verbs)
+unused for now. Nothing unaccounted.

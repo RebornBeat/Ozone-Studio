@@ -28,3 +28,20 @@ mutating tool. Plain http is allowed only for loopback/private hosts unless `OZO
 `node tools/register-browser-tools.mjs farm`.
 `node tools/browser-farm-mcp/selftest.mjs` — 20 checks against a **mock** farm built from the real API
 shapes. A live Browser-Farm run still needs PostgreSQL, Playwright, Xvfb on the farm machine.
+
+### Auto-ingest hook auth (strict hosts)
+
+`OZONE_BROWSER_INGEST_URL` (browser-mcp) / `OZONE_FARM_INGEST_URL` (farm-mcp) point at
+`<host>/capture/ingest_image`. Strict-session hosts reject a Bearer session with a 401 and an
+empty body, so the hook now sends `x-oz-internal` from `OZONE_BROWSER_INGEST_TOKEN` /
+`OZONE_FARM_INGEST_TOKEN` (the host's internal token). **No token = hook stays OFF** (one
+stderr line says so; the token is never logged). A failed ingest never fails the screenshot —
+the honest reason rides in `ingested.error`. The farm MCP's shot dir must sit under the host
+data dir or working dir. EU systemd unit (placeholder — put the real token in an
+`EnvironmentFile` with mode 0600, never in the unit text or the repo):
+
+```
+[Service]
+Environment=OZONE_FARM_INGEST_URL=http://127.0.0.1:50051/capture/ingest_image
+EnvironmentFile=/etc/ozone/farm-mcp.env     # contains: OZONE_FARM_INGEST_TOKEN=<internal token>
+```

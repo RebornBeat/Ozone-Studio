@@ -5,6 +5,19 @@ enforcement point over the `domorpher-core` library (Layer 1) and its
 tool surface (Layer 2): loopback-only `/call`, `{tool, agent, input,
 context}` in, `{success, output|error}` out.
 
+## STATUS: UNUSED / UNREGISTERED (operator, 2026-10-31)
+
+The Browser-Farm is driven through the Command Center via the `farm_*` tools
+(browser-farm-mcp :3281); Ozone-Studio and consciousness make the decisions.
+This MCP is kept as the general enforcement skeleton for later reuse — code and
+all 16 verbs stay — but it is **not started by the launcher** (opt-in:
+`OZONE_START_DOMORPHER_AGENT=1`) and **not registered by the registrar's `all`
+target** (explicit: `node tools/register-browser-tools.mjs domorpher_agent`).
+Stale pre-rename `agent_*` rows are cleared with
+`node tools/register-browser-tools.mjs --prune agent_` (live host route
+`POST /mcp/tools/unregister {name}`), or, with the host STOPPED, by a backed-up
+edit of `{data_dir}/mcp_tool_registry.json`.
+
 ## State
 
 **Skeleton (declared-but-honest).** The 16-tool table is live in

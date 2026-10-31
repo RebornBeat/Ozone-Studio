@@ -252,6 +252,139 @@ impl RippleActor for CodeStalenessActor {
     }
 }
 
+// UNCOMPILED (fork 6, 2026-10-31): McpFailureActor and its registry entry
+// below are pending the build gate.
+
+/// Tool-name prefixes of the execution families whose REAL failures nothing
+/// reacted to before (browser / Browser-Farm / android / terminal /
+/// domorpher). Security-mcp keeps its own `SecurityFindingActor`.
+const MCP_FAILURE_PREFIXES: &[&str] =
+    &["browser_", "farm_", "android_", "terminal_", "domorpher_"];
+
+/// Error text that marks an EXPECTED policy refusal (locked-by-default,
+/// allowlist, jurisdiction, declared-but-pending). Those are data the tool
+/// is designed to return — not a failure worth a candidate.
+const MCP_EXPECTED_REFUSAL_MARKERS: &[&str] = &[
+    "locked",
+    "allowlist",
+    "allow list",
+    "refus",
+    "not allowed",
+    "not permitted",
+    "forbidden",
+    "blocked by",
+    "harvest pending",
+    "unknown terminal tool",
+    "unknown tool",
+    "is not in the allowlist",
+];
+
+/// Minimum seconds between two candidates for the same tool + error class.
+const MCP_FAILURE_COOLDOWN_SECS: u64 = 600;
+
+/// A real failed call from the browser / farm / android / terminal /
+/// domorpher families (`success:false`, and not an expected policy
+/// refusal). Same data path as `SecurityFindingActor`: the tool-call mirror
+/// (`grpc::mcp_call`) is a `CoordinationEvent` tagged `tool_call` whose
+/// content file carries `detail.{tool,success,error}`. Emits a
+/// `CoordinationReceived`-route candidate (a finding route in
+/// `amt_candidates`), with a STABLE detail — tool + normalized error class,
+/// no variable text — so identical failures collapse, plus a per-key
+/// cooldown so a flapping tool cannot spam candidates. Free: local reads
+/// only; the one paid call per candidate stays in the unchanged amt_loop.
+pub struct McpFailureActor {
+    /// "tool|error_class" → last time (secs) a candidate was emitted.
+    last_fired: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+}
+
+impl McpFailureActor {
+    pub fn new() -> Self {
+        Self {
+            last_fired: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    /// Normalize an error string into a short, stable class: lowercase,
+    /// first 80 chars, digit runs collapsed to '#', so ports / pids / byte
+    /// counts do not make every failure look distinct.
+    fn error_class(error: &str) -> String {
+        let mut out = String::new();
+        let mut last_hash = false;
+        for ch in error.to_lowercase().chars().take(80) {
+            if ch.is_ascii_digit() {
+                if !last_hash {
+                    out.push('#');
+                    last_hash = true;
+                }
+            } else {
+                out.push(ch);
+                last_hash = false;
+            }
+        }
+        let class = out.trim().to_string();
+        if class.is_empty() {
+            "unspecified".to_string()
+        } else {
+            class
+        }
+    }
+}
+
+impl Default for McpFailureActor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl RippleActor for McpFailureActor {
+    fn kind(&self) -> &'static str {
+        "mcp-failure"
+    }
+
+    fn interested_in(&self, evt: &GraphEvent) -> bool {
+        evt.container_type == "CoordinationEvent"
+    }
+
+    fn evaluate(&self, _evt: &GraphEvent, container: &serde_json::Value) -> Option<ActorFinding> {
+        if !container_keywords(container).iter().any(|k| k == "tool_call") {
+            return None;
+        }
+        // Same nesting as SecurityFindingActor: the real {tool, success,
+        // error} payload sits under the mirrored request's "detail" key.
+        let mirrored = read_content_pointer(container)?;
+        let detail = mirrored.get("detail")?;
+        let tool = detail.get("tool").and_then(|t| t.as_str())?;
+        if !MCP_FAILURE_PREFIXES.iter().any(|p| tool.starts_with(p)) {
+            return None;
+        }
+        let success = detail.get("success").and_then(|s| s.as_bool()).unwrap_or(true);
+        if success {
+            return None;
+        }
+        let error = detail.get("error").and_then(|e| e.as_str()).unwrap_or("");
+        let lowered = error.to_lowercase();
+        if MCP_EXPECTED_REFUSAL_MARKERS.iter().any(|m| lowered.contains(m)) {
+            return None; // expected policy refusal — data, not a failure
+        }
+        let class = Self::error_class(error);
+        let key = format!("{}|{}", tool, class);
+        let now = now_secs();
+        {
+            let mut last = self.last_fired.lock().ok()?;
+            if let Some(prev) = last.get(&key) {
+                if now.saturating_sub(*prev) < MCP_FAILURE_COOLDOWN_SECS {
+                    return None; // inside the cooldown for this tool + class
+                }
+            }
+            last.insert(key, now);
+        }
+        Some(ActorFinding {
+            route: "CoordinationReceived",
+            detail: format!("MCP tool '{}' failed (class: {})", tool, class),
+        })
+    }
+}
+
 // ── shared helpers ───────────────────────────────────────────────────────
 
 fn container_keywords(container: &serde_json::Value) -> Vec<String> {
@@ -419,6 +552,7 @@ impl ActorRegistry {
                 Arc::new(CoordinationFindingActor),
                 Arc::new(TaskFailedActor),
                 Arc::new(CodeStalenessActor),
+                Arc::new(McpFailureActor::new()),
             ],
         }
     }
@@ -734,7 +868,11 @@ mod tests {
         let registry = ActorRegistry::new();
         let evt_coord = test_event("CoordinationEvent", 1, vec![]);
         let evt_task = test_event("Task", 1, vec![]);
-        assert_eq!(registry.interested(&evt_coord).len(), 2, "both CoordinationEvent actors");
+        assert_eq!(
+            registry.interested(&evt_coord).len(),
+            3,
+            "SecurityFinding + CoordinationFinding + McpFailure CoordinationEvent actors"
+        );
         assert_eq!(registry.interested(&evt_task).len(), 1, "only TaskFailedActor");
     }
 

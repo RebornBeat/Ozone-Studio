@@ -690,12 +690,25 @@ async fn resolve_review_route(
 ) -> Json<serde_json::Value> {
     let runtime = state.runtime.read().await;
     let data_dir = runtime.config.general.data_dir.clone();
-    match crate::orchestrator::decision_review::resolve_review(
-        &data_dir,
-        &req.review_id,
-        &req.decision,
-        &req.note,
-    ) {
+    // IDEMPOTENT (UNCOMPILED pending the build gate): a second submit of the
+    // same decision for an already-resolved review reuses the recorded
+    // resolution instead of appending a duplicate row; proposals' execution is
+    // itself idempotent (proposals::execute_resolved returns the recorded
+    // outcome with already_resolved:true).
+    let prior = crate::orchestrator::decision_review::latest_resolution(&data_dir, &req.review_id)
+        .filter(|r| {
+            r.get("decision").and_then(|d| d.as_str()).map(|d| d.eq_ignore_ascii_case(req.decision.trim())) == Some(true)
+        });
+    let resolved = match prior {
+        Some(r) => Ok(r),
+        None => crate::orchestrator::decision_review::resolve_review(
+            &data_dir,
+            &req.review_id,
+            &req.decision,
+            &req.note,
+        ),
+    };
+    match resolved {
         Ok(record) => {
             // ASSISTANT-PROPOSAL EXECUTION (the acting chain's completion):
             // a proposal is an S10 review row; the operator's "Proceed" IS
@@ -709,12 +722,18 @@ async fn resolve_review_route(
                     &req.review_id,
                 );
                 if kind.as_deref() == Some(crate::consciousness::proposals::PROPOSAL_REVIEW_KIND) {
+                    // Always HTTP 200 with an honest body: the host drops the
+                    // body of non-2xx answers, so Err becomes success:false.
                     Some(
-                        crate::consciousness::proposals::execute_resolved(
+                        match crate::consciousness::proposals::execute_resolved(
                             &data_dir,
                             &req.review_id,
                         )
-                        .await,
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(e) => serde_json::json!({ "success": false, "error": e }),
+                        },
                     )
                 } else {
                     None
@@ -4371,6 +4390,32 @@ pub struct McpUsageQuery {
     pub agent: String,
 }
 
+// UNCOMPILED (fork 6, 2026-10-31): edits in this /mcp/call region are
+// pending the build gate — scope mirroring (mcp_call_scope + the
+// MirrorRequest/S13 fields below).
+/// Workspace/project the CALLER declared in `McpCall.context`
+/// (`workspace_id` / `project_id`, JSON number or numeric string — the same
+/// u64 ids the rest of the host uses). A project is only meaningful inside
+/// a workspace (context_mirror::resolve_scope's rule), so a project with no
+/// workspace is dropped here and the call stays global — never a guess.
+/// Returns (scope, workspace_id, project_id).
+fn mcp_call_scope(
+    ctx: Option<&serde_json::Value>,
+) -> (&'static str, Option<u64>, Option<u64>) {
+    fn id_of(ctx: Option<&serde_json::Value>, key: &str) -> Option<u64> {
+        let v = ctx?.get(key)?;
+        v.as_u64()
+            .or_else(|| v.as_str().and_then(|s| s.trim().parse::<u64>().ok()))
+    }
+    let ws = id_of(ctx, "workspace_id");
+    let proj = id_of(ctx, "project_id");
+    match (ws, proj) {
+        (Some(w), Some(p)) => ("project", Some(w), Some(p)),
+        (Some(w), None) => ("workspace", Some(w), None),
+        _ => ("global", None, None),
+    }
+}
+
 /// THE standardized abstract MCP call — every agent, every transport, one
 /// shape (see src/mcp.rs McpCall). Metered, gated, monitor-recorded.
 async fn mcp_call(
@@ -4402,6 +4447,8 @@ async fn mcp_call(
         .map(|s| s.chars().take(300).collect::<String>())
         .unwrap_or_default();
     let call_input = call.input.clone();
+    // Caller-declared scope, read BEFORE `call` is moved into invoke().
+    let (call_scope, call_ws, call_proj) = mcp_call_scope(call.context.as_ref());
 
     // REAL jurisdiction gate for MCP calls — same rules, same matching
     // logic, same RequireConfirmation model review the /orchestrate flow
@@ -4601,9 +4648,10 @@ async fn mcp_call(
                 "success": result.success,
                 "error": result.error,
             })),
-            scope: Some("global".to_string()),
-            workspace_id: None,
-            project_id: None,
+            // Caller's declared scope (global when none was passed).
+            scope: Some(call_scope.to_string()),
+            workspace_id: call_ws,
+            project_id: call_proj,
         };
         crate::context_mirror::mirror(&zsei, &data_dir, &req).await.is_ok()
     };
@@ -4642,6 +4690,9 @@ async fn mcp_call(
             "input_preview": call_input_preview,
             "identity_validated": identity_validated,
             "transport": "mcp/call",
+            "scope": call_scope,
+            "workspace_id": call_ws,
+            "project_id": call_proj,
         });
         if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             use std::io::Write;

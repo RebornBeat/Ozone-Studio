@@ -401,3 +401,5 @@ Operator: review what zcode is doing, capture it, give insights; review integrat
 - **Flags for the operator:** zcode committed inside Browser-Farm (`b603436`) and touched the `tools/bridges` gitlink — contrary to the standing "do not touch Browser-Farm / do not commit tools/bridges" rules.
 - **E2E rows added:** A22–A30, I-WS1..2, I-EN1..3, I-UI1..4, I-3D1..4, I-MOD1..3, I-MCP1..3 (MASTER_TEST_GUIDE §17). Not run — stated and captured.
 - **Not done by me:** any fix (docs only); EU re-registration (zcode is on EU); no builds/tests (cargo running).
+
+> **LATEST 2026-10-31 (cc, EDITS-ONLY SWEEP)** — library boundary enforced in the domorpher repo (954a5c7, uncompiled): no model/network code in the core, no seams, decisions as data, one-contract (AG9) open; farm unblocked on the Ozone side (ingest hook auth, graph blocks, registry prune/tags, scope mirror, failure actor, proposals hardening) — ALL uncompiled/unrun by operator order. Corrected test = google.com DOMorpher (T-DOM-GOOGLE D0-D8); language identification + domorpher-py decision in docs/TOOLS_BY_LANGUAGE.md. See CHECKLIST 2026-10-31 and docs/REVIEW_FORK_ALIGNMENT_2026-10-31.md.

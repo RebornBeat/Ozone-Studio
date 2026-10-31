@@ -136,6 +136,45 @@ function intIn(name, value, min, max) {
 }
 
 const TERMS = new Map();
+// ── graph block (mcp_graph hook contract: src/mcp_graph.rs) ────────────────
+// Screen/page -> element nodes (contained by the root via `parent`) plus
+// typed spatial relations computed from the bounding boxes only. Bounded
+// well under the host caps (5000 nodes / 20000 edges); the bounds applied
+// are stated in the block, never hidden. Labels come from untrusted
+// content: the host shortens them again; they are data, not instructions.
+const GRAPH_MAX_EDGES = 2000;
+const GRAPH_NEAR_FRACTION = 0.05; // NearTo: gap <= 5% of the screen diagonal
+function boxGraph(rootKey, rootKind, rootLabel, rootAttrs, items, size) {
+  if (!items.length) return undefined;
+  const nodes = [{ key: rootKey, kind: rootKind, label: String(rootLabel).slice(0, 200), attributes: rootAttrs }];
+  for (const it of items) nodes.push({ key: it.key, kind: it.kind, label: String(it.label || it.kind).slice(0, 200), parent: rootKey, attributes: { box: it.box, ...(it.attributes ?? {}) } });
+  const diag = Math.hypot(size?.[0] || 1, size?.[1] || 1);
+  const near = diag * GRAPH_NEAR_FRACTION;
+  const edges = [];
+  const hOverlap = (a, b) => Math.min(a[2], b[2]) - Math.max(a[0], b[0]) > 0;
+  for (let i = 0; i < items.length && edges.length < GRAPH_MAX_EDGES; i++) {
+    const a = items[i].box;
+    let below = -1, belowGap = Infinity;
+    for (let j = 0; j < items.length; j++) {
+      if (i === j) continue;
+      const b = items[j].box;
+      const ix = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+      const iy = Math.min(a[3], b[3]) - Math.max(a[1], b[1]);
+      if (j > i) {
+        if (ix > 0 && iy > 0) { edges.push({ from: items[i].key, to: items[j].key, relation: "Overlaps" }); }
+        else {
+          const gx = Math.max(0, -ix), gy = Math.max(0, -iy);
+          if (Math.hypot(gx, gy) <= near) edges.push({ from: items[i].key, to: items[j].key, relation: "NearTo" });
+        }
+      }
+      if (hOverlap(a, b) && b[1] >= a[3] && b[1] - a[3] < belowGap) { below = j; belowGap = b[1] - a[3]; }
+    }
+    if (below >= 0) edges.push({ from: items[i].key, to: items[below].key, relation: "Above" });
+  }
+  const capped = edges.length > GRAPH_MAX_EDGES;
+  return { nodes, edges: edges.slice(0, GRAPH_MAX_EDGES), bounds: { max_edges: GRAPH_MAX_EDGES, near_fraction_of_diagonal: GRAPH_NEAR_FRACTION, edges_capped: capped, relations: "Overlaps | NearTo (pairs) + Above (nearest element below with horizontal overlap)" } };
+}
+
 const tools = {
   async android_devices() {
     const out = await adb(["devices", "-l"]);
@@ -325,7 +364,10 @@ const tools = {
       els.push({ index: els.length, label: label.slice(0, 80), id: attr("resource-id"), class: attr("class").split(".").pop(), clickable: attr("clickable") === "true", bounds: [x1, y1, x2, y2], center: [Math.round((x1 + x2) / 2), Math.round((y1 + y2) / 2)] });
       if (els.length >= 150) break;
     }
-    return { serial: input.serial, untrusted_elements: els, count: els.length };
+    const maxX = Math.max(1, ...els.map((e) => e.bounds[2])), maxY = Math.max(1, ...els.map((e) => e.bounds[3]));
+    const graph = boxGraph(`screen:${input.serial}`, "android_screen", `android screen ${input.serial}`, { serial: input.serial, untrusted: true },
+      els.map((e) => ({ key: `ui:${input.serial}:${e.index}`, kind: e.class || "view", label: e.label || e.id || e.class, box: e.bounds, attributes: { resource_id: e.id, clickable: e.clickable } })), [maxX, maxY]);
+    return { serial: input.serial, untrusted_elements: els, count: els.length, ...(graph ? { graph } : {}) };
   },
 
   async android_ui_tap_element(input) {

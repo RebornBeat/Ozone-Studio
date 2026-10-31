@@ -172,7 +172,7 @@ fn read_jsonl(path: &str) -> Vec<serde_json::Value> {
 }
 
 /// The operator's latest recorded resolution for `review_id`, if any.
-fn latest_resolution(data_dir: &str, review_id: &str) -> Option<serde_json::Value> {
+pub fn latest_resolution(data_dir: &str, review_id: &str) -> Option<serde_json::Value> {
     read_jsonl(&resolutions_path(data_dir))
         .into_iter()
         .rev()
@@ -185,10 +185,16 @@ fn latest_resolution(data_dir: &str, review_id: &str) -> Option<serde_json::Valu
 /// reasoning_preview, task_summary_preview.
 pub fn list_pending_reviews(data_dir: &str) -> Vec<serde_json::Value> {
     let rows = read_jsonl(&format!("{}/model_calls/decision_review.jsonl", data_dir));
-    let resolved: std::collections::HashSet<String> = read_jsonl(&resolutions_path(data_dir))
-        .iter()
-        .filter_map(|r| r.get("review_id").and_then(|v| v.as_str()).map(|s| s.to_string()))
-        .collect();
+    // id -> ts of the operator's LATEST resolution. A row is hidden only if it
+    // is not NEWER than that resolution: a proposal legitimately re-recorded
+    // after its cooldown (same id, later ts) must become visible again.
+    let mut resolved: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for r in read_jsonl(&resolutions_path(data_dir)) {
+        if let Some(id) = r.get("review_id").and_then(|v| v.as_str()) {
+            let ts = r.get("ts").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            resolved.insert(id.to_string(), ts);
+        }
+    }
     let mut latest: std::collections::HashMap<String, serde_json::Value> = std::collections::HashMap::new();
     let mut order: Vec<String> = Vec::new();
     for row in rows {
@@ -206,8 +212,15 @@ pub fn list_pending_reviews(data_dir: &str) -> Vec<serde_json::Value> {
     }
     order
         .into_iter()
-        .filter(|id| !resolved.contains(id))
         .filter_map(|id| latest.remove(&id))
+        .filter(|row| {
+            let id = row.get("review_id").and_then(|v| v.as_str()).unwrap_or("");
+            match resolved.get(id) {
+                None => true,
+                // RFC3339 UTC strings compare chronologically.
+                Some(res_ts) => row.get("ts").and_then(|v| v.as_str()).unwrap_or("") > res_ts.as_str(),
+            }
+        })
         .filter(|row| {
             matches!(
                 row.get("decision").and_then(|d| d.as_str()),

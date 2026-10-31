@@ -48,6 +48,10 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 const PORT = Number(process.env.OZONE_FARM_PORT ?? 3281);
+// Ingest auth: strict hosts want x-oz-internal (a Bearer session gets 401 with an
+// empty body). Token comes ONLY from OZONE_FARM_INGEST_TOKEN and is never logged.
+const INGEST_TOKEN = process.env.OZONE_FARM_INGEST_TOKEN ?? "";
+if (process.env.OZONE_FARM_INGEST_URL && !INGEST_TOKEN) console.error("[browser-farm-mcp] OZONE_FARM_INGEST_URL is set but OZONE_FARM_INGEST_TOKEN is not — auto-ingest stays OFF");
 const READONLY = process.env.OZONE_FARM_READONLY === "1";
 const ALLOW_INSECURE = process.env.OZONE_FARM_ALLOW_INSECURE === "1";
 const ALLOW_HOSTS = (process.env.OZONE_FARM_ALLOW_HOSTS ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean);
@@ -165,11 +169,11 @@ async function handle(tool, input) {
       // route only accepts files under the host data dir, so set
       // OZONE_FARM_SHOT_DIR under {data_dir} when this is on. A failed
       // ingest NEVER fails the screenshot (separate facts).
-      if (process.env.OZONE_FARM_INGEST_URL) {
+      if (process.env.OZONE_FARM_INGEST_URL && INGEST_TOKEN) {
         try {
           const ir = await fetch(process.env.OZONE_FARM_INGEST_URL, {
             method: "POST",
-            headers: { "content-type": "application/json", ...(input.session_token ? { Authorization: `Bearer ${input.session_token}` } : {}) },
+            headers: { "content-type": "application/json", "x-oz-internal": INGEST_TOKEN },
             body: JSON.stringify({ path: file, project_id: input.project_id ?? null, workspace_id: input.workspace_id ?? null }),
             signal: AbortSignal.timeout(120000),
           });

@@ -155,3 +155,34 @@ white scrollbar.
 * DOMorpher compile campaign (§4) and operator decision on the two copies.
 * Operator: start both MCPs from the operator shell (not an agent session); rebuild/deploy the host binary so the
   registrar works on the strict-session host; decide `OZONE_BROWSER_NO_SANDBOX` for this machine.
+
+### Auto-ingest hook auth (strict hosts)
+
+`OZONE_BROWSER_INGEST_URL` (browser-mcp) / `OZONE_FARM_INGEST_URL` (farm-mcp) point at
+`<host>/capture/ingest_image`. Strict-session hosts reject a Bearer session with a 401 and an
+empty body, so the hook now sends `x-oz-internal` from `OZONE_BROWSER_INGEST_TOKEN` /
+`OZONE_FARM_INGEST_TOKEN` (the host's internal token). **No token = hook stays OFF** (one
+stderr line says so; the token is never logged). A failed ingest never fails the screenshot —
+the honest reason rides in `ingested.error`. The farm MCP's shot dir must sit under the host
+data dir or working dir. EU systemd unit (placeholder — put the real token in an
+`EnvironmentFile` with mode 0600, never in the unit text or the repo):
+
+```
+[Service]
+Environment=OZONE_FARM_INGEST_URL=http://127.0.0.1:50051/capture/ingest_image
+EnvironmentFile=/etc/ozone/farm-mcp.env     # contains: OZONE_FARM_INGEST_TOKEN=<internal token>
+```
+
+### Snapshot graph blocks
+
+`browser_snapshot` (and android-mcp's `android_ui_snapshot`) now return a `graph` block beside the
+untrusted content: a page/screen root node, one node per interactive element (`parent` = root),
+and `Overlaps` / `NearTo` / `Above` relations computed from bounding boxes only (bounds stated in
+`graph.bounds`; edges capped at 2000, far below the host's 5000-node / 20000-edge limits). The
+block is absent when no elements were found. Labels are untrusted page/app text.
+
+### Launch and registration notes
+
+`tools/launch-browser-stack.sh` starts browser-mcp and farm-mcp only; domorpher-agent is opt-in
+(`OZONE_START_DOMORPHER_AGENT=1`). `register-browser-tools.mjs all` excludes the
+`domorpher_agent` family; `--prune agent_` unregisters stale rows through `/mcp/tools/unregister`.

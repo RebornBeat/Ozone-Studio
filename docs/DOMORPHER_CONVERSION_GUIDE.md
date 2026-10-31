@@ -96,6 +96,22 @@ it, better hardened. The rebuild is the CUT at the correct seam:
 
 ### 2.0a Layer 1 — `domorpher-core` (the library crate)
 
+> **CORRECTION 2026-10-31 (operator review) — supersedes the DecisionSource /
+> three-seams text below, which is kept as history.** The library has NO
+> seams and NO traits (no `DecisionSource`, `PageDriver`, `StateStore`; there
+> is no `seams.rs` — only plain data types `PageCommand`/`PageResult` in
+> `core/src/command.rs`). Model judgment is Ozone-Studio's (pipeline 9 and the
+> acting chain, consciousness observing); it reaches the library as DATA, and
+> where the library needs a decision it returns `JudgmentRequired`. The host —
+> Browser-Farm — executes actions and owns profile persistence (session/cookie
+> aging is a farm feature). **`domorpher-agent` is UNUSED and unregistered for
+> now:** the `farm_*` tools (`/mcp/call` → browser-farm-mcp :3281) are the
+> execution door, and the Command Center (CC) drives the farm. `chunking/` is
+> RETIRED (Ozone text pipeline 100). `core/Cargo.toml` carries no http/llm/
+> storage crates (`reqwest`, `jsonwebtoken`, `tiktoken-rs`, `wasm-bindgen`
+> removed). Nothing dropped: every retired surface keeps its named Ozone
+> replacement (DOMORPHER_CAPABILITY_PARITY.md).
+
 Pure capability, compiles WITHOUT any infrastructure. Cargo deps: serde,
 regex, chrono, thiserror-class errors — nothing that opens a socket,
 spawns a server, or talks to a model.
@@ -195,13 +211,15 @@ are gated calls like everything else's.
 1. **License/provenance confirmation** (operator; blocks absorb-into-tree,
    NOT reading/harvest work).
 2. **Crate extraction**: create `domorpher-core` (or `~/Projects/domorpher
-   /core/`) with ONLY the IN-list modules + the three trait seams; the
+   /core/`) with ONLY the IN-list modules (no trait seams — SUPERSEDED, see
+   §2.0a correction; plain data types only); the
    compile campaign now targets THIS crate's `cargo check` (each fix
    proven by the error moving). OUT-list modules are simply not included.
-3. **Seam impls** (in the MCP host process): DecisionSource over pipeline
-   9 + fallback; PageDriver over browser-mcp's CDP layer; StateStore over
-   farm profiles/data_dir.
-4. **tools/agent-mcp/** (Pattern A): server skeleton → the 16-tool table
+3. ~~**Seam impls**~~ **SUPERSEDED (2026-10-31)**: no seams to implement.
+   Decisions arrive as data from Ozone (pipeline 9 / acting chain); the farm
+   executes and persists profiles; CC drives it through the `farm_*` tools.
+4. **tools/domorpher-agent/** (Pattern A; renamed from agent-mcp; UNUSED and
+   unregistered for now — the farm tools are the door): server skeleton → the 16-tool table
    → selftest WITH refusal paths → registrar → one positive + one refusal
    through `/mcp/call`.
 5. **Harvest implementations** land incrementally behind each tool

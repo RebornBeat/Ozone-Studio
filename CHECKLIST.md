@@ -6680,3 +6680,10 @@ executes; the general skeleton stays for reuse). Detection (8) splits by functio
 flags verified CLEAN (no DecisionSource/llm/agent-mcp remnants in code; the one thinking-out-loud
 comment tidied). THE FLOW: Ozone orchestrator → /mcp/call → domorpher-agent → Browser-Farm (loads
 domorpher-core) → untrusted data back → graphs.
+
+## 2026-10-31 (cc) — EDITS-ONLY SWEEP: library boundary, farm unblock, host edits, language identification (nothing built or run)
+Seven forks + my own edits (operator: "take over all edits, no build no tests"). Docs: REVIEW_DOMORPHER_LIBRARY_BOUNDARY_2026-10-30, REVIEW_OZONE_STATE_AND_FARM_TEST_2026-10-31 (§4 corrected: the defined test is the google.com DOMORPHER test, not screenshot-only; `dom-field/google` on the EU farm is a LABEL only, no DOM captured), REVIEW_FORK_ALIGNMENT_2026-10-31, TOOLS_BY_LANGUAGE, MASTER_TEST_GUIDE §18.
+- **domorpher (own repo, commit 954a5c7, UNCOMPILED)**: model calls removed from instruction/forms/agent/execution/extraction/auth/events; Cargo deps pure; `seams.rs` traits deleted -> `command.rs` data types (no seam concept; taxonomy has pipeline/tool/bridge only); `JudgmentError`/`JudgmentRequired` vocabulary; decisions arrive as DATA (`accept_judgment`, `accept_items`, `apply_mappings`, `ReasoningOutcome::NeedsJudgment`, `EscalationRequest`); tokenizer (tiktoken) out of the core; agent re-included. Open: four judgment-request shapes -> one contract (AG9).
+- **Ozone**: ingest hooks send `x-oz-internal`; `graph` blocks from browser_snapshot/android_ui_snapshot; registrar excludes domorpher_agent from `all`, `--prune`, tags `lang:node`/`kind:mcp`; `/mcp/call` workspace/project scope mirror; McpFailureActor; proposals cooldown/idempotent Proceed/notification default + route half (`latest_resolution` pub, pending hides only rows not newer than resolution, resolve errors as HTTP 200).
+- **Decisions**: domorpher-agent UNUSED/unregistered (farm_* is the door, CC drives); Python library `domorpher-py` (PyO3) primary for the farm + `domorpher-cli` offline/pipeline path.
+- **Next at the gate**: see REVIEW_FORK_ALIGNMENT "Still missing".

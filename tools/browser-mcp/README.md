@@ -37,3 +37,20 @@ Chrome discovery: `OZONE_BROWSER_CHROME` → google-chrome → Playwright's bund
 `node tools/browser-mcp/selftest.mjs <fixture-url>` — 18 checks (5 refusal paths, origin guard, eval gate).
 `OZONE_THROUGH_HOST=http://127.0.0.1:50051 node …` routes them through the host's `/mcp/call`.
 `ui-harness.mjs` + `demo_ozone_ui.mjs` drive the real Ozone web UI against a real host (same-origin proxy).
+
+### Auto-ingest hook auth (strict hosts)
+
+`OZONE_BROWSER_INGEST_URL` point at
+`<host>/capture/ingest_image`. Strict-session hosts reject a Bearer session with a 401 and an
+empty body, so the hook now sends `x-oz-internal` from `OZONE_BROWSER_INGEST_TOKEN` /
+`OZONE_FARM_INGEST_TOKEN` (the host's internal token). **No token = hook stays OFF** (one
+stderr line says so; the token is never logged). A failed ingest never fails the screenshot —
+the honest reason rides in `ingested.error`. The farm MCP's shot dir must sit under the host
+data dir or working dir. EU systemd unit (placeholder — put the real token in an
+`EnvironmentFile` with mode 0600, never in the unit text or the repo):
+
+```
+[Service]
+Environment=OZONE_FARM_INGEST_URL=http://127.0.0.1:50051/capture/ingest_image
+EnvironmentFile=/etc/ozone/farm-mcp.env     # contains: OZONE_FARM_INGEST_TOKEN=<internal token>
+```

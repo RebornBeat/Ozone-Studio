@@ -1,7 +1,13 @@
 // Register browser-mcp + browser-farm-mcp tools into the Ozone host registry
 // (docs/NEW_MCP_GUIDE.md §1.4). Re-registration REPLACES and bumps server_version;
 // the registry persists ({data_dir}/mcp_tool_registry.json), so re-run only when an endpoint changes.
-//   node tools/register-browser-tools.mjs [browser|farm|all]
+//   node tools/register-browser-tools.mjs [browser|farm|android|security|all|domorpher_agent]
+//   node tools/register-browser-tools.mjs --prune agent_      (unregister stale rows by name prefix)
+// `all` EXCLUDES the domorpher_agent family while it is unused (operator, 2026-10-31):
+// it registers only when named explicitly (`domorpher_agent`).
+// --prune <prefix> asks the host to drop every currently-registered tool whose name starts with
+// <prefix> via POST /mcp/tools/unregister {name} (live host route; removes from the persisted
+// registry too). Safe to combine: `--prune agent_ all`.
 // Env: OZONE_HOST (http://127.0.0.1:50051), OZONE_BROWSER_PORT (3280), OZONE_FARM_PORT (3281),
 //      OZONE_INTERNAL_TOKEN / OZONE_INTERNAL_TOKEN_FILE / OZONE_DATA_DIR (strict-session hosts)
 import fs from "node:fs";
@@ -66,15 +72,35 @@ const FAMILIES = {
     exposure_report: "listeners split loopback/external, risky ports flagged", security_status: "security-mcp self posture (privileged?, tools)",
   } },
 };
-const which = process.argv[2] ?? "all";
+const argv = process.argv.slice(2);
+const pi = argv.indexOf("--prune");
+const prunePrefix = pi >= 0 ? (argv[pi + 1] ?? "") : "";
+if (pi >= 0) argv.splice(pi, 2);
+const which = argv[0] ?? (pi >= 0 ? "none" : "all");
+const OPT_IN = new Set(["domorpher_agent"]); // never part of `all`
 const tok = internalToken();
 const headers = { "Content-Type": "application/json", ...(tok ? { "x-oz-internal": tok } : {}) };
 let ok = 0, bad = 0;
+if (prunePrefix) {
+  if (prunePrefix.length < 3) { console.error("--prune needs a prefix of at least 3 characters"); process.exit(2); }
+  try {
+    const lr = await fetch(`${HOST}/mcp/tools`, { headers });
+    const lj = await lr.json();
+    const names = (Array.isArray(lj) ? lj : lj.tools ?? []).map((t) => t.name).filter((n) => typeof n === "string" && n.startsWith(prunePrefix));
+    for (const name of names) {
+      const r = await fetch(`${HOST}/mcp/tools/unregister`, { method: "POST", headers, body: JSON.stringify({ name }) });
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.success !== false) { ok++; console.error(`  - pruned ${name}`); } else { bad++; console.error(`  ✗ prune ${name}: HTTP ${r.status}`); }
+    }
+    console.error(`pruned ${names.length} tool(s) with prefix '${prunePrefix}'`);
+  } catch (e) { bad++; console.error(`  ✗ prune: ${e.message}`); }
+}
 for (const [fam, f] of Object.entries(FAMILIES)) {
-  if (which !== "all" && which !== fam) continue;
+  if (which === "none") continue;
+  if (which === "all" ? OPT_IN.has(fam) : which !== fam) continue;
   for (const [name, desc] of Object.entries(f.tools)) {
     try {
-      const r = await fetch(`${HOST}/mcp/tools/register`, { method: "POST", headers, body: JSON.stringify({ name, transport: "http", endpoint: `http://127.0.0.1:${f.port}/call`, capabilities: [PLATFORM, desc], server_version: f.version }) });
+      const r = await fetch(`${HOST}/mcp/tools/register`, { method: "POST", headers, body: JSON.stringify({ name, transport: "http", endpoint: `http://127.0.0.1:${f.port}/call`, capabilities: [PLATFORM, "lang:node", "kind:mcp", desc], server_version: f.version }) });
       const j = await r.json().catch(() => ({}));
       if (r.ok && j.success !== false) { ok++; console.error(`  ✓ ${name}${j.replaced ? " (replaced)" : ""}`); } else { bad++; console.error(`  ✗ ${name}: HTTP ${r.status} ${j.error ?? ""}${r.status === 401 ? " — strict session host: needs x-oz-internal (build with the internal-token code + OZONE_DATA_DIR) or a session" : ""}`); }
     } catch (e) { bad++; console.error(`  ✗ ${name}: ${e.message}`); }

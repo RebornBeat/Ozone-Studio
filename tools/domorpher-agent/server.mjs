@@ -1,3 +1,7 @@
+// STATUS (2026-10-31): UNUSED + UNREGISTERED by default — the Browser-Farm is driven via the
+// Command Center through the farm_* tools; kept as the general skeleton. Launcher opt-in:
+// OZONE_START_DOMORPHER_AGENT=1; registrar opt-in: `register-browser-tools.mjs domorpher_agent`.
+//
 // domorpher-agent — the DOMorpher conversion's enforcement point (Layer 3,
 // docs/DOMORPHER_CONVERSION_GUIDE.md §2.0c). Skeleton per the
 // terminal-mcp hardening pattern: loopback-only /call accepting
