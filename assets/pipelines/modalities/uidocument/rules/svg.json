@@ -1,0 +1,474 @@
+{
+ "pack": {
+  "id": "svg",
+  "version": "0.1.0",
+  "flavor": "svg",
+  "spec_refs": [
+   "SVG 1.1 (Second Edition)",
+   "SVG 2",
+   "SVG-AAM 1.0",
+   "SVG implementation notes F.6 (elliptical arc)"
+  ]
+ },
+ "rules": [
+  {
+   "id": "svg.frame.viewport",
+   "family": "frame",
+   "when": {
+    "selector": "svg"
+   },
+   "emit": {
+    "builtin": "svg_frame"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 7.7 (viewBox) / 5.1.2 (the initial viewport)",
+   "rationale": "The outermost svg element defines the frame `svg:<root-id>` in user units: its viewBox, else 0,0,width,height. A nested svg is folded into the cumulative transform (viewBox + preserveAspectRatio), so one frame covers the drawing. Confidence is derived when there is no viewBox."
+  },
+  {
+   "id": "svg.geom.viewport",
+   "family": "geometry",
+   "when": {
+    "selector": "svg"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 7.7",
+   "rationale": "The viewport rectangle of an svg element, in the frame (the viewBox rectangle for the root)."
+  },
+  {
+   "id": "svg.geom.rect",
+   "family": "geometry",
+   "when": {
+    "selector": "rect"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.2",
+   "rationale": "x,y,width,height read from the file; the cumulative transform is applied. Axis-aligned => kind box; rotated or skewed => exact polygon of the four transformed corners. rx/ry stay attributes (corner rounding is paint, not extent). Zero or missing size => geometry absent with the reason."
+  },
+  {
+   "id": "svg.geom.circle",
+   "family": "geometry",
+   "when": {
+    "selector": "circle"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.3",
+   "rationale": "cx,cy,r read from the file => kind ellipse (+ enclosing bbox). Under a rotation or skew the ellipse is approximated by a polygon and the confidence drops to derived."
+  },
+  {
+   "id": "svg.geom.ellipse",
+   "family": "geometry",
+   "when": {
+    "selector": "ellipse"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.4",
+   "rationale": "cx,cy,rx,ry read from the file => kind ellipse (+ bbox); polygon approximation (derived) under a rotation or skew."
+  },
+  {
+   "id": "svg.geom.line",
+   "family": "geometry",
+   "when": {
+    "selector": "line"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.5",
+   "rationale": "x1,y1,x2,y2 (default 0) => kind segment in the frame, exact. Stroke width is paint and is not added to the extent."
+  },
+  {
+   "id": "svg.geom.polyline",
+   "family": "geometry",
+   "when": {
+    "selector": "polyline"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.6",
+   "rationale": "points attribute => kind polyline, every point transformed; the bbox uses all points, at most 2000 points are listed."
+  },
+  {
+   "id": "svg.geom.polygon",
+   "family": "geometry",
+   "when": {
+    "selector": "polygon"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 9.7",
+   "rationale": "points attribute => kind polygon (closed), every point transformed; the bbox uses all points."
+  },
+  {
+   "id": "svg.geom.path",
+   "family": "geometry",
+   "when": {
+    "selector": "path"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 8 (path data); SVG 1.1 F.6 (arc conversion)",
+   "rationale": "Path data M m L l H h V v C c S s Q q T t A a Z z parsed to subpaths. Straight-line paths are exact (certain). Curves and arcs are flattened by sampling: the bbox is DERIVED and says so; a syntax error keeps the valid prefix and says so."
+  },
+  {
+   "id": "svg.geom.image",
+   "family": "geometry",
+   "when": {
+    "selector": "image"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 25.3",
+   "rationale": "The x,y,width,height box of an embedded raster image, in the frame. The pixels are the image modality's business."
+  },
+  {
+   "id": "svg.geom.foreignobject",
+   "family": "geometry",
+   "when": {
+    "selector": "foreignobject"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 23.2",
+   "rationale": "The x,y,width,height box of the foreignObject, in the frame."
+  },
+  {
+   "id": "svg.geom.text",
+   "family": "geometry",
+   "when": {
+    "selector": "text,tspan"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 10 (Text)",
+   "rationale": "Text gives an anchor POINT (x,y transformed). Glyph extents need font metrics and are not computed: bbox is absent and says so. A tspan with no x/y continues the text position: geometry absent."
+  },
+  {
+   "id": "svg.geom.group",
+   "family": "geometry",
+   "when": {
+    "selector": "g,a,switch"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "derived",
+   "source": "SVG 1.1 (Second Edition) 5.2 (grouping)",
+   "rationale": "A container's box is the union of its descendants' boxes (derived): stroke width, markers and text extents are not included."
+  },
+  {
+   "id": "svg.geom.use",
+   "family": "geometry",
+   "when": {
+    "selector": "use"
+   },
+   "emit": {
+    "builtin": "svg_geometry"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 5.6",
+   "rationale": "A use element instantiates another element; the instantiated geometry is NOT computed here (honest absence). The Includes edge links to the referenced element."
+  },
+  {
+   "id": "svg.group.use-ref",
+   "family": "grouping",
+   "when": {
+    "selector": "use[href^=\"#\"]"
+   },
+   "emit": {
+    "edge": "Includes",
+    "from": "$match",
+    "to": {
+     "selector": "{attr:href}"
+    }
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 5.6",
+   "rationale": "A same-document use references the element with that id."
+  },
+  {
+   "id": "svg.group.use-target",
+   "family": "grouping",
+   "when": {
+    "selector": "use[href]"
+   },
+   "emit": {
+    "flag": "use_target",
+    "value_from": "attr:href"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 5.6",
+   "rationale": "Records the reference text."
+  },
+  {
+   "id": "svg.group.use-external",
+   "family": "grouping",
+   "when": {
+    "selector": "use[href]",
+    "not_selector": "use[href^=\"#\"]"
+   },
+   "emit": {
+    "flag": "use_external",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 5.6",
+   "rationale": "A use pointing at another document is left as a reference: it is never fetched or resolved."
+  },
+  {
+   "id": "svg.group.definitions",
+   "family": "visibility",
+   "when": {
+    "selector": "defs,symbol,clippath,mask,marker,pattern,lineargradient,radialgradient,filter,metadata"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "SVG 1.1 (Second Edition) 5.5 (defs), 5.9 (symbol)",
+   "rationale": "Definition containers are not rendered; their subtree is hidden from effective visibility and their geometry is definition-space (absent in the frame)."
+  },
+  {
+   "id": "svg.vis.display-attr",
+   "family": "visibility",
+   "when": {
+    "selector": "[display=\"none\"]"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11.6.2",
+   "rationale": "display=none (presentation attribute) removes the element and its subtree from rendering."
+  },
+  {
+   "id": "svg.vis.visibility-attr",
+   "family": "visibility",
+   "when": {
+    "selector": "[visibility=\"hidden\"],[visibility=\"collapse\"]"
+   },
+   "emit": {
+    "flag": "visibility_hidden",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11.6.2",
+   "rationale": "visibility=hidden hides only the element itself."
+  },
+  {
+   "id": "svg.style.fill",
+   "family": "styling",
+   "when": {
+    "selector": "[fill]"
+   },
+   "emit": {
+    "flag": "fill",
+    "value_from": "attr:fill"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `fill` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.stroke",
+   "family": "styling",
+   "when": {
+    "selector": "[stroke]"
+   },
+   "emit": {
+    "flag": "stroke",
+    "value_from": "attr:stroke"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `stroke` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.stroke-width",
+   "family": "styling",
+   "when": {
+    "selector": "[stroke-width]"
+   },
+   "emit": {
+    "flag": "stroke_width",
+    "value_from": "attr:stroke-width"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `stroke-width` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.opacity",
+   "family": "styling",
+   "when": {
+    "selector": "[opacity]"
+   },
+   "emit": {
+    "flag": "opacity",
+    "value_from": "attr:opacity"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `opacity` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.fill-opacity",
+   "family": "styling",
+   "when": {
+    "selector": "[fill-opacity]"
+   },
+   "emit": {
+    "flag": "fill_opacity",
+    "value_from": "attr:fill-opacity"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `fill-opacity` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.stroke-opacity",
+   "family": "styling",
+   "when": {
+    "selector": "[stroke-opacity]"
+   },
+   "emit": {
+    "flag": "stroke_opacity",
+    "value_from": "attr:stroke-opacity"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 11 (Painting)",
+   "rationale": "Own presentation attribute `stroke-opacity` recorded as an attribute of the node. Paint is not geometry; inheritance is not modelled."
+  },
+  {
+   "id": "svg.style.inline",
+   "family": "styling",
+   "when": {
+    "selector": "[style]"
+   },
+   "emit": {
+    "builtin": "svg_inline_style"
+   },
+   "confidence": "derived",
+   "source": "CSS style attribute (SVG presentation properties)",
+   "rationale": "Paint declarations from the inline style attribute (fill, stroke, stroke-width, fill-opacity, stroke-opacity). display / visibility / opacity come from the shared css cascade."
+  },
+  {
+   "id": "svg.text.anchor",
+   "family": "text",
+   "when": {
+    "selector": "[text-anchor]"
+   },
+   "emit": {
+    "flag": "text_anchor",
+    "value_from": "attr:text-anchor"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 10.9.1",
+   "rationale": "Text anchoring (start | middle | end) recorded; extents are not computed."
+  },
+  {
+   "id": "svg.text.font-size",
+   "family": "text",
+   "when": {
+    "selector": "[font-size]"
+   },
+   "emit": {
+    "flag": "font_size",
+    "value_from": "attr:font-size"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 10.10",
+   "rationale": "Font size recorded as given (units not resolved)."
+  },
+  {
+   "id": "svg.a11y.root-role",
+   "family": "a11y",
+   "when": {
+    "selector": "svg",
+    "no_attr": [
+     "role"
+    ]
+   },
+   "emit": {
+    "flag": "role",
+    "value": "graphics-document"
+   },
+   "confidence": "derived",
+   "source": "SVG-AAM 1.0",
+   "rationale": "An svg root without an explicit role maps to graphics-document."
+  },
+  {
+   "id": "svg.a11y.title-desc",
+   "family": "a11y",
+   "when": {
+    "selector": "svg,g,a,rect,circle,ellipse,line,polyline,polygon,path,text,image,use,symbol"
+   },
+   "emit": {
+    "builtin": "svg_accname"
+   },
+   "confidence": "derived",
+   "source": "SVG-AAM 1.0 (name from title)",
+   "rationale": "Accessible name from a direct <title> child when aria-label / aria-labelledby gave none; <desc> becomes the description."
+  },
+  {
+   "id": "svg.foreign.embeds",
+   "family": "frames",
+   "when": {
+    "selector": "foreignobject"
+   },
+   "emit": {
+    "node": {
+     "kind": "ForeignContent",
+     "label_from": "tag",
+     "props": {
+      "opaque": "json:false",
+      "reason": "const:HTML inside foreignObject is analyzed by the html rules; its box is the foreignObject box"
+     },
+     "edge": "Embeds"
+    }
+   },
+   "confidence": "derived",
+   "source": "SVG 1.1 (Second Edition) 23.2",
+   "rationale": "foreignObject hosts non-SVG content. The HTML elements stay normal nodes in this graph (html rules apply: links, forms, scripts, safety); a ForeignContent node marks the boundary."
+  },
+  {
+   "id": "svg.limits.unmodelled",
+   "family": "limits",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "svg_unmodelled"
+   },
+   "confidence": "certain",
+   "source": "SVG 1.1 (Second Edition) 14 (clip, mask), 15 (filters), 11.6 (markers), 13.3 (patterns)",
+   "rationale": "Filters, masks, clip paths, markers, patterns and CSS transforms in style attributes change what is drawn but are NOT modelled in the geometry. The affected nodes carry an `svg_unmodelled` list; nothing is guessed."
+  }
+ ]
+}

@@ -34,6 +34,26 @@ const KEPT_ATTRS: &[&str] = &[
     "contenteditable", "autocomplete", "maxlength", "min", "max", "pattern", "form", "aria-label", "aria-labelledby",
 ];
 
+/// Extra attributes copied onto SVG nodes (flavor svg): the geometry-bearing ones.
+const SVG_KEPT_ATTRS: &[&str] = &[
+    "x", "y", "width", "height", "viewbox", "preserveaspectratio", "d", "points", "cx", "cy", "r", "rx", "ry", "x1", "y1", "x2", "y2",
+    "transform", "fill", "stroke", "stroke-width", "opacity", "display", "visibility", "font-size", "text-anchor",
+];
+
+/// Node kind for SVG elements (flavor svg); None falls back to the html kinds.
+fn svg_kind(tag: &str) -> Option<&'static str> {
+    match tag {
+        "svg" => Some("Graphic"),
+        "rect" | "circle" | "ellipse" | "line" | "polyline" | "polygon" | "path" => Some("Shape"),
+        "text" | "tspan" => Some("TextRun"),
+        "g" | "defs" | "symbol" | "switch" => Some("Group"),
+        "use" => Some("Reference"),
+        "image" => Some("Media"),
+        "foreignobject" => Some("Region"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum RelationMode {
     Host,
@@ -121,6 +141,14 @@ fn label_for_element(dom: &Dom, facts: &Facts, i: usize) -> String {
 }
 
 pub fn build(dom: &Dom, facts: &Facts, mode: RelationMode, include_context: bool, geometry_reason: &str) -> Built {
+    build_ext(dom, facts, mode, include_context, geometry_reason, false)
+}
+
+/// `svg_mode` (flavor svg, UNCOMPILED pending the build gate): SVG node kinds, the
+/// geometry-bearing attributes, and exact geometry lifted from the `svg_geom` /
+/// `svg_geom_box` / `svg_geom_absent` flags into `attributes.geom` / `geom_box` /
+/// `geom_absent` (+ `geom_provenance`). A live feed's box (`DomNode.geom`) still wins.
+pub fn build_ext(dom: &Dom, facts: &Facts, mode: RelationMode, include_context: bool, geometry_reason: &str, svg_mode: bool) -> Built {
     let mut nodes: Vec<Value> = Vec::new();
     let mut truncation: Vec<String> = Vec::new();
     let mut dropped_nodes = 0usize;
@@ -165,18 +193,47 @@ pub fn build(dom: &Dom, facts: &Facts, mode: RelationMode, include_context: bool
                 kept.insert(k.to_string(), json!(clip(v, MAX_ATTR_VALUE)));
             }
         }
+        if svg_mode {
+            for k in SVG_KEPT_ATTRS.iter() {
+                if let Some(v) = n.attrs.get(*k) {
+                    kept.insert(k.to_string(), json!(clip(v, MAX_ATTR_VALUE)));
+                }
+            }
+        }
         attrs.insert("attrs".to_string(), Value::Object(kept));
-        match &n.geom {
-            Some(g) => {
+        let (mut flags, mut prov) = flags_json(facts, i);
+        let mut svg_geom: Option<Value> = None;
+        let mut svg_box: Option<Value> = None;
+        let mut svg_absent: Option<String> = None;
+        let mut svg_prov: Option<Value> = None;
+        if let (Some(fm), Some(pm)) = (flags.as_object_mut(), prov.as_object_mut()) {
+            svg_geom = fm.remove("svg_geom");
+            svg_box = fm.remove("svg_geom_box");
+            svg_absent = fm.remove("svg_geom_absent").and_then(|v| v.as_str().map(|s| s.to_string()));
+            svg_prov = pm.remove("svg_geom");
+            pm.remove("svg_geom_box");
+            pm.remove("svg_geom_absent");
+        }
+        match (&n.geom, svg_geom) {
+            (Some(g), _) => {
                 attrs.insert("geom".to_string(), g.to_json());
                 with_geom += 1;
             }
-            None => {
-                attrs.insert("geom_absent".to_string(), json!(geometry_reason));
+            (None, Some(g)) => {
+                attrs.insert("geom".to_string(), g);
+                if let Some(b) = svg_box {
+                    attrs.insert("geom_box".to_string(), b);
+                }
+                if let Some(p) = svg_prov {
+                    attrs.insert("geom_provenance".to_string(), p);
+                }
+                with_geom += 1;
+            }
+            (None, None) => {
+                attrs.insert("geom_absent".to_string(), json!(svg_absent.unwrap_or_else(|| geometry_reason.to_string())));
                 without_geom += 1;
             }
         }
-        let (flags, prov) = flags_json(facts, i);
         attrs.insert("flags".to_string(), flags);
         attrs.insert("provenance".to_string(), prov);
         attrs.insert("rule".to_string(), json!("html.struct.element"));
@@ -188,7 +245,7 @@ pub fn build(dom: &Dom, facts: &Facts, mode: RelationMode, include_context: bool
         };
         nodes.push(json!({
             "key": n.key, "id": n.key,
-            "kind": kind_for(&n.tag, facts, i),
+            "kind": if svg_mode { svg_kind(&n.tag).unwrap_or_else(|| kind_for(&n.tag, facts, i)) } else { kind_for(&n.tag, facts, i) },
             "label": label_for_element(dom, facts, i),
             "parent": parent_key,
             "attributes": Value::Object(attrs),

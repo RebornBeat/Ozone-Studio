@@ -3,8 +3,8 @@
 //!
 //! Contract (the Python binding and the host rely on exactly this):
 //!   analyze(input: &Value) -> Value
-//!   input  = {"flavor": "html"|"css"|"dom-live"|"android-xml"|"a11y-json",
-//!             "url"?: str, "html"?: str, "css"?: [str],
+//!   input  = {"flavor": "html"|"css"|"dom-live"|"svg"|"android-xml"|"a11y-json",
+//!             "url"?: str, "html"?: str, "svg"?: str, "css"?: [str],
 //!             "batch"?: {"seq": n, "full": bool, "nodes": [...], "context"?: [...],
 //!                        "removed"?: [ids], "changed"?: [...]},
 //!             "relation_mode"?: "host"|"semantic", "view_max_chars"?: n}
@@ -21,6 +21,7 @@ pub mod geom;
 pub mod graph;
 pub mod html;
 pub mod rules;
+pub mod svg;
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -35,6 +36,7 @@ const MAX_PROVIDED_SHEETS: usize = 20;
 const MAX_URL: usize = 2000;
 const GEOMETRY_REASON_STATIC: &str = "no layout engine ran (static input)";
 const GEOMETRY_REASON_LIVE: &str = "node reported without geometry by the live feed";
+const GEOMETRY_REASON_SVG: &str = "not a geometry-bearing SVG element (container, definition, style or metadata)";
 
 fn fail(flavor: &str, msg: impl Into<String>) -> Value {
     json!({"success": false, "error": msg.into(), "flavor": flavor, "pipeline_id": PIPELINE_ID})
@@ -95,9 +97,17 @@ struct Analysis {
 }
 
 fn analyse_dom(dom: &Dom, sheets: &[css::Sheet], flavor: &str) -> Result<Analysis, String> {
+    analyse_dom_ext(dom, sheets, flavor, None)
+}
+
+/// `model` = the SVG geometry model (flavor svg only).
+fn analyse_dom_ext(dom: &Dom, sheets: &[css::Sheet], flavor: &str, model: Option<&svg::SvgModel>) -> Result<Analysis, String> {
     let (computed, stats) = css::cascade(dom, sheets);
     let packs = rules::load_builtin(flavor)?;
-    let mut facts = rules::run(dom, &packs, sheets, &computed);
+    let mut facts = rules::run_with_svg(dom, &packs, sheets, &computed, model);
+    if let Some(m) = model {
+        facts.notes.extend(m.notes.iter().cloned());
+    }
     facts.notes.push(format!(
         "cascade: {} selector match(es); {} conditional rule(s) recorded but not merged; {} unsupported selector(s){}",
         stats.rules_matched,
@@ -110,7 +120,11 @@ fn analyse_dom(dom: &Dom, sheets: &[css::Sheet], flavor: &str) -> Result<Analysi
 }
 
 fn finish(flavor: &str, dom: &Dom, a: &Analysis, input: &Value, geometry_reason: &str, include_context: bool) -> (Value, graph::Built) {
-    let built = graph::build(dom, &a.facts, mode_of(input), include_context, geometry_reason);
+    finish_ext(flavor, dom, a, input, geometry_reason, include_context, false)
+}
+
+fn finish_ext(flavor: &str, dom: &Dom, a: &Analysis, input: &Value, geometry_reason: &str, include_context: bool, svg_mode: bool) -> (Value, graph::Built) {
+    let built = graph::build_ext(dom, &a.facts, mode_of(input), include_context, geometry_reason, svg_mode);
     let view = rules::view_info(dom, &a.facts);
     let md = html::semantic_markdown(dom, &view, view_budget(input));
     let out = json!({
@@ -135,6 +149,27 @@ fn analyze_html(input: &Value) -> Value {
     match analyse_dom(&dom, &sheets, "html") {
         Ok(a) => finish("html", &dom, &a, input, GEOMETRY_REASON_STATIC, false).0,
         Err(e) => fail("html", e),
+    }
+}
+
+/// Flavor svg: exact vector geometry (src/svg.rs). The source is `input.svg` (or `input.html`
+/// when a caller only has that field). UNCOMPILED pending the build gate.
+fn analyze_svg(input: &Value) -> Value {
+    let src = match input.get("svg").and_then(|h| h.as_str()).or_else(|| input.get("html").and_then(|h| h.as_str())) {
+        Some(s) => s,
+        None => return fail("svg", "flavor svg needs input.svg (a string)"),
+    };
+    let dom = svg::parse_document(src, url_of(input).as_deref());
+    let sheets = collect_sheets(&dom, &provided_css(input));
+    let model = svg::build_model(&dom);
+    match analyse_dom_ext(&dom, &sheets, "svg", Some(&model)) {
+        Ok(a) => {
+            let (mut out, _) = finish_ext("svg", &dom, &a, input, GEOMETRY_REASON_SVG, false, true);
+            let frames: Vec<Value> = model.frames.iter().flatten().map(|f| f.to_json()).collect();
+            out["svg"] = json!({"roots": model.roots, "frames": frames});
+            out
+        }
+        Err(e) => fail("svg", e),
     }
 }
 
@@ -284,6 +319,12 @@ pub fn normalize_input(input: &Value) -> Value {
         let css_ext = name_hint
             .map(|n| { let n = n.to_lowercase(); n.ends_with(".css") || n.ends_with(".scss") || n.ends_with(".less") })
             .unwrap_or(false);
+        let svg_like = match flavor.as_deref() { Some("svg") => true, Some(_) => false, None => svg::looks_like_svg(&text, name_hint) };
+        if svg_like {
+            if flavor.is_none() { *flavor = Some("svg".into()); }
+            out.insert("svg".into(), Value::String(text));
+            return;
+        }
         let is_css = match flavor.as_deref() { Some("css") => true, Some(_) => false, None => css_ext };
         if flavor.is_none() { *flavor = Some(if is_css { "css".into() } else { "html".into() }); }
         if is_css { out.insert("css".into(), Value::Array(vec![Value::String(text)])); }
@@ -325,9 +366,10 @@ pub fn analyze(input: &Value) -> Value {
         "html" => analyze_html(input),
         "css" => analyze_css(input),
         "dom-live" => analyze_live(input),
+        "svg" => analyze_svg(input),
         "android-xml" => fail("android-xml", "flavor android-xml not implemented yet"),
         "a11y-json" => fail("a11y-json", "flavor a11y-json not implemented yet"),
-        other => fail(other, format!("unknown flavor '{}' (html | css | dom-live | android-xml | a11y-json)", other)),
+        other => fail(other, format!("unknown flavor '{}' (html | css | dom-live | svg | android-xml | a11y-json)", other)),
     }
 }
 

@@ -19,9 +19,11 @@ use serde_json::{json, Value};
 use crate::a11y;
 use crate::css::{CascadeWin, Sheet, CASCADE_PROPS};
 use crate::html::{Dom, Selector, ViewInfo};
+use crate::svg::{self, Slot, SvgModel};
 
 const HTML_PACK: &str = include_str!("../rules/html.json");
 const CSS_PACK: &str = include_str!("../rules/css.json");
+const SVG_PACK: &str = include_str!("../rules/svg.json");
 
 /// Materialized StyleRule nodes per run (the rest are counted, not materialized).
 const MAX_STYLE_RULE_NODES: usize = 500;
@@ -144,6 +146,8 @@ pub fn load_builtin(flavor: &str) -> Result<Vec<Pack>, String> {
     match flavor {
         "html" | "dom-live" => Ok(vec![parse_pack(HTML_PACK)?, parse_pack(CSS_PACK)?]),
         "css" => Ok(vec![parse_pack(CSS_PACK)?]),
+        // svg: html rules (structure, links, scripts, safety, visibility) + css cascade + svg rules
+        "svg" => Ok(vec![parse_pack(HTML_PACK)?, parse_pack(CSS_PACK)?, parse_pack(SVG_PACK)?]),
         other => Err(format!("no rule packs for flavor '{}'", other)),
     }
 }
@@ -311,10 +315,17 @@ pub struct Engine<'a> {
     /// (sheet index, rule index) -> StyleRule node key
     style_rule_nodes: Vec<((usize, usize), String)>,
     style_rules_uncounted: usize,
+    /// SVG geometry model (flavor svg only)
+    svg: Option<&'a SvgModel>,
 }
 
 /// Run every rule of `packs` (ordered by phase, then pack order, then rule order).
 pub fn run(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTreeMap<String, CascadeWin>]) -> Facts {
+    run_with_svg(dom, packs, sheets, computed, None)
+}
+
+/// Same as `run`, with the SVG geometry model for flavor svg (UNCOMPILED pending the build gate).
+pub fn run_with_svg(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTreeMap<String, CascadeWin>], svg: Option<&SvgModel>) -> Facts {
     let mut id_index = HashMap::new();
     for i in 1..dom.nodes.len() {
         if let Some(id) = dom.nodes[i].attrs.get("id") {
@@ -336,6 +347,7 @@ pub fn run(dom: &Dom, packs: &[Pack], sheets: &[Sheet], computed: &[BTreeMap<Str
         suspicious,
         style_rule_nodes: Vec::new(),
         style_rules_uncounted: 0,
+        svg,
     };
     let mut ordered: Vec<&Rule> = Vec::new();
     for pack in packs {
@@ -766,6 +778,82 @@ impl<'a> Engine<'a> {
                     let ctx = matches!(pos.as_deref(), Some("fixed") | Some("sticky")) || (positioned && z.is_some()) || opacity.map_or(false, |o| o < 1.0);
                     if pos.is_some() || z.is_some() || opacity.is_some() {
                         self.set_flag(i, "stacking_context", Value::Bool(ctx), rule, &rule.confidence.clone());
+                    }
+                }
+            }
+            "svg_frame" => {
+                if let (Some(i), Some(model)) = (node, self.svg) {
+                    if let Some(f) = model.frames.get(i).and_then(|f| f.as_ref()) {
+                        self.set_flag(i, "svg_frame", f.to_json(), rule, f.confidence);
+                    }
+                }
+            }
+            "svg_geometry" => {
+                if let (Some(i), Some(model)) = (node, self.svg) {
+                    match model.slots.get(i) {
+                        Some(Slot::Geo(g)) => {
+                            self.set_flag(i, "svg_geom", g.geom.clone(), rule, g.confidence);
+                            if let Some(b) = &g.geom_box {
+                                self.set_flag(i, "svg_geom_box", b.clone(), rule, "derived");
+                            }
+                            if let Some(note) = &g.note {
+                                self.set_flag(i, "svg_geom_note", Value::String(bound(note)), rule, g.confidence);
+                            }
+                            if let Some(Some(ctm)) = model.ctm.get(i) {
+                                self.set_flag(i, "svg_transform", ctm.to_json(), rule, "certain");
+                            }
+                        }
+                        Some(Slot::Absent(reason)) => {
+                            self.set_flag(i, "svg_geom_absent", Value::String(bound(reason)), rule, "certain");
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            "svg_inline_style" => {
+                if let Some(i) = node {
+                    let dom = self.dom;
+                    if let Some(style) = dom.nodes[i].attrs.get("style") {
+                        for (name, val) in svg::inline_paint(style) {
+                            self.set_flag(i, name, Value::String(val), rule, "derived");
+                        }
+                    }
+                }
+            }
+            "svg_accname" => {
+                if let Some(i) = node {
+                    if self.facts.flag(i, "name").is_none() {
+                        let dom = self.dom;
+                        let child_text = |tag: &str| -> Option<String> {
+                            dom.nodes[i]
+                                .children
+                                .iter()
+                                .find(|c| dom.nodes[**c].tag == tag)
+                                .map(|c| dom.nodes[*c].text.clone())
+                                .filter(|t| !t.is_empty())
+                        };
+                        if let Some(t) = child_text("title") {
+                            self.set_flag(i, "name", Value::String(bound(&t)), rule, "derived");
+                        }
+                    }
+                    let dom = self.dom;
+                    let desc = dom.nodes[i]
+                        .children
+                        .iter()
+                        .find(|c| dom.nodes[**c].tag == "desc")
+                        .map(|c| dom.nodes[*c].text.clone())
+                        .filter(|t| !t.is_empty());
+                    if let Some(d) = desc {
+                        self.set_flag(i, "description", Value::String(bound(&d)), rule, "derived");
+                    }
+                }
+            }
+            "svg_unmodelled" => {
+                if let (Some(i), Some(model)) = (node, self.svg) {
+                    if let Some(list) = model.unmodelled.get(i) {
+                        if !list.is_empty() {
+                            self.set_flag(i, "svg_unmodelled", json!(list), rule, "certain");
+                        }
                     }
                 }
             }

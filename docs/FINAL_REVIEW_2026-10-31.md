@@ -179,8 +179,7 @@ JS observer; host wiring (modality 127, ingest, spatial pass, new relations,
 UI, build script); proposals R1-R3 + route half; scope mirror; failure actor;
 ingest-hook auth; graph-block stopgaps; language tags (browser registrar).
 
-**In progress:** the `svg` flavor in the engine (fork B4) and the SVG detect move
-(done in `modality.rs`).
+**Landed late, with an interrupted author:** the `svg` flavor in the engine (`src/svg.rs` ~1,350 lines: viewBox frame, cumulative transforms, exact rect/circle/ellipse/line/polyline/polygon geometry, path flattening incl. arcs; `rules/svg.json`, 33 rules; `analyze` dispatch wired; 8 + 13 unit tests written). The fork was stopped before it reported, so the README flavor note and any remaining wiring are unverified; all files parse-check clean (rustfmt), nothing compiled. The SVG detect move is done in `modality.rs`.
 
 **Not started:** android-xml and a11y-json flavors; patterns rule pack; frame
 registry; cross-graph relation producers; spatial pass at the choke point; image
