@@ -392,3 +392,6 @@ Source docs: REVIEW_DOMORPHER_LIBRARY_BOUNDARY_2026-10-30, REVIEW_OZONE_STATE_AN
 | HK1 | ingest hooks send `x-oz-internal` from `OZONE_*_INGEST_TOKEN`; unset = off + one log line, token never logged | screenshot lands in graph without a manual call |
 | GB1 | `browser_snapshot` / `android_ui_snapshot` return a `graph` block (<=2000 edges, bounds stated) | containers visible under the workspace |
 | RG1 | `register-browser-tools.mjs all` excludes domorpher_agent; `--prune agent_` clears the 16 stale rows via `POST /mcp/tools/unregister` | registry has no `agent_*` |
+
+## §19 UiDocument modality (design 2026-10-31, docs/DOMORPHER_CLEAN_SLATE.md §9) — rows UD1-UD12
+UD1 detect `.html/.css` != Unknown · UD2 pipeline 127 on captured google.com HTML · UD3 live DOMSnapshot adds visible + spatial edges · UD4 standalone CSS graph · UD5 cascade visibility/specificity · UD6 Android uiautomator dump same shape · UD7 hostile page text stays untrusted · UD8 script text -> Code modality, never run · UD9 semantic_markdown on Document node · UD10 Python wheel == pipeline output · UD11 AG6 cargo tree clean · UD12 JS graph-block stopgap removed. (Full table in the design doc; status: all NOT BUILT.)
