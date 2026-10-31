@@ -1231,172 +1231,102 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ACTION IMPLEMENTATIONS
 // ============================================================================
 
+
+/// HONESTY FIX (D17, 2026-10-31): analyze_image no longer returns fabricated
+/// values. It parses the byte headers for what is DECIDABLE (format,
+/// dimensions) and reports every semantic layer — objects, text, faces,
+/// colors, composition, depth — as explicitly ABSENT with the reason that
+/// visual-mcp (:3220) is the detection surface (D17: objects and depth come
+/// only from visual-mcp). A caller that needs detections calls visual-mcp's
+/// yolo_* tools through /mcp/call.
 async fn analyze_image(
     image_data: &ImageData,
-    depth: AnalysisDepth,
-    detect_objects: bool,
-    detect_text: bool,
-    detect_faces: bool,
-    analyze_colors: bool,
-    analyze_composition: bool,
+    _depth: AnalysisDepth,
+    _detect_objects: bool,
+    _detect_text: bool,
+    _detect_faces: bool,
+    _analyze_colors: bool,
+    _analyze_composition: bool,
 ) -> Result<ImageAnalysisResult, String> {
-    // Load image data
-    let _image_bytes = load_image_data(image_data).await?;
+    let bytes = load_image_data(image_data).await?;
 
-    // For now, return a structured result
-    // In production, this would call actual CV models (YOLO, OCR, face detection, etc.)
+    // Header parse: format + dimensions are decidable from the bytes alone.
+    let (format, width, height) = parse_image_header(&bytes)
+        .ok_or_else(|| "unrecognized image format (PNG/JPEG/GIF headers only; other formats report absent)".to_string())?;
 
-    let mut objects = Vec::new();
-    let mut regions = Vec::new();
-    let mut text_regions = Vec::new();
-    let mut faces = Vec::new();
-    let mut dominant_colors = Vec::new();
-
-    if detect_objects {
-        // Object detection would go here (YOLO, Faster R-CNN, etc.)
-        objects.push(DetectedObject {
-            object_id: "obj_1".to_string(),
-            label: "example_object".to_string(),
-            confidence: 0.95,
-            bounding_box: BoundingBox {
-                x: 100.0,
-                y: 100.0,
-                width: 200.0,
-                height: 150.0,
-                rotation: 0.0,
-            },
-            mask: None,
-            attributes: HashMap::new(),
-            parent_id: None,
-            children: vec![],
-        });
-    }
-
-    if detect_text {
-        // OCR would go here (Tesseract, EasyOCR, etc.)
-        text_regions.push(TextRegion {
-            text: "Sample text".to_string(),
-            confidence: 0.90,
-            bounding_box: BoundingBox {
-                x: 50.0,
-                y: 50.0,
-                width: 100.0,
-                height: 20.0,
-                rotation: 0.0,
-            },
-            language: Some("en".to_string()),
-            direction: TextDirection::LeftToRight,
-            words: vec![],
-            font_attributes: None,
-        });
-    }
-
-    if detect_faces {
-        // Face detection would go here
-        faces.push(DetectedFace {
-            face_id: "face_1".to_string(),
-            bounding_box: BoundingBox {
-                x: 200.0,
-                y: 100.0,
-                width: 100.0,
-                height: 120.0,
-                rotation: 0.0,
-            },
-            landmarks: vec![],
-            attributes: FaceAttributes::default(),
-            confidence: 0.92,
-            embedding: None,
-        });
-    }
-
-    if analyze_colors {
-        // Color analysis
-        dominant_colors.push(Color::new(65, 105, 225, 0.35)); // Royal Blue
-        dominant_colors.push(Color::new(255, 255, 255, 0.25)); // White
-        dominant_colors.push(Color::new(50, 50, 50, 0.20)); // Dark Gray
-    }
-
-    // Region segmentation
-    regions.push(ImageRegion {
-        region_id: "region_1".to_string(),
-        region_type: RegionType::Background,
-        bounding_box: BoundingBox {
-            x: 0.0,
-            y: 0.0,
-            width: 800.0,
-            height: 600.0,
-            rotation: 0.0,
-        },
-        description: Some("Main background".to_string()),
-        confidence: 0.85,
-        polygon: None,
-        semantic_label: Some("background".to_string()),
-    });
-
-    let composition = if analyze_composition {
-        CompositionAnalysis {
-            rule_of_thirds: RuleOfThirds {
-                compliant: true,
-                score: 0.75,
-                intersection_points: vec![(0.33, 0.33), (0.66, 0.66)],
-            },
-            symmetry: SymmetryAnalysis {
-                horizontal: 0.6,
-                vertical: 0.4,
-                radial: 0.2,
-                axis: None,
-            },
-            focal_points: vec![FocalPoint {
-                x: 0.5,
-                y: 0.4,
-                strength: 0.8,
-                object_id: Some("obj_1".to_string()),
-            }],
-            visual_weight: VisualWeight {
-                quadrants: [0.25, 0.30, 0.20, 0.25],
-                center: (0.52, 0.48),
-                balance_score: 0.85,
-            },
-            leading_lines: vec![],
-            depth_layers: vec![],
-            composition_score: 0.78,
-        }
-    } else {
-        CompositionAnalysis::default()
-    };
-
-    let confidence = match depth {
-        AnalysisDepth::Surface => 0.7,
-        AnalysisDepth::Standard => 0.85,
-        AnalysisDepth::Deep => 0.92,
-        AnalysisDepth::Comprehensive => 0.95,
+    let absent = |what: &str| -> String {
+        format!("{what}: absent — detection is visual-mcp's surface (D17); this pipeline reports only what the bytes decide")
     };
 
     Ok(ImageAnalysisResult {
-        width: 800,
-        height: 600,
-        format: "PNG".to_string(),
-        color_space: "sRGB".to_string(),
-        bit_depth: 8,
-        objects,
-        regions,
-        text_regions,
-        faces,
-        dominant_colors,
-        composition,
-        quality: ImageQuality {
-            sharpness: 0.85,
-            brightness: 0.65,
-            contrast: 0.75,
-            saturation: 0.70,
-            noise_level: 0.1,
-            blur_amount: 0.05,
-            overall_score: 0.80,
-            issues: vec![],
+        width,
+        height,
+        format: format.to_string(),
+        color_space: "unknown (header parse does not read the color profile)".to_string(),
+        bit_depth: 0,
+        objects: Vec::new(),
+        regions: Vec::new(),
+        text_regions: Vec::new(),
+        faces: Vec::new(),
+        dominant_colors: Vec::new(),
+        composition: CompositionAnalysis::default(),
+        quality: ImageQuality::default(),
+        metadata: {
+            let mut m = std::collections::HashMap::new();
+            m.insert(
+                "honesty".to_string(),
+                Value::String(
+                    "header-parse only; semantic layers are visual-mcp's surface (D17)".to_string(),
+                ),
+            );
+            m.insert(
+                "absent_reasons".to_string(),
+                Value::Array(vec![
+                    Value::String(absent("objects")),
+                    Value::String(absent("text")),
+                    Value::String(absent("faces")),
+                    Value::String(absent("dominant colors")),
+                    Value::String(absent("composition")),
+                ]),
+            );
+            m
         },
-        metadata: HashMap::new(),
-        confidence,
+        confidence: 1.0,
     })
+}
+
+/// Parse PNG (IHDR), JPEG (SOF scan) and GIF headers for format +
+/// dimensions. No decoder dependency — only what the bytes decide.
+fn parse_image_header(b: &[u8]) -> Option<(&'static str, u32, u32)> {
+    if b.len() >= 24 && b.starts_with(&[0x89u8, b'P', b'N', b'G']) {
+        let w = u32::from_be_bytes([b[16], b[17], b[18], b[19]]);
+        let h = u32::from_be_bytes([b[20], b[21], b[22], b[23]]);
+        return Some(("PNG", w, h));
+    }
+    if b.len() >= 3 && b[0] == 0xFF && b[1] == 0xD8 {
+        let mut i = 2usize;
+        while i + 9 <= b.len() {
+            if b[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let marker = b[i + 1];
+            if (0xC0..=0xCF).contains(&marker) && ![0xC4u8, 0xC8, 0xCC].contains(&marker) {
+                let h = u16::from_be_bytes([b[i + 5], b[i + 6]]) as u32;
+                let w = u16::from_be_bytes([b[i + 7], b[i + 8]]) as u32;
+                return Some(("JPEG", w, h));
+            }
+            let len = u16::from_be_bytes([b[i + 2], b[i + 3]]) as usize;
+            i += 2 + len;
+        }
+        return Some(("JPEG", 0, 0));
+    }
+    if b.len() >= 10 && b.starts_with(b"GIF8") {
+        let w = u16::from_le_bytes([b[6], b[7]]) as u32;
+        let h = u16::from_le_bytes([b[8], b[9]]) as u32;
+        return Some(("GIF", w, h));
+    }
+    None
 }
 
 async fn load_image_data(image_data: &ImageData) -> Result<Vec<u8>, String> {

@@ -338,6 +338,13 @@ pub enum RelationType {
     RightOf = 86,
     Within = 87,
     Encloses = 88,
+    // D7 (2026-10-31): the remaining spatial relations from
+    // SPATIAL_GEOMETRY_LAYER.md — Touches (shared boundary), Behind/Aligned
+    // (needs z-order / axis agreement in the geometry), Supports (rests on).
+    Touches = 89,
+    Behind = 90,
+    Aligned = 91,
+    Supports = 92,
 
     Custom = 65535,
 }

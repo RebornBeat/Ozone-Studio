@@ -6709,3 +6709,19 @@ Gate 0 prerequisite discovered: EU now HAS a toolchain. Next session: the EU com
 the operator's go — rsync --delete cleanup of the partial staging + cargo check on the uncompiled
 edits (host mod-127 wiring, scope mirror, failure actor, proposals, spatial relations, uidocument
 crate + the 118 rules), then the six gates in FINAL_REVIEW order.
+
+## 2026-10-31 (zc) — FIX PASS APPLIED (edits only, uncompiled; per FINAL_REVIEW review-first)
+Reviewed FINAL_REVIEW + GEOMETRY_GUIDE + the audits, then applied the edit-sized fix set (gate-level
+items G1/G3/G4/G6 remain gate work by size):
+- **FX1 (G2/D7)**: RelationType + Touches/Behind/Aligned/Supports (89-92) + mcp_graph arms.
+- **FX2 (G2/D9)**: per-edge rejection — an unknown relation name skips THAT edge with a note (both
+  passes); whole-block rejection DEAD.
+- **FX3 (G7/D17)**: the image pipeline's fabricated analyze_image REPLACED — header-parse honesty
+  (PNG IHDR / JPEG SOF scan / GIF): format + dimensions from the bytes; objects/text/faces/colors/
+  composition explicitly ABSENT with the reason (visual-mcp is the detection surface, D17). The
+  constants (example_object/800×600) are gone.
+- **FX4 (G5 partial)**: modality_for prefix affinity extended to the known families; the registry-tag
+  successor (modality:<name>, D18) captured.
+- **FX5 (G11)**: ingest hooks carry x-oz-internal (OZONE_BROWSER/FARM_INGEST_TOKEN) — strict-host auth.
+Unchanged/gate-level: G1 (spatial pass at the ZSEI choke point — needs the mcp_graph persist-shape
+read), G3 (observer z-order), G4 (frame registry), G6 (cross-graph producers), G8-G10, G12.

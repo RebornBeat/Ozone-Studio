@@ -147,21 +147,41 @@ fn relation_from_name(name: &str) -> Option<RelationType> {
         "RightOf" => RelationType::RightOf,
         "Within" => RelationType::Within,
         "Encloses" => RelationType::Encloses,
+        "Touches" => RelationType::Touches,
+        "Behind" => RelationType::Behind,
+        "Aligned" => RelationType::Aligned,
+        "Supports" => RelationType::Supports,
         _ => return None,
     })
 }
 
 fn modality_for(tool: &str) -> Modality {
-    if tool.starts_with("visual_")
-        || tool.starts_with("yolo_")
-        || tool.starts_with("depth_")
-        || tool.starts_with("shape_")
-        || tool.starts_with("pose_")
-    {
-        Modality::Image
+    // G5 partial (2026-10-31): prefix affinity for the registered families.
+    // The designed successor reads the tool's `modality:<name>` capability
+    // tag from the registry (D18) — this table is the honest interim.
+    let image = ["visual_", "yolo_", "depth_", "shape_", "pose_", "screenshot_", "ocr_"];
+    let text = ["web_", "search", "text_", "translate_", "summarize_"];
+    let code = ["code_", "git_", "repo_", "ast_"];
+    let exec = ["terminal_", "shell_", "process_"];
+    let coord = ["context_", "note_", "task_", "file_claim", "handoff"];
+    let dom = ["domorpher_", "uidocument_", "page_"];
+    let (tag, fallback) = if image.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Image), "image")
+    } else if text.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Text), "text")
+    } else if code.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Code), "code")
+    } else if exec.iter().any(|p| tool.starts_with(p)) {
+        (None, "execution")
+    } else if coord.iter().any(|p| tool.starts_with(p)) {
+        (None, "coordination")
+    } else if dom.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::UiDocument), "uidocument")
     } else {
-        Modality::Unknown
-    }
+        (None, "unknown")
+    };
+    let _ = fallback;
+    tag.unwrap_or(Modality::Unknown)
 }
 
 fn build_container(
@@ -321,7 +341,13 @@ async fn persist(
             return Err(format!("edge target '{to}' is not a node"));
         }
         if relation_from_name(name).is_none() {
-            return Err(format!("unknown relation '{name}'"));
+            // PER-EDGE REJECTION (D9, 2026-10-31): an unknown relation name
+            // skips that edge (recorded in notes) — it never rejects the
+            // whole graph block.
+            notes.push(format!(
+                "edge skipped: unknown relation '{name}' ({from} -> {to})"
+            ));
+            continue;
         }
     }
 
@@ -450,8 +476,15 @@ async fn persist(
         let to_id = *key_to_id
             .get(to)
             .ok_or_else(|| format!("edge target '{to}' is not a node"))?;
-        let relation_type = relation_from_name(name)
-            .ok_or_else(|| format!("unknown relation '{name}'"))?;
+        let relation_type = match relation_from_name(name) {
+            Some(r) => r,
+            None => {
+                notes.push(format!(
+                    "edge skipped: unknown relation '{name}' ({from} -> {to})"
+                ));
+                continue;
+            }
+        };
 
         let source = zsei
             .get_container(from_id)
