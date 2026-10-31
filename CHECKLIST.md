@@ -6657,3 +6657,14 @@ internals). NOT a regression — the oscillation is the campaign's true shape: e
 beneath; the error count rises as deeper layers surface, then falls as classes close. domorpher af39f2f.
 The grind continues: chunking's browser/llm references get the same seam treatment (PageDriver/decision-
 as-data), the type fixes continue, and the census re-descends. Multi-session, as stated from the start.
+
+## 2026-10-30 (zc, XVIII) — OPERATOR CORRECTION APPLIED: the taxonomy test (chunking RETIRED — the errors were noise)
+Operator: "chunking/engine/strategies/semantic_importance — semantic is handled by Ozone-Studio; most of
+these errors are NOISE. Did you not read the tools-and-MCPs guide?" → CORRECT. The taxonomy
+(TOOLS_PIPELINES_MCP_GUIDE §1: pipelines are Ozone's INTERNAL computation) is now the FILTER applied to
+every IN-list module BEFORE compile work: chunking/ duplicates text pipeline 100 → RETIRED from
+domorpher-core (census 704 → 621, the noise gone). The surviving IN-list passes the test: dom/ (the
+DOM→traversable-field — Ozone has no equivalent), forms/, extraction (structured page extraction),
+instruction (browser-action NL parse), interactive (element detection), schema, reconciliation,
+browser-support, execution-logic. THE LESSON, captured in core/src/lib.rs at the retirement site: run
+the taxonomy test first, grind second.
