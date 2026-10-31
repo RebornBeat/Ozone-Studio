@@ -67,6 +67,7 @@ export type Modality =
   | "sonar"
   | "sound"
   | "thermal"
+  | "uidocument"
   | "video";
 
 // ─────────────────────────────────────────────────────────────────────────

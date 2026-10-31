@@ -8,8 +8,19 @@
 //! Block shape (all keys validated here, never trusted):
 //!   { "nodes": [{"key", "kind", "label", "parent"?, "attributes"?}],
 //!     "edges": [{"from", "to", "relation", "confidence"?}] }
+//!
+//! Allowed relations: Contains, PartOf, RelatedTo, References, ImportsFrom,
+//! CallsTo, and the spatial set Above, Below, NearTo, InFrontOf, Overlaps,
+//! LeftOf, RightOf, Within, Encloses (geometric containment is Encloses/Within;
+//! `Contains` stays the structural hierarchy relation).
+//!
+//! GEOMETRY (shared spatial layer, docs/SPATIAL_GEOMETRY_LAYER.md): a node whose
+//! `attributes.geom` is `{"frame": str, "kind": "box", "x","y","w","h"}` gets its
+//! spatial relations computed HERE, centrally, by `compute_spatial_relations`
+//! (same-frame boxes only; bounded by MAX_EDGES; truncation is recorded in the
+//! summary note). Tools emit geometry, not relations.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use serde_json::Value;
 
@@ -75,10 +86,34 @@ pub async fn persist_from_output(
     agent: &str,
     output: &Value,
 ) -> Option<Result<GraphSummary, String>> {
+    persist_from_output_scoped(zsei, data_dir, tool, agent, output, None, None).await
+}
+
+/// UNCOMPILED pending the build gate. Same as `persist_from_output`, but the
+/// created containers also carry the host-supplied scope keywords `ws:<id>` /
+/// `proj:<id>` (the same form graph_events scoping uses). Scope comes from the
+/// authenticated caller, never from the untrusted graph block: `kind` values
+/// still have ':' stripped, so a tool cannot forge a scope keyword.
+pub async fn persist_from_output_scoped(
+    zsei: &ZSEI,
+    data_dir: &str,
+    tool: &str,
+    agent: &str,
+    output: &Value,
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+) -> Option<Result<GraphSummary, String>> {
     let graph = output
         .get("graph")
         .or_else(|| output.get("output").and_then(|o| o.get("graph")))?;
-    Some(persist(zsei, data_dir, tool, agent, graph).await)
+    let mut scope: Vec<String> = Vec::new();
+    if let Some(w) = workspace_id {
+        scope.push(format!("ws:{w}"));
+    }
+    if let Some(p) = project_id {
+        scope.push(format!("proj:{p}"));
+    }
+    Some(persist(zsei, data_dir, tool, agent, graph, &scope).await)
 }
 
 fn now_secs() -> u64 {
@@ -107,6 +142,11 @@ fn relation_from_name(name: &str) -> Option<RelationType> {
         "NearTo" => RelationType::NearTo,
         "InFrontOf" => RelationType::InFrontOf,
         "Overlaps" => RelationType::Overlaps,
+        // UNCOMPILED pending the build gate (shared geometry layer):
+        "LeftOf" => RelationType::LeftOf,
+        "RightOf" => RelationType::RightOf,
+        "Within" => RelationType::Within,
+        "Encloses" => RelationType::Encloses,
         _ => return None,
     })
 }
@@ -197,12 +237,13 @@ async fn persist(
     tool: &str,
     agent: &str,
     graph: &Value,
+    scope_keywords: &[String],
 ) -> Result<GraphSummary, String> {
     let nodes = graph
         .get("nodes")
         .and_then(|n| n.as_array())
         .ok_or("graph.nodes must be an array")?;
-    let edges = graph
+    let mut edges = graph
         .get("edges")
         .and_then(|e| e.as_array())
         .cloned()
@@ -254,6 +295,21 @@ async fn persist(
             cur = keys.get(p).copied().flatten();
         }
     }
+    // UNCOMPILED pending the build gate. Central spatial relations: nodes that
+    // carry `attributes.geom` get Overlaps/Encloses/Within/NearTo/Above/Below/
+    // LeftOf/RightOf computed from their geometry. Runs after key validation
+    // (keys are unique and valid) and before edge validation (generated edges
+    // are validated like tool-supplied ones). Total edges stay <= MAX_EDGES.
+    {
+        let room = MAX_EDGES.saturating_sub(edges.len());
+        let (spatial, spatial_note) = compute_spatial_relations(nodes, room);
+        if !spatial.is_empty() {
+            edges.extend(spatial);
+        }
+        if let Some(n) = spatial_note {
+            notes.push(n);
+        }
+    }
     for edge in &edges {
         let from = edge.get("from").and_then(|v| v.as_str()).unwrap_or("");
         let to = edge.get("to").and_then(|v| v.as_str()).unwrap_or("");
@@ -274,7 +330,11 @@ async fn persist(
         modality_for(tool),
         &format!("{tool} result"),
         format!("/mcp/{tool}"),
-        vec![sanitize_keyword(tool), "mcp_result".to_string()],
+        {
+            let mut kw = vec![sanitize_keyword(tool), "mcp_result".to_string()];
+            kw.extend(scope_keywords.iter().cloned());
+            kw
+        },
         agent,
         None,
         zsei.root_id(),
@@ -357,7 +417,11 @@ async fn persist(
                 modality_for(tool),
                 label,
                 format!("/mcp/{tool}/{root_id}/{key}"),
-                vec![sanitize_keyword(tool), kind.clone()],
+                {
+                    let mut kw = vec![sanitize_keyword(tool), kind.clone()];
+                    kw.extend(scope_keywords.iter().cloned());
+                    kw
+                },
                 agent,
                 Some(rel_path),
                 parent_id,
@@ -437,4 +501,375 @@ async fn persist(
         relations,
         truncation_note,
     })
+}
+
+// ============================================================================
+// CENTRAL SPATIAL RELATIONS (shared geometry layer) — UNCOMPILED pending the
+// build gate. Pure functions, no I/O. See docs/SPATIAL_GEOMETRY_LAYER.md.
+// ============================================================================
+
+/// Nearest neighbours per box that get NearTo / directional edges.
+const SPATIAL_NEAR_K: usize = 4;
+/// A box covering more grid cells than this is treated as "big" and compared
+/// against every box instead of being indexed cell by cell.
+const SPATIAL_MAX_CELLS_PER_BOX: i64 = 1024;
+
+#[derive(Debug, Clone)]
+struct GeomBox {
+    key: String,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+impl GeomBox {
+    fn x2(&self) -> f64 {
+        self.x + self.w
+    }
+    fn y2(&self) -> f64 {
+        self.y + self.h
+    }
+    /// Area of the intersection; 0.0 when the boxes only touch or are apart.
+    fn overlap_area(&self, o: &GeomBox) -> f64 {
+        let ox = self.x2().min(o.x2()) - self.x.max(o.x);
+        let oy = self.y2().min(o.y2()) - self.y.max(o.y);
+        if ox > 0.0 && oy > 0.0 {
+            ox * oy
+        } else {
+            0.0
+        }
+    }
+    fn encloses(&self, o: &GeomBox) -> bool {
+        self.x <= o.x && self.y <= o.y && self.x2() >= o.x2() && self.y2() >= o.y2()
+    }
+}
+
+/// `(frame, x, y, w, h)` from a graph node's `attributes.geom` (or a top-level
+/// `geom`). Only `kind == "box"` with a frame and finite, non-negative size.
+fn parse_geom(node: &Value) -> Option<(String, f64, f64, f64, f64)> {
+    let g = node
+        .get("attributes")
+        .and_then(|a| a.get("geom"))
+        .or_else(|| node.get("geom"))?;
+    if g.get("kind").and_then(|k| k.as_str()).unwrap_or("box") != "box" {
+        return None;
+    }
+    let frame = g.get("frame").and_then(|f| f.as_str())?.to_string();
+    let num = |k: &str| g.get(k).and_then(|v| v.as_f64()).filter(|v| v.is_finite());
+    let x = num("x")?;
+    let y = num("y")?;
+    let w = num("w")?;
+    let h = num("h")?;
+    if w < 0.0 || h < 0.0 {
+        return None;
+    }
+    Some((frame, x, y, w, h))
+}
+
+fn inverse_relation(rel: &'static str) -> &'static str {
+    match rel {
+        "Above" => "Below",
+        "Below" => "Above",
+        "LeftOf" => "RightOf",
+        "RightOf" => "LeftOf",
+        "Encloses" => "Within",
+        "Within" => "Encloses",
+        other => other, // Overlaps / NearTo are symmetric
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_spatial_edge(
+    out: &mut Vec<Value>,
+    seen: &mut HashSet<(usize, usize, &'static str)>,
+    frame: &str,
+    boxes: &[GeomBox],
+    i: usize,
+    j: usize,
+    rel: &'static str,
+    confidence: f64,
+) {
+    if !seen.insert((i, j, rel)) {
+        return;
+    }
+    out.push(serde_json::json!({
+        "from": boxes[i].key,
+        "to": boxes[j].key,
+        "relation": rel,
+        "confidence": confidence,
+        "frame": frame,
+        "derived": "spatial",
+    }));
+}
+
+/// Relations for the boxes of ONE frame. Exact relations (Overlaps / Encloses /
+/// Within) go to `exact`, proximity relations (NearTo + directional) to `near`.
+/// Returns true when generation stopped early at the edge budget.
+fn frame_relations(
+    frame: &str,
+    boxes: &[GeomBox],
+    max_edges: usize,
+    exact: &mut Vec<Value>,
+    near: &mut Vec<Value>,
+) -> bool {
+    let n = boxes.len();
+    if n < 2 {
+        return false;
+    }
+    let avg = boxes.iter().map(|b| (b.w + b.h) / 2.0).sum::<f64>() / n as f64;
+    // Uniform grid; the cell size doubles as the NearTo distance bound.
+    let cell = (avg * 2.0).max(8.0);
+    let cell_of = |v: f64| -> i64 { (v / cell).floor() as i64 };
+
+    let mut grid: HashMap<(i64, i64), Vec<usize>> = HashMap::new();
+    let mut big: Vec<usize> = Vec::new();
+    for (i, b) in boxes.iter().enumerate() {
+        let (x0, x1, y0, y1) = (cell_of(b.x), cell_of(b.x2()), cell_of(b.y), cell_of(b.y2()));
+        let span = (x1 - x0 + 1).saturating_mul(y1 - y0 + 1);
+        if span > SPATIAL_MAX_CELLS_PER_BOX {
+            big.push(i);
+            continue;
+        }
+        for cx in x0..=x1 {
+            for cy in y0..=y1 {
+                grid.entry((cx, cy)).or_default().push(i);
+            }
+        }
+    }
+    let big_set: HashSet<usize> = big.iter().copied().collect();
+
+    let mut seen: HashSet<(usize, usize, &'static str)> = HashSet::new();
+    for i in 0..n {
+        let a = &boxes[i];
+        let mut cand: Vec<usize> = Vec::new();
+        if big_set.contains(&i) {
+            cand.extend(0..n);
+        } else {
+            for cx in cell_of(a.x - cell)..=cell_of(a.x2() + cell) {
+                for cy in cell_of(a.y - cell)..=cell_of(a.y2() + cell) {
+                    if let Some(v) = grid.get(&(cx, cy)) {
+                        cand.extend(v.iter().copied());
+                    }
+                }
+            }
+            cand.extend(big.iter().copied());
+        }
+        cand.sort_unstable();
+        cand.dedup();
+
+        let mut nearby: Vec<(f64, usize)> = Vec::new();
+        for &j in &cand {
+            if j == i {
+                continue;
+            }
+            let b = &boxes[j];
+            if a.overlap_area(b) > 0.0 {
+                if j > i {
+                    // exact relation, once per unordered pair
+                    let (r_ab, r_ba) = if a.encloses(b) && b.encloses(a) {
+                        ("Overlaps", "Overlaps")
+                    } else if a.encloses(b) {
+                        ("Encloses", "Within")
+                    } else if b.encloses(a) {
+                        ("Within", "Encloses")
+                    } else {
+                        ("Overlaps", "Overlaps")
+                    };
+                    push_spatial_edge(exact, &mut seen, frame, boxes, i, j, r_ab, 1.0);
+                    push_spatial_edge(exact, &mut seen, frame, boxes, j, i, r_ba, 1.0);
+                    if exact.len() >= max_edges {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            let gx = (a.x.max(b.x) - a.x2().min(b.x2())).max(0.0);
+            let gy = (a.y.max(b.y) - a.y2().min(b.y2())).max(0.0);
+            let dist = gx.hypot(gy);
+            if dist <= cell {
+                nearby.push((dist, j));
+            }
+        }
+        nearby.sort_by(|p, q| p.0.total_cmp(&q.0).then(p.1.cmp(&q.1)));
+        for &(dist, j) in nearby.iter().take(SPATIAL_NEAR_K) {
+            let b = &boxes[j];
+            let conf = (1.0 - dist / cell).clamp(0.1, 1.0);
+            let gx = (a.x.max(b.x) - a.x2().min(b.x2())).max(0.0);
+            let gy = (a.y.max(b.y) - a.y2().min(b.y2())).max(0.0);
+            let mut rels: Vec<&'static str> = vec!["NearTo"];
+            if gy > 0.0 && gx == 0.0 {
+                rels.push(if a.y2() <= b.y { "Above" } else { "Below" });
+            } else if gx > 0.0 && gy == 0.0 {
+                rels.push(if a.x2() <= b.x { "LeftOf" } else { "RightOf" });
+            }
+            for rel in rels {
+                push_spatial_edge(near, &mut seen, frame, boxes, i, j, rel, conf);
+                push_spatial_edge(near, &mut seen, frame, boxes, j, i, inverse_relation(rel), conf);
+            }
+        }
+    }
+    false
+}
+
+/// Spatial relations for every pair of graph nodes whose `attributes.geom` is a
+/// box in the SAME frame (cross-frame needs a frame transform; not handled
+/// here). Nodes without geometry, with a non-box geometry, or with a degenerate
+/// (zero-area) box produce no spatial edges. Bounded: at most `max_edges` edges
+/// are returned; exact relations (Overlaps/Encloses/Within) take priority over
+/// proximity relations (NearTo/Above/Below/LeftOf/RightOf, nearest-4 per box,
+/// both directions so traversal works from either end). The returned note is
+/// `Some` iff anything was dropped to honour the cap.
+pub fn compute_spatial_relations(nodes: &[Value], max_edges: usize) -> (Vec<Value>, Option<String>) {
+    let mut by_frame: HashMap<String, Vec<GeomBox>> = HashMap::new();
+    for node in nodes {
+        let key = match node.get("key").and_then(|k| k.as_str()) {
+            Some(k) => k,
+            None => continue,
+        };
+        if let Some((frame, x, y, w, h)) = parse_geom(node) {
+            if w > 0.0 && h > 0.0 {
+                by_frame.entry(frame).or_default().push(GeomBox {
+                    key: key.to_string(),
+                    x,
+                    y,
+                    w,
+                    h,
+                });
+            }
+        }
+    }
+    let mut frames: Vec<&String> = by_frame.keys().collect();
+    frames.sort();
+
+    let mut exact: Vec<Value> = Vec::new();
+    let mut near: Vec<Value> = Vec::new();
+    let mut truncated = false;
+    for frame in frames {
+        if let Some(boxes) = by_frame.get(frame) {
+            if frame_relations(frame, boxes, max_edges, &mut exact, &mut near) {
+                truncated = true;
+            }
+        }
+        if exact.len() >= max_edges {
+            truncated = true;
+            break;
+        }
+    }
+    let total = exact.len() + near.len();
+    let mut out = exact;
+    if out.len() > max_edges {
+        out.truncate(max_edges);
+    }
+    let room = max_edges.saturating_sub(out.len());
+    if near.len() > room {
+        truncated = true;
+        near.truncate(room);
+    }
+    out.extend(near);
+    let note = if truncated {
+        Some(format!(
+            "spatial relations truncated: {} computed (at least), {} kept (edge cap {})",
+            total,
+            out.len(),
+            max_edges
+        ))
+    } else {
+        None
+    };
+    (out, note)
+}
+
+#[cfg(test)]
+mod spatial_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn node(key: &str, frame: &str, x: f64, y: f64, w: f64, h: f64) -> Value {
+        json!({"key": key, "kind": "element", "label": key,
+               "attributes": {"geom": {"frame": frame, "kind": "box", "x": x, "y": y, "w": w, "h": h}}})
+    }
+
+    fn has(edges: &[Value], from: &str, to: &str, rel: &str) -> bool {
+        edges.iter().any(|e| {
+            e["from"] == from && e["to"] == to && e["relation"] == rel
+        })
+    }
+
+    #[test]
+    fn partial_overlap_is_symmetric() {
+        let nodes = vec![node("a", "page", 0.0, 0.0, 100.0, 100.0), node("b", "page", 50.0, 50.0, 100.0, 100.0)];
+        let (e, note) = compute_spatial_relations(&nodes, 1000);
+        assert!(note.is_none());
+        assert!(has(&e, "a", "b", "Overlaps") && has(&e, "b", "a", "Overlaps"));
+    }
+
+    #[test]
+    fn containment_is_encloses_and_within_not_contains() {
+        let nodes = vec![node("outer", "page", 0.0, 0.0, 200.0, 200.0), node("inner", "page", 10.0, 10.0, 50.0, 50.0)];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(has(&e, "outer", "inner", "Encloses"));
+        assert!(has(&e, "inner", "outer", "Within"));
+        assert!(!e.iter().any(|x| x["relation"] == "Contains"));
+    }
+
+    #[test]
+    fn stacked_boxes_are_above_below_and_near() {
+        let nodes = vec![node("top", "page", 0.0, 0.0, 100.0, 20.0), node("bottom", "page", 0.0, 30.0, 100.0, 20.0)];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(has(&e, "top", "bottom", "Above"));
+        assert!(has(&e, "bottom", "top", "Below"));
+        assert!(has(&e, "top", "bottom", "NearTo"));
+    }
+
+    #[test]
+    fn side_by_side_boxes_are_left_right() {
+        let nodes = vec![node("l", "page", 0.0, 0.0, 20.0, 50.0), node("r", "page", 30.0, 0.0, 20.0, 50.0)];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(has(&e, "l", "r", "LeftOf"));
+        assert!(has(&e, "r", "l", "RightOf"));
+    }
+
+    #[test]
+    fn different_frames_never_relate() {
+        let nodes = vec![node("a", "page", 0.0, 0.0, 100.0, 100.0), node("b", "screenshot", 0.0, 0.0, 100.0, 100.0)];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(e.is_empty());
+    }
+
+    #[test]
+    fn missing_or_degenerate_geometry_yields_nothing() {
+        let nodes = vec![
+            json!({"key": "nogeom", "kind": "element"}),
+            node("zero", "page", 0.0, 0.0, 0.0, 10.0),
+            node("ok", "page", 0.0, 0.0, 10.0, 10.0),
+        ];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(e.is_empty());
+    }
+
+    #[test]
+    fn far_apart_boxes_are_not_related() {
+        let nodes = vec![node("a", "page", 0.0, 0.0, 10.0, 10.0), node("b", "page", 5000.0, 5000.0, 10.0, 10.0)];
+        let (e, _) = compute_spatial_relations(&nodes, 1000);
+        assert!(e.is_empty());
+    }
+
+    #[test]
+    fn edge_cap_is_honoured_and_recorded() {
+        let mut nodes = Vec::new();
+        for i in 0..30 {
+            nodes.push(node(&format!("n{i}"), "page", 0.0, 0.0, 100.0, 100.0)); // all overlap each other
+        }
+        let (e, note) = compute_spatial_relations(&nodes, 50);
+        assert!(e.len() <= 50);
+        assert!(note.is_some());
+    }
+
+    #[test]
+    fn relation_names_are_all_accepted_by_the_graph_block() {
+        for name in ["Overlaps", "Encloses", "Within", "Above", "Below", "LeftOf", "RightOf", "NearTo"] {
+            assert!(relation_from_name(name).is_some(), "{name} must be an allowed relation");
+        }
+    }
 }

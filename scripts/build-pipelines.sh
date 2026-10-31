@@ -16,7 +16,13 @@ for dir in "$ROOT"/assets/pipelines/*/*/; do
   # duplicated local targets), making this script skip every pipeline. The
   # canonical artifact location is the shared target dir (the executor's
   # first search candidate); gate on that.
-  [ -f "$CARGO_TARGET_DIR/release/$name" ] || continue
+  # NEW pipelines (no shared binary yet) are opt-in by name so they get their
+  # FIRST build: OZONE_BUILD_NEW="uidocument" scripts/build-pipelines.sh
+  # (2026-10-31: pipeline 127). Space-separated; exact names only.
+  case " ${OZONE_BUILD_NEW:-} " in
+    *" $name "*) ;;
+    *) [ -f "$CARGO_TARGET_DIR/release/$name" ] || continue ;;
+  esac
   if cargo build --release --manifest-path "$dir/Cargo.toml"; then
     ok=$((ok + 1))
     echo "OK   $name"

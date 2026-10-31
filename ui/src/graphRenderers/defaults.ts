@@ -39,6 +39,8 @@ export const MODALITY_COLOR: Record<Modality, string> = {
   network: "#546e7a",
   IMU: "#8d6e63",
   video: "#7e57c2",
+  // UI element trees (pipeline 127): html/css/live DOM/android-xml
+  uidocument: "#26a69a",
 };
 
 /** Generic fallback — exactly what C1's shell drew before any renderer existed. */

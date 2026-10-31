@@ -790,6 +790,7 @@ impl PromptOrchestrator {
             "radar" => 124,
             "sonar" => 125,
             "hyperspectral" => 126,
+            "uidocument" => 127,
             _ => 0,
         }
     }

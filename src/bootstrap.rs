@@ -67,6 +67,7 @@ use crate::types::container::{
     // ── Core modality nodes ───────────────────────────────────────────────────
     MODALITY_TEXT_ID,
     MODALITY_THERMAL_ID,
+    MODALITY_UI_DOCUMENT_ID,
     MODALITY_VIDEO_ID,
     PIPELINE_ROOT_ID,
     // ── System roots ──────────────────────────────────────────────────────────
@@ -247,6 +248,60 @@ impl BootstrapManager {
         if !index_path.exists() {
             self.generate_default_pipeline_index(&index_path)?;
             tracing::info!("Generated default pipeline index at {}", index_path.display());
+        } else {
+            // UNCOMPILED pending the build gate. An EXISTING index.json is never
+            // regenerated, so a newly bundled modality pipeline (127 uidocument)
+            // would never enter the execution gate on a deployed instance. Add
+            // only the missing bundled entries; existing entries are untouched.
+            self.ensure_pipeline_index_entries(&index_path)?;
+        }
+        Ok(())
+    }
+
+    /// UNCOMPILED pending the build gate. Append bundled pipeline entries that
+    /// are absent from an existing index.json (currently: pipeline 127).
+    fn ensure_pipeline_index_entries(&self, path: &Path) -> OzoneResult<()> {
+        const ENSURE_IDS: [u64; 1] = [127];
+        let content = fs::read_to_string(path).map_err(|e| {
+            OzoneError::StorageError(format!("Failed to read pipeline index: {}", e))
+        })?;
+        let mut index: serde_json::Value = serde_json::from_str(&content)
+            .map_err(|e| OzoneError::StorageError(format!("Failed to parse pipeline index: {}", e)))?;
+        let defaults = Self::get_default_pipeline_index();
+        let wanted: Vec<serde_json::Value> = defaults
+            .get("pipelines")
+            .and_then(|p| p.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter(|p| {
+                        p.get("pipeline_id")
+                            .and_then(|i| i.as_u64())
+                            .map_or(false, |i| ENSURE_IDS.contains(&i))
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut changed = false;
+        if let Some(arr) = index.get_mut("pipelines").and_then(|p| p.as_array_mut()) {
+            for entry in wanted {
+                let id = entry.get("pipeline_id").and_then(|i| i.as_u64());
+                let present = arr
+                    .iter()
+                    .any(|p| p.get("pipeline_id").and_then(|i| i.as_u64()) == id);
+                if !present {
+                    arr.push(entry);
+                    changed = true;
+                }
+            }
+        }
+        if changed {
+            let out = serde_json::to_string_pretty(&index)
+                .map_err(|e| OzoneError::StorageError(e.to_string()))?;
+            fs::write(path, out).map_err(|e| {
+                OzoneError::StorageError(format!("Failed to write pipeline index: {}", e))
+            })?;
+            tracing::info!("Added missing bundled pipeline entries to {}", path.display());
         }
         Ok(())
     }
@@ -569,6 +624,12 @@ impl BootstrapManager {
                 "/Modality/Hyperspectral",
                 ContainerType::HyperspectralRoot,
             ),
+            (
+                MODALITY_UI_DOCUMENT_ID,
+                "UiDocument",
+                "/Modality/UiDocument",
+                ContainerType::UiDocumentRoot,
+            ),
             // Consciousness spheres
             (
                 CONSCIOUSNESS_EXPERIENCE_ROOT_ID,
@@ -715,7 +776,7 @@ impl BootstrapManager {
                 "consciousness":  [39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54],
                 "modalities":     [100,101,102,103,104,105,106,107,108,
                                    109,110,111,112,113,114,115,116,117,118,
-                                   119,120,121,122,123,124,125,126]
+                                   119,120,121,122,123,124,125,126,127]
             },
             "pipelines": []
         });
@@ -795,7 +856,7 @@ impl BootstrapManager {
             pipelines.push(p);
         }
 
-        // ── Modality Pipelines (100–126) ──────────────────────────────────────
+        // ── Modality Pipelines (100–127) ──────────────────────────────────────
         let modalities = vec![
             // Core modalities
             json!({"pipeline_id":100,"name":"TextAnalysisPipeline","folder_name":"text","category":"modalities","modality":"text","description":"Text modality analysis with graphs","version":"0.4.0","can_run_headless":true}),
@@ -826,6 +887,7 @@ impl BootstrapManager {
             json!({"pipeline_id":124,"name":"ActiveRadar","folder_name":"radar","category":"modalities","modality":"radar","description":"Active radar sensing — range-Doppler, SAR, tracking","version":"0.4.0","can_run_headless":true,"is_engine":true}),
             json!({"pipeline_id":125,"name":"ActiveSonar","folder_name":"sonar","category":"modalities","modality":"sonar","description":"Active sonar sensing — echo, bathymetry, bioacoustics","version":"0.4.0","can_run_headless":true,"is_engine":true}),
             json!({"pipeline_id":126,"name":"Hyperspectral","folder_name":"hyperspectral","category":"modalities","modality":"hyperspectral","description":"Hyperspectral/multispectral imaging — material and chemical mapping","version":"0.4.0","can_run_headless":true,"is_engine":true}),
+            json!({"pipeline_id":127,"name":"UiDocument","folder_name":"uidocument","category":"modalities","modality":"uidocument","description":"UI element trees (HTML/CSS/live DOM/Android XML) — rule-driven graphs with intrinsic geometry","version":"0.1.0","can_run_headless":true}),
         ];
         for p in modalities {
             pipelines.push(p);

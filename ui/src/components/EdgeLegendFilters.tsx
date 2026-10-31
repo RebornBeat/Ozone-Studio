@@ -95,6 +95,7 @@ const MODALITIES: readonly string[] = [
   "sonar",
   "sound",
   "thermal",
+  "uidocument",
   "video",
 ];
 

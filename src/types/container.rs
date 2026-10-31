@@ -65,6 +65,7 @@ pub const MODALITY_NETWORK_TOPOLOGY_ID: ContainerID = 33;
 pub const MODALITY_RADAR_ID: ContainerID = 34;
 pub const MODALITY_SONAR_ID: ContainerID = 35;
 pub const MODALITY_HYPERSPECTRAL_ID: ContainerID = 36;
+pub const MODALITY_UI_DOCUMENT_ID: ContainerID = 37;
 
 // ── Consciousness Sphere Roots (50–65) ────────────────────────────────────
 pub const CONSCIOUSNESS_EXPERIENCE_ROOT_ID: ContainerID = 50;
@@ -328,6 +329,16 @@ pub enum RelationType {
     // docs/GRAPH_RELATIONSHIP_REGISTRY.md §4/§7 for the full context.
     JurisdictionScope = 70,
 
+    // Spatial, continued (UiDocument / shared geometry layer, 2026-10-31).
+    // UNCOMPILED pending the build gate. `Contains` (3) stays STRUCTURAL
+    // (container hierarchy); geometric containment is Encloses/Within so the
+    // two are never conflated. Appended after the original spatial block
+    // (80-84) and before `Custom`.
+    LeftOf = 85,
+    RightOf = 86,
+    Within = 87,
+    Encloses = 88,
+
     Custom = 65535,
 }
 
@@ -527,7 +538,7 @@ pub enum ContainerType {
     NarrativeRoot = 217,     // /Consciousness/Narratives/
     CollectiveRoot = 218,    // /Consciousness/Collective/
 
-    // ── Modality-specific roots (v2 — engine pipelines 109–126) ─────────────
+    // ── Modality-specific roots (v2 — engine pipelines 109–127) ─────────────
     ThreeDRoot = 220,              // /Modality/3D/           (pipeline 109)
     SoundReconstructionRoot = 221, // /Modality/Sound/      (pipeline 110)
     BiologyRoot = 222,             // /Modality/Biology/      (pipeline 111)
@@ -546,6 +557,7 @@ pub enum ContainerType {
     ActiveRadarRoot = 235,         // /Modality/Radar/        (pipeline 124)
     ActiveSonarRoot = 236,         // /Modality/Sonar/        (pipeline 125)
     HyperspectralRoot = 237,       // /Modality/Hyperspectral/ (pipeline 126)
+    UiDocumentRoot = 238,          // /Modality/UiDocument/   (pipeline 127)
 
     // ── Runtime graph stores ───────────────────────────────────────────────
     ChunkGraphRoot = 240,      // /ChunkGraphs/    — persistent chunk graphs
@@ -649,6 +661,7 @@ impl ContainerType {
             Self::ActiveRadarRoot => "ActiveRadarRoot",
             Self::ActiveSonarRoot => "ActiveSonarRoot",
             Self::HyperspectralRoot => "HyperspectralRoot",
+            Self::UiDocumentRoot => "UiDocumentRoot",
             Self::ChunkGraphRoot => "ChunkGraphRoot",
             Self::FileGraphRoot => "FileGraphRoot",
             Self::CrossModalIndexRoot => "CrossModalIndexRoot",
@@ -700,6 +713,7 @@ impl ContainerType {
                 | Self::ActiveRadarRoot
                 | Self::ActiveSonarRoot
                 | Self::HyperspectralRoot
+                | Self::UiDocumentRoot
                 | Self::ChunkGraphRoot
                 | Self::FileGraphRoot
                 | Self::CrossModalIndexRoot

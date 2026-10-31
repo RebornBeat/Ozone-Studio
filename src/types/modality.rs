@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 /// All supported modality types.
 ///
 /// The discriminant intentionally matches the pipeline ID where applicable
-/// (100–126) so that `pipeline_id()` is a simple cast.
+/// (100–127) so that `pipeline_id()` is a simple cast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ModalityType {
     // ── Core modalities (pipelines 100–108) ──────────────────────────────────
@@ -41,6 +41,7 @@ pub enum ModalityType {
     ActiveRadar,     // active radar sensing  (pipeline 124)
     ActiveSonar,     // active sonar sensing  (pipeline 125)
     Hyperspectral,   // hyperspectral imaging (pipeline 126)
+    UiDocument,      // UI element trees: html/css/dom/android-xml (pipeline 127)
 
     Unknown,
 }
@@ -204,6 +205,9 @@ impl ModalityType {
             ModalityType::Hyperspectral => &[
                 "hdr", "bil", "bip", "bsq", "h4", "hdf4", "hdf5", "h5", "nc", "img",
             ],
+            // UiDocument (pipeline 127). `.js/.ts` stay Code. `.svg` stays Image for now:
+            // TODO(operator): confirm moving `svg` to a UiDocument flavor (exact vector geometry).
+            ModalityType::UiDocument => &["html", "htm", "xhtml", "css", "scss", "less"],
 
             ModalityType::Unknown => &[],
         }
@@ -265,6 +269,7 @@ impl ModalityType {
             ModalityType::ActiveRadar,
             ModalityType::ActiveSonar,
             ModalityType::Hyperspectral,
+            ModalityType::UiDocument,
         ]
     }
 
@@ -298,6 +303,7 @@ impl ModalityType {
             ModalityType::ActiveRadar => Some(124),
             ModalityType::ActiveSonar => Some(125),
             ModalityType::Hyperspectral => Some(126),
+            ModalityType::UiDocument => Some(127),
             ModalityType::Unknown => None,
         }
     }
@@ -350,6 +356,7 @@ impl ModalityType {
             ModalityType::ActiveRadar => "Active Radar Sensing",
             ModalityType::ActiveSonar => "Active Sonar Sensing",
             ModalityType::Hyperspectral => "Hyperspectral / Multispectral",
+            ModalityType::UiDocument => "UI Document (HTML/CSS/DOM)",
             ModalityType::Unknown => "Unknown",
         }
     }
@@ -384,6 +391,7 @@ impl ModalityType {
             ModalityType::ActiveRadar => "radar",
             ModalityType::ActiveSonar => "sonar",
             ModalityType::Hyperspectral => "hyperspectral",
+            ModalityType::UiDocument => "uidocument",
             ModalityType::Unknown => "unknown",
         }
     }
@@ -418,6 +426,7 @@ impl ModalityType {
             "radar" => Self::ActiveRadar,
             "sonar" => Self::ActiveSonar,
             "hyperspectral" => Self::Hyperspectral,
+            "uidocument" => Self::UiDocument,
             _ => Self::Unknown,
         }
     }
@@ -452,6 +461,7 @@ impl ModalityType {
             124 => Self::ActiveRadar,
             125 => Self::ActiveSonar,
             126 => Self::Hyperspectral,
+            127 => Self::UiDocument,
             _ => Self::Unknown,
         }
     }
@@ -553,19 +563,28 @@ pub fn detect_modality(
 
     // 3. MIME type
     if let Some(mime) = mime_type {
-        let modality = match mime.split('/').next() {
-            Some("text") => ModalityType::Text,
-            Some("image") => ModalityType::Image,
-            Some("audio") => ModalityType::Audio,
-            Some("video") => ModalityType::Video,
-            Some("application") => {
-                if mime.contains("json") || mime.contains("xml") || mime.contains("pdf") {
-                    ModalityType::Text
-                } else {
-                    ModalityType::Unknown
+        // UiDocument first: text/html and text/css must not fall into the generic `text` arm.
+        let mime_lower = mime.to_lowercase();
+        let modality = if mime_lower.starts_with("text/html")
+            || mime_lower.starts_with("application/xhtml")
+            || mime_lower.starts_with("text/css")
+        {
+            ModalityType::UiDocument
+        } else {
+            match mime.split('/').next() {
+                Some("text") => ModalityType::Text,
+                Some("image") => ModalityType::Image,
+                Some("audio") => ModalityType::Audio,
+                Some("video") => ModalityType::Video,
+                Some("application") => {
+                    if mime.contains("json") || mime.contains("xml") || mime.contains("pdf") {
+                        ModalityType::Text
+                    } else {
+                        ModalityType::Unknown
+                    }
                 }
+                _ => ModalityType::Unknown,
             }
-            _ => ModalityType::Unknown,
         };
 
         if modality != ModalityType::Unknown {

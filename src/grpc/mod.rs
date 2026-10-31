@@ -605,6 +605,7 @@ async fn session_gate(
         "/context/mirror",
         "/consciousness/reviews/resolve",
         "/capture/ingest_image",
+        "/capture/ingest_uidocument",
         "/pipelines/register",
     ];
     // FIRST-RUN EXEMPTION (2026-10-27): while setup is incomplete the strict
@@ -1949,6 +1950,185 @@ async fn ingest_image(
             "success": false,
             "error": e.to_string()
         })),
+    }
+}
+
+/// POST /capture/ingest_uidocument — UNCOMPILED pending the build gate.
+/// Hands a UI-element document (HTML / CSS / live-DOM batch / Android XML /
+/// a11y JSON) to the UiDocument modality (pipeline 127) through the SAME entry
+/// every execution takes (strict-session gate, `entry_gate::gated` trace root,
+/// registry gate), then persists the returned `graph` block with the SAME
+/// function an MCP `graph` block uses (`mcp_graph`), scoped to the caller's
+/// workspace/project. Modeled on `ingest_image`.
+///
+/// Body: `{"flavor"?: "html"|"css"|"dom-live"|"android-xml"|"a11y-json" (default
+/// "html"), "url"?, EXACTLY ONE of "path" | "html" | "batch", "project_id"?,
+/// "workspace_id"?}`. Inline `html` / `batch` are capped at 5 MB; `path` must
+/// be a regular file under the host data dir or working dir (no URLs, no
+/// arbitrary reads).
+///
+/// Pipeline 127 input contract (for the pipeline author): `data.action =
+/// {"type":"Analyze","flavor","url","document_data": {"Html": str} |
+/// {"FilePath": str} | {"Batch": json}}`; on success `result.graph =
+/// {"nodes":[{key,kind,label,parent?,attributes{geom?}}],"edges":[...]}`
+/// (nodes carrying `attributes.geom` get spatial relations computed centrally
+/// by `mcp_graph::compute_spatial_relations`).
+#[derive(Debug, Deserialize)]
+pub struct IngestUiDocumentRequest {
+    #[serde(default)]
+    pub flavor: Option<String>,
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub html: Option<String>,
+    #[serde(default)]
+    pub batch: Option<serde_json::Value>,
+    #[serde(default)]
+    pub project_id: Option<u64>,
+    #[serde(default)]
+    pub workspace_id: Option<u64>,
+}
+
+const UIDOC_MAX_INLINE_BYTES: usize = 5 * 1024 * 1024;
+const UIDOC_FLAVORS: [&str; 5] = ["html", "css", "dom-live", "android-xml", "a11y-json"];
+
+fn uidoc_refuse(msg: &str) -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "success": false, "error": msg }))
+}
+
+async fn ingest_uidocument(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<IngestUiDocumentRequest>,
+) -> Json<serde_json::Value> {
+    let flavor = req
+        .flavor
+        .as_deref()
+        .unwrap_or("html")
+        .to_ascii_lowercase();
+    if !UIDOC_FLAVORS.contains(&flavor.as_str()) {
+        return uidoc_refuse(&format!(
+            "unknown flavor '{}' (html | css | dom-live | android-xml | a11y-json)",
+            flavor
+        ));
+    }
+    let provided = [req.path.is_some(), req.html.is_some(), req.batch.is_some()]
+        .iter()
+        .filter(|b| **b)
+        .count();
+    if provided != 1 {
+        return uidoc_refuse("provide exactly one of path, html, batch");
+    }
+
+    let document_data: serde_json::Value = if let Some(html) = req.html.as_ref() {
+        if html.len() > UIDOC_MAX_INLINE_BYTES {
+            return uidoc_refuse("refused: inline html exceeds the 5 MB cap");
+        }
+        serde_json::json!({ "Html": html })
+    } else if let Some(batch) = req.batch.as_ref() {
+        let size = serde_json::to_vec(batch).map(|v| v.len()).unwrap_or(usize::MAX);
+        if size > UIDOC_MAX_INLINE_BYTES {
+            return uidoc_refuse("refused: inline batch exceeds the 5 MB cap");
+        }
+        serde_json::json!({ "Batch": batch })
+    } else {
+        let path = req.path.as_deref().unwrap_or("");
+        let data_dir = {
+            let runtime = state.runtime.read().await;
+            runtime.config.general.data_dir.clone()
+        };
+        // Same locality rule as ingest_image: canonicalize both sides so `..`
+        // games die; data dir OR the process working dir; regular files only.
+        let (canon, canon_dir) = match (
+            std::fs::canonicalize(path),
+            std::fs::canonicalize(&data_dir),
+        ) {
+            (Ok(p), Ok(d)) => (p, d),
+            (Err(e), _) => return uidoc_refuse(&format!("path unreadable: {}", e)),
+            (_, Err(e)) => return uidoc_refuse(&format!("data dir unreadable: {}", e)),
+        };
+        let cwd_ok = std::env::current_dir()
+            .ok()
+            .and_then(|c| std::fs::canonicalize(c).ok())
+            .map_or(false, |c| canon.starts_with(&c));
+        if !canon.starts_with(&canon_dir) && !cwd_ok {
+            return uidoc_refuse(
+                "refused: only files under the host data dir or working dir can be ingested",
+            );
+        }
+        if !canon.is_file() {
+            return uidoc_refuse("refused: path is not a file");
+        }
+        serde_json::json!({ "FilePath": canon.to_string_lossy() })
+    };
+
+    let input = crate::types::pipeline::PipelineInput {
+        data: vec![(
+            "action".to_string(),
+            json_to_typed_value(serde_json::json!({
+                "type": "Analyze",
+                "flavor": flavor,
+                "url": req.url,
+                "document_data": document_data,
+            })),
+        )]
+        .into_iter()
+        .collect(),
+        context: crate::types::pipeline::ExecutionContext {
+            user_id: 0,
+            device_id: 0,
+            workspace_id: req.workspace_id,
+            project_id: req.project_id,
+            task_context_id: None,
+            metadata: [("source".to_string(), "uidocument-ingest".to_string())]
+                .into_iter()
+                .collect(),
+        },
+    };
+
+    // Registry + entry gate DIRECTLY (same reasoning as ingest_image: the strict
+    // gate already authenticated this route; entry_gate::gated adds the trace
+    // root + span row every external dispatch takes).
+    let runtime = state.runtime.read().await;
+    let registry = runtime.pipeline_registry.read().await;
+    match crate::orchestrator::entry_gate::gated(127u64, registry.execute(127, input, None)).await {
+        Ok(out) => {
+            let output = out
+                .data
+                .get("result")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let graph = if out.success {
+                let zsei = runtime.zsei.read().await;
+                let data_dir = runtime.config.general.data_dir.clone();
+                match crate::mcp_graph::persist_from_output_scoped(
+                    &zsei,
+                    &data_dir,
+                    "uidocument_ingest",
+                    "uidocument-ingest",
+                    &output,
+                    req.workspace_id,
+                    req.project_id,
+                )
+                .await
+                {
+                    Some(Ok(summary)) => serde_json::json!({ "persisted": true, "summary": summary }),
+                    Some(Err(e)) => serde_json::json!({ "persisted": false, "error": e }),
+                    None => serde_json::Value::Null,
+                }
+            } else {
+                serde_json::Value::Null
+            };
+            Json(serde_json::json!({
+                "success": out.success,
+                "error": out.error,
+                "flavor": flavor,
+                "output": output,
+                "graph": graph,
+            }))
+        }
+        Err(e) => Json(serde_json::json!({ "success": false, "error": e.to_string() })),
     }
 }
 
@@ -3417,6 +3597,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         // outside the ZSEI container system (Batch B: B4/B5).
         .route("/capture/decision-reviews", get(get_decision_reviews))
         .route("/capture/ingest_image", post(ingest_image))
+        .route("/capture/ingest_uidocument", post(ingest_uidocument))
         .route("/capture/zero-shot-calls", get(get_zero_shot_calls))
         .route(
             "/capture/pipeline-zero-shot-calls",

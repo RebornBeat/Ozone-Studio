@@ -216,7 +216,7 @@ const ALL_MODALITIES: readonly Modality[] = [
   "3D", "audio", "BCI", "biology", "CAD", "chemistry", "control", "depth",
   "dna", "eeg", "electromagnetic", "geospatial", "haptic", "hyperspectral",
   "IMU", "kinematics", "network", "proteomics", "radar", "sonar", "sound",
-  "thermal", "video",
+  "thermal", "uidocument", "video",
 ];
 // Layout anchors for the 6 dedicated cluster rings; other modalities fall
 // back to a deterministic ring position at render time (Partial on purpose).
