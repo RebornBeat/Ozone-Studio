@@ -179,13 +179,13 @@ Run each row's five checks (§0.3). Light MCPs may be batched; heavy ones alone.
 ### 7c. agent-mcp — the DOMorpher conversion (docs/DOMORPHER_CONVERSION_GUIDE.md; seam: library crate `domorpher-core` → tool surface → MCP enforcement → Ozone above)
 | ID | Test | Pass |
 |---|---|---|
-| AG| AG1 | (RETIRED 2026-10-31, fresh start) | domorpher-agent selftest (agent is UNUSED/unregistered while the farm tools are the door) incl. a refusal per dangerous class; registration carries platform + version tags | locked-by-default; refusals are data |
-| AG| AG2 | (RETIRED 2026-10-31, fresh start) | `domorpher_navigate` to a non-allowlisted host | refused (farm_navigate precedent) |
-| AG| AG3 | (RETIRED 2026-10-31, fresh start) | `domorpher_exec_script` with OZONE_DOMORPHER_ALLOW_EVAL unset | refused (browser-mcp eval-gate precedent) |
-| AG| AG4 | (RETIRED 2026-10-31, fresh start) | session/cookie aging: profile restart keeps cookies with correct relative ages | FARM-NATIVE (persistent profiles are a Browser-Farm feature — StateStore seam maps to farm profiles) |
-| AG| AG5 | (RETIRED 2026-10-31, fresh start) | `domorpher_extract` output | untrusted-labeled tool result (X2 rule — never an instruction) |
-| AG| AG6 | (RETIRED 2026-10-31, fresh start) | `domorpher-core` dependency tree | NO http-server / llm-client / storage-engine / browser-driver crates — the seam enforced by the dependency graph itself |
-| AG| AG7 | (RETIRED 2026-10-31, fresh start) | Backend selection: `OZONE_DOMORPHER_BACKEND=farm` (default) vs `local` | farm backend executes via farm tools/Command Center (live-verified round-trip); local via browser-mcp CDP for isolated use; SAME gate/metering/ripple on both — backend is config, never a bypass |
+| AG1 (retired, fresh start) | domorpher-agent selftest (agent is UNUSED/unregistered while the farm tools are the door) incl. a refusal per dangerous class; registration carries platform + version tags | locked-by-default; refusals are data |
+| AG2 (retired, fresh start) | `domorpher_navigate` to a non-allowlisted host | refused (farm_navigate precedent) |
+| AG3 (retired, fresh start) | `domorpher_exec_script` with OZONE_DOMORPHER_ALLOW_EVAL unset | refused (browser-mcp eval-gate precedent) |
+| AG4 (retired, fresh start) | session/cookie aging: profile restart keeps cookies with correct relative ages | FARM-NATIVE (persistent profiles are a Browser-Farm feature — StateStore seam maps to farm profiles) |
+| AG5 (retired, fresh start) | `domorpher_extract` output | untrusted-labeled tool result (X2 rule — never an instruction) |
+| AG6 (retired, fresh start) | `domorpher-core` dependency tree | NO http-server / llm-client / storage-engine / browser-driver crates — the seam enforced by the dependency graph itself |
+| AG7 (retired, fresh start) | Backend selection: `OZONE_DOMORPHER_BACKEND=farm` (default) vs `local` | farm backend executes via farm tools/Command Center (live-verified round-trip); local via browser-mcp CDP for isolated use; SAME gate/metering/ripple on both — backend is config, never a bypass |
 
 ## 8. Acting loop and watchdogs (L7) — see ACTING_FACTORS_REGISTRY
 | ID | Test | Expected |
@@ -379,8 +379,8 @@ Source docs: REVIEW_DOMORPHER_LIBRARY_BOUNDARY_2026-10-30, REVIEW_OZONE_STATE_AN
 |---|---|---|
 | AG6a | `cargo tree` on domorpher-core | no reqwest/jsonwebtoken/tiktoken-rs/wasm-bindgen/http/llm/storage crate |
 | AG6b | grep public API of core for `Llm`/`LLM`/`DecisionSource`/`PageDriver`/`StateStore` | zero hits (LlmZeroShot->ExternalJudgment, LLMError->JudgmentError done) |
-| AG| AG8 | (RETIRED 2026-10-31, fresh start) | RETIRED roles each have a named Ozone owner (reasoning->pipeline 9+AMT, traversal->traversal_ml/context_aggregation, multi-pass->decision_review+consensus, recovery->TaskFailed/McpFailure actors, extraction->text/code pipelines+S11, instruction->pipeline 9+task_recommendation) | table in REVIEW_FORK_ALIGNMENT correction; no library code for them |
-| AG| AG9 | (RETIRED 2026-10-31, fresh start) | MOOT after lean core: library emits no judgment requests | grep core for NeedsJudgment/EscalationRequest = zero (after census) |
+| AG8 (retired, fresh start) | RETIRED roles each have a named Ozone owner (reasoning->pipeline 9+AMT, traversal->traversal_ml/context_aggregation, multi-pass->decision_review+consensus, recovery->TaskFailed/McpFailure actors, extraction->text/code pipelines+S11, instruction->pipeline 9+task_recommendation) | table in REVIEW_FORK_ALIGNMENT correction; no library code for them |
+| AG9 (retired, fresh start) | MOOT after lean core: library emits no judgment requests | grep core for NeedsJudgment/EscalationRequest = zero (after census) |
 | T-DOM-GOOGLE D0-D8 | see REVIEW_OZONE_STATE_AND_FARM_TEST §4 | D1/D2 first (real google.com DOM from the CC farm profile -> library offline -> field) |
 | LANG1-7 | see TOOLS_BY_LANGUAGE §4 | tags `lang:`/`kind:`; domorpher-py wheel builds and imports in the farm venv |
 | SC1-SC4 | `/mcp/call` with context workspace/project | S13 row + ripple carry scope (global when absent) |
