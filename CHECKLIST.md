@@ -6757,3 +6757,14 @@ needed a shape-tolerance fix (the adapter splits stdout keys into data directly 
 fixed with a whole-map fallback). FIRST UiDocument ingest persisted: 6 entities, root 1511, full rule
 hits (a11y names/roles, struct child-of ×4, safety.untrusted, link.href, vis.effective ×10), honest
 geometry absence. EU: host on the new binary, healthy.
+
+## 2026-10-31 (zc, GATE 3 STATIC PROOF) — REAL google.com INGESTED AS UiDocument (164 entities, 28 relations)
+Fetched the REAL google.com on the VPS (90,318 bytes, EU-locale HTML — no proxies, normal setup) and
+ingested it through /capture/ingest_uidocument: **persisted TRUE — 164 entities, 28 relations, root
+1683** — the largest graph ingest yet, on production HTML at scale. Edge provenance is REAL rule data
+(e.g. html.form.owns-ancestor → semantic FormOwns, confidence certain). 82 of 164 nodes carry rule
+flags (lang/title/untrusted + the structural rules). Findings: (1) the bounds.rule_hits aggregation
+stayed empty while per-node flags + per-edge rules carried the provenance — display-aggregation gap,
+minor, captured; (2) the route+binary handled 90 KB production HTML without truncation. The dom-live
+flavor on the LIVE page (the JS observer through the farm CC-bridge) remains operator-gated (G12).
+Gates: 0 ✓ 1 ✓ 3(static) ✓ — Gate 2 (the spatial pass at the choke point) is next.
