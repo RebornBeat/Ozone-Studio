@@ -1,0 +1,28 @@
+# UiDocument modality (pipeline 127) — rule-driven analysis of trees of
+# interface elements (HTML, CSS as the style layer, live-DOM batches).
+# Independent pipeline unit: own build, own tests. NO network, NO model, NO
+# async runtime (AG6-style purity: `cargo tree` must show none of them).
+# CSS is parsed by a small hand-written parser in src/css.rs (no cssparser
+# dependency needed for rule/declaration/at-rule structure).
+[package]
+name = "uidocument"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "uidocument"
+path = "src/lib.rs"
+
+[[bin]]
+name = "uidocument"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+scraper = "0.20"
+regex = "1"
+thiserror = "1"
+
+# Own workspace root: independent unit — builds anywhere.
+[workspace]

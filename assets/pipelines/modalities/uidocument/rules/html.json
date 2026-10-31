@@ -1,0 +1,1125 @@
+{
+ "pack": {
+  "id": "html",
+  "version": "0.1.0",
+  "flavor": "html",
+  "spec_refs": [
+   "WHATWG HTML Living Standard",
+   "HTML-AAM",
+   "ARIA 1.2",
+   "Accessible Name and Description Computation 1.2",
+   "DOM Standard"
+  ]
+ },
+ "rules": [
+  {
+   "id": "html.struct.element",
+   "family": "structure",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 13.2",
+   "rationale": "The engine creates exactly one graph node per parsed element (plus the Document node); this entry documents that invariant."
+  },
+  {
+   "id": "html.struct.child-of",
+   "family": "structure",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "edge": "ChildOf",
+    "from": "$match",
+    "to": "$parent"
+   },
+   "confidence": "certain",
+   "source": "DOM Standard (node tree)",
+   "rationale": "Parent/child element relation. Hosts that carry native containment (node `parent`) skip this edge in relation_mode=host."
+  },
+  {
+   "id": "html.struct.landmark.nav",
+   "family": "structure",
+   "when": {
+    "selector": "nav"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "navigation"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM element mappings",
+   "rationale": "<nav> maps to the navigation landmark."
+  },
+  {
+   "id": "html.struct.landmark.main",
+   "family": "structure",
+   "when": {
+    "selector": "main"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "main"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM element mappings",
+   "rationale": "<main> maps to the main landmark."
+  },
+  {
+   "id": "html.struct.landmark.aside",
+   "family": "structure",
+   "when": {
+    "selector": "aside"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "complementary"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM element mappings",
+   "rationale": "<aside> maps to the complementary landmark."
+  },
+  {
+   "id": "html.struct.landmark.banner",
+   "family": "structure",
+   "when": {
+    "selector": "header",
+    "not_ancestor": "article,aside,main,nav,section"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "banner"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM",
+   "rationale": "<header> is a banner landmark only outside sectioning content."
+  },
+  {
+   "id": "html.struct.landmark.contentinfo",
+   "family": "structure",
+   "when": {
+    "selector": "footer",
+    "not_ancestor": "article,aside,main,nav,section"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "contentinfo"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM",
+   "rationale": "<footer> is a contentinfo landmark only outside sectioning content."
+  },
+  {
+   "id": "html.struct.landmark.search",
+   "family": "structure",
+   "when": {
+    "selector": "search,[role=search]"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "search"
+   },
+   "confidence": "certain",
+   "source": "HTML-AAM / ARIA 1.2",
+   "rationale": "<search> and role=search mark a search landmark."
+  },
+  {
+   "id": "html.struct.landmark.form",
+   "family": "structure",
+   "when": {
+    "selector": "form[aria-label],form[aria-labelledby]"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "form"
+   },
+   "confidence": "derived",
+   "source": "HTML-AAM",
+   "rationale": "A <form> is a landmark only when it has an accessible name."
+  },
+  {
+   "id": "html.struct.landmark.region",
+   "family": "structure",
+   "when": {
+    "selector": "section[aria-label],section[aria-labelledby]"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value": "region"
+   },
+   "confidence": "derived",
+   "source": "HTML-AAM",
+   "rationale": "A <section> is a region landmark only when it has an accessible name."
+  },
+  {
+   "id": "html.struct.landmark.explicit",
+   "family": "structure",
+   "when": {
+    "selector": "[role=banner],[role=navigation],[role=main],[role=complementary],[role=contentinfo],[role=region]"
+   },
+   "emit": {
+    "flag": "landmark",
+    "value_from": "attr:role"
+   },
+   "confidence": "certain",
+   "source": "ARIA 1.2",
+   "rationale": "An explicit landmark role names the landmark."
+  },
+  {
+   "id": "html.struct.heading",
+   "family": "structure",
+   "when": {
+    "selector": "h1,h2,h3,h4,h5,h6"
+   },
+   "emit": {
+    "flag": "heading_level",
+    "value_from": "tag-digit"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.3.6",
+   "rationale": "h1-h6 give the heading level."
+  },
+  {
+   "id": "html.struct.heading-aria",
+   "family": "structure",
+   "when": {
+    "selector": "[role=heading][aria-level]"
+   },
+   "emit": {
+    "flag": "heading_level",
+    "value_from": "int:attr:aria-level"
+   },
+   "confidence": "certain",
+   "source": "ARIA 1.2",
+   "rationale": "role=heading with aria-level gives the level."
+  },
+  {
+   "id": "html.sem.list",
+   "family": "semantics",
+   "when": {
+    "selector": "ul,ol,dl"
+   },
+   "emit": {
+    "flag": "list",
+    "value_from": "tag"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.4",
+   "rationale": "List containers."
+  },
+  {
+   "id": "html.sem.table",
+   "family": "semantics",
+   "when": {
+    "selector": "table"
+   },
+   "emit": {
+    "flag": "table",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.9",
+   "rationale": "Table container; cell/row/header relations come from the role mapping."
+  },
+  {
+   "id": "html.sem.disclosure",
+   "family": "semantics",
+   "when": {
+    "selector": "details"
+   },
+   "emit": {
+    "flag": "disclosure",
+    "value": "details"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.11.1",
+   "rationale": "<details> is a disclosure widget."
+  },
+  {
+   "id": "html.a11y.role",
+   "family": "a11y",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "role"
+   },
+   "confidence": "derived",
+   "source": "HTML-AAM + ARIA 1.2",
+   "rationale": "Explicit role (certain) else native role mapping (derived); the flag records which."
+  },
+  {
+   "id": "html.a11y.name",
+   "family": "a11y",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "accname"
+   },
+   "confidence": "derived",
+   "source": "Accessible Name and Description Computation 1.2 (subset)",
+   "rationale": "aria-labelledby, aria-label, native label association, alt, value, content, then title / placeholder fallbacks; confidence is per source. Steps not implemented are not guessed."
+  },
+  {
+   "id": "html.form.owns-ancestor",
+   "family": "forms",
+   "when": {
+    "selector": "input,select,textarea,button,fieldset,output,object,meter,progress",
+    "no_attr": [
+     "form"
+    ]
+   },
+   "emit": {
+    "edge": "FormOwns",
+    "from": {
+     "nearest_ancestor": "form"
+    },
+    "to": "$match"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.18",
+   "rationale": "A control belongs to its nearest ancestor form."
+  },
+  {
+   "id": "html.form.owns-attr",
+   "family": "forms",
+   "when": {
+    "selector": "input,select,textarea,button,fieldset,output,object,meter,progress",
+    "has_attr": [
+     "form"
+    ]
+   },
+   "emit": {
+    "edge": "FormOwns",
+    "from": {
+     "selector": "#{attr:form}"
+    },
+    "to": "$match"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.18.3",
+   "rationale": "The form attribute names the owning form by id."
+  },
+  {
+   "id": "html.form.label-for",
+   "family": "forms",
+   "when": {
+    "selector": "label[for]"
+   },
+   "emit": {
+    "edge": "LabelFor",
+    "from": "$match",
+    "to": {
+     "selector": "#{attr:for}"
+    }
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.4",
+   "rationale": "A label's for attribute names the control it labels."
+  },
+  {
+   "id": "html.form.label-wrap",
+   "family": "forms",
+   "when": {
+    "selector": "label",
+    "no_attr": [
+     "for"
+    ]
+   },
+   "emit": {
+    "edge": "LabelFor",
+    "from": "$match",
+    "to": {
+     "descendant": "input,select,textarea,button,meter,output,progress"
+    }
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.4",
+   "rationale": "A label without for labels its first labelable descendant."
+  },
+  {
+   "id": "html.form.field-type",
+   "family": "forms",
+   "when": {
+    "selector": "input[type]"
+   },
+   "emit": {
+    "flag": "field_type",
+    "value_from": "attr:type"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5",
+   "rationale": "Explicit input type."
+  },
+  {
+   "id": "html.form.field-type-default",
+   "family": "forms",
+   "when": {
+    "selector": "input",
+    "no_attr": [
+     "type"
+    ]
+   },
+   "emit": {
+    "flag": "field_type",
+    "value": "text"
+   },
+   "confidence": "derived",
+   "source": "WHATWG HTML Living Standard 4.10.5",
+   "rationale": "Missing type defaults to text."
+  },
+  {
+   "id": "html.form.required",
+   "family": "forms",
+   "when": {
+    "selector": "input[required],select[required],textarea[required]"
+   },
+   "emit": {
+    "flag": "required",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.3.4",
+   "rationale": "required marks a mandatory field."
+  },
+  {
+   "id": "html.form.pattern",
+   "family": "forms",
+   "when": {
+    "selector": "input[pattern]"
+   },
+   "emit": {
+    "flag": "pattern",
+    "value_from": "attr:pattern"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.3.6",
+   "rationale": "Declared validation pattern."
+  },
+  {
+   "id": "html.form.maxlength",
+   "family": "forms",
+   "when": {
+    "selector": "input[maxlength],textarea[maxlength]"
+   },
+   "emit": {
+    "flag": "maxlength",
+    "value_from": "int:attr:maxlength"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.3.2",
+   "rationale": "Declared maximum length."
+  },
+  {
+   "id": "html.form.min",
+   "family": "forms",
+   "when": {
+    "selector": "input[min]"
+   },
+   "emit": {
+    "flag": "min",
+    "value_from": "attr:min"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.3.8",
+   "rationale": "Declared minimum."
+  },
+  {
+   "id": "html.form.max",
+   "family": "forms",
+   "when": {
+    "selector": "input[max]"
+   },
+   "emit": {
+    "flag": "max",
+    "value_from": "attr:max"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.3.8",
+   "rationale": "Declared maximum."
+  },
+  {
+   "id": "html.form.autocomplete",
+   "family": "forms",
+   "when": {
+    "selector": "input[autocomplete],select[autocomplete],textarea[autocomplete]"
+   },
+   "emit": {
+    "flag": "autocomplete",
+    "value_from": "attr:autocomplete"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.18.7",
+   "rationale": "Autocomplete token (useful evidence for login / address pattern rules)."
+  },
+  {
+   "id": "html.form.action",
+   "family": "forms",
+   "when": {
+    "selector": "form[action]"
+   },
+   "emit": {
+    "flag": "action",
+    "value_from": "url:action"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.3",
+   "rationale": "Where the form submits (resolved against the document URL; never contacted)."
+  },
+  {
+   "id": "html.form.method",
+   "family": "forms",
+   "when": {
+    "selector": "form[method]"
+   },
+   "emit": {
+    "flag": "method",
+    "value_from": "attr:method"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.3",
+   "rationale": "Submission method."
+  },
+  {
+   "id": "html.form.disabled",
+   "family": "forms",
+   "when": {
+    "selector": "button[disabled],input[disabled],select[disabled],textarea[disabled],fieldset[disabled],optgroup[disabled],option[disabled]"
+   },
+   "emit": {
+    "flag": "disabled",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.18.5",
+   "rationale": "Disabled controls are not interactable."
+  },
+  {
+   "id": "html.link.same-page",
+   "family": "links",
+   "when": {
+    "selector": "a[href^=\"#\"],area[href^=\"#\"]"
+   },
+   "emit": {
+    "edge": "LinksTo",
+    "from": "$match",
+    "to": {
+     "selector": "{attr:href}"
+    }
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.6.4",
+   "rationale": "A fragment link points at the element with that id."
+  },
+  {
+   "id": "html.link.href",
+   "family": "links",
+   "when": {
+    "selector": "a[href],area[href],link[href]"
+   },
+   "emit": {
+    "flag": "href",
+    "value_from": "url:href"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.6",
+   "rationale": "Link target resolved against the document URL (no network)."
+  },
+  {
+   "id": "html.link.rel",
+   "family": "links",
+   "when": {
+    "selector": "a[rel],link[rel]"
+   },
+   "emit": {
+    "flag": "rel",
+    "value_from": "attr:rel"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.6.7",
+   "rationale": "Link relation tokens."
+  },
+  {
+   "id": "html.link.target",
+   "family": "links",
+   "when": {
+    "selector": "a[target],area[target]"
+   },
+   "emit": {
+    "flag": "target",
+    "value_from": "attr:target"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.6.1",
+   "rationale": "Browsing context for the link."
+  },
+  {
+   "id": "html.link.download",
+   "family": "links",
+   "when": {
+    "selector": "a[download]"
+   },
+   "emit": {
+    "flag": "download",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.6.5",
+   "rationale": "Link downloads instead of navigating."
+  },
+  {
+   "id": "html.link.unsafe-javascript",
+   "family": "links",
+   "when": {
+    "selector": "a[href^=\"javascript:\"],area[href^=\"javascript:\"]"
+   },
+   "emit": {
+    "flag": "unsafe_scheme",
+    "value": "javascript"
+   },
+   "confidence": "certain",
+   "source": "URL scheme",
+   "rationale": "A javascript: URL executes code if followed; flagged so no tool follows it blindly."
+  },
+  {
+   "id": "html.link.unsafe-data",
+   "family": "links",
+   "when": {
+    "selector": "a[href^=\"data:\"],area[href^=\"data:\"]"
+   },
+   "emit": {
+    "flag": "unsafe_scheme",
+    "value": "data"
+   },
+   "confidence": "certain",
+   "source": "URL scheme",
+   "rationale": "A data: URL embeds content; flagged."
+  },
+  {
+   "id": "html.media.image",
+   "family": "media",
+   "when": {
+    "selector": "img"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "image"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<img> is image media."
+  },
+  {
+   "id": "html.media.video",
+   "family": "media",
+   "when": {
+    "selector": "video"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "video"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<video> is video media."
+  },
+  {
+   "id": "html.media.audio",
+   "family": "media",
+   "when": {
+    "selector": "audio"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "audio"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<audio> is audio media."
+  },
+  {
+   "id": "html.media.picture",
+   "family": "media",
+   "when": {
+    "selector": "picture"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "picture"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<picture> is picture media."
+  },
+  {
+   "id": "html.media.canvas",
+   "family": "media",
+   "when": {
+    "selector": "canvas"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "canvas"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<canvas> is canvas media."
+  },
+  {
+   "id": "html.media.svg",
+   "family": "media",
+   "when": {
+    "selector": "svg"
+   },
+   "emit": {
+    "flag": "media",
+    "value": "svg"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "<svg> is svg media."
+  },
+  {
+   "id": "html.media.alt",
+   "family": "media",
+   "when": {
+    "selector": "img[alt]"
+   },
+   "emit": {
+    "flag": "alt",
+    "value_from": "attr:alt"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8.4.4",
+   "rationale": "Image alternative text."
+  },
+  {
+   "id": "html.media.src",
+   "family": "media",
+   "when": {
+    "selector": "img[src],video[src],audio[src],source[src],track[src]"
+   },
+   "emit": {
+    "flag": "media_src",
+    "value_from": "url:src"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.8",
+   "rationale": "Media source resolved against the document URL (not fetched)."
+  },
+  {
+   "id": "html.frame.embeds",
+   "family": "frames",
+   "when": {
+    "selector": "iframe,frame,embed,object"
+   },
+   "emit": {
+    "node": {
+     "kind": "FrameContent",
+     "label_from": "attr:src",
+     "props": {
+      "src": "url:src",
+      "sandbox": "attr:sandbox",
+      "opaque": "json:true",
+      "reason": "const:frame content is not part of this document"
+     },
+     "edge": "Embeds"
+    }
+   },
+   "confidence": "derived",
+   "source": "WHATWG HTML Living Standard 4.8.5",
+   "rationale": "An embedded browsing context is represented by an opaque stub node: its content is another document and is never fetched here."
+  },
+  {
+   "id": "html.meta.title",
+   "family": "metadata",
+   "when": {
+    "selector": "title"
+   },
+   "emit": {
+    "flag": "title",
+    "value_from": "text",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.2.2",
+   "rationale": "Document title."
+  },
+  {
+   "id": "html.meta.lang",
+   "family": "metadata",
+   "when": {
+    "selector": "html[lang]"
+   },
+   "emit": {
+    "flag": "lang",
+    "value_from": "attr:lang",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 3.2.6.2",
+   "rationale": "Document language."
+  },
+  {
+   "id": "html.meta.canonical",
+   "family": "metadata",
+   "when": {
+    "selector": "link[rel=\"canonical\"]"
+   },
+   "emit": {
+    "flag": "canonical",
+    "value_from": "url:href",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "RFC 6596",
+   "rationale": "Canonical URL."
+  },
+  {
+   "id": "html.meta.base",
+   "family": "metadata",
+   "when": {
+    "selector": "base[href]"
+   },
+   "emit": {
+    "flag": "base_href",
+    "value_from": "url:href",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.2.3",
+   "rationale": "Document base URL (recorded; not applied retroactively)."
+  },
+  {
+   "id": "html.meta.charset",
+   "family": "metadata",
+   "when": {
+    "selector": "meta[charset]"
+   },
+   "emit": {
+    "flag": "charset",
+    "value_from": "attr:charset",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.2.5.4",
+   "rationale": "Declared character encoding."
+  },
+  {
+   "id": "html.meta.name",
+   "family": "metadata",
+   "when": {
+    "selector": "meta[name][content]"
+   },
+   "emit": {
+    "flag": "meta:{attr:name}",
+    "value_from": "attr:content",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.2.5",
+   "rationale": "Named metadata (description, viewport, robots ...)."
+  },
+  {
+   "id": "html.meta.property",
+   "family": "metadata",
+   "when": {
+    "selector": "meta[property][content]"
+   },
+   "emit": {
+    "flag": "meta:{attr:property}",
+    "value_from": "attr:content",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "Open Graph protocol",
+   "rationale": "Property metadata (og:*)."
+  },
+  {
+   "id": "html.script.ref",
+   "family": "scripts",
+   "when": {
+    "selector": "script"
+   },
+   "emit": {
+    "node": {
+     "kind": "ScriptRef",
+     "label_from": "attr:src",
+     "props": {
+      "src": "url:src",
+      "type": "attr:type",
+      "async": "bool:attr:async",
+      "defer": "bool:attr:defer",
+      "inline_bytes": "len:raw",
+      "content_hash": "hash:raw",
+      "executed": "json:false",
+      "forward_to": "forwardto:raw",
+      "forward_text": "forward:raw"
+     },
+     "edge": "Includes"
+    }
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.12.1",
+   "rationale": "A script is recorded as a reference: source/length/hash. It is NEVER executed here; inline text is forwarded to the Code modality as a child container."
+  },
+  {
+   "id": "html.script.handlers",
+   "family": "scripts",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "inline_handlers"
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 8.1.7",
+   "rationale": "Names of inline event-handler attributes (on*), never their content."
+  },
+  {
+   "id": "html.style.link-ref",
+   "family": "styles",
+   "when": {
+    "selector": "link[rel=\"stylesheet\"]"
+   },
+   "emit": {
+    "node": {
+     "kind": "StyleSheetRef",
+     "label_from": "attr:href",
+     "props": {
+      "href": "url:href",
+      "media": "attr:media"
+     },
+     "edge": "Includes"
+    }
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.2.4",
+   "rationale": "An external stylesheet is recorded as a reference (not fetched). Supply its text in input.css[] to cascade it."
+  },
+  {
+   "id": "html.style.inline-attr",
+   "family": "styles",
+   "when": {
+    "selector": "[style]"
+   },
+   "emit": {
+    "flag": "has_inline_style",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 3.2.6",
+   "rationale": "Element carries an inline style attribute (cascaded in the css pack)."
+  },
+  {
+   "id": "html.vis.hidden-attr",
+   "family": "visibility",
+   "when": {
+    "selector": "[hidden]"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "WHATWG HTML Living Standard 15.3.1",
+   "rationale": "UA stylesheet maps [hidden] to display:none. Author CSS may re-show the element; that override is not modelled."
+  },
+  {
+   "id": "html.vis.input-hidden",
+   "family": "visibility",
+   "when": {
+    "selector": "input[type=\"hidden\"]"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5.1.1",
+   "rationale": "Hidden inputs are not rendered."
+  },
+  {
+   "id": "html.vis.not-rendered",
+   "family": "visibility",
+   "when": {
+    "selector": "head,script,style,meta,link,title,base,template"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "WHATWG HTML Living Standard 15.3",
+   "rationale": "Non-rendered elements."
+  },
+  {
+   "id": "html.vis.aria-hidden",
+   "family": "visibility",
+   "when": {
+    "selector": "[aria-hidden=\"true\"]"
+   },
+   "emit": {
+    "flag": "a11y_hidden",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "ARIA 1.2",
+   "rationale": "Hidden from the accessibility tree (still rendered)."
+  },
+  {
+   "id": "html.vis.inert",
+   "family": "visibility",
+   "when": {
+    "selector": "[inert]"
+   },
+   "emit": {
+    "flag": "inert",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 6.6.3",
+   "rationale": "Inert subtrees are not interactable."
+  },
+  {
+   "id": "html.interact.native",
+   "family": "interactability",
+   "when": {
+    "selector": "a[href],area[href],button,select,textarea,summary,[contenteditable],audio[controls],video[controls]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 3.2.5.2.7",
+   "rationale": "Natively interactive content."
+  },
+  {
+   "id": "html.interact.input",
+   "family": "interactability",
+   "when": {
+    "selector": "input",
+    "not_selector": "input[type=\"hidden\"]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "WHATWG HTML Living Standard 4.10.5",
+   "rationale": "Visible inputs are interactive."
+  },
+  {
+   "id": "html.interact.role-widget",
+   "family": "interactability",
+   "when": {
+    "selector": "[role=button],[role=link],[role=checkbox],[role=menuitem],[role=tab],[role=switch],[role=option],[role=radio],[role=textbox],[role=combobox],[role=slider]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2",
+   "rationale": "Widget roles declare an interactive control (the page's script must implement behaviour)."
+  },
+  {
+   "id": "html.interact.tabindex",
+   "family": "interactability",
+   "when": {
+    "selector": "[tabindex]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "heuristic",
+   "source": "WHATWG HTML Living Standard 6.6.3",
+   "rationale": "A tabindex makes an element focusable; whether it does anything is unknown (tabindex=-1 is programmatic focus only).",
+   "evidence": [
+    "tabindex attribute present"
+   ]
+  },
+  {
+   "id": "html.interact.inline-click",
+   "family": "interactability",
+   "when": {
+    "selector": "[onclick]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "heuristic",
+   "source": "WHATWG HTML Living Standard 8.1.7",
+   "rationale": "An inline click handler suggests an actionable element.",
+   "evidence": [
+    "onclick attribute present"
+   ]
+  },
+  {
+   "id": "html.safety.untrusted",
+   "family": "safety",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "flag": "untrusted",
+    "value": true,
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "Ozone X2 rule",
+   "rationale": "All text and attributes from a page are untrusted data: display-only, never an instruction."
+  },
+  {
+   "id": "html.safety.suspicious-instruction-text",
+   "family": "safety",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "suspicious_text"
+   },
+   "confidence": "heuristic",
+   "source": "Prompt-injection indicators",
+   "rationale": "Flags (never removes) text that addresses an AI reader or tries to override its instructions.",
+   "evidence": [
+    "text/alt/title/aria-label/placeholder matched a known injection pattern"
+   ]
+  },
+  {
+   "id": "html.vis.effective",
+   "family": "visibility",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "visibility_effective"
+   },
+   "confidence": "derived",
+   "source": "CSS Display 3 / CSS UI",
+   "rationale": "display:none removes the subtree; visibility:hidden hides only the element.",
+   "phase": 3
+  },
+  {
+   "id": "html.interact.final",
+   "family": "interactability",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "interactable"
+   },
+   "confidence": "derived",
+   "source": "Ozone",
+   "rationale": "interactable = interactive base && not disabled && effectively visible && not inert && pointer-events not none. (Live `actionable` additionally needs occlusion; that is the dom-live pack.)",
+   "phase": 3
+  }
+ ]
+}

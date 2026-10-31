@@ -1,6 +1,6 @@
 # UiDocument modality (pipeline 127) — README-first, Ozone-first
 
-Status: DESIGN ONLY. No code, no Cargo.toml yet (fresh start, 2026-10-31). The
+Status (2026-10-31): FIRST CODE LANDED, UNCOMPILED, UNRUN: `src/` (lib+CLI), `rules/html.json` (74 rules), `rules/css.json` (11), `py/` (PyO3 wheel), `observer/` (in-page JS), host wiring (modality 127, ingest route, central spatial relations). Build gate pending. Flavors android-xml and a11y-json are honest "not implemented". The
 old DOMorpher tree and its MCP wrapper were archived under
 `~/Projects/_archive/` and removed; this replaces them. Rules live in
 `docs/UIDOCUMENT_RULES_GUIDE.md`; this README says how the modality interacts

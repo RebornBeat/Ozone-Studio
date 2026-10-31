@@ -1,0 +1,193 @@
+{
+ "pack": {
+  "id": "css",
+  "version": "0.1.0",
+  "flavor": "css",
+  "spec_refs": [
+   "CSS Syntax 3",
+   "CSS Cascading and Inheritance 4",
+   "CSS Selectors 4 (subset)",
+   "CSS Positioned Layout 3"
+  ]
+ },
+ "rules": [
+  {
+   "id": "css.sheet.facts",
+   "family": "stylesheet",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "stylesheet_facts"
+   },
+   "confidence": "certain",
+   "source": "CSS Syntax 3",
+   "rationale": "One StyleSheet node per source with its facts (rules, @media/@supports/@layer/@import, custom properties, @keyframes, @font-face), and up to 500 StyleRule nodes. Conditional rules are recorded but not merged.",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.display-none",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "display": "none"
+    }
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "The winning declaration is display:none (specificity, importance, layer, order).",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.display-none-source",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "display": "none"
+    }
+   },
+   "emit": {
+    "flag": "display_none_by",
+    "value_from": "cascade:display"
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "The selector that decided display:none (traceability).",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.visibility-hidden",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "visibility": "hidden"
+    }
+   },
+   "emit": {
+    "flag": "visibility_hidden",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "visibility:hidden (inherited unless a descendant overrides).",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.visibility-collapse",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "visibility": "collapse"
+    }
+   },
+   "emit": {
+    "flag": "visibility_hidden",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "visibility:collapse.",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.opacity-zero",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "opacity": "0"
+    }
+   },
+   "emit": {
+    "flag": "transparent",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "Fully transparent: present and possibly interactive, but invisible to a user.",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.position",
+   "family": "cascade",
+   "when": {
+    "style_has": [
+     "position"
+    ]
+   },
+   "emit": {
+    "flag": "position",
+    "value_from": "cascadeval:position"
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "Computed position scheme.",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.z-index",
+   "family": "cascade",
+   "when": {
+    "style_has": [
+     "z-index"
+    ]
+   },
+   "emit": {
+    "flag": "z_index",
+    "value_from": "cascadeint:z-index"
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "Computed integer z-index (auto/invalid emits nothing).",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.pointer-events-none",
+   "family": "cascade",
+   "when": {
+    "style": {
+     "pointer-events": "none"
+    }
+   },
+   "emit": {
+    "flag": "pointer_events_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "CSS Cascading and Inheritance 4",
+   "rationale": "pointer-events:none makes the element non-interactable by pointer.",
+   "phase": 2
+  },
+  {
+   "id": "css.cascade.stacking-context",
+   "family": "stacking",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "stacking_context"
+   },
+   "confidence": "derived",
+   "source": "CSS Positioned Layout 3 (stacking contexts, subset)",
+   "rationale": "fixed/sticky, positioned with integer z-index, or opacity<1 establish a stacking context. Used by the host for InFrontOf ordering; no geometry is computed here.",
+   "phase": 2
+  },
+  {
+   "id": "css.link.styled-by",
+   "family": "stylesheet",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "styled_by"
+   },
+   "confidence": "derived",
+   "source": "CSS Selectors 4 (subset)",
+   "rationale": "StyledBy edge from each materialized unconditional StyleRule to every element its selector matches (direction as in the rules guide: rule -> element). Capped at 8000.",
+   "phase": 2
+  }
+ ]
+}
