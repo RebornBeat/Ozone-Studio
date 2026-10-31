@@ -6647,3 +6647,13 @@ the census loop continues; domorpher carries every step.
 cssparser::RGBA path) — THE SPLIT IS THE REMAINING WORK, now file-granular. Fixes landed: browser
 mod re-exports + doc order; execution consts carried; RGBA path. The census loop continues; each
 cascade node gets the same treatment (exclude + re-export or recreate).
+
+## 2026-10-30 (zc, XVII) — GRIND: TokenCounter trait conversion + the HONEST census jump (63 → 704)
+The callers hold `Arc<dyn TokenCounter>` — the original was a TRAIT; converted (trait + `DefaultTokenCounter::
+new()`, the name engine.rs actually uses). With chunking/* compiling past the trait error, their REAL debt
+surfaced: census 63 → **704** (crate::browser/llm/missing types in chunking's 3,739 never-compiled lines —
+and the wave reached files the IN-list hadn't touched: chunking strategies/engine/semantic_importance
+internals). NOT a regression — the oscillation is the campaign's true shape: each fix reveals the layer
+beneath; the error count rises as deeper layers surface, then falls as classes close. domorpher af39f2f.
+The grind continues: chunking's browser/llm references get the same seam treatment (PageDriver/decision-
+as-data), the type fixes continue, and the census re-descends. Multi-session, as stated from the start.
