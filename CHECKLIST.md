@@ -6779,3 +6779,22 @@ is fully wired in the shared persist path (compute → edges.extend → persiste
 rect2 — the question is inside frame_relations' grid bucketing (SPATIAL_MAX_CELLS_PER_BOX big-box
 path). FAST DIAGNOSTIC next session: a unit test on EU running frame_relations directly with the
 3-box fixture. Also minor: the wire nodes carry geom in attributes.geom ✓ parse-compatible.
+
+## 2026-10-31 (zc) — TAKEOVER from CC + the real-page assessment ACCEPTED (fix order set)
+CC measured the engine against a real google.com fetch on EU (69 KB, stdlib-parser reference: 80
+elements / 23 tags): **the engine captures all 80 as nodes + real semantics** (21 roles, 16 accessible
+names, 14 interactable, 9 fields owned by 1 form, 11 links, reasoner view) — the value over BS4 is the
+semantics/provenance/graph, confirmed. ACCEPTED weaknesses + fix order:
+1. **StyleRule crowding** (66 unmatched rules = 41% of the graph; on styled sites they'd eat the
+   5,000-node cap): unmatched rules become a SUMMARY, not nodes — fix first (small).
+2. **Cascade matching is the weakest part** (2 matches, 9 unsupported selectors — pseudo-classes/
+   sibling combinators; 5 StyledBy for 66 rules): swap the hand-written matcher for the `selectors`
+   crate (already behind scraper) — the google.com graph is not trusted until this lands.
+3. **Encoding**: the engine takes a string; the ingest route gains charset detection
+   (chardetng + encoding_rs, both already deps) and decodes upstream.
+4. **Live path doctrine**: the browser computes styles/boxes/roles/names authoritatively (CDP
+   DOMSnapshot + Accessibility.getFullAXTree) — the static engine serves saved files; the live path
+   takes computed values and uses our rules only for graph/safety/provenance.
+5. **SVG swap-check**: usvg/svgtypes vs the hand-rolled svg.rs — evaluated at the build gate.
+Gate 2 (frame_relations) proceeds independently. UNIQUELY OURS (kept): untrusted marking, provenance,
+form/label edges, the reasoner view, the live observer, graph persistence, the shared geometry layer.
