@@ -6668,3 +6668,15 @@ DOM→traversable-field — Ozone has no equivalent), forms/, extraction (struct
 instruction (browser-action NL parse), interactive (element detection), schema, reconciliation,
 browser-support, execution-logic. THE LESSON, captured in core/src/lib.rs at the retirement site: run
 the taxonomy test first, grind second.
+
+## 2026-10-30 (zc, XIX) — THE COMPLETE ROLE MATRIX (operator: "review ALL roles") + core semantic flags verified CLEAN
+docs/DOMORPHER_CONVERSION_GUIDE.md §2.0e: all 14 domorpher roles mapped — one owner each, the exact
+wiring. Core library owns: DOM→field (1), human-like input (2), session/cookie state (3, farm-native),
+execution logic (6). Split-pending (pure IN, decisions-as-data IN, model calls above): NL parse (4),
+reasoning strategies (5), multi-pass/recovery (7). Ozone-Studio owns outright: model judgment (9),
+API (10), persistence (11), enterprise/monitoring/parallel/pipeline (12), orchestration/Order/review
+(14). The tool surface (13) = domorpher-agent (the enforcement edge; currently unused — farm
+executes; the general skeleton stays for reuse). Detection (8) splits by function. Core semantic
+flags verified CLEAN (no DecisionSource/llm/agent-mcp remnants in code; the one thinking-out-loud
+comment tidied). THE FLOW: Ozone orchestrator → /mcp/call → domorpher-agent → Browser-Farm (loads
+domorpher-core) → untrusted data back → graphs.

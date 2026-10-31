@@ -225,3 +225,30 @@ are gated calls like everything else's.
 - **AG6**: domorpher-core builds WITHOUT the OUT-list (its Cargo tree
   contains no http-server, llm-client, or storage-engine crates) — the
   seam is enforced by the dependency graph itself, not by discipline.
+
+## 2.0e THE COMPLETE ROLE MATRIX (operator review, 2026-10-30 — every role,
+## one owner, the exact wiring)
+
+| # | Role (domorpher's capability) | Owner | The wiring |
+|---|---|---|---|
+| 1 | DOM → traversable field (`dom/`, `interactive/`) | **core library** (pure) → exposed by the domorpher-agent tool surface → executed where the farm loads the crate | Ozone orchestrates via `/mcp/call` (gated) → domorpher-agent (enforcement edge) → farm backend → results return as untrusted data → graphs |
+| 2 | Human-like input (forms, `human_type`, Bezier) | **core library** | same chain; the farm's profile executes |
+| 3 | Session/cookie aging (`browser/session+cookies`) | **core state transforms + StateStore seam** | farm profiles NATIVELY (aging is a farm feature) |
+| 4 | NL instruction → action sequence (`instruction/`) | **SPLIT-PENDING**: pure parse in core; model judgment ABOVE (Ozone pipeline 9) | Ozone decides → the library receives the parsed sequence as data |
+| 5 | Reasoning strategies (`agent/reasoning` pure) | **SPLIT-PENDING**: strategies in core, decisions as data | same split rule |
+| 6 | Action execution logic (`execution/actions+evaluator`) | **core library + PageDriver seam** | farm executes (primary); browser-mcp CDP isolated |
+| 7 | Multi-pass/recovery (`execution/multi_pass+recovery`) | **SPLIT-PENDING**: escalation choice above the seam | Ozone picks the alternative model; the library receives it |
+| 8 | Detection/visual (`visual/`) | **splits by function** | UI-understanding → visual-mcp tools; generic → image modality's detection registry (§11.6) |
+| 9 | Model judgment (`llm/`) | **OZONE-STUDIO** — pipeline 9 + fallback chain | not in core; the library never sees a model |
+| 10 | API/server (`api/`) | **OZONE-STUDIO host** | retired |
+| 11 | Persistence (`storage/`) | **OZONE-STUDIO store + StateStore → farm** | retired from core |
+| 12 | Enterprise/monitoring/parallel/pipeline | **OZONE-STUDIO surfaces** | retired |
+| 13 | The tool surface (16 verbs) | **domorpher-agent MCP** — the enforcement edge; currently UNUSED (the farm executes) — the general skeleton stays for reuse | every verb gated: allowlists, locks, tags |
+| 14 | Orchestration/Order/review | **OZONE-STUDIO** — the acting doctrine: everything routes through `/mcp/call` (metered, jurisdiction-gated, rippled), the assistant/actors propose, the operator disposes | the CC Command Center commands ride the same door |
+
+**The one-paragraph flow**: Ozone-Studio's orchestrator (pipeline 9 decisions)
+→ `/mcp/call` (the gated door) → domorpher-agent (the enforcement edge; when
+wired, the farm backend selected by OZONE_DOMORPHER_BACKEND) → **Browser-Farm
+loads domorpher-core and executes** via profiles/Command Center → results
+return as untrusted data → Ozone's graphs/capture stores. The library never
+sees a model, never opens a server, never owns persistence.
