@@ -1,0 +1,18 @@
+[package]
+name = "uidocument-py"
+version = "0.1.0"
+edition = "2021"
+description = "Python bindings (PyO3) over the UiDocument modality engine (pipeline 127). Thin: no logic of its own; the pipeline and the farm cannot disagree because both call uidocument::analyze."
+
+# Own workspace root: independent unit, like every pipeline crate.
+[workspace]
+
+[lib]
+name = "_uidocument"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.22", features = ["extension-module", "abi3-py39"] }
+serde_json = "1"
+# B1's lib (package `uidocument`, `pub fn analyze(&serde_json::Value) -> serde_json::Value`).
+uidocument = { path = ".." }

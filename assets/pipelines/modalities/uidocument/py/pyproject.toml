@@ -1,0 +1,16 @@
+[build-system]
+requires = ["maturin>=1.5,<2"]
+build-backend = "maturin"
+
+[project]
+name = "uidocument"
+version = "0.1.0"
+description = "UiDocument modality engine bindings: analyze a DOM batch / HTML / CSS / view-hierarchy into the shared UI graph. No network, no model, no persistence."
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+classifiers = ["Typing :: Typed"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "uidocument._uidocument"
+features = ["pyo3/extension-module"]
