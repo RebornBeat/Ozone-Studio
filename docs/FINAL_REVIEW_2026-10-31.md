@@ -220,3 +220,6 @@ GB1, RG1, T-DOM-GOOGLE D0-D8 (MASTER_TEST_GUIDE §17-§22 and the review docs).
 2. Confirmation that the Browser-Farm CC bridge script may be edited outside this
    repo to inject the observer (Gate 3).
 3. The key rotation and the Browser-Farm/`tools/bridges` decision (section 7.9).
+
+## 10. ADDENDUM 2026-10-31 (post Gates 0/1/3) — progression and remaining
+Gates 0 (EU compile: whole arc built; ONE error fixed — `Modality::UiDocument = 10`; uidocument 36/36 tests; host, uidocument and honest-image binaries deployed), 1 (image honesty verified live: real header dimensions, every semantic layer reported absent, constants gone) and 3-static (real google.com ingested as UiDocument) are PASSED by ZCode's takeover. In flight: Gate 2 (spatial pass at the ZSEI choke point, ZCode). Engine measurements, BS4/domorpher comparison and decisions D23-D30 are in `docs/UIDOCUMENT_ENGINE_REVIEW_2026-10-31.md`. Open operational items: B3's registry migration did not fire on a deployed `index.json` (127 was inserted manually on EU) — the migration needs a fix and a test; EU holds a ~9 GB `/opt/ozone-build` staging tree; ~45 local commits unpushed. Remaining gates unchanged: 2 (in flight), 3-live (farm bridge + observer, operator permission), 4 (Renders/Locates with the same page's screenshot), 5 (shell modalities).
