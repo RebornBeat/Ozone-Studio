@@ -2094,11 +2094,12 @@ async fn ingest_uidocument(
     let registry = runtime.pipeline_registry.read().await;
     match crate::orchestrator::entry_gate::gated(127u64, registry.execute(127, input, None)).await {
         Ok(out) => {
-            let output = out
-                .data
-                .get("result")
-                .cloned()
-                .unwrap_or(serde_json::Value::Null);
+            // SHAPE TOLERANCE (2026-10-31, found live): the adapter splits the
+            // binary's stdout keys into data DIRECTLY (no "result" wrapper) —
+            // so when "result" is absent, the whole map IS the output.
+            let output = out.data.get("result").cloned().unwrap_or_else(|| {
+                serde_json::to_value(&out.data).unwrap_or(serde_json::Value::Null)
+            });
             let graph = if out.success {
                 let zsei = runtime.zsei.read().await;
                 let data_dir = runtime.config.general.data_dir.clone();

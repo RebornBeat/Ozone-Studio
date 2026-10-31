@@ -1,6 +1,8 @@
 # OZONE STUDIO — COMPREHENSIVE STATE CAPTURE
 ## 2026-09-17 · ZCode + Claude Code joint session · living graph operational
 
+> **LATEST 2026-10-31 (zc, GATES 0+1 COMPLETE ON EU)** — the whole arc COMPILES on EU (ONE error fixed: Modality::UiDocument=10); uidocument 36/36 tests pass on first compile; host + uidocument + honest-image binaries DEPLOYED; image honesty verified LIVE (real header dims, absent-reasons, constants gone); FIRST UiDocument INGEST PERSISTED into the graph (6 entities, root 1511, full rule hits) after the route's shape-tolerance fix (the adapter splits stdout keys directly). Registry note: 127 was inserted manually — B3's migration didn't fire on a deployed index. Gates 2-6 next (choke-point spatial pass, google.com live, cross-modality links, shell values).
+
 > **LATEST 2026-10-30 (zc, SEAM CORRECTED)** — the library is JUST the library: DecisionSource REMOVED (model judgment is above; the core receives decisions as data via the tool/MCP contract); reasoning.rs split-pending OUT of the core (core census 301 → 145); agent-mcp renamed tools/domorpher-agent (16 domorpher_* verbs, farm backend, re-registered 16/16); google.com farm test GREEN (no proxies: navigate ok, 199 KB screenshot evidence committed, Command-Center state marked for the DOM-field harvest; CC shares the farm through /mcp/call).
 
 > **LATEST 2026-10-30 (zc, INGEST LIVE)** — /capture/ingest_image END-TO-END on EU: strict gate → entry gate → registry → image binary → real analysis (bit depth/sRGB/composition scoring) on a live farm screenshot. Fix: WorkingDirectory=/opt/ozone-studio + binary at CWD-relative pipelines path. Local host restored (monitor posture; VPS-primary testing). 

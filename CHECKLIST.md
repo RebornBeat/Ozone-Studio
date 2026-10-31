@@ -6725,3 +6725,35 @@ items G1/G3/G4/G6 remain gate work by size):
 - **FX5 (G11)**: ingest hooks carry x-oz-internal (OZONE_BROWSER/FARM_INGEST_TOKEN) — strict-host auth.
 Unchanged/gate-level: G1 (spatial pass at the ZSEI choke point — needs the mcp_graph persist-shape
 read), G3 (observer z-order), G4 (frame registry), G6 (cross-graph producers), G8-G10, G12.
+
+## 2026-10-31 (zc, GATE 0+1 COMPLETE ON EU) — THE WHOLE ARC COMPILES, TESTS PASS, DEPLOYED, LIVE
+**Gate 0 (compile) PASSED**: EU rustc/cargo 1.99.1 installed; the repo synced to /opt/ozone-build
+(excludes: .git/target/node_modules/zsei_data — the pipelines' own target dirs SHIPPED, carrying the
+prebuilt modality binaries); `cargo check` host: deps + the entire uncompiled arc → **ONE error**
+(Modality::UiDocument missing from the graph Modality enum — added =10, committed) → **0 errors**.
+**uidocument crate: 36/36 lib tests PASS** on first compile. Release builds: host 5m06s + uidocument
+binary 29.65s. DEPLOYED: host swapped, uidocument binary at
+/opt/ozone-studio/pipelines/modalities/uidocument/uidocument, honest image binary rebuilt on EU and
+placed at BOTH candidate paths.
+**Gate 1 (honesty) PASSED LIVE**: the image ingest re-run (GEO1/GEO2) returns PNG format + honest
+absence (bit_depth 0, color-space unknown note, empty semantic layers with reasons) — the fabricated
+constants are GONE from production.
+**UiDocument LIVE**: registry 127 inserted manually (B3's migration didn't fire on the deployed
+index — note for the next pass); the ingest route needed a SHAPE-TOLERANCE fix (the adapter splits
+stdout keys into data directly — no "result" wrapper; the route now falls back to the whole map).
+**FIRST UiDocument INGEST PERSISTED**: an html snippet → 6 entity containers in the graph (root
+1511), full rule hits (a11y names/roles, struct child-of ×4, safety.untrusted, link.href,
+vis.effective ×10), honest geometry absence (no layout engine on static input).
+Commits: Modality::UiDocument + route shape tolerance. EU state: host on the new binary, healthy.
+
+## 2026-10-31 (zc, GATES 0+1 DETAIL)
+Gate 0 PASSED: EU deps compiled from scratch (openssl-sys needed a restart pass), host cargo check →
+ONE error (Modality::UiDocument=10 added, committed) → 0; uidocument 36/36 lib tests PASS on first
+compile; release builds host 5m06s + uidocument 29.65s; DEPLOYED (host swap + uidocument binary +
+honest image binary at both paths). Gate 1 PASSED LIVE: GEO1/GEO2 re-run returns real header dims +
+explicit absent-reasons — the fabricated constants are gone from production. UiDocument LIVE: registry
+127 inserted manually (B3's migration didn't fire on the deployed index — next-pass note); the route
+needed a shape-tolerance fix (the adapter splits stdout keys into data directly — no "result" wrapper;
+fixed with a whole-map fallback). FIRST UiDocument ingest persisted: 6 entities, root 1511, full rule
+hits (a11y names/roles, struct child-of ×4, safety.untrusted, link.href, vis.effective ×10), honest
+geometry absence. EU: host on the new binary, healthy.
