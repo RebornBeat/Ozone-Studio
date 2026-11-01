@@ -7000,3 +7000,12 @@ carried the analysis hint). Earlier empty-body failures explained: the DEPLOYED 
 /opt/ozone-tools was an old version (b23c4a88) without the token/auth handling — the current
 server.mjs (2f486d7) deployed; the local↔EU farm-mcp checksums now match. The chain: every farm
 screenshot now auto-persists as a graph container, ready for the Renders link to its page graph.
+
+## 2026-11-01 (zc) — FULL REVIEW SWEEP (the operator's completeness verification) — all layers fresh
+- Local git: 0 dirty at b78ade9. Local host: RESTORED (monitor posture, healthy). EU: active, healthy.
+- Fresh two-way checksum audit: 5 files had drifted local-vs-EU (the fork WIP + the declared_charset
+  edit — not yet synced); synced; the EU uidocument crate now passes **69/69 tests** with everything.
+  FINAL identity: 0 diffs across 307 shared rs/toml files.
+- The guides: all 8 governing docs present and current.
+- CC DOWN (weekly limit, resets 7pm Santo Domingo): its 8 modality forks + audit fork died mid-work;
+  their partial work WIP-committed (4af0752); I am the standing agent.
