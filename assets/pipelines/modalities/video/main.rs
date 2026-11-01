@@ -692,7 +692,18 @@ pub struct FrameResult {
     pub width: u32,
     pub height: u32,
     pub format: ImageFormat,
-    pub data: String, // Base64 encoded
+    pub data: String, // Base64 encoded (empty when over the inline cap — see `path`/`note`)
+    /// Temp-file path of the extracted frame (real file written by ffmpeg output).
+    #[serde(default)]
+    pub path: Option<String>,
+    /// FNV-1a 64 content hash (hex) of the encoded frame bytes — identity, not security.
+    #[serde(default)]
+    pub content_hash_fnv64: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    /// Pixel-grid geometry in frame "video-px" (docs/SPATIAL_GEOMETRY_LAYER.md).
+    #[serde(default)]
+    pub geom: Option<Value>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -703,6 +714,8 @@ pub struct ClipResult {
     pub has_audio: bool,
     pub path: Option<String>,
     pub data: Option<String>, // Base64 if small enough
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 // ============================================================================
@@ -914,243 +927,444 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ACTION IMPLEMENTATIONS
 // ============================================================================
 
+// ============================================================================
+// REAL VIDEO ANALYSIS (D16): ffprobe / ffmpeg adapters.
+// Every value below is either read from the file's own container/stream
+// metadata (ffprobe), or measured by an ffmpeg filter (scene cuts, silence,
+// loudness), or ABSENT with a reason. Object detection / tracking / shot typing
+// / speech-vs-music classification need models and are visual-mcp's surface.
+// ============================================================================
+
+const FFPROBE_MISSING: &str = "ffprobe not installed (video metadata is absent)";
+const FFMPEG_MISSING: &str = "ffmpeg not installed (this operation is absent)";
+const MAX_KEYFRAMES: usize = 400;
+const MAX_INLINE_FRAME_BYTES: usize = 2 * 1024 * 1024;
+
+/// A video made available as a local file. Byte inputs are written to the temp dir
+/// and removed on drop.
+struct LocalVideo {
+    path: String,
+    temp: bool,
+}
+
+impl Drop for LocalVideo {
+    fn drop(&mut self) {
+        if self.temp {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
+fn fnv64_hex(bytes: &[u8]) -> String {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:016x}", h)
+}
+
+fn materialize_video(v: &VideoData) -> Result<LocalVideo, String> {
+    match v {
+        VideoData::FilePath(p) => {
+            if p.contains('\0') || !std::path::Path::new(p).is_file() {
+                return Err(format!("video file not found: {p}"));
+            }
+            Ok(LocalVideo { path: p.clone(), temp: false })
+        }
+        VideoData::Bytes(b) => {
+            let path = std::env::temp_dir().join(format!("ozone-video-in-{}.bin", fnv64_hex(b)));
+            std::fs::write(&path, b).map_err(|e| format!("cannot stage video bytes: {e}"))?;
+            Ok(LocalVideo { path: path.to_string_lossy().into_owned(), temp: true })
+        }
+        VideoData::Url(u) => Err(format!("video URL input is absent: this pipeline does no network I/O ({u})")),
+    }
+}
+
+/// Run an external tool; "not found" becomes the exact absent-reason string.
+fn run_tool(bin: &str, args: &[String], missing: &str) -> Result<(Vec<u8>, String, bool), String> {
+    match std::process::Command::new(bin).args(args).output() {
+        Ok(o) => Ok((o.stdout, String::from_utf8_lossy(&o.stderr).into_owned(), o.status.success())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(missing.to_string()),
+        Err(e) => Err(format!("{bin} failed to start: {e}")),
+    }
+}
+
+fn tail(s: &str, n: usize) -> String {
+    let t: Vec<&str> = s.lines().rev().take(n).collect();
+    t.into_iter().rev().collect::<Vec<_>>().join(" | ")
+}
+
+fn ffprobe_json(path: &str) -> Result<Value, String> {
+    let args: Vec<String> = ["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", "-i", path].iter().map(|s| s.to_string()).collect();
+    let (out, err, ok) = run_tool("ffprobe", &args, FFPROBE_MISSING)?;
+    if !ok {
+        return Err(format!("ffprobe could not read the file: {}", tail(&err, 2)));
+    }
+    serde_json::from_slice(&out).map_err(|e| format!("ffprobe returned unparseable JSON: {e}"))
+}
+
+/// "30000/1001" -> 29.97; "0/0" and malformed -> None.
+fn parse_frame_rate(s: &str) -> Option<f64> {
+    let (n, d) = s.split_once('/')?;
+    let (n, d): (f64, f64) = (n.trim().parse().ok()?, d.trim().parse().ok()?);
+    if d == 0.0 || n <= 0.0 {
+        None
+    } else {
+        Some(n / d)
+    }
+}
+
+fn jstr(v: &Value, k: &str) -> Option<String> {
+    v.get(k).and_then(|x| x.as_str()).map(|s| s.to_string())
+}
+
+fn jnum_str(v: &Value, k: &str) -> Option<f64> {
+    v.get(k).and_then(|x| x.as_str().and_then(|s| s.parse::<f64>().ok()).or_else(|| x.as_f64()))
+}
+
+/// Container/stream facts -> VideoAnalysisResult (pure; testable on canned ffprobe JSON).
+fn probe_to_analysis(j: &Value, want_audio: bool) -> VideoAnalysisResult {
+    let empty = Vec::new();
+    let streams = j.get("streams").and_then(|s| s.as_array()).unwrap_or(&empty);
+    let fmt = j.get("format").cloned().unwrap_or(Value::Null);
+    let video = streams.iter().find(|s| {
+        s.get("codec_type").and_then(|c| c.as_str()) == Some("video")
+            && s.get("disposition").and_then(|d| d.get("attached_pic")).and_then(|a| a.as_i64()) != Some(1)
+    });
+    let audio = streams.iter().find(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("audio"));
+    let mut meta: HashMap<String, Value> = HashMap::new();
+    meta.insert("source".to_string(), Value::String("ffprobe".to_string()));
+    let mut absent: Vec<Value> = vec![
+        Value::String("shots: absent — shot typing/camera movement needs a classifier".to_string()),
+        Value::String("object_tracks: absent — detection/tracking needs models (visual-mcp over extracted frames)".to_string()),
+        Value::String("quality.*: absent — no computed estimator (0.0 means 'not computed')".to_string()),
+    ];
+
+    let mut res = VideoAnalysisResult::default();
+    if let Some(v) = video {
+        res.width = v.get("width").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+        res.height = v.get("height").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+        let fps = jstr(v, "avg_frame_rate").and_then(|s| parse_frame_rate(&s)).or_else(|| jstr(v, "r_frame_rate").and_then(|s| parse_frame_rate(&s)));
+        match fps {
+            Some(f) => res.fps = f as f32,
+            None => absent.push(Value::String("fps: absent — stream reports no valid frame rate".to_string())),
+        }
+        res.codec = jstr(v, "codec_name").unwrap_or_default();
+        for k in ["pix_fmt", "profile", "level", "field_order", "display_aspect_ratio", "sample_aspect_ratio", "color_space", "color_range", "bits_per_raw_sample"] {
+            if let Some(x) = v.get(k) {
+                meta.insert(k.to_string(), x.clone());
+            }
+        }
+        let rot = v
+            .get("tags")
+            .and_then(|t| t.get("rotate"))
+            .and_then(|r| r.as_str().and_then(|s| s.parse::<i64>().ok()))
+            .or_else(|| {
+                v.get("side_data_list")
+                    .and_then(|l| l.as_array())
+                    .and_then(|l| l.iter().find_map(|d| d.get("rotation").and_then(|r| r.as_i64())))
+            });
+        if let Some(r) = rot {
+            meta.insert("rotation_degrees".to_string(), Value::from(r));
+        }
+        if let Some(n) = jnum_str(v, "nb_frames") {
+            res.frame_count = n as u64;
+        }
+    } else {
+        absent.push(Value::String("video stream: absent — the file has no video stream".to_string()));
+    }
+    let dur = jnum_str(&fmt, "duration").or_else(|| video.and_then(|v| jnum_str(v, "duration")));
+    match dur {
+        Some(d) => res.duration_seconds = d as f32,
+        None => absent.push(Value::String("duration: absent — container reports none".to_string())),
+    }
+    if res.frame_count == 0 && res.fps > 0.0 && res.duration_seconds > 0.0 {
+        res.frame_count = (res.duration_seconds as f64 * res.fps as f64).floor() as u64;
+        meta.insert("frame_count_estimated".to_string(), Value::Bool(true));
+        meta.insert("frame_count_basis".to_string(), Value::String("floor(duration x fps); the stream reports no nb_frames".to_string()));
+    }
+    res.format = jstr(&fmt, "format_name").unwrap_or_default();
+    if let Some(n) = jstr(&fmt, "format_long_name") {
+        meta.insert("format_long_name".to_string(), Value::String(n));
+    }
+    if let Some(b) = jnum_str(&fmt, "bit_rate") {
+        res.bitrate_kbps = (b / 1000.0).round() as u32;
+    }
+    if let Some(tags) = fmt.get("tags") {
+        for k in ["creation_time", "title", "encoder", "major_brand"] {
+            if let Some(x) = tags.get(k) {
+                meta.insert(k.to_string(), x.clone());
+            }
+        }
+    }
+    if want_audio {
+        res.audio_analysis = Some(match audio {
+            Some(a) => AudioAnalysis {
+                has_audio: true,
+                codec: jstr(a, "codec_name"),
+                sample_rate: jnum_str(a, "sample_rate").map(|x| x as u32),
+                channels: a.get("channels").and_then(|c| c.as_u64()).map(|c| c as u8),
+                speech_segments: Vec::new(),
+                music_segments: Vec::new(),
+                silence_segments: Vec::new(),
+                loudness_lufs: None,
+            },
+            None => AudioAnalysis { has_audio: false, codec: None, sample_rate: None, channels: None, speech_segments: Vec::new(), music_segments: Vec::new(), silence_segments: Vec::new(), loudness_lufs: None },
+        });
+        absent.push(Value::String("audio speech/music segments: absent — classification needs a model".to_string()));
+    }
+    meta.insert("absent_reasons".to_string(), Value::Array(absent));
+    meta.insert(
+        "geom".to_string(),
+        serde_json::json!({"frame": "video-px", "kind": "grid", "x": 0, "y": 0, "w": res.width, "h": res.height, "origin": "top-left"}),
+    );
+    meta.insert(
+        "span".to_string(),
+        serde_json::json!({"frame": "time:video", "kind": "span", "start": 0.0, "end": res.duration_seconds}),
+    );
+    res.metadata = meta;
+    res
+}
+
+/// Scene cuts from ffmpeg's `select` + `metadata=print` output (stdout+stderr text).
+/// Lines carry `pts_time:<t>` then `lavfi.scene_score=<s>`; both layouts of
+/// different ffmpeg versions are accepted.
+fn parse_scene_cuts(text: &str) -> Vec<(f64, f64)> {
+    let mut cur: Option<f64> = None;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        if let Some(i) = line.find("pts_time:") {
+            let rest = &line[i + "pts_time:".len()..];
+            let num: String = rest.trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
+            if let Ok(t) = num.parse::<f64>() {
+                cur = Some(t);
+            }
+        }
+        if let Some(i) = line.find("lavfi.scene_score=") {
+            let rest = &line[i + "lavfi.scene_score=".len()..];
+            let num: String = rest.trim().chars().take_while(|c| c.is_ascii_digit() || *c == '.').collect();
+            if let (Some(t), Ok(s)) = (cur, num.parse::<f64>()) {
+                out.push((t, s));
+                cur = None;
+            }
+        }
+    }
+    out.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    out.dedup_by(|a, b| (a.0 - b.0).abs() < 1e-6);
+    out
+}
+
+/// silencedetect stderr -> (start, end) pairs; an unterminated silence ends at `total`.
+fn parse_silence(text: &str, total: f64) -> Vec<(f64, f64)> {
+    let mut out = Vec::new();
+    let mut open: Option<f64> = None;
+    let num_after = |line: &str, key: &str| -> Option<f64> {
+        let i = line.find(key)?;
+        let rest = &line[i + key.len()..];
+        let n: String = rest.trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
+        n.parse().ok()
+    };
+    for line in text.lines() {
+        if let Some(s) = num_after(line, "silence_start:") {
+            open = Some(s.max(0.0));
+        } else if let Some(e) = num_after(line, "silence_end:") {
+            if let Some(s) = open.take() {
+                out.push((s, e));
+            }
+        }
+    }
+    if let Some(s) = open {
+        if total > s {
+            out.push((s, total));
+        }
+    }
+    out
+}
+
+/// ebur128 summary -> integrated loudness (LUFS).
+fn parse_integrated_lufs(text: &str) -> Option<f32> {
+    let i = text.rfind("Integrated loudness")?;
+    let rest = &text[i..];
+    let j = rest.find("I:")?;
+    let num: String = rest[j + 2..].trim_start().chars().take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-').collect();
+    num.parse().ok()
+}
+
+/// ffprobe `-skip_frame nokey` frames JSON -> I-frame timestamps.
+fn parse_keyframes(j: &Value) -> Vec<f64> {
+    let mut v: Vec<f64> = j
+        .get("frames")
+        .and_then(|f| f.as_array())
+        .map(|a| a.iter().filter_map(|f| jnum_str(f, "pts_time").or_else(|| jnum_str(f, "best_effort_timestamp_time"))).collect())
+        .unwrap_or_default();
+    v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    v.dedup_by(|a, b| (*a - *b).abs() < 1e-6);
+    v.truncate(MAX_KEYFRAMES);
+    v
+}
+
+fn scene_cuts_for(path: &str, threshold: f64) -> Result<Vec<(f64, f64)>, String> {
+    let thr = if threshold > 0.0 { threshold.clamp(0.05, 0.95) } else { 0.4 };
+    let args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-i".into(),
+        path.into(),
+        "-an".into(),
+        "-vf".into(),
+        format!("select='gt(scene,{thr:.3})',metadata=print"),
+        "-f".into(),
+        "null".into(),
+        "-".into(),
+    ];
+    let (out, err, ok) = run_tool("ffmpeg", &args, FFMPEG_MISSING)?;
+    if !ok {
+        return Err(format!("ffmpeg scene detection failed: {}", tail(&err, 2)));
+    }
+    let text = format!("{}\n{}", String::from_utf8_lossy(&out), err);
+    Ok(parse_scene_cuts(&text))
+}
+
+/// Cuts -> contiguous scenes covering [0, duration]; cuts closer than `min_len` to the
+/// previous kept cut (or to either end) are dropped. First scene has no cut score: confidence 1.0
+/// is NOT a claim — it starts at 0 by definition (see metadata).
+fn scenes_from_cuts(cuts: &[(f64, f64)], duration: f64, fps: f64, min_len: f64) -> Vec<Scene> {
+    let mut kept: Vec<(f64, f64)> = Vec::new();
+    let mut last = 0.0f64;
+    for (t, s) in cuts {
+        if *t > last + min_len && *t < duration - min_len.min(duration) {
+            kept.push((*t, *s));
+            last = *t;
+        }
+    }
+    let mut bounds: Vec<(f64, f64)> = vec![(0.0, 1.0)];
+    bounds.extend(kept);
+    let mut scenes = Vec::new();
+    for (i, (start, score)) in bounds.iter().enumerate() {
+        let end = bounds.get(i + 1).map(|b| b.0).unwrap_or(duration);
+        if end <= *start {
+            continue;
+        }
+        let sf = (*start * fps).round() as u64;
+        let ef = (end * fps).round() as u64;
+        scenes.push(Scene {
+            scene_id: format!("scene_{}", i + 1),
+            scene_number: i + 1,
+            start_time: *start as f32,
+            end_time: end as f32,
+            start_frame: sf,
+            end_frame: ef,
+            description: None,
+            dominant_colors: Vec::new(),
+            key_objects: Vec::new(),
+            scene_type: None,
+            confidence: *score as f32,
+            thumbnail_frame: sf + (ef.saturating_sub(sf)) / 2,
+        });
+    }
+    scenes
+}
+
+fn analyze_video_blocking(
+    path: &str,
+    detect_scenes: bool,
+    detect_objects: bool,
+    analyze_audio: bool,
+    extract_keyframes: bool,
+) -> Result<VideoAnalysisResult, String> {
+    let probe = ffprobe_json(path)?;
+    let mut res = probe_to_analysis(&probe, analyze_audio);
+    let dur = res.duration_seconds as f64;
+    let fps = res.fps as f64;
+    let mut notes: Vec<Value> = Vec::new();
+
+    if detect_scenes {
+        if dur > 0.0 && fps > 0.0 {
+            match scene_cuts_for(path, 0.4) {
+                Ok(cuts) => {
+                    res.scenes = scenes_from_cuts(&cuts, dur, fps, 0.0);
+                    notes.push(Value::String("scenes: ffmpeg select(scene>0.4); confidence = the cut's scene score; scene 1 starts at 0 by definition (confidence 1.0 is not a score)".to_string()));
+                }
+                Err(e) => notes.push(Value::String(format!("scenes: absent — {e}"))),
+            }
+        } else {
+            notes.push(Value::String("scenes: absent — duration or frame rate unknown".to_string()));
+        }
+    }
+    if extract_keyframes {
+        let args: Vec<String> = ["-v", "quiet", "-select_streams", "v:0", "-skip_frame", "nokey", "-show_entries", "frame=pts_time,best_effort_timestamp_time", "-of", "json", "-i", path].iter().map(|s| s.to_string()).collect();
+        match run_tool("ffprobe", &args, FFPROBE_MISSING) {
+            Ok((out, _, true)) => {
+                let times = parse_keyframes(&serde_json::from_slice::<Value>(&out).unwrap_or(Value::Null));
+                for t in times {
+                    let scene = res.scenes.iter().find(|s| (s.start_time as f64) <= t + 1e-3 && t < s.end_time as f64 + 1e-3);
+                    let at_start = scene.map(|s| (s.start_time as f64 - t).abs() < 0.05).unwrap_or(false);
+                    res.keyframes.push(Keyframe {
+                        frame_number: (t * fps).round() as u64,
+                        timestamp: t as f32,
+                        significance: if at_start { KeyframeSignificance::SceneStart } else { KeyframeSignificance::Periodic },
+                        score: 1.0,
+                        objects: Vec::new(),
+                        scene_id: scene.map(|s| s.scene_id.clone()),
+                        shot_id: None,
+                    });
+                }
+                notes.push(Value::String("keyframes: codec I-frames (score 1.0 = certain I-frame, NOT visual importance; capped at 400)".to_string()));
+            }
+            Ok((_, err, false)) => notes.push(Value::String(format!("keyframes: absent — ffprobe failed: {}", tail(&err, 2)))),
+            Err(e) => notes.push(Value::String(format!("keyframes: absent — {e}"))),
+        }
+    }
+    if analyze_audio {
+        if let Some(a) = res.audio_analysis.as_mut() {
+            if a.has_audio {
+                let sil_args: Vec<String> = ["-hide_banner", "-nostats", "-i", path, "-vn", "-af", "silencedetect=noise=-35dB:d=0.5", "-f", "null", "-"].iter().map(|s| s.to_string()).collect();
+                match run_tool("ffmpeg", &sil_args, FFMPEG_MISSING) {
+                    Ok((_, err, true)) => {
+                        a.silence_segments = parse_silence(&err, dur)
+                            .into_iter()
+                            .map(|(s, e)| AudioSegment { start_time: s as f32, end_time: e as f32, segment_type: "silence".to_string(), confidence: 1.0 })
+                            .collect();
+                        notes.push(Value::String("audio silence: ffmpeg silencedetect noise<=-35dB d>=0.5s (threshold decision; confidence 1.0 = rule satisfied)".to_string()));
+                    }
+                    Ok((_, err, false)) => notes.push(Value::String(format!("audio silence: absent — ffmpeg failed: {}", tail(&err, 2)))),
+                    Err(e) => notes.push(Value::String(format!("audio silence: absent — {e}"))),
+                }
+                let ld_args: Vec<String> = ["-hide_banner", "-nostats", "-i", path, "-vn", "-af", "ebur128=framelog=quiet", "-f", "null", "-"].iter().map(|s| s.to_string()).collect();
+                if let Ok((_, err, true)) = run_tool("ffmpeg", &ld_args, FFMPEG_MISSING) {
+                    a.loudness_lufs = parse_integrated_lufs(&err);
+                }
+            }
+        }
+    }
+    if detect_objects {
+        notes.push(Value::String("object_tracks: absent — detection needs models (extract frames, then visual-mcp yolo_detect)".to_string()));
+    }
+    if !notes.is_empty() {
+        res.metadata.insert("analysis_notes".to_string(), Value::Array(notes));
+    }
+    Ok(res)
+}
+
 async fn analyze_video(
-    _video_data: &VideoData,
-    depth: AnalysisDepth,
+    video_data: &VideoData,
+    _depth: AnalysisDepth,
     _sample_rate_fps: f32,
     detect_scenes: bool,
     detect_objects: bool,
     analyze_audio: bool,
     extract_keyframes: bool,
 ) -> Result<VideoAnalysisResult, String> {
-    // In production, this would use FFmpeg/OpenCV for video analysis
-
-    let duration = 120.0; // 2 minute video
-    let fps = 30.0;
-    let frame_count = (duration * fps) as u64;
-
-    let mut scenes = Vec::new();
-    let mut shots = Vec::new();
-    let mut keyframes = Vec::new();
-    let mut object_tracks = Vec::new();
-
-    if detect_scenes {
-        // Sample scene detection
-        scenes.push(Scene {
-            scene_id: "scene_1".to_string(),
-            scene_number: 1,
-            start_time: 0.0,
-            end_time: 30.0,
-            start_frame: 0,
-            end_frame: 900,
-            description: Some("Opening scene".to_string()),
-            dominant_colors: vec![Color {
-                r: 50,
-                g: 100,
-                b: 150,
-                percentage: 0.4,
-                name: Some("Blue".to_string()),
-            }],
-            key_objects: vec!["person".to_string()],
-            scene_type: Some(SceneType::Establishing),
-            confidence: 0.92,
-            thumbnail_frame: 450,
-        });
-
-        scenes.push(Scene {
-            scene_id: "scene_2".to_string(),
-            scene_number: 2,
-            start_time: 30.0,
-            end_time: 75.0,
-            start_frame: 900,
-            end_frame: 2250,
-            description: Some("Main dialog".to_string()),
-            dominant_colors: vec![Color {
-                r: 200,
-                g: 180,
-                b: 160,
-                percentage: 0.5,
-                name: Some("Beige".to_string()),
-            }],
-            key_objects: vec!["person".to_string(), "table".to_string()],
-            scene_type: Some(SceneType::Dialog),
-            confidence: 0.88,
-            thumbnail_frame: 1500,
-        });
-
-        scenes.push(Scene {
-            scene_id: "scene_3".to_string(),
-            scene_number: 3,
-            start_time: 75.0,
-            end_time: 120.0,
-            start_frame: 2250,
-            end_frame: 3600,
-            description: Some("Closing scene".to_string()),
-            dominant_colors: vec![Color {
-                r: 30,
-                g: 30,
-                b: 30,
-                percentage: 0.6,
-                name: Some("Dark".to_string()),
-            }],
-            key_objects: vec![],
-            scene_type: Some(SceneType::Credits),
-            confidence: 0.95,
-            thumbnail_frame: 3000,
-        });
-
-        // Add shots for each scene
-        for scene in &scenes {
-            let shot_count = ((scene.end_time - scene.start_time) / 10.0).ceil() as usize;
-            for i in 0..shot_count {
-                let shot_start = scene.start_time + (i as f32 * 10.0);
-                let shot_end = (shot_start + 10.0).min(scene.end_time);
-
-                shots.push(Shot {
-                    shot_id: format!("{}_shot_{}", scene.scene_id, i + 1),
-                    scene_id: scene.scene_id.clone(),
-                    shot_number: i + 1,
-                    start_time: shot_start,
-                    end_time: shot_end,
-                    start_frame: (shot_start * fps) as u64,
-                    end_frame: (shot_end * fps) as u64,
-                    shot_type: ShotType::MediumShot,
-                    camera_movement: Some(CameraMovement::Static),
-                    confidence: 0.85,
-                });
-            }
-        }
-    }
-
-    if extract_keyframes {
-        // Add keyframes at scene boundaries and midpoints
-        for scene in &scenes {
-            keyframes.push(Keyframe {
-                frame_number: scene.start_frame,
-                timestamp: scene.start_time,
-                significance: KeyframeSignificance::SceneStart,
-                score: 0.95,
-                objects: vec![],
-                scene_id: Some(scene.scene_id.clone()),
-                shot_id: None,
-            });
-
-            keyframes.push(Keyframe {
-                frame_number: scene.thumbnail_frame,
-                timestamp: scene.start_time + (scene.duration() / 2.0),
-                significance: KeyframeSignificance::VisuallyDistinct,
-                score: 0.80,
-                objects: vec![],
-                scene_id: Some(scene.scene_id.clone()),
-                shot_id: None,
-            });
-        }
-    }
-
-    if detect_objects {
-        object_tracks.push(ObjectTrack {
-            track_id: "track_1".to_string(),
-            object_label: "person".to_string(),
-            appearances: vec![ObjectAppearance {
-                start_time: 0.0,
-                end_time: 75.0,
-                bounding_boxes: vec![
-                    TimestampedBox {
-                        timestamp: 0.0,
-                        frame_number: 0,
-                        bounding_box: BoundingBox {
-                            x: 200.0,
-                            y: 100.0,
-                            width: 150.0,
-                            height: 400.0,
-                        },
-                        confidence: 0.92,
-                    },
-                    TimestampedBox {
-                        timestamp: 30.0,
-                        frame_number: 900,
-                        bounding_box: BoundingBox {
-                            x: 250.0,
-                            y: 120.0,
-                            width: 140.0,
-                            height: 380.0,
-                        },
-                        confidence: 0.90,
-                    },
-                ],
-                confidence: 0.91,
-            }],
-            total_visible_time: 75.0,
-            first_seen: 0.0,
-            last_seen: 75.0,
-            avg_confidence: 0.91,
-        });
-    }
-
-    let audio_analysis = if analyze_audio {
-        Some(AudioAnalysis {
-            has_audio: true,
-            codec: Some("AAC".to_string()),
-            sample_rate: Some(48000),
-            channels: Some(2),
-            speech_segments: vec![AudioSegment {
-                start_time: 30.0,
-                end_time: 75.0,
-                segment_type: "speech".to_string(),
-                confidence: 0.88,
-            }],
-            music_segments: vec![
-                AudioSegment {
-                    start_time: 0.0,
-                    end_time: 30.0,
-                    segment_type: "music".to_string(),
-                    confidence: 0.85,
-                },
-                AudioSegment {
-                    start_time: 75.0,
-                    end_time: 120.0,
-                    segment_type: "music".to_string(),
-                    confidence: 0.90,
-                },
-            ],
-            silence_segments: vec![],
-            loudness_lufs: Some(-16.0),
-        })
-    } else {
-        None
-    };
-
-    let quality_score = match depth {
-        AnalysisDepth::Surface => 0.70,
-        AnalysisDepth::Standard => 0.80,
-        AnalysisDepth::Deep => 0.88,
-        AnalysisDepth::Comprehensive => 0.92,
-    };
-
-    Ok(VideoAnalysisResult {
-        duration_seconds: duration,
-        width: 1920,
-        height: 1080,
-        fps,
-        frame_count,
-        codec: "H.264".to_string(),
-        format: "MP4".to_string(),
-        bitrate_kbps: 8000,
-        scenes,
-        shots,
-        keyframes,
-        object_tracks,
-        audio_analysis,
-        quality: VideoQuality {
-            bitrate_quality: 0.85,
-            resolution_quality: 0.95,
-            framerate_stability: 0.98,
-            compression_artifacts: 0.1,
-            overall_score: quality_score,
-            issues: vec![],
-        },
-        metadata: HashMap::new(),
+    let lv = materialize_video(video_data)?;
+    tokio::task::spawn_blocking(move || {
+        let path = lv.path.clone();
+        let r = analyze_video_blocking(&path, detect_scenes, detect_objects, analyze_audio, extract_keyframes);
+        drop(lv);
+        r
     })
+    .await
+    .map_err(|e| format!("analysis task failed: {e}"))?
 }
 
 // ============================================================================
@@ -1265,6 +1479,11 @@ async fn create_graph(
             props.insert("height".to_string(), Value::from(analysis.height));
             props.insert("fps".to_string(), Value::from(analysis.fps));
             props.insert("codec".to_string(), Value::from(analysis.codec.clone()));
+            // Geometry (docs/SPATIAL_GEOMETRY_LAYER.md): the picture plane is a pixel
+            // grid in frame "video-px"; the clip's extent in time is a Span.
+            props.insert("geom".to_string(), serde_json::json!({"frame": "video-px", "kind": "grid", "x": 0, "y": 0, "w": analysis.width, "h": analysis.height, "origin": "top-left"}));
+            props.insert("frame".to_string(), Value::from("video-px"));
+            props.insert("span".to_string(), serde_json::json!({"frame": "time:video", "kind": "span", "start": 0.0, "end": analysis.duration_seconds}));
             props
         },
         annotations: vec![],
@@ -1302,6 +1521,7 @@ async fn create_graph(
                         serde_json::to_value(st).unwrap_or(Value::Null),
                     );
                 }
+                props.insert("geom".to_string(), serde_json::json!({"frame": "time:video", "kind": "span", "start": scene.start_time, "end": scene.end_time}));
                 props
             },
             annotations: vec![],
@@ -1379,7 +1599,11 @@ async fn create_graph(
                 end: shot.end_frame,
             }),
             confidence: shot.confidence,
-            properties: HashMap::new(),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("geom".to_string(), serde_json::json!({"frame": "time:video", "kind": "span", "start": shot.start_time, "end": shot.end_time}));
+                props
+            },
             annotations: vec![],
         });
 
@@ -1416,7 +1640,11 @@ async fn create_graph(
                 end: keyframe.frame_number,
             }),
             confidence: keyframe.score,
-            properties: HashMap::new(),
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("geom".to_string(), serde_json::json!({"frame": "time:video", "kind": "span", "start": keyframe.timestamp, "end": keyframe.timestamp}));
+                props
+            },
             annotations: vec![],
         });
 
@@ -1685,80 +1913,212 @@ async fn get_graph(graph_id: u64) -> Result<VideoGraph, String> {
     })
 }
 
-async fn extract_frame(
-    _video_data: &VideoData,
-    timestamp: f32,
-    format: ImageFormat,
-) -> Result<FrameResult, String> {
-    // In production, use FFmpeg to extract frame
+/// width/height from PNG, JPEG (SOF) or WEBP bytes — only what the bytes decide.
+fn encoded_frame_dims(b: &[u8]) -> Option<(u32, u32)> {
+    if b.len() >= 24 && b.starts_with(&[0x89u8, b'P', b'N', b'G']) {
+        return Some((u32::from_be_bytes([b[16], b[17], b[18], b[19]]), u32::from_be_bytes([b[20], b[21], b[22], b[23]])));
+    }
+    if b.len() >= 4 && b[0] == 0xFF && b[1] == 0xD8 {
+        let mut i = 2usize;
+        while i + 9 <= b.len() {
+            if b[i] != 0xFF {
+                i += 1;
+                continue;
+            }
+            let m = b[i + 1];
+            if (0xC0..=0xCF).contains(&m) && ![0xC4u8, 0xC8, 0xCC].contains(&m) {
+                return Some((u16::from_be_bytes([b[i + 7], b[i + 8]]) as u32, u16::from_be_bytes([b[i + 5], b[i + 6]]) as u32));
+            }
+            i += 2 + u16::from_be_bytes([b[i + 2], b[i + 3]]) as usize;
+        }
+        return None;
+    }
+    if b.len() >= 30 && &b[0..4] == b"RIFF" && &b[8..12] == b"WEBP" {
+        return match &b[12..16] {
+            b"VP8X" => Some((1 + (b[24] as u32 | (b[25] as u32) << 8 | (b[26] as u32) << 16), 1 + (b[27] as u32 | (b[28] as u32) << 8 | (b[29] as u32) << 16))),
+            b"VP8L" if b[20] == 0x2F => {
+                let bits = u32::from_le_bytes([b[21], b[22], b[23], b[24]]);
+                Some(((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1))
+            }
+            b"VP8 " if b[23..26] == [0x9D, 0x01, 0x2A] => Some(((u16::from_le_bytes([b[26], b[27]]) & 0x3FFF) as u32, (u16::from_le_bytes([b[28], b[29]]) & 0x3FFF) as u32)),
+            _ => None,
+        };
+    }
+    None
+}
 
+fn extract_frame_blocking(path: &str, timestamp: f32, format: ImageFormat) -> Result<FrameResult, String> {
+    if !timestamp.is_finite() || timestamp < 0.0 {
+        return Err("timestamp must be a finite number of seconds >= 0".to_string());
+    }
+    let (codec, ext) = match format {
+        ImageFormat::PNG => ("png", "png"),
+        ImageFormat::JPEG => ("mjpeg", "jpg"),
+        ImageFormat::WebP => ("libwebp", "webp"),
+    };
+    let args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-v".into(),
+        "error".into(),
+        "-ss".into(),
+        format!("{timestamp:.3}"),
+        "-i".into(),
+        path.into(),
+        "-frames:v".into(),
+        "1".into(),
+        "-f".into(),
+        "image2pipe".into(),
+        "-c:v".into(),
+        codec.into(),
+        "-".into(),
+    ];
+    let (bytes, err, ok) = run_tool("ffmpeg", &args, FFMPEG_MISSING)?;
+    if !ok || bytes.is_empty() {
+        return Err(format!(
+            "no frame produced at {timestamp:.3}s (past the end of the stream, or the {codec} encoder is unavailable): {}",
+            tail(&err, 2)
+        ));
+    }
+    let (width, height) = encoded_frame_dims(&bytes).unwrap_or((0, 0));
+    let mut note: Vec<String> = Vec::new();
+    let frame_number = match ffprobe_json(path) {
+        Ok(j) => {
+            let a = probe_to_analysis(&j, false);
+            if a.fps > 0.0 {
+                (timestamp as f64 * a.fps as f64).floor() as u64
+            } else {
+                note.push("frame_number is 0: the stream reports no frame rate".to_string());
+                0
+            }
+        }
+        Err(e) => {
+            note.push(format!("frame_number is 0: {e}"));
+            0
+        }
+    };
+    let hash = fnv64_hex(&bytes);
+    let out_path = std::env::temp_dir().join(format!("ozone-video-frame-{hash}.{ext}"));
+    let path_str = match std::fs::write(&out_path, &bytes) {
+        Ok(_) => Some(out_path.to_string_lossy().into_owned()),
+        Err(e) => {
+            note.push(format!("frame file not written: {e}"));
+            None
+        }
+    };
+    let data = if bytes.len() <= MAX_INLINE_FRAME_BYTES {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        STANDARD.encode(&bytes)
+    } else {
+        note.push(format!("frame data not inlined ({} bytes > {} byte cap): read it from `path`", bytes.len(), MAX_INLINE_FRAME_BYTES));
+        String::new()
+    };
     Ok(FrameResult {
         timestamp,
-        frame_number: (timestamp * 30.0) as u64,
-        width: 1920,
-        height: 1080,
+        frame_number,
+        width,
+        height,
         format,
-        data: "base64_encoded_frame_data".to_string(),
+        data,
+        path: path_str,
+        content_hash_fnv64: Some(hash),
+        note: if note.is_empty() { None } else { Some(note.join("; ")) },
+        geom: Some(serde_json::json!({"frame": "video-px", "kind": "grid", "x": 0, "y": 0, "w": width, "h": height, "origin": "top-left", "at_time": timestamp})),
     })
 }
 
-async fn extract_clip(
-    _video_data: &VideoData,
-    start_time: f32,
-    end_time: f32,
-    include_audio: bool,
-) -> Result<ClipResult, String> {
-    // In production, use FFmpeg to extract clip
+async fn extract_frame(video_data: &VideoData, timestamp: f32, format: ImageFormat) -> Result<FrameResult, String> {
+    let lv = materialize_video(video_data)?;
+    tokio::task::spawn_blocking(move || {
+        let r = extract_frame_blocking(&lv.path, timestamp, format);
+        drop(lv);
+        r
+    })
+    .await
+    .map_err(|e| format!("frame task failed: {e}"))?
+}
 
+fn extract_clip_blocking(path: &str, start_time: f32, end_time: f32, include_audio: bool) -> Result<ClipResult, String> {
+    if !(start_time.is_finite() && end_time.is_finite()) || start_time < 0.0 || end_time <= start_time {
+        return Err("clip range must satisfy 0 <= start < end (finite seconds)".to_string());
+    }
+    let hash = fnv64_hex(format!("{path}|{start_time}|{end_time}|{include_audio}").as_bytes());
+    let out_path = std::env::temp_dir().join(format!("ozone-video-clip-{hash}.mp4"));
+    let out_str = out_path.to_string_lossy().into_owned();
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-v".into(),
+        "error".into(),
+        "-y".into(),
+        "-ss".into(),
+        format!("{start_time:.3}"),
+        "-i".into(),
+        path.into(),
+        "-t".into(),
+        format!("{:.3}", end_time - start_time),
+        "-c".into(),
+        "copy".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+    ];
+    if !include_audio {
+        args.push("-an".into());
+    }
+    args.push(out_str.clone());
+    let (_, err, ok) = run_tool("ffmpeg", &args, FFMPEG_MISSING)?;
+    let size = std::fs::metadata(&out_path).map(|m| m.len()).unwrap_or(0);
+    if !ok || size == 0 {
+        return Err(format!("clip extraction failed: {}", tail(&err, 2)));
+    }
+    let has_audio = ffprobe_json(&out_str)
+        .map(|j| j.get("streams").and_then(|s| s.as_array()).map(|a| a.iter().any(|s| s.get("codec_type").and_then(|c| c.as_str()) == Some("audio"))).unwrap_or(false))
+        .unwrap_or(include_audio);
     Ok(ClipResult {
         start_time,
         end_time,
         duration: end_time - start_time,
-        has_audio: include_audio,
-        path: Some("/tmp/extracted_clip.mp4".to_string()),
+        has_audio,
+        path: Some(out_str),
         data: None,
+        note: Some("stream copy (-c copy): cut points snap to the nearest preceding keyframe; the written duration may exceed the request".to_string()),
     })
 }
 
-async fn detect_scenes(
-    _video_data: &VideoData,
-    _threshold: f32,
-    _min_scene_length: f32,
-) -> Result<Vec<Scene>, String> {
-    // In production, use scene detection algorithm
-
-    Ok(vec![Scene {
-        scene_id: "scene_1".to_string(),
-        scene_number: 1,
-        start_time: 0.0,
-        end_time: 60.0,
-        start_frame: 0,
-        end_frame: 1800,
-        description: Some("Detected scene".to_string()),
-        dominant_colors: vec![],
-        key_objects: vec![],
-        scene_type: None,
-        confidence: 0.85,
-        thumbnail_frame: 900,
-    }])
+async fn extract_clip(video_data: &VideoData, start_time: f32, end_time: f32, include_audio: bool) -> Result<ClipResult, String> {
+    let lv = materialize_video(video_data)?;
+    tokio::task::spawn_blocking(move || {
+        let r = extract_clip_blocking(&lv.path, start_time, end_time, include_audio);
+        drop(lv);
+        r
+    })
+    .await
+    .map_err(|e| format!("clip task failed: {e}"))?
 }
 
-async fn track_objects(
-    _video_data: &VideoData,
-    _object_classes: Option<Vec<String>>,
-    _sample_rate_fps: f32,
-) -> Result<Vec<ObjectTrack>, String> {
-    // In production, use object tracking algorithm
+async fn detect_scenes(video_data: &VideoData, threshold: f32, min_scene_length: f32) -> Result<Vec<Scene>, String> {
+    let lv = materialize_video(video_data)?;
+    tokio::task::spawn_blocking(move || {
+        let r = (|| -> Result<Vec<Scene>, String> {
+            let a = probe_to_analysis(&ffprobe_json(&lv.path)?, false);
+            if !(a.duration_seconds > 0.0 && a.fps > 0.0) {
+                return Err("scene detection absent: duration or frame rate unknown".to_string());
+            }
+            let cuts = scene_cuts_for(&lv.path, threshold as f64)?;
+            Ok(scenes_from_cuts(&cuts, a.duration_seconds as f64, a.fps as f64, min_scene_length.max(0.0) as f64))
+        })();
+        drop(lv);
+        r
+    })
+    .await
+    .map_err(|e| format!("scene task failed: {e}"))?
+}
 
-    Ok(vec![ObjectTrack {
-        track_id: "track_1".to_string(),
-        object_label: "person".to_string(),
-        appearances: vec![],
-        total_visible_time: 30.0,
-        first_seen: 0.0,
-        last_seen: 30.0,
-        avg_confidence: 0.85,
-    }])
+async fn track_objects(_video_data: &VideoData, _object_classes: Option<Vec<String>>, _sample_rate_fps: f32) -> Result<Vec<ObjectTrack>, String> {
+    // D16: the old canned 'person' track is deleted. Tracking needs per-frame
+    // detections (extract frames here, run visual-mcp yolo_detect, then link boxes
+    // across frames); that composition is orchestration above this pipeline.
+    Err("object tracking is absent: it needs per-frame detections from visual-mcp (extract frames, yolo_detect, then link) — this pipeline does not fabricate tracks".to_string())
 }
 
 /// Append one real ZSEI Relation (RelatedTo, discovered_via Manual — this is
@@ -1922,11 +2282,12 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_analyze_video() {
+    async fn test_analyze_video_missing_file_is_an_error_not_a_canned_result() {
+        // D16: the 120 s / 30 fps / 'person' track fabrication is gone; a missing file errors.
         let input = serde_json::json!({
             "action": {
                 "type": "Analyze",
-                "video_data": {"FilePath": "/test/video.mp4"},
+                "video_data": {"FilePath": "/test/video-does-not-exist.mp4"},
                 "depth": "Standard",
                 "sample_rate_fps": 1.0,
                 "detect_scenes": true,
@@ -1935,9 +2296,9 @@ mod tests {
                 "extract_keyframes": true
             }
         });
-
         let result = execute(input).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
     }
 
     #[test]
@@ -1954,5 +2315,161 @@ mod tests {
         assert!(tr1.overlaps(&tr2));
         assert!(tr1.contains(15.0));
         assert!(!tr1.contains(35.0));
+    }
+
+    fn canned_probe() -> Value {
+        serde_json::json!({
+            "streams": [
+                {"codec_type": "video", "codec_name": "h264", "width": 1280, "height": 720,
+                 "avg_frame_rate": "30000/1001", "r_frame_rate": "30000/1001", "pix_fmt": "yuv420p",
+                 "nb_frames": "300", "duration": "10.01", "side_data_list": [{"rotation": -90}]},
+                {"codec_type": "audio", "codec_name": "aac", "sample_rate": "48000", "channels": 2}
+            ],
+            "format": {"format_name": "mov,mp4,m4a,3gp,3g2,mj2", "format_long_name": "QuickTime / MOV",
+                       "duration": "10.010000", "bit_rate": "2500000", "tags": {"creation_time": "2026-01-02T03:04:05Z"}}
+        })
+    }
+
+    #[test]
+    fn probe_json_becomes_real_metadata_only() {
+        let a = probe_to_analysis(&canned_probe(), true);
+        assert_eq!((a.width, a.height), (1280, 720));
+        assert!((a.fps - 29.97).abs() < 0.01);
+        assert_eq!(a.codec, "h264");
+        assert_eq!(a.frame_count, 300);
+        assert_eq!(a.bitrate_kbps, 2500);
+        assert!((a.duration_seconds - 10.01).abs() < 1e-3);
+        let au = a.audio_analysis.unwrap();
+        assert!(au.has_audio && au.sample_rate == Some(48000) && au.channels == Some(2));
+        assert!(au.speech_segments.is_empty() && au.music_segments.is_empty());
+        assert_eq!(a.metadata["rotation_degrees"], -90);
+        assert!(a.scenes.is_empty() && a.shots.is_empty() && a.object_tracks.is_empty());
+        assert_eq!(a.metadata["geom"]["frame"], "video-px");
+        assert_eq!(a.metadata["span"]["kind"], "span");
+        assert!(a.metadata["absent_reasons"].to_string().contains("object_tracks"));
+    }
+
+    #[test]
+    fn missing_stream_fields_are_absent_not_invented() {
+        let a = probe_to_analysis(&serde_json::json!({"streams": [], "format": {}}), true);
+        assert_eq!(a.width, 0);
+        assert_eq!(a.duration_seconds, 0.0);
+        assert!(!a.audio_analysis.unwrap().has_audio);
+        let r = a.metadata["absent_reasons"].to_string();
+        assert!(r.contains("video stream") && r.contains("duration"));
+    }
+
+    #[test]
+    fn frame_count_is_marked_estimated_when_not_reported() {
+        let j = serde_json::json!({"streams": [{"codec_type": "video", "width": 8, "height": 8, "avg_frame_rate": "10/1", "duration": "2.0"}], "format": {"duration": "2.0"}});
+        let a = probe_to_analysis(&j, false);
+        assert_eq!(a.frame_count, 20);
+        assert_eq!(a.metadata["frame_count_estimated"], true);
+    }
+
+    #[test]
+    fn frame_rate_parsing_rejects_zero_and_garbage() {
+        assert_eq!(parse_frame_rate("25/1"), Some(25.0));
+        assert!(parse_frame_rate("0/0").is_none());
+        assert!(parse_frame_rate("abc").is_none());
+        assert!(parse_frame_rate("30/0").is_none());
+    }
+
+    #[test]
+    fn scene_cuts_parse_both_ffmpeg_layouts_and_build_contiguous_scenes() {
+        let text = "[Parsed_metadata_1 @ 0x1] frame:120  pts:3003    pts_time:4.004\n[Parsed_metadata_1 @ 0x1] lavfi.scene_score=0.62\nframe:300 pts:9009 pts_time:10.01\nlavfi.scene_score=0.45\n";
+        let cuts = parse_scene_cuts(text);
+        assert_eq!(cuts.len(), 2);
+        assert!((cuts[0].0 - 4.004).abs() < 1e-9 && (cuts[0].1 - 0.62).abs() < 1e-9);
+        let scenes = scenes_from_cuts(&cuts, 20.0, 25.0, 0.0);
+        assert_eq!(scenes.len(), 3);
+        assert_eq!(scenes[0].start_time, 0.0);
+        assert!((scenes[2].end_time - 20.0).abs() < 1e-6);
+        assert!(scenes.windows(2).all(|w| (w[0].end_time - w[1].start_time).abs() < 1e-6));
+        assert!(scenes.iter().all(|s| s.description.is_none() && s.key_objects.is_empty() && s.scene_type.is_none()));
+        // min length merges: a cut 0.2 s after the previous one is dropped
+        let close = vec![(5.0, 0.5), (5.2, 0.5), (12.0, 0.7)];
+        assert_eq!(scenes_from_cuts(&close, 20.0, 25.0, 1.0).len(), 3);
+        // a score line with no preceding time is not paired
+        assert!(parse_scene_cuts("lavfi.scene_score=0.9\n").is_empty());
+    }
+
+    #[test]
+    fn silence_and_loudness_parsers() {
+        let text = "[silencedetect @ 0x1] silence_start: 1.5\n[silencedetect @ 0x1] silence_end: 3.25 | silence_duration: 1.75\n[silencedetect @ 0x1] silence_start: 8.0\n";
+        let s = parse_silence(text, 10.0);
+        assert_eq!(s, vec![(1.5, 3.25), (8.0, 10.0)]);
+        assert!(parse_silence("nothing here", 10.0).is_empty());
+        let l = "  Integrated loudness:\n    I:         -23.4 LUFS\n    Threshold: -33.4 LUFS\n";
+        assert_eq!(parse_integrated_lufs(l), Some(-23.4));
+        assert_eq!(parse_integrated_lufs("no summary"), None);
+    }
+
+    #[test]
+    fn keyframe_json_is_sorted_deduped_and_capped() {
+        let j = serde_json::json!({"frames": [{"pts_time": "4.0"}, {"pts_time": "0.0"}, {"best_effort_timestamp_time": "2.0"}, {"pts_time": "4.0"}]});
+        assert_eq!(parse_keyframes(&j), vec![0.0, 2.0, 4.0]);
+        assert!(parse_keyframes(&Value::Null).is_empty());
+    }
+
+    #[test]
+    fn staged_bytes_are_removed_and_urls_are_refused() {
+        let lv = materialize_video(&VideoData::Bytes(vec![1, 2, 3, 4])).unwrap();
+        let path = lv.path.clone();
+        assert!(std::path::Path::new(&path).is_file());
+        drop(lv);
+        assert!(!std::path::Path::new(&path).exists());
+        assert!(materialize_video(&VideoData::Url("http://x/y.mp4".to_string())).unwrap_err().contains("no network"));
+        assert!(materialize_video(&VideoData::FilePath("/definitely/not/here.mp4".to_string())).is_err());
+    }
+
+    #[test]
+    fn track_objects_never_fabricates() {
+        let r = futures_block(track_objects(&VideoData::Bytes(vec![]), None, 1.0));
+        assert!(r.unwrap_err().contains("absent"));
+    }
+
+    fn futures_block<F: std::future::Future>(f: F) -> F::Output {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(f)
+    }
+
+    #[test]
+    fn frame_dimension_sniffing() {
+        let mut png = vec![0x89u8, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, b'I', b'H', b'D', b'R'];
+        png.extend_from_slice(&64u32.to_be_bytes());
+        png.extend_from_slice(&48u32.to_be_bytes());
+        assert_eq!(encoded_frame_dims(&png), Some((64, 48)));
+        assert_eq!(encoded_frame_dims(b"nope"), None);
+    }
+
+    fn tool_available(bin: &str) -> bool {
+        std::process::Command::new(bin).arg("-version").output().map(|o| o.status.success()).unwrap_or(false)
+    }
+
+    /// Conditional integration test: runs only where ffmpeg+ffprobe exist (EU), builds a
+    /// real 2 s 64x48 10 fps test pattern, and checks the pipeline's measurements against
+    /// the values it was generated with. Skips (returns) when the tools are absent — an
+    /// honest skip, not a pass claim.
+    #[test]
+    fn real_ffmpeg_roundtrip_when_tools_exist() {
+        if !(tool_available("ffmpeg") && tool_available("ffprobe")) {
+            eprintln!("SKIPPED: ffmpeg/ffprobe not installed");
+            return;
+        }
+        let out = std::env::temp_dir().join("ozone-video-test-64x48.mp4");
+        let st = std::process::Command::new("ffmpeg")
+            .args(["-hide_banner", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=64x48:rate=10", "-pix_fmt", "yuv420p", out.to_str().unwrap()])
+            .status()
+            .unwrap();
+        assert!(st.success());
+        let a = analyze_video_blocking(out.to_str().unwrap(), true, false, false, true).unwrap();
+        assert_eq!((a.width, a.height), (64, 48));
+        assert!((a.fps - 10.0).abs() < 0.01);
+        assert!((a.duration_seconds - 2.0).abs() < 0.2);
+        assert!(!a.keyframes.is_empty());
+        let f = extract_frame_blocking(out.to_str().unwrap(), 0.5, ImageFormat::PNG).unwrap();
+        assert_eq!((f.width, f.height), (64, 48));
+        assert!(f.content_hash_fnv64.is_some() && f.path.is_some());
+        let _ = std::fs::remove_file(&out);
     }
 }

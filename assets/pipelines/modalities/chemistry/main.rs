@@ -24,6 +24,10 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// Pure parsing + geometry (MOL/SDF V2000, XYZ, small-molecule PDB, SMILES, formula).
+// UNCOMPILED pending the EU build gate. Replaces the former fabricated analysis.
+mod molparse;
+
 // ============================================================================
 // PIPELINE METADATA
 // ============================================================================
@@ -177,6 +181,8 @@ pub enum MoleculeData {
     MolFile(String),
     /// PDB format
     PDB(String),
+    /// XYZ coordinates (atom count, comment, then `El x y z` lines)
+    XYZ(String),
     /// Molecular formula
     Formula(String),
     /// Common name (will be looked up)
@@ -302,8 +308,62 @@ pub struct MoleculeAnalysis {
     pub properties: MolecularProperties,
     /// 3D structure (if generated)
     pub structure_3d: Option<Structure3D>,
-    /// Drug-likeness assessment
+    /// Drug-likeness assessment (never fabricated: absent unless a model supplies it)
     pub drug_likeness: Option<DrugLikeness>,
+    /// Format actually parsed ("smiles", "molfile-v2000", "xyz", "pdb", "formula", "inchi-formula-layer")
+    #[serde(default)]
+    pub source_format: String,
+    /// True when every hydrogen is accounted for (explicit atoms or valence-derived).
+    /// When false the formula lists heavy atoms only and mass is unresolved.
+    #[serde(default)]
+    pub hydrogens_resolved: bool,
+    /// True when `molecular_weight` / `exact_mass` were computed (all elements known AND hydrogens resolved).
+    #[serde(default)]
+    pub mass_resolved: bool,
+    /// Cyclomatic number (bonds - atoms + components); ring enumeration (SSSR) is not implemented.
+    #[serde(default)]
+    pub ring_count: Option<usize>,
+    /// Geometry computed from supplied coordinates (absent for coordinate-free input).
+    #[serde(default)]
+    pub geometry: Option<MoleculeGeometry>,
+    /// Why `structure_3d` is absent when 3D was requested.
+    #[serde(default)]
+    pub structure_3d_absent_reason: Option<String>,
+    /// Honesty notes: what was derived, inferred, or could not be determined.
+    #[serde(default)]
+    pub notes: Vec<String>,
+}
+
+/// Real geometry from supplied coordinates, in frame `molecule:<id>` (angstrom).
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MoleculeGeometry {
+    pub frame: String,
+    pub unit: String,
+    pub centre: [f64; 3],
+    pub bbox_min: [f64; 3],
+    pub bbox_max: [f64; 3],
+    pub bond_angles: Vec<BondAngle>,
+    pub bond_angles_truncated: bool,
+    /// Non-bonded, non-1-3 atom pairs closer than `near_cutoff_angstrom` (bounded list, nearest first).
+    pub near_contacts: Vec<NearContact>,
+    pub near_contacts_total: usize,
+    pub near_cutoff_angstrom: f64,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BondAngle {
+    pub atom_a: usize,
+    pub centre: usize,
+    pub atom_b: usize,
+    pub degrees: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NearContact {
+    pub atom_a: usize,
+    pub atom_b: usize,
+    pub distance: f64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -557,8 +617,13 @@ pub struct ReactionAnalysis {
     pub kinetics: Option<ReactionKinetics>,
     /// Reaction center atoms
     pub reaction_centers: Vec<usize>,
-    /// Confidence score
+    /// Confidence score (1.0 only for the computed balance; 0.0 when nothing could be computed)
     pub confidence: f32,
+    /// True when the element balance could actually be computed.
+    #[serde(default)]
+    pub balance_determined: bool,
+    #[serde(default)]
+    pub notes: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -690,6 +755,15 @@ pub enum PathwayType {
 pub struct PropertyPredictions {
     pub molecule_id: String,
     pub predictions: Vec<PropertyPrediction>,
+    /// Requested properties that cannot be computed here, with the reason (never filled with defaults).
+    #[serde(default)]
+    pub unavailable: Vec<UnavailableProperty>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UnavailableProperty {
+    pub property: PropertyType,
+    pub reason: String,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1082,280 +1156,452 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ACTION IMPLEMENTATIONS
 // ============================================================================
 
+// ----------------------------------------------------------------------------
+// HONEST ANALYSIS (2026-10-31): every value below is parsed or computed from
+// the supplied input, or reported absent with a reason. The former
+// implementation returned a hard-coded methanol (CH4O, MW 32.04, a 2-atom
+// "MMFF94-optimized" structure at 1.43 A / -115.5 kcal/mol, invented
+// properties and drug-likeness) for ANY input; none of that exists any more.
+// UNCOMPILED pending the EU build gate.
+// ----------------------------------------------------------------------------
+
+enum Loaded {
+    Mol(molparse::ParsedMol, Option<String>),
+    Formula(std::collections::BTreeMap<String, u32>, &'static str),
+}
+
+fn load_molecule(m: &MoleculeData) -> Result<Loaded, String> {
+    match m {
+        MoleculeData::SMILES(s) => Ok(Loaded::Mol(molparse::parse_smiles(s)?, Some(s.trim().to_string()))),
+        MoleculeData::MolFile(s) => Ok(Loaded::Mol(molparse::parse_molfile(s)?, None)),
+        MoleculeData::XYZ(s) => Ok(Loaded::Mol(molparse::parse_xyz(s)?, None)),
+        MoleculeData::PDB(s) => Ok(Loaded::Mol(molparse::parse_pdb_small(s)?, None)),
+        MoleculeData::Formula(s) => Ok(Loaded::Formula(molparse::parse_formula(s)?, "formula")),
+        MoleculeData::InChI(s) => {
+            let t = s.trim();
+            let rest = t.strip_prefix("InChI=").ok_or_else(|| "InChI must start with 'InChI='".to_string())?;
+            let mut parts = rest.split('/');
+            let _version = parts.next();
+            let f = parts.next().ok_or_else(|| "InChI has no formula layer".to_string())?;
+            Ok(Loaded::Formula(molparse::parse_formula(f)?, "inchi-formula-layer"))
+        }
+        MoleculeData::Name(_) | MoleculeData::CAS(_) => Err(
+            "name/CAS lookup needs a chemical database and network access, which this pipeline does not have (use chem-mcp / PubChem); no structure is guessed"
+                .to_string(),
+        ),
+    }
+}
+
+fn bond_type_for(order: f32, aromatic: bool) -> BondType {
+    if aromatic {
+        return BondType::Aromatic;
+    }
+    if (order - 1.0).abs() < 1e-6 {
+        BondType::Single
+    } else if (order - 2.0).abs() < 1e-6 {
+        BondType::Double
+    } else if (order - 3.0).abs() < 1e-6 {
+        BondType::Triple
+    } else if (order - 4.0).abs() < 1e-6 {
+        BondType::Quadruple
+    } else {
+        BondType::Unknown
+    }
+}
+
+fn analysis_from_formula(
+    counts: std::collections::BTreeMap<String, u32>,
+    source: &str,
+    molecule_id: String,
+    generate_3d: bool,
+) -> MoleculeAnalysis {
+    let mut notes = vec!["formula-only input: no atoms, bonds or geometry are available".to_string()];
+    let masses = molparse::masses(&counts);
+    if masses.is_none() {
+        notes.push("an element is missing from the pipeline's element table: mass unresolved".to_string());
+    }
+    let heavy: u32 = counts.iter().filter(|(k, _)| k.as_str() != "H").map(|(_, v)| *v).sum();
+    let (mw, em) = masses.unwrap_or((0.0, 0.0));
+    MoleculeAnalysis {
+        molecule_id,
+        name: None,
+        iupac_name: None,
+        formula: molparse::hill(&counts),
+        smiles: String::new(),
+        inchi: None,
+        inchi_key: None,
+        molecular_weight: mw,
+        exact_mass: em,
+        atoms: vec![],
+        bonds: vec![],
+        rings: vec![],
+        functional_groups: vec![],
+        stereochemistry: None,
+        properties: MolecularProperties { heavy_atom_count: heavy, ..MolecularProperties::default() },
+        structure_3d: None,
+        drug_likeness: None,
+        source_format: source.to_string(),
+        hydrogens_resolved: true,
+        mass_resolved: masses.is_some(),
+        ring_count: None,
+        geometry: None,
+        structure_3d_absent_reason: if generate_3d {
+            Some("formula-only input has no structure; no conformer generator in this pipeline (use chem-mcp/RDKit)".to_string())
+        } else {
+            None
+        },
+        notes,
+    }
+}
+
+fn analysis_from_parsed(
+    mol: &molparse::ParsedMol,
+    molecule_id: String,
+    compute_properties: bool,
+    find_groups: bool,
+    generate_3d: bool,
+    smiles_in: Option<String>,
+) -> MoleculeAnalysis {
+    let n = mol.atoms.len();
+    let comp = molparse::composition(mol);
+    let mut notes = mol.notes.clone();
+    let masses = molparse::masses(&comp.counts);
+    let mass_resolved = masses.is_some() && comp.hydrogens_resolved;
+    if masses.is_none() {
+        notes.push("an element is missing from the pipeline's element table: mass unresolved".to_string());
+    }
+    if !comp.hydrogens_resolved {
+        notes.push("hydrogens are unresolved: the formula lists heavy atoms only and molecular_weight / exact_mass are not reported (0.0 with mass_resolved=false)".to_string());
+    }
+    let (mw, em) = if mass_resolved { masses.unwrap_or((0.0, 0.0)) } else { (0.0, 0.0) };
+
+    let in_ring_bond = molparse::ring_bonds(n, &mol.bonds);
+    let rot_flags = molparse::rotatable_flags(mol, &in_ring_bond);
+    let mut in_ring_atom = vec![false; n];
+    for (bi, b) in mol.bonds.iter().enumerate() {
+        if in_ring_bond.get(bi).copied().unwrap_or(false) {
+            in_ring_atom[b.a] = true;
+            in_ring_atom[b.b] = true;
+        }
+    }
+    let geom = molparse::geometry(mol);
+    let frame = format!("molecule:{}", molecule_id);
+
+    let mut explicit_h = vec![0u8; n];
+    for b in &mol.bonds {
+        if mol.atoms[b.a].element == "H" && mol.atoms[b.b].element != "H" {
+            explicit_h[b.b] = explicit_h[b.b].saturating_add(1);
+        }
+        if mol.atoms[b.b].element == "H" && mol.atoms[b.a].element != "H" {
+            explicit_h[b.a] = explicit_h[b.a].saturating_add(1);
+        }
+    }
+
+    let atoms: Vec<Atom> = mol
+        .atoms
+        .iter()
+        .enumerate()
+        .map(|(i, a)| Atom {
+            atom_id: i,
+            element: a.element.clone(),
+            atomic_number: molparse::element(&a.element).map(|e| e.z).unwrap_or(0),
+            formal_charge: a.charge,
+            implicit_hydrogens: a.implicit_h.unwrap_or(0),
+            explicit_hydrogens: explicit_h[i],
+            hybridization: Hybridization::Unspecified,
+            is_aromatic: a.aromatic,
+            is_in_ring: in_ring_atom[i],
+            isotope: a.isotope,
+            position: a.pos.map(|p| Position3D { x: p[0], y: p[1], z: p[2] }),
+            partial_charge: None,
+        })
+        .collect();
+
+    let bonds: Vec<Bond> = mol
+        .bonds
+        .iter()
+        .enumerate()
+        .map(|(bi, b)| Bond {
+            bond_id: bi,
+            atom1_id: b.a,
+            atom2_id: b.b,
+            bond_type: bond_type_for(b.order, b.aromatic),
+            bond_order: b.order,
+            is_aromatic: b.aromatic,
+            is_in_ring: in_ring_bond.get(bi).copied().unwrap_or(false),
+            stereo: None,
+            is_rotatable: rot_flags.get(bi).copied().unwrap_or(false),
+            bond_length: geom.as_ref().and_then(|g| g.bond_lengths.iter().find(|(i, _)| *i == bi).map(|(_, l)| *l)),
+        })
+        .collect();
+
+    let orders_perceived = !mol.bonds.is_empty() && mol.bonds.iter().all(|b| b.order > 0.0);
+    let heavy_atoms = mol.atoms.iter().filter(|a| a.element != "H").count() as u32;
+    let total_charge: i32 = mol.atoms.iter().map(|a| a.charge).sum();
+
+    let properties = if compute_properties {
+        let hba = mol.atoms.iter().filter(|a| a.element == "N" || a.element == "O").count() as u32;
+        let hbd = if comp.hydrogens_resolved {
+            mol.atoms
+                .iter()
+                .enumerate()
+                .filter(|(i, a)| (a.element == "N" || a.element == "O") && (a.implicit_h.unwrap_or(0) as u32 + explicit_h[*i] as u32) >= 1)
+                .count() as u32
+        } else {
+            notes.push("h_bond_donors not computed: hydrogens unresolved".to_string());
+            0
+        };
+        let rot = if orders_perceived {
+            rot_flags.iter().filter(|r| **r).count() as u32
+        } else {
+            if !mol.bonds.is_empty() {
+                notes.push("rotatable_bonds not computed: bond orders were not perceived".to_string());
+            }
+            0
+        };
+        notes.push("log_p, pKa, solubility, melting/boiling point, TPSA, molar refractivity and complexity are model/experimental quantities and are not computed by this pipeline".to_string());
+        MolecularProperties {
+            h_bond_donors: hbd,
+            h_bond_acceptors: hba,
+            rotatable_bonds: rot,
+            heavy_atom_count: heavy_atoms,
+            total_charge,
+            ..MolecularProperties::default()
+        }
+    } else {
+        MolecularProperties::default()
+    };
+
+    let functional_groups = if find_groups {
+        if !comp.hydrogens_resolved {
+            notes.push("functional groups that need hydrogens (hydroxyl, carboxylic acid) are only reported when hydrogens are resolved".to_string());
+        }
+        molparse::functional_groups(mol)
+            .into_iter()
+            .map(|g| FunctionalGroup { name: g.name.to_string(), smarts: g.smarts.to_string(), atoms: g.atoms, group_class: g.class.to_string(), count: 1 })
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let components = molparse::components(n, &mol.bonds);
+    let ring_count = if n > 0 { Some((mol.bonds.len() + components).saturating_sub(n)) } else { None };
+    if ring_count.unwrap_or(0) > 0 {
+        notes.push("ring membership flags are reported; ring enumeration (SSSR) is not implemented, so `rings` is empty".to_string());
+    }
+    let smiles = match smiles_in {
+        Some(s) => s,
+        None => {
+            notes.push("no SMILES writer in this pipeline: `smiles` is empty for non-SMILES input".to_string());
+            String::new()
+        }
+    };
+
+    let (structure_3d, structure_3d_absent_reason) = match (&geom, mol.has_coords) {
+        (Some(_), true) => (
+            Some(Structure3D {
+                coordinates: mol.atoms.iter().filter_map(|a| a.pos.map(|p| Position3D { x: p[0], y: p[1], z: p[2] })).collect(),
+                conformation: "as_supplied".to_string(),
+                energy: None,
+                is_minimized: false,
+                force_field: None,
+            }),
+            None,
+        ),
+        _ if generate_3d => (
+            None,
+            Some("the input carries no 3D coordinates and this pipeline has no conformer generator (use chem-mcp/RDKit); coordinates are never invented".to_string()),
+        ),
+        _ => (None, None),
+    };
+
+    let geometry = geom.map(|g| MoleculeGeometry {
+        frame,
+        unit: "angstrom".to_string(),
+        centre: g.centre,
+        bbox_min: g.bbox_min,
+        bbox_max: g.bbox_max,
+        bond_angles: g.angles.iter().map(|(a, c, b, d)| BondAngle { atom_a: *a, centre: *c, atom_b: *b, degrees: *d }).collect(),
+        bond_angles_truncated: g.angles_truncated,
+        near_contacts: g.near_contacts.iter().map(|(a, b, d)| NearContact { atom_a: *a, atom_b: *b, distance: *d }).collect(),
+        near_contacts_total: g.near_total,
+        near_cutoff_angstrom: molparse::NEAR_CUTOFF,
+        notes: g.notes.clone(),
+    });
+
+    MoleculeAnalysis {
+        molecule_id,
+        name: None,
+        iupac_name: None,
+        formula: molparse::hill(&comp.counts),
+        smiles,
+        inchi: None,
+        inchi_key: None,
+        molecular_weight: mw,
+        exact_mass: em,
+        atoms,
+        bonds,
+        rings: vec![],
+        functional_groups,
+        stereochemistry: None,
+        properties,
+        structure_3d,
+        drug_likeness: None,
+        source_format: mol.source.clone(),
+        hydrogens_resolved: comp.hydrogens_resolved,
+        mass_resolved,
+        ring_count,
+        geometry,
+        structure_3d_absent_reason,
+        notes,
+    }
+}
+
 async fn analyze_molecule(
     molecule: &MoleculeData,
     compute_properties: bool,
     find_functional_groups: bool,
     generate_3d: bool,
 ) -> Result<MoleculeAnalysis, String> {
-    // In production, use RDKit or OpenBabel for actual analysis
+    let id = format!("mol_{}", generate_graph_id());
+    match load_molecule(molecule)? {
+        Loaded::Mol(m, smiles) => Ok(analysis_from_parsed(&m, id, compute_properties, find_functional_groups, generate_3d, smiles)),
+        Loaded::Formula(counts, src) => Ok(analysis_from_formula(counts, src, id, generate_3d)),
+    }
+}
 
-    let smiles = match molecule {
-        MoleculeData::SMILES(s) => s.clone(),
-        MoleculeData::Name(n) => format!("lookup:{}", n), // Would do actual lookup
-        MoleculeData::Formula(f) => format!("formula:{}", f),
-        _ => "unknown".to_string(),
-    };
-
-    let atoms = vec![
-        Atom {
-            atom_id: 0,
-            element: "C".to_string(),
-            atomic_number: 6,
-            formal_charge: 0,
-            implicit_hydrogens: 3,
-            explicit_hydrogens: 0,
-            hybridization: Hybridization::SP3,
-            is_aromatic: false,
-            is_in_ring: false,
-            isotope: None,
-            position: if generate_3d {
-                Some(Position3D { x: 0.0, y: 0.0, z: 0.0 })
-            } else {
-                None
-            },
-            partial_charge: Some(-0.18),
-        },
-        Atom {
-            atom_id: 1,
-            element: "O".to_string(),
-            atomic_number: 8,
-            formal_charge: 0,
-            implicit_hydrogens: 1,
-            explicit_hydrogens: 0,
-            hybridization: Hybridization::SP3,
-            is_aromatic: false,
-            is_in_ring: false,
-            isotope: None,
-            position: if generate_3d {
-                Some(Position3D { x: 1.43, y: 0.0, z: 0.0 })
-            } else {
-                None
-            },
-            partial_charge: Some(-0.68),
-        },
-    ];
-
-    let bonds = vec![Bond {
-        bond_id: 0,
-        atom1_id: 0,
-        atom2_id: 1,
-        bond_type: BondType::Single,
-        bond_order: 1.0,
-        is_aromatic: false,
-        is_in_ring: false,
-        stereo: None,
-        is_rotatable: true,
-        bond_length: Some(1.43),
-    }];
-
-    let functional_groups = if find_functional_groups {
-        vec![FunctionalGroup {
-            name: "Hydroxyl".to_string(),
-            smarts: "[OX2H]".to_string(),
-            atoms: vec![1],
-            group_class: "alcohol".to_string(),
-            count: 1,
-        }]
-    } else {
-        vec![]
-    };
-
-    let properties = if compute_properties {
-        MolecularProperties {
-            log_p: Some(-0.77),
-            pka: Some(vec![15.5]),
-            solubility: Some(1000000.0),
-            melting_point: Some(-97.6),
-            boiling_point: Some(64.7),
-            tpsa: Some(20.23),
-            h_bond_donors: 1,
-            h_bond_acceptors: 1,
-            rotatable_bonds: 0,
-            molar_refractivity: Some(8.3),
-            heavy_atom_count: 2,
-            total_charge: 0,
-            complexity: Some(2.0),
+fn element_counts_of(m: &MoleculeData) -> Result<(std::collections::BTreeMap<String, u32>, bool), String> {
+    match load_molecule(m)? {
+        Loaded::Mol(p, _) => {
+            let c = molparse::composition(&p);
+            Ok((c.counts, c.hydrogens_resolved))
         }
-    } else {
-        MolecularProperties::default()
-    };
-
-    let structure_3d = if generate_3d {
-        Some(Structure3D {
-            coordinates: vec![
-                Position3D { x: 0.0, y: 0.0, z: 0.0 },
-                Position3D { x: 1.43, y: 0.0, z: 0.0 },
-            ],
-            conformation: "optimized".to_string(),
-            energy: Some(-115.5),
-            is_minimized: true,
-            force_field: Some("MMFF94".to_string()),
-        })
-    } else {
-        None
-    };
-
-    Ok(MoleculeAnalysis {
-        molecule_id: format!("mol_{}", generate_graph_id()),
-        name: Some("Methanol".to_string()),
-        iupac_name: Some("methanol".to_string()),
-        formula: "CH4O".to_string(),
-        smiles: "CO".to_string(),
-        inchi: Some("InChI=1S/CH4O/c1-2/h2H,1H3".to_string()),
-        inchi_key: Some("OKKJLVBELUTLKV-UHFFFAOYSA-N".to_string()),
-        molecular_weight: 32.04,
-        exact_mass: 32.026,
-        atoms,
-        bonds,
-        rings: vec![],
-        functional_groups,
-        stereochemistry: Some(Stereochemistry {
-            chiral_centers: vec![],
-            double_bond_stereo: vec![],
-            is_achiral: true,
-            is_meso: false,
-        }),
-        properties,
-        structure_3d,
-        drug_likeness: Some(DrugLikeness {
-            lipinski_violations: 0,
-            passes_lipinski: true,
-            veber_violations: 0,
-            ghose_violations: 1,
-            is_lead_like: false,
-            qed_score: Some(0.35),
-            sa_score: Some(1.0),
-            pains_alerts: vec![],
-            brenk_alerts: vec![],
-        }),
-    })
+        Loaded::Formula(c, _) => Ok((c, true)),
+    }
 }
 
 async fn analyze_reaction(
     reaction: &ReactionData,
-    balance: bool,
+    _balance: bool,
     predict_mechanism: bool,
     compute_thermodynamics: bool,
 ) -> Result<ReactionAnalysis, String> {
-    // In production, use RDKit or cheminformatics tools
+    // Only the element balance is computable from structure. Mechanism,
+    // thermodynamics, kinetics, atom mapping and reaction class need a
+    // cheminformatics engine / data and are reported ABSENT.
+    let mut notes: Vec<String> = Vec::new();
+    if predict_mechanism {
+        notes.push("mechanism not computed: needs a reaction-mechanism engine (use chem-mcp/RDKit)".to_string());
+    }
+    if compute_thermodynamics {
+        notes.push("thermodynamics and kinetics not computed: need computed or experimental data".to_string());
+    }
+    notes.push("atom mapping, reaction centres and reaction class are not computed".to_string());
 
-    let mechanism = if predict_mechanism {
-        Some(ReactionMechanism {
-            mechanism_type: MechanismType::SN2,
-            steps: vec![MechanismStep {
-                step_number: 1,
-                description: "Nucleophilic attack with simultaneous leaving group departure".to_string(),
-                arrow_pushing: Some("Nu: → C ← X".to_string()),
-                intermediate: None,
-            }],
-            intermediates: vec![],
-            transition_states: vec!["pentacoordinate TS".to_string()],
-        })
-    } else {
-        None
+    let side = |list: &[MoleculeData]| -> Result<(std::collections::BTreeMap<String, u32>, bool), String> {
+        let mut total: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+        let mut ok = true;
+        for m in list {
+            let (c, resolved) = element_counts_of(m)?;
+            ok &= resolved;
+            for (k, v) in c {
+                *total.entry(k).or_insert(0) += v;
+            }
+        }
+        Ok((total, ok))
     };
-
-    let thermodynamics = if compute_thermodynamics {
-        Some(ReactionThermodynamics {
-            delta_h: Some(-45.0),
-            delta_s: Some(-120.0),
-            delta_g: Some(-9.2),
-            k_eq: Some(42.0),
-            is_exothermic: Some(true),
-            is_spontaneous: Some(true),
-        })
-    } else {
-        None
+    let (balance_determined, is_balanced) = match (side(&reaction.reactants), side(&reaction.products)) {
+        (Ok((r, rok)), Ok((p, pok))) if rok && pok && !reaction.reactants.is_empty() && !reaction.products.is_empty() => (true, r == p),
+        (Ok(_), Ok(_)) => {
+            notes.push("element balance undetermined: a species has unresolved hydrogens, or a side is empty".to_string());
+            (false, false)
+        }
+        (Err(e), _) | (_, Err(e)) => {
+            notes.push(format!("element balance undetermined: {}", e));
+            (false, false)
+        }
     };
-
+    let reaction_smiles = match &reaction.reaction_smiles {
+        Some(s) => s.clone(),
+        None => {
+            let join = |l: &[MoleculeData]| -> Option<String> {
+                let mut parts = Vec::new();
+                for m in l {
+                    if let MoleculeData::SMILES(s) = m {
+                        parts.push(s.trim().to_string());
+                    } else {
+                        return None;
+                    }
+                }
+                Some(parts.join("."))
+            };
+            match (join(&reaction.reactants), join(&reaction.products)) {
+                (Some(r), Some(p)) => format!("{}>>{}", r, p),
+                _ => String::new(),
+            }
+        }
+    };
     Ok(ReactionAnalysis {
         reaction_id: format!("rxn_{}", generate_graph_id()),
-        reaction_smiles: "CC>>CC".to_string(),
-        reaction_name: Some("Example Reaction".to_string()),
-        reaction_type: ReactionType::Substitution,
-        is_balanced: balance,
-        atom_mapping: Some(vec![AtomMapping {
-            reactant_molecule: 0,
-            reactant_atom: 0,
-            product_molecule: 0,
-            product_atom: 0,
-        }]),
-        mechanism,
-        thermodynamics,
-        kinetics: Some(ReactionKinetics {
-            activation_energy: Some(65.0),
-            rate_constant: Some(1.2e-3),
-            reaction_order: Some(2),
-            rate_law: Some("rate = k[A][B]".to_string()),
-            half_life: Some(577.0),
-        }),
-        reaction_centers: vec![0, 1],
-        confidence: 0.85,
+        reaction_smiles,
+        reaction_name: None,
+        reaction_type: ReactionType::Unknown,
+        is_balanced,
+        atom_mapping: None,
+        mechanism: None,
+        thermodynamics: None,
+        kinetics: None,
+        reaction_centers: vec![],
+        confidence: if balance_determined { 1.0 } else { 0.0 },
+        balance_determined,
+        notes,
     })
 }
 
-async fn predict_properties(
-    _molecule: &MoleculeData,
-    properties: &[PropertyType],
-) -> Result<PropertyPredictions, String> {
-    let predictions: Vec<PropertyPrediction> = properties
-        .iter()
-        .map(|p| {
-            let (value, unit) = match p {
-                PropertyType::LogP => (-0.77, "".to_string()),
-                PropertyType::MolecularWeight => (32.04, "g/mol".to_string()),
-                PropertyType::Solubility => (1000.0, "mg/L".to_string()),
-                PropertyType::MeltingPoint => (-97.6, "°C".to_string()),
-                PropertyType::BoilingPoint => (64.7, "°C".to_string()),
-                PropertyType::TPSA => (20.23, "Å²".to_string()),
-                PropertyType::HBondDonors => (1.0, "count".to_string()),
-                PropertyType::HBondAcceptors => (1.0, "count".to_string()),
-                PropertyType::RotatableBonds => (0.0, "count".to_string()),
-                _ => (0.0, "unknown".to_string()),
-            };
-            PropertyPrediction {
-                property: p.clone(),
-                value,
-                unit,
-                confidence: 0.85,
-                method: "QSPR model".to_string(),
+async fn predict_properties(molecule: &MoleculeData, properties: &[PropertyType]) -> Result<PropertyPredictions, String> {
+    let id = format!("mol_{}", generate_graph_id());
+    let analysis = match load_molecule(molecule)? {
+        Loaded::Mol(m, s) => analysis_from_parsed(&m, id.clone(), true, false, false, s),
+        Loaded::Formula(c, src) => analysis_from_formula(c, src, id.clone(), false),
+    };
+    let has_atoms = !analysis.atoms.is_empty();
+    let orders_perceived = has_atoms && !analysis.bonds.is_empty() && analysis.bonds.iter().all(|b| b.bond_order > 0.0);
+    let mut predictions: Vec<PropertyPrediction> = Vec::new();
+    let mut unavailable: Vec<UnavailableProperty> = Vec::new();
+    let computed = |p: &PropertyType, value: f64, unit: &str| PropertyPrediction {
+        property: p.clone(),
+        value,
+        unit: unit.to_string(),
+        confidence: 1.0,
+        method: "computed from the parsed structure (no model)".to_string(),
+    };
+    for p in properties {
+        match p {
+            PropertyType::MolecularWeight if analysis.mass_resolved => predictions.push(computed(p, analysis.molecular_weight, "g/mol")),
+            PropertyType::HBondAcceptors if has_atoms => predictions.push(computed(p, analysis.properties.h_bond_acceptors as f64, "count")),
+            PropertyType::HBondDonors if has_atoms && analysis.hydrogens_resolved => predictions.push(computed(p, analysis.properties.h_bond_donors as f64, "count")),
+            PropertyType::RotatableBonds if orders_perceived => predictions.push(computed(p, analysis.properties.rotatable_bonds as f64, "count")),
+            PropertyType::MolecularWeight | PropertyType::HBondAcceptors | PropertyType::HBondDonors | PropertyType::RotatableBonds => {
+                unavailable.push(UnavailableProperty {
+                    property: p.clone(),
+                    reason: "the structure does not determine it (unresolved hydrogens, unperceived bond orders, formula-only input or unknown element)".to_string(),
+                })
             }
-        })
-        .collect();
-
-    Ok(PropertyPredictions {
-        molecule_id: format!("mol_{}", generate_graph_id()),
-        predictions,
-    })
+            other => unavailable.push(UnavailableProperty {
+                property: other.clone(),
+                reason: "needs a trained model or experimental data; this pipeline computes only structure-derived quantities (use chem-mcp)".to_string(),
+            }),
+        }
+    }
+    Ok(PropertyPredictions { molecule_id: analysis.molecule_id, predictions, unavailable })
 }
 
-async fn find_substructure(
-    _molecule: &MoleculeData,
-    pattern: &str,
-) -> Result<SubstructureResult, String> {
-    Ok(SubstructureResult {
-        pattern: pattern.to_string(),
-        matches: vec![SubstructureMatch {
-            molecule_id: "mol_1".to_string(),
-            atom_indices: vec![0, 1],
-        }],
-        total_matches: 1,
-    })
+async fn find_substructure(_molecule: &MoleculeData, _pattern: &str) -> Result<SubstructureResult, String> {
+    Err("FindSubstructure is not implemented: SMARTS matching needs a substructure engine (use chem-mcp/RDKit); no matches are fabricated".to_string())
 }
 
-async fn compare_molecules(
-    _molecule1: &MoleculeData,
-    _molecule2: &MoleculeData,
-    method: SimilarityMethod,
-) -> Result<SimilarityResult, String> {
-    Ok(SimilarityResult {
-        molecule1_id: "mol_1".to_string(),
-        molecule2_id: "mol_2".to_string(),
-        method,
-        similarity: 0.75,
-        common_substructures: vec!["hydroxyl".to_string()],
-    })
+async fn compare_molecules(_molecule1: &MoleculeData, _molecule2: &MoleculeData, _method: SimilarityMethod) -> Result<SimilarityResult, String> {
+    Err("CompareMolecules is not implemented: fingerprint similarity needs a cheminformatics engine (use chem-mcp/RDKit); no similarity value is fabricated".to_string())
 }
 
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -1450,13 +1696,31 @@ async fn create_graph(
             node_id: mol_node_id,
             node_type: ChemistryNodeType::Molecule,
             label: molecule.name.clone().unwrap_or_else(|| molecule.formula.clone()),
-            content: format!("{} (MW: {:.2})", molecule.formula, molecule.molecular_weight),
-            smiles: Some(molecule.smiles.clone()),
+            content: if molecule.mass_resolved {
+                format!("{} (MW: {:.2})", molecule.formula, molecule.molecular_weight)
+            } else {
+                format!("{} (mass unresolved)", molecule.formula)
+            },
+            smiles: if molecule.smiles.is_empty() { None } else { Some(molecule.smiles.clone()) },
             confidence: 1.0,
             properties: {
                 let mut props = HashMap::new();
-                props.insert("molecular_weight".to_string(), Value::from(molecule.molecular_weight));
+                if molecule.mass_resolved {
+                    props.insert("molecular_weight".to_string(), Value::from(molecule.molecular_weight));
+                }
                 props.insert("formula".to_string(), Value::from(molecule.formula.clone()));
+                props.insert("source_format".to_string(), Value::from(molecule.source_format.clone()));
+                props.insert("hydrogens_resolved".to_string(), Value::from(molecule.hydrogens_resolved));
+                // Intrinsic geometry (docs/SPATIAL_GEOMETRY_LAYER.md): 3D box of the supplied coordinates.
+                if let Some(g) = &molecule.geometry {
+                    props.insert(
+                        "geom".to_string(),
+                        serde_json::json!({
+                            "frame": g.frame, "kind": "box3d", "unit": g.unit,
+                            "min": g.bbox_min, "max": g.bbox_max, "centre": g.centre
+                        }),
+                    );
+                }
                 props
             },
             annotations: vec![],
@@ -1504,6 +1768,16 @@ async fn create_graph(
                     props.insert("element".to_string(), Value::from(atom.element.clone()));
                     props.insert("atomic_number".to_string(), Value::from(atom.atomic_number));
                     props.insert("formal_charge".to_string(), Value::from(atom.formal_charge));
+                    // Intrinsic geometry: the atom's supplied position in the molecule frame.
+                    if let (Some(pos), Some(g)) = (&atom.position, &molecule.geometry) {
+                        props.insert(
+                            "geom".to_string(),
+                            serde_json::json!({
+                                "frame": g.frame, "kind": "point", "unit": "angstrom",
+                                "x": pos.x, "y": pos.y, "z": pos.z
+                            }),
+                        );
+                    }
                     props
                 },
                 annotations: vec![],
@@ -1868,26 +2142,84 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_analyze_reaction() {
+    async fn test_analyze_molecule_is_real_not_methanol() {
         let input = serde_json::json!({
-            "action": {
-                "type": "AnalyzeReaction",
-                "reaction": {
-                    "reactants": [{"SMILES": "CCBr"}],
-                    "products": [{"SMILES": "CCO"}],
-                    "reagents": [{"SMILES": "[OH-]"}],
-                    "conditions": {
-                        "temperature": 25.0,
-                        "solvent": "water"
-                    }
-                },
-                "balance": true,
-                "predict_mechanism": true,
-                "compute_thermodynamics": true
-            }
+            "action": {"type": "AnalyzeMolecule", "molecule": {"SMILES": "CCO"},
+                       "compute_properties": true, "find_functional_groups": true, "generate_3d": true}
         });
+        let out = execute(input).await.unwrap();
+        let mol = &out["result"];
+        assert_eq!(mol["formula"], "C2H6O");
+        assert!((mol["molecular_weight"].as_f64().unwrap() - 46.069).abs() < 0.01);
+        // 3D was requested for a coordinate-free SMILES: absent, with a reason, never invented.
+        assert!(mol["structure_3d"].is_null());
+        assert!(mol["structure_3d_absent_reason"].as_str().unwrap().contains("conformer generator"));
+        assert!(mol["drug_likeness"].is_null());
+    }
 
-        let result = execute(input).await;
-        assert!(result.is_ok());
+    #[tokio::test]
+    async fn test_different_inputs_give_different_answers() {
+        let a = execute(serde_json::json!({"action": {"type": "AnalyzeMolecule", "molecule": {"SMILES": "c1ccccc1"}}})).await.unwrap();
+        let b = execute(serde_json::json!({"action": {"type": "AnalyzeMolecule", "molecule": {"SMILES": "CC(=O)O"}}})).await.unwrap();
+        assert_eq!(a["result"]["formula"], "C6H6");
+        assert_eq!(b["result"]["formula"], "C2H4O2");
+    }
+
+    #[tokio::test]
+    async fn test_molfile_geometry_comes_from_coordinates() {
+        let mol = "water\n  t\n\n  3  2  0  0  0  0  0  0  0  0999 V2000\n    0.0000    0.0000    0.1173 O   0  0  0  0  0  0  0  0  0  0  0  0\n    0.0000    0.7572   -0.4692 H   0  0  0  0  0  0  0  0  0  0  0  0\n    0.0000   -0.7572   -0.4692 H   0  0  0  0  0  0  0  0  0  0  0  0\n  1  2  1  0\n  1  3  1  0\nM  END\n";
+        let out = execute(serde_json::json!({"action": {"type": "AnalyzeMolecule", "molecule": {"MolFile": mol}, "generate_3d": true}})).await.unwrap();
+        let m = &out["result"];
+        assert!(m["structure_3d"]["force_field"].is_null());
+        assert!(m["structure_3d"]["energy"].is_null());
+        let l = m["bonds"][0]["bond_length"].as_f64().unwrap();
+        assert!((l - 0.9578).abs() < 0.001);
+        assert!(m["geometry"]["frame"].as_str().unwrap().starts_with("molecule:"));
+    }
+
+    #[tokio::test]
+    async fn test_name_and_cas_are_refused_not_guessed() {
+        let r = execute(serde_json::json!({"action": {"type": "AnalyzeMolecule", "molecule": {"Name": "aspirin"}}})).await;
+        assert!(r.is_err());
+        assert!(r.unwrap_err().contains("no structure is guessed"));
+    }
+
+    #[tokio::test]
+    async fn test_reaction_balance_is_computed_and_the_rest_is_absent() {
+        let input = serde_json::json!({
+            "action": {"type": "AnalyzeReaction",
+                "reaction": {"reactants": [{"SMILES": "CCBr"}], "products": [{"SMILES": "CCO"}], "reagents": [{"SMILES": "[OH-]"}], "conditions": null, "reaction_smiles": null},
+                "balance": true, "predict_mechanism": true, "compute_thermodynamics": true}
+        });
+        let out = execute(input).await.unwrap();
+        let r = &out["result"];
+        assert_eq!(r["balance_determined"], true);
+        assert_eq!(r["is_balanced"], false); // CCBr -> CCO is not element-balanced
+        assert!(r["mechanism"].is_null() && r["thermodynamics"].is_null() && r["kinetics"].is_null());
+        assert_eq!(r["reaction_smiles"], "CCBr>>CCO");
+        let bal = execute(serde_json::json!({
+            "action": {"type": "AnalyzeReaction",
+                "reaction": {"reactants": [{"SMILES": "C"}, {"SMILES": "O=O"}], "products": [{"SMILES": "O=C=O"}, {"SMILES": "O"}], "reagents": [], "conditions": null, "reaction_smiles": null},
+                "balance": true, "predict_mechanism": false, "compute_thermodynamics": false}
+        })).await.unwrap();
+        // CH4 + O2 -> CO2 + H2O is NOT balanced as written (H4 vs H2): the check must say so.
+        assert_eq!(bal["result"]["is_balanced"], false);
+    }
+
+    #[tokio::test]
+    async fn test_substructure_and_similarity_are_not_fabricated() {
+        let s = execute(serde_json::json!({"action": {"type": "FindSubstructure", "molecule": {"SMILES": "CCO"}, "pattern": "[OX2H]"}})).await;
+        assert!(s.is_err());
+        let c = execute(serde_json::json!({"action": {"type": "CompareMolecules", "molecule1": {"SMILES": "CCO"}, "molecule2": {"SMILES": "CCN"}, "method": "Tanimoto"}})).await;
+        assert!(c.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_predict_properties_only_returns_computable_values() {
+        let out = execute(serde_json::json!({"action": {"type": "PredictProperties", "molecule": {"SMILES": "CCO"},
+            "properties": ["MolecularWeight", "LogP", "HBondDonors", "Toxicity"]}})).await.unwrap();
+        let p = &out["result"];
+        assert_eq!(p["predictions"].as_array().unwrap().len(), 2);
+        assert_eq!(p["unavailable"].as_array().unwrap().len(), 2);
     }
 }

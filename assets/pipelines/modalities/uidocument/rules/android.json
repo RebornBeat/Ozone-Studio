@@ -1,0 +1,903 @@
+{
+ "pack": {
+  "id": "android",
+  "version": "0.1.0",
+  "flavor": "android-xml",
+  "spec_refs": [
+   "Android AccessibilityNodeInfo",
+   "uiautomator dump (view hierarchy XML)",
+   "Appium UiAutomator2 page source"
+  ]
+ },
+ "rules": [
+  {
+   "id": "android.struct.element",
+   "family": "structure",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Android uiautomator dump (AccessibilityNodeInfo.getClassName/getText/getContentDescription/getBoundsInScreen)",
+   "rationale": "The adapter creates exactly one graph node per <node> element of the dump (plus the Document node); the containment tree is the node's `parent`. Container roots (<hierarchy>, <AppiumAUT>) are not nodes."
+  },
+  {
+   "id": "android.source.uiautomator",
+   "family": "structure",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "flag": "source",
+    "value": "uiautomator",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "Android uiautomator dump (AccessibilityNodeInfo.getClassName/getText/getContentDescription/getBoundsInScreen)",
+   "rationale": "Records on the Document node that the facts came from an Android view-hierarchy dump (static; one moment of one screen)."
+  },
+  {
+   "id": "android.role.layout",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"Layout\"],[class$=\"ViewGroup\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "group"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"Layout\"],[class$=\"ViewGroup\"] => role 'group'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 1
+  },
+  {
+   "id": "android.kind.layout",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"Layout\"],[class$=\"ViewGroup\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Element"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"Layout\"],[class$=\"ViewGroup\"] => graph node kind 'Element'.",
+   "phase": 1
+  },
+  {
+   "id": "android.role.view",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"View\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "generic"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"View\"] => role 'generic'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 1
+  },
+  {
+   "id": "android.kind.view",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"View\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Element"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"View\"] => graph node kind 'Element'.",
+   "phase": 1
+  },
+  {
+   "id": "android.role.button",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"Button\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "button"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"Button\"] => role 'button'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 1
+  },
+  {
+   "id": "android.kind.button",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"Button\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Button"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"Button\"] => graph node kind 'Button'.",
+   "phase": 1
+  },
+  {
+   "id": "android.role.textview",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"TextView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "text"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"TextView\"] => role 'text'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 1
+  },
+  {
+   "id": "android.kind.textview",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"TextView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "TextRun"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"TextView\"] => graph node kind 'TextRun'.",
+   "phase": 1
+  },
+  {
+   "id": "android.role.image",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"ImageView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "img"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"ImageView\"] => role 'img'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.image",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"ImageView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Media"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"ImageView\"] => graph node kind 'Media'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.edittext",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"EditText\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "textbox"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"EditText\"] => role 'textbox'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.edittext",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"EditText\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"EditText\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.autocomplete",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"AutoCompleteTextView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "combobox"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"AutoCompleteTextView\"] => role 'combobox'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.autocomplete",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"AutoCompleteTextView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"AutoCompleteTextView\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.checkbox",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"CheckBox\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "checkbox"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"CheckBox\"] => role 'checkbox'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.checkbox",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"CheckBox\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"CheckBox\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.radio",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"RadioButton\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "radio"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"RadioButton\"] => role 'radio'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.radio",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"RadioButton\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"RadioButton\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.switch",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"Switch\"],[class$=\"SwitchCompat\"],[class$=\"SwitchMaterial\"],[class$=\"ToggleButton\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "switch"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"Switch\"],[class$=\"SwitchCompat\"],[class$=\"SwitchMaterial\"],[class$=\"ToggleButton\"] => role 'switch'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.switch",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"Switch\"],[class$=\"SwitchCompat\"],[class$=\"SwitchMaterial\"],[class$=\"ToggleButton\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"Switch\"],[class$=\"SwitchCompat\"],[class$=\"SwitchMaterial\"],[class$=\"ToggleButton\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.spinner",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"Spinner\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "combobox"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"Spinner\"] => role 'combobox'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.spinner",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"Spinner\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"Spinner\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.seekbar",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"SeekBar\"],[class$=\"RatingBar\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "slider"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"SeekBar\"],[class$=\"RatingBar\"] => role 'slider'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.seekbar",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"SeekBar\"],[class$=\"RatingBar\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"SeekBar\"],[class$=\"RatingBar\"] => graph node kind 'Field'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.progress",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"ProgressBar\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "progressbar"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"ProgressBar\"] => role 'progressbar'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.progress",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"ProgressBar\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Element"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"ProgressBar\"] => graph node kind 'Element'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.list",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"ListView\"],[class$=\"RecyclerView\"],[class$=\"GridView\"],[class$=\"ExpandableListView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "list"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"ListView\"],[class$=\"RecyclerView\"],[class$=\"GridView\"],[class$=\"ExpandableListView\"] => role 'list'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.list",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"ListView\"],[class$=\"RecyclerView\"],[class$=\"GridView\"],[class$=\"ExpandableListView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "List"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"ListView\"],[class$=\"RecyclerView\"],[class$=\"GridView\"],[class$=\"ExpandableListView\"] => graph node kind 'List'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.scroll",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"ScrollView\"],[class$=\"NestedScrollView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "scrollview"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"ScrollView\"],[class$=\"NestedScrollView\"] => role 'scrollview'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.scroll",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"ScrollView\"],[class$=\"NestedScrollView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Element"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"ScrollView\"],[class$=\"NestedScrollView\"] => graph node kind 'Element'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.tabs",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"TabLayout\"],[class$=\"TabWidget\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "tablist"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"TabLayout\"],[class$=\"TabWidget\"] => role 'tablist'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.tabs",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"TabLayout\"],[class$=\"TabWidget\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Region"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"TabLayout\"],[class$=\"TabWidget\"] => graph node kind 'Region'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.toolbar",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"Toolbar\"],[class$=\"ActionBar\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "toolbar"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"Toolbar\"],[class$=\"ActionBar\"] => role 'toolbar'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.toolbar",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"Toolbar\"],[class$=\"ActionBar\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Region"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"Toolbar\"],[class$=\"ActionBar\"] => graph node kind 'Region'.",
+   "phase": 2
+  },
+  {
+   "id": "android.role.webview",
+   "family": "role",
+   "when": {
+    "selector": "[class$=\"WebView\"]"
+   },
+   "emit": {
+    "flag": "role",
+    "value": "webview"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table (AppCompat/Material subclasses end with the framework widget name)",
+   "rationale": "Class suffix [class$=\"WebView\"] => role 'webview'. Generic suffixes run in phase 1 and specific ones in phase 2, so the more specific widget wins.",
+   "phase": 2
+  },
+  {
+   "id": "android.kind.webview",
+   "family": "kind",
+   "when": {
+    "selector": "[class$=\"WebView\"]"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "WebViewBoundary"
+   },
+   "confidence": "derived",
+   "source": "Android AccessibilityNodeInfo getClassName() mapped by Ozone's class-suffix table",
+   "rationale": "Class suffix [class$=\"WebView\"] => graph node kind 'WebViewBoundary'.",
+   "phase": 2
+  },
+  {
+   "id": "android.webview.hand-off",
+   "family": "boundary",
+   "when": {
+    "selector": "[class$=\"WebView\"]"
+   },
+   "emit": {
+    "flag": "hand_off",
+    "value": "html"
+   },
+   "confidence": "certain",
+   "source": "android.webkit.WebView",
+   "rationale": "A WebView renders a web page: its content is NOT in this dump. The node is a boundary; the page behind it is analyzed with the html / dom-live flavors and linked.",
+   "phase": 2
+  },
+  {
+   "id": "android.name.resource-id",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "id-name"
+    ]
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "attr:id-name"
+   },
+   "confidence": "heuristic",
+   "source": "Android uiautomator dump (AccessibilityNodeInfo.getClassName/getText/getContentDescription/getBoundsInScreen)",
+   "rationale": "Last resort: the tail of resource-id (com.app:id/login_btn => login_btn). A developer-chosen identifier, not user-facing text."
+  },
+  {
+   "id": "android.name.hint",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "hint"
+    ]
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "attr:hint"
+   },
+   "confidence": "derived",
+   "source": "AccessibilityNodeInfo.getHintText",
+   "rationale": "An empty EditText exposes its hint as the visible prompt."
+  },
+  {
+   "id": "android.name.text",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "text_matches": "\\S"
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "text"
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo.getText",
+   "rationale": "Visible text is the accessible name when there is no content description. Password fields never reach this rule: their text is dropped at parse time."
+  },
+  {
+   "id": "android.name.content-desc",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "content-desc"
+    ]
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "attr:content-desc"
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo.getContentDescription",
+   "rationale": "An explicit content description is the author's accessible name and wins over visible text."
+  },
+  {
+   "id": "android.state.clickable",
+   "family": "state",
+   "when": {
+    "selector": "[clickable=\"true\"]"
+   },
+   "emit": {
+    "flag": "clickable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'clickable'."
+  },
+  {
+   "id": "android.state.long-clickable",
+   "family": "state",
+   "when": {
+    "selector": "[long-clickable=\"true\"]"
+   },
+   "emit": {
+    "flag": "long_clickable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'long_clickable'."
+  },
+  {
+   "id": "android.state.scrollable",
+   "family": "state",
+   "when": {
+    "selector": "[scrollable=\"true\"]"
+   },
+   "emit": {
+    "flag": "scrollable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'scrollable'."
+  },
+  {
+   "id": "android.state.focusable",
+   "family": "state",
+   "when": {
+    "selector": "[focusable=\"true\"]"
+   },
+   "emit": {
+    "flag": "focusable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'focusable'."
+  },
+  {
+   "id": "android.state.focused",
+   "family": "state",
+   "when": {
+    "selector": "[focused=\"true\"]"
+   },
+   "emit": {
+    "flag": "focused",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'focused'."
+  },
+  {
+   "id": "android.state.checkable",
+   "family": "state",
+   "when": {
+    "selector": "[checkable=\"true\"]"
+   },
+   "emit": {
+    "flag": "checkable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'checkable'."
+  },
+  {
+   "id": "android.state.checked",
+   "family": "state",
+   "when": {
+    "selector": "[checked=\"true\"]"
+   },
+   "emit": {
+    "flag": "checked",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'checked'."
+  },
+  {
+   "id": "android.state.selected",
+   "family": "state",
+   "when": {
+    "selector": "[selected=\"true\"]"
+   },
+   "emit": {
+    "flag": "selected",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'selected'."
+  },
+  {
+   "id": "android.state.password",
+   "family": "state",
+   "when": {
+    "selector": "[password=\"true\"]"
+   },
+   "emit": {
+    "flag": "password",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'password'."
+  },
+  {
+   "id": "android.state.disabled",
+   "family": "state",
+   "when": {
+    "selector": "[enabled=\"false\"]"
+   },
+   "emit": {
+    "flag": "disabled",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo (uiautomator attribute)",
+   "rationale": "The dump attribute is set: flag 'disabled'."
+  },
+  {
+   "id": "android.safety.password-text",
+   "family": "safety",
+   "when": {
+    "selector": "[password=\"true\"]"
+   },
+   "emit": {
+    "flag": "text_suppressed",
+    "value": "password field"
+   },
+   "confidence": "certain",
+   "source": "AccessibilityNodeInfo.isPassword",
+   "rationale": "Password fields never have their text emitted: the parser drops it before the graph is built, and this flag says so."
+  },
+  {
+   "id": "android.safety.suspicious-instruction-text",
+   "family": "safety",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "suspicious_text"
+   },
+   "confidence": "heuristic",
+   "source": "Prompt-injection indicators",
+   "rationale": "Flags (never removes) screen text that addresses an AI reader or tries to override its instructions. All screen text is untrusted display data.",
+   "evidence": [
+    "text / content-desc / hint matched a known injection pattern"
+   ]
+  },
+  {
+   "id": "android.vis.not-visible",
+   "family": "visibility",
+   "when": {
+    "selector": "[visible-to-user=\"false\"],[displayed=\"false\"]"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "AccessibilityNodeInfo.isVisibleToUser",
+   "rationale": "The node is not visible to the user according to the platform (scrolled off, covered or invisible)."
+  },
+  {
+   "id": "android.interact.base.pointer",
+   "family": "interactability",
+   "when": {
+    "selector": "[clickable=\"true\"],[long-clickable=\"true\"],[checkable=\"true\"]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Android AccessibilityNodeInfo isClickable/isLongClickable/isCheckable",
+   "rationale": "Nodes that accept a tap, long-press or toggle."
+  },
+  {
+   "id": "android.interact.base.focus",
+   "family": "interactability",
+   "when": {
+    "selector": "[focusable=\"true\"]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Android AccessibilityNodeInfo isFocusable",
+   "rationale": "Focusable nodes accept keyboard/D-pad focus; enabled state is applied in the final rule."
+  },
+  {
+   "id": "android.vis.effective",
+   "family": "visibility",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "visibility_effective"
+   },
+   "confidence": "derived",
+   "source": "AccessibilityNodeInfo.isVisibleToUser",
+   "rationale": "A not-visible node hides its subtree for reading and acting.",
+   "phase": 3
+  },
+  {
+   "id": "android.interact.final",
+   "family": "interactability",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "interactable"
+   },
+   "confidence": "derived",
+   "source": "Ozone",
+   "rationale": "interactable = (clickable || long-clickable || checkable || focusable) && enabled && effectively visible.",
+   "phase": 3
+  }
+ ]
+}

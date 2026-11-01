@@ -17,6 +17,9 @@ reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
+# Pixel decode (PNG/JPEG/GIF/BMP) for REAL image statistics (D16/D17). Pure Rust, no network.
+# Decision: a hand decoder would need inflate + Huffman/IDCT (~800 lines); the crate is the smaller, safer path.
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "gif", "bmp"] }
 
 # Own workspace root: independent unit — builds anywhere, connects over the wire.
 [workspace]

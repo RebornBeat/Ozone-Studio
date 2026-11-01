@@ -1322,7 +1322,54 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 
 /// Persist the built graph as a real ModalityGraph container (parent =
 /// project) + node/edge payload file — the proven revival pattern.
+
+// HONESTY PASS (2026-10-31, modality fork F): a cross-modality "edge" whose
+// target is the SAME node is not a link — it is a placeholder with target ids
+// stuffed in properties. Such edges are removed here (the persist boundary every
+// create/update/hook path crosses) and recorded as an UNRESOLVED reference in the
+// node's keywords: `pending_link:<EdgeType>:no-target-node`. A real cross-graph
+// link is created by the host only when a real target node exists.
+fn drop_self_loops_pending<N, E>(nodes: &mut Vec<N>, edges: &mut Vec<E>)
+where
+    N: HasNodeIdKeywords,
+    E: HasEdgeEndsDebug,
+{
+    let mut kept: Vec<E> = Vec::with_capacity(edges.len());
+    for e in edges.drain(..) {
+        if e.ends().0 == e.ends().1 {
+            let tag = format!("pending_link:{}:no-target-node", e.type_name());
+            let id = e.ends().0;
+            if let Some(n) = nodes.iter_mut().find(|n| n.nid() == id) {
+                if !n.kw().contains(&tag) {
+                    n.kw().push(tag);
+                }
+            }
+        } else {
+            kept.push(e);
+        }
+    }
+    *edges = kept;
+}
+trait HasNodeIdKeywords {
+    fn nid(&self) -> u64;
+    fn kw(&mut self) -> &mut Vec<String>;
+}
+trait HasEdgeEndsDebug {
+    fn ends(&self) -> (u64, u64);
+    fn type_name(&self) -> String;
+}
+
+impl HasNodeIdKeywords for RadarGraphNode {
+    fn nid(&self) -> u64 { self.node_id }
+    fn kw(&mut self) -> &mut Vec<String> { &mut self.keywords }
+}
+impl HasEdgeEndsDebug for RadarGraphEdge {
+    fn ends(&self) -> (u64, u64) { (self.from_node, self.to_node) }
+    fn type_name(&self) -> String { format!("{:?}", self.edge_type) }
+}
+
 async fn persist_radar_graph(graph: &mut RadarGraph) -> Result<(), String> {
+    drop_self_loops_pending(&mut graph.nodes, &mut graph.edges);
     let keywords: Vec<String> = {
         let mut k: Vec<String> = graph.nodes.iter()
             .flat_map(|n| n.keywords.iter().cloned())
@@ -1938,7 +1985,7 @@ async fn create_graph(
     }
 
     // ── ZSEI HOOK 1: OnGraphCreated ──
-    // (In production: call ZSEI API to register graph container)
+    // (graph container registration happens in persist_radar_graph)
     // Register in /Modalities/Radar root container
     let mut save_error: Option<String> = None;
     let created_save = executor.save_graph(&RadarGraph {
@@ -2120,58 +2167,16 @@ async fn analyze_radar_data(
         }
     };
 
-    // In production: actual signal processing (FFT, CFAR, SAR formation, etc.)
-    // Here we produce an analysis result from available source metadata
-
+    // HONEST: Analyze does not touch raw IQ here. Radar parameters are NOT guessed from a text description;
+    // use RangeDopplerCfar (explicit IQ + wavelength/PRI) for real processing.
     let mut analysis = RadarAnalysisResult {
         analysis_id,
         source_description: source_description.clone(),
         ..Default::default()
     };
 
-    // Process file metadata using LLM to identify what's present
-    let prompt = format!(
-        r#"
-Analyze this radar data source description and predict what products can be extracted.
-Data: {}
-Extract: targets={}, weather={}, velocity={}, SAR={}, polarimetry={}
-
-Return ONLY valid JSON:
-{{
-  "carrier_freq_hz": 9.4e9,
-  "bandwidth_hz": 100e6,
-  "pulse_duration_us": 10.0,
-  "prf_hz": 1000.0,
-  "operating_mode": "RangeDoppler|SAR|WeatherSurveillance",
-  "has_range_doppler_map": true,
-  "estimated_target_count": 5,
-  "has_weather": false,
-  "has_sar": false,
-  "processing_notes": ["note1", "note2"]
-}}"#,
-        source_description,
-        extract_targets,
-        extract_weather,
-        extract_velocity,
-        extract_sar,
-        extract_polarimetry
-    );
-
-    if let Ok(raw) = executor.llm_zero_shot(&prompt, 400).await {
-        let json_str = PipelineExecutor::extract_json_object(&raw);
-        if let Ok(meta) = serde_json::from_str::<serde_json::Value>(&json_str) {
-            analysis.carrier_freq_hz = meta["carrier_freq_hz"].as_f64().unwrap_or(9.4e9);
-            analysis.bandwidth_hz = meta["bandwidth_hz"].as_f64().unwrap_or(100e6);
-            analysis.pulse_duration_us = meta["pulse_duration_us"].as_f64().unwrap_or(10.0) as f32;
-            analysis.prf_hz = meta["prf_hz"].as_f64().unwrap_or(1000.0) as f32;
-            if let Some(notes) = meta["processing_notes"].as_array() {
-                analysis.processing_notes = notes
-                    .iter()
-                    .filter_map(|n| n.as_str().map(String::from))
-                    .collect();
-            }
-        }
-    }
+    analysis.processing_notes = vec!["no radar parameters derived: carrier/bandwidth/PRF are ABSENT (previous versions invented 9.4 GHz/100 MHz/1 kHz defaults); provide them explicitly to RangeDopplerCfar".to_string()];
+    let _ = (extract_targets, extract_weather, extract_velocity, extract_sar, extract_polarimetry, executor);
 
     RadarModalityOutput {
         success: true,
@@ -2292,38 +2297,10 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
             pulse_duration_us,
             sample_rate_hz,
         } => {
-            // Pulse compression: matched filter in frequency domain
-            // In production: FFT → multiply by reference → IFFT
-            let range_resolution_m = (3e8 / (2.0 * bandwidth_hz)) as f32;
-            let n_samples = raw_pulse.len();
-            let compressed_samples: Vec<f32> = raw_pulse
-                .iter()
-                .enumerate()
-                .map(|(i, &v)| {
-                    // Simplified: power envelope
-                    (v * v).sqrt() * (1.0 - (i as f32 / n_samples as f32).powi(2))
-                })
-                .collect();
-            let peak_idx = compressed_samples
-                .iter()
-                .enumerate()
-                .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-                .map(|(i, _)| i)
-                .unwrap_or(0);
-            let peak_range_m = peak_idx as f32 * range_resolution_m;
-
-            Ok(RadarModalityOutput {
-                success: true,
-                pulse_result: Some(RangeProfile {
-                    profile_id: executor.generate_id(),
-                    pulse_index: 0,
-                    range_samples: compressed_samples,
-                    range_resolution_m,
-                    peak_range_m: Some(peak_range_m),
-                    timestamp: 0.0,
-                }),
-                ..Default::default()
-            })
+            let _ = (&raw_pulse, carrier_freq_hz, bandwidth_hz, pulse_duration_us, sample_rate_hz);
+            // HONEST: the previous body returned a tapered |x| envelope labelled as pulse compression (not a matched
+            // filter). Use RangeDopplerCfar, which does a real range FFT / matched processing on explicit IQ.
+            Err("PulseCompression is not implemented; use RangeDopplerCfar (explicit IQ, wavelength, PRI)".to_string())
         }
 
         RadarModalityAction::FormSARImage {
@@ -2332,33 +2309,10 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
             scene_center,
             resolution_m,
         } => {
-            // SAR formation: in production uses back-projection or omega-k algorithm
-            let width = (1000.0 / resolution_m) as u32;
-            let height = (1000.0 / resolution_m) as u32;
-            Ok(RadarModalityOutput {
-                success: true,
-                sar_image: Some(SARImageResult {
-                    image_id: executor.generate_id(),
-                    width_pixels: width,
-                    height_pixels: height,
-                    range_resolution_m: resolution_m,
-                    azimuth_resolution_m: resolution_m,
-                    geo_extent: Some([
-                        scene_center.0 - 0.005,
-                        scene_center.1 - 0.005,
-                        scene_center.0 + 0.005,
-                        scene_center.1 + 0.005,
-                    ]),
-                    look_direction: LookDirection::Right,
-                    orbit_direction: None,
-                    incidence_angle_deg: 35.0,
-                    polarization: Polarization::VV,
-                    image_file_path: None,
-                    detected_features: Vec::new(),
-                    calibration_applied: false,
-                }),
-                ..Default::default()
-            })
+            let _ = (&pulses, &platform_positions, &scene_center, resolution_m);
+            // HONEST: no SAR formation algorithm exists here; the previous body returned an image record with
+            // invented extent/incidence/polarization and no pixels.
+            Err("FormSARImage is not implemented (no back-projection / omega-k)".to_string())
         }
 
         RadarModalityAction::TrackTargets {
@@ -2367,7 +2321,7 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
             frame_timestamp,
         } => {
             let graph = executor.load_graph(graph_id)?;
-            // In production: JPDA / MHT / Kalman filtering for tracking
+            // Tracks are created Tentative from new detections only: NO association/filtering (JPDA/MHT/Kalman) is performed
             let tracks: Vec<TargetTrack> = new_detections
                 .iter()
                 .map(|det| TargetTrack {
@@ -2703,12 +2657,9 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
         RadarModalityAction::ExportProduct { graph_id, format } => {
             let graph = executor.load_graph(graph_id)?;
             let export_path = format!("/tmp/radar_export_{}_{:?}.dat", graph_id, format);
-            // In production: actual export logic per format
-            Ok(RadarModalityOutput {
-                success: true,
-                export_path: Some(export_path),
-                ..Default::default()
-            })
+            // NOT IMPLEMENTED: no file is written.
+            let _ = (&graph, &export_path);
+            Err("ExportProduct is not implemented: no file was written".to_string())
         }
 
         RadarModalityAction::StreamToUI {
@@ -2716,12 +2667,9 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
             session_id,
             display_mode,
         } => {
-            // In production: start WebSocket stream to UI session
-            Ok(RadarModalityOutput {
-                success: true,
-                graph_id: Some(graph_id),
-                ..Default::default()
-            })
+            // NOT IMPLEMENTED: no stream is started.
+            let _ = (graph_id, &session_id, &display_mode);
+            Err("StreamToUI is not implemented: no stream was started".to_string())
         }
 
         RadarModalityAction::HeadlessProcess {

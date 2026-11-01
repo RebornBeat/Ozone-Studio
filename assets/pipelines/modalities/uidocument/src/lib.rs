@@ -5,6 +5,8 @@
 //!   analyze(input: &Value) -> Value
 //!   input  = {"flavor": "html"|"css"|"dom-live"|"svg"|"android-xml"|"a11y-json",
 //!             "url"?: str, "html"?: str, "svg"?: str, "css"?: [str],
+//!             "android"?: str (uiautomator / Appium view-hierarchy XML),
+//!             "a11y"?: object|array|str (CDP Accessibility.getFullAXTree result or nested {role,name,children}),
 //!             "batch"?: {"seq": n, "full": bool, "nodes": [...], "context"?: [...],
 //!                        "removed"?: [ids], "changed"?: [...]},
 //!             "relation_mode"?: "host"|"semantic", "view_max_chars"?: n}
@@ -44,6 +46,8 @@ fn read_text_file(p: &str) -> Result<(String, &'static str), String> {
 }
 
 pub mod a11y;
+pub mod a11y_json;
+pub mod android;
 pub mod css;
 pub mod geom;
 pub mod graph;
@@ -367,6 +371,19 @@ pub fn normalize_input(input: &Value) -> Value {
         let css_ext = name_hint
             .map(|n| { let n = n.to_lowercase(); n.ends_with(".css") || n.ends_with(".scss") || n.ends_with(".less") })
             .unwrap_or(false);
+        // android uiautomator dump / CDP accessibility JSON: explicit flavor, or detected from the content
+        let want_android = match flavor.as_deref() { Some("android-xml") => true, Some(_) => false, None => android::looks_like_hierarchy(&text) };
+        if want_android {
+            if flavor.is_none() { *flavor = Some("android-xml".into()); }
+            out.insert("android".into(), Value::String(text));
+            return;
+        }
+        let want_ax = match flavor.as_deref() { Some("a11y-json") => true, Some(_) => false, None => a11y_json::looks_like_ax_json(&text, name_hint) };
+        if want_ax {
+            if flavor.is_none() { *flavor = Some("a11y-json".into()); }
+            out.insert("a11y".into(), Value::String(text));
+            return;
+        }
         let svg_like = match flavor.as_deref() { Some("svg") => true, Some(_) => false, None => svg::looks_like_svg(&text, name_hint) };
         if svg_like {
             if flavor.is_none() { *flavor = Some("svg".into()); }
@@ -421,8 +438,8 @@ pub fn analyze(input: &Value) -> Value {
         "css" => analyze_css(input),
         "dom-live" => analyze_live(input),
         "svg" => analyze_svg(input),
-        "android-xml" => fail("android-xml", "flavor android-xml not implemented yet"),
-        "a11y-json" => fail("a11y-json", "flavor a11y-json not implemented yet"),
+        "android-xml" => android::analyze_android(input),
+        "a11y-json" => a11y_json::analyze_a11y_json(input),
         other => fail(other, format!("unknown flavor '{}' (html | css | dom-live | svg | android-xml | a11y-json)", other)),
     }
 }
@@ -582,12 +599,35 @@ mod tests {
     }
 
     #[test]
-    fn unimplemented_and_unknown_flavors_are_honest() {
+    fn missing_input_and_unknown_flavors_are_honest() {
+        // android-xml and a11y-json are implemented now (src/android.rs, src/a11y_json.rs):
+        // without their input field they refuse, saying what they need
         let a = analyze(&json!({"flavor":"android-xml"}));
         assert_eq!(a["success"], false);
-        assert_eq!(a["error"], "flavor android-xml not implemented yet");
+        assert!(a["error"].as_str().unwrap().contains("input.android"));
+        let x = analyze(&json!({"flavor":"a11y-json"}));
+        assert_eq!(x["success"], false);
+        assert!(x["error"].as_str().unwrap().contains("input.a11y"));
         assert_eq!(analyze(&json!({"flavor":"nope"}))["success"], false);
         assert_eq!(analyze(&json!({"flavor":"html"}))["success"], false);
+    }
+
+    #[test]
+    fn normalize_routes_android_dumps_and_ax_json_by_content() {
+        let dump = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\"><node class=\"android.widget.Button\" text=\"OK\" clickable=\"true\" enabled=\"true\" bounds=\"[0,0][10,10]\"/></hierarchy>";
+        let n = normalize_input(&json!({"type":"Analyze","text":dump}));
+        assert_eq!(n["flavor"], "android-xml");
+        assert!(n["android"].is_string());
+        let ax = "{\"nodes\":[{\"nodeId\":\"1\",\"role\":{\"value\":\"button\"}}]}";
+        let n2 = normalize_input(&json!({"type":"Analyze","text":ax,"path":"tree.json"}));
+        assert_eq!(n2["flavor"], "a11y-json");
+        assert!(n2["a11y"].is_string());
+        // an HTML page is still html
+        let n3 = normalize_input(&json!({"type":"Analyze","text":"<html><body>hi</body></html>"}));
+        assert_eq!(n3["flavor"], "html");
+        // and the routed input analyzes end to end
+        assert_eq!(analyze(&json!({"type":"Analyze","text":dump}))["flavor"], "android-xml");
+        assert_eq!(analyze(&json!({"type":"Analyze","text":ax}))["flavor"], "a11y-json");
     }
 
     #[test]

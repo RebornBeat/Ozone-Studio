@@ -1,0 +1,667 @@
+{
+ "pack": {
+  "id": "a11y",
+  "version": "0.1.0",
+  "flavor": "a11y-json",
+  "spec_refs": [
+   "Chrome DevTools Protocol Accessibility domain",
+   "WAI-ARIA 1.2",
+   "Accessible Name and Description Computation 1.2",
+   "Playwright accessibility snapshot"
+  ]
+ },
+ "rules": [
+  {
+   "id": "a11y.struct.node",
+   "family": "structure",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "The adapter creates exactly one graph node per accessibility node (plus the Document node); the tree is the node's `parent`."
+  },
+  {
+   "id": "a11y.source.browser",
+   "family": "structure",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "flag": "source",
+    "value": "browser",
+    "scope": "document"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "The facts are the BROWSER's own accessibility computation (role, name, state), not a reimplementation: confidence is certain."
+  },
+  {
+   "id": "a11y.role",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "role"
+    ]
+   },
+   "emit": {
+    "flag": "role",
+    "value_from": "attr:role"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The browser-computed role, verbatim (original case kept; the tag is its lower-cased form)."
+  },
+  {
+   "id": "a11y.name.label",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "aria-label"
+    ]
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "attr:aria-label"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / Accessible Name and Description Computation 1.2",
+   "rationale": "The browser-computed accessible name, verbatim."
+  },
+  {
+   "id": "a11y.name.text",
+   "family": "a11y",
+   "when": {
+    "selector": "statictext,text,inlinetextbox",
+    "text_matches": "\\S"
+   },
+   "emit": {
+    "flag": "name",
+    "value_from": "text"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "For text nodes the name IS the text."
+  },
+  {
+   "id": "a11y.description",
+   "family": "a11y",
+   "when": {
+    "selector": "*",
+    "has_attr": [
+     "title"
+    ]
+   },
+   "emit": {
+    "flag": "description",
+    "value_from": "attr:title"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "The browser-computed accessible description, verbatim."
+  },
+  {
+   "id": "a11y.state.ignored",
+   "family": "state",
+   "when": {
+    "selector": "[ignored=\"true\"]"
+   },
+   "emit": {
+    "flag": "ignored",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "An ignored node is not exposed to assistive technology."
+  },
+  {
+   "id": "a11y.vis.ignored",
+   "family": "visibility",
+   "when": {
+    "selector": "[ignored=\"true\"]"
+   },
+   "emit": {
+    "flag": "visibility_hidden",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "An ignored node is not exposed to assistive technology. Only the node itself is hidden: its descendants stay in the tree (Chrome lists them under the ignored node) and keep their own visibility."
+  },
+  {
+   "id": "a11y.vis.hidden",
+   "family": "visibility",
+   "when": {
+    "selector": "[hidden=\"true\"]"
+   },
+   "emit": {
+    "flag": "display_none",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / aria-hidden",
+   "rationale": "A node whose hidden property is true removes its whole subtree from what a user perceives."
+  },
+  {
+   "id": "a11y.state.focusable",
+   "family": "state",
+   "when": {
+    "selector": "[focusable=\"true\"]"
+   },
+   "emit": {
+    "flag": "focusable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'focusable' is true."
+  },
+  {
+   "id": "a11y.state.focused",
+   "family": "state",
+   "when": {
+    "selector": "[focused=\"true\"]"
+   },
+   "emit": {
+    "flag": "focused",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'focused' is true."
+  },
+  {
+   "id": "a11y.state.disabled",
+   "family": "state",
+   "when": {
+    "selector": "[disabled=\"true\"]"
+   },
+   "emit": {
+    "flag": "disabled",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'disabled' is true."
+  },
+  {
+   "id": "a11y.state.selected",
+   "family": "state",
+   "when": {
+    "selector": "[selected=\"true\"]"
+   },
+   "emit": {
+    "flag": "selected",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'selected' is true."
+  },
+  {
+   "id": "a11y.state.required",
+   "family": "state",
+   "when": {
+    "selector": "[required=\"true\"]"
+   },
+   "emit": {
+    "flag": "required",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'required' is true."
+  },
+  {
+   "id": "a11y.state.readonly",
+   "family": "state",
+   "when": {
+    "selector": "[readonly=\"true\"]"
+   },
+   "emit": {
+    "flag": "readonly",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'readonly' is true."
+  },
+  {
+   "id": "a11y.state.editable",
+   "family": "state",
+   "when": {
+    "selector": "[editable=\"true\"]"
+   },
+   "emit": {
+    "flag": "editable",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'editable' is true."
+  },
+  {
+   "id": "a11y.state.multiline",
+   "family": "state",
+   "when": {
+    "selector": "[multiline=\"true\"]"
+   },
+   "emit": {
+    "flag": "multiline",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'multiline' is true."
+  },
+  {
+   "id": "a11y.state.modal",
+   "family": "state",
+   "when": {
+    "selector": "[modal=\"true\"]"
+   },
+   "emit": {
+    "flag": "modal",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'modal' is true."
+  },
+  {
+   "id": "a11y.state.busy",
+   "family": "state",
+   "when": {
+    "selector": "[busy=\"true\"]"
+   },
+   "emit": {
+    "flag": "busy",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'busy' is true."
+  },
+  {
+   "id": "a11y.state.checked",
+   "family": "state",
+   "when": {
+    "selector": "[checked]"
+   },
+   "emit": {
+    "flag": "checked",
+    "value_from": "attr:checked"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'checked' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.pressed",
+   "family": "state",
+   "when": {
+    "selector": "[pressed]"
+   },
+   "emit": {
+    "flag": "pressed",
+    "value_from": "attr:pressed"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'pressed' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.expanded",
+   "family": "state",
+   "when": {
+    "selector": "[expanded]"
+   },
+   "emit": {
+    "flag": "expanded",
+    "value_from": "attr:expanded"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'expanded' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.invalid",
+   "family": "state",
+   "when": {
+    "selector": "[invalid]"
+   },
+   "emit": {
+    "flag": "invalid",
+    "value_from": "attr:invalid"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'invalid' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.haspopup",
+   "family": "state",
+   "when": {
+    "selector": "[haspopup]"
+   },
+   "emit": {
+    "flag": "haspopup",
+    "value_from": "attr:haspopup"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'haspopup' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.autocomplete",
+   "family": "state",
+   "when": {
+    "selector": "[autocomplete]"
+   },
+   "emit": {
+    "flag": "autocomplete",
+    "value_from": "attr:autocomplete"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'autocomplete' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.orientation",
+   "family": "state",
+   "when": {
+    "selector": "[orientation]"
+   },
+   "emit": {
+    "flag": "orientation",
+    "value_from": "attr:orientation"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'orientation' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.valuetext",
+   "family": "state",
+   "when": {
+    "selector": "[valuetext]"
+   },
+   "emit": {
+    "flag": "valuetext",
+    "value_from": "attr:valuetext"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "The property 'valuetext' as reported (tri-state values like 'mixed' are kept as text)."
+  },
+  {
+   "id": "a11y.state.level",
+   "family": "state",
+   "when": {
+    "selector": "[level]"
+   },
+   "emit": {
+    "flag": "level",
+    "value_from": "int:attr:level"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree / ARIA 1.2",
+   "rationale": "Heading / tree level."
+  },
+  {
+   "id": "a11y.kind.button",
+   "family": "kind",
+   "when": {
+    "selector": "button"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Button"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (button) => graph node kind 'Button'."
+  },
+  {
+   "id": "a11y.kind.link",
+   "family": "kind",
+   "when": {
+    "selector": "link"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Link"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (link) => graph node kind 'Link'."
+  },
+  {
+   "id": "a11y.kind.field",
+   "family": "kind",
+   "when": {
+    "selector": "textbox,searchbox,combobox,checkbox,radio,switch,slider,spinbutton,menuitemcheckbox,menuitemradio"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Field"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (textbox,searchbox,combobox,checkbox,radio,switch,slider,spinbutton,menuitemcheckbox,menuitemradio) => graph node kind 'Field'."
+  },
+  {
+   "id": "a11y.kind.form",
+   "family": "kind",
+   "when": {
+    "selector": "form"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Form"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (form) => graph node kind 'Form'."
+  },
+  {
+   "id": "a11y.kind.media",
+   "family": "kind",
+   "when": {
+    "selector": "img,image,figure"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Media"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (img,image,figure) => graph node kind 'Media'."
+  },
+  {
+   "id": "a11y.kind.text",
+   "family": "kind",
+   "when": {
+    "selector": "statictext,text,inlinetextbox"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "TextRun"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (statictext,text,inlinetextbox) => graph node kind 'TextRun'."
+  },
+  {
+   "id": "a11y.kind.list",
+   "family": "kind",
+   "when": {
+    "selector": "list,listbox,menu,menubar,tablist,tree,grid,table,treegrid,rowgroup"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "List"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (list,listbox,menu,menubar,tablist,tree,grid,table,treegrid,rowgroup) => graph node kind 'List'."
+  },
+  {
+   "id": "a11y.kind.region",
+   "family": "kind",
+   "when": {
+    "selector": "main,navigation,banner,contentinfo,complementary,region,search,dialog,alertdialog,rootwebarea,webarea,toolbar"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Region"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (main,navigation,banner,contentinfo,complementary,region,search,dialog,alertdialog,rootwebarea,webarea,toolbar) => graph node kind 'Region'."
+  },
+  {
+   "id": "a11y.kind.frame",
+   "family": "kind",
+   "when": {
+    "selector": "iframe,iframepresentational"
+   },
+   "emit": {
+    "flag": "node_kind",
+    "value": "Frame"
+   },
+   "confidence": "derived",
+   "source": "ARIA 1.2 role taxonomy",
+   "rationale": "Roles (iframe,iframepresentational) => graph node kind 'Frame'."
+  },
+  {
+   "id": "a11y.interact.widget",
+   "family": "interactability",
+   "when": {
+    "selector": "button,link,textbox,searchbox,combobox,checkbox,radio,switch,slider,spinbutton,menuitem,menuitemcheckbox,menuitemradio,tab,option,treeitem"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "certain",
+   "source": "ARIA 1.2 widget roles",
+   "rationale": "Widget roles are interactive by definition."
+  },
+  {
+   "id": "a11y.interact.focusable",
+   "family": "interactability",
+   "when": {
+    "selector": "[focusable=\"true\"]"
+   },
+   "emit": {
+    "flag": "interactable_base",
+    "value": true
+   },
+   "confidence": "derived",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "Focusable nodes accept keyboard input; the final rule applies disabled / hidden state."
+  },
+  {
+   "id": "a11y.safety.suspicious-instruction-text",
+   "family": "safety",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "suspicious_text"
+   },
+   "confidence": "heuristic",
+   "source": "Prompt-injection indicators",
+   "rationale": "Flags (never removes) names / descriptions / text that address an AI reader. All accessibility strings are untrusted page data. Values of fields are never emitted at all (only their length).",
+   "evidence": [
+    "name / description / text matched a known injection pattern"
+   ]
+  },
+  {
+   "id": "a11y.rel.labelledby",
+   "family": "relation",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree relatedNodes / ARIA 1.2",
+   "rationale": "Documentation entry: 'labelledby' relations are emitted by the adapter as LabelFor edges (the relatedNodes carry backend DOM ids, which the data vocabulary cannot resolve). The adapter records the rule id on each edge."
+  },
+  {
+   "id": "a11y.rel.controls",
+   "family": "relation",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree relatedNodes / ARIA 1.2",
+   "rationale": "Documentation entry: 'controls' relations are emitted by the adapter as Controls edges (the relatedNodes carry backend DOM ids, which the data vocabulary cannot resolve). The adapter records the rule id on each edge."
+  },
+  {
+   "id": "a11y.rel.owns",
+   "family": "relation",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree relatedNodes / ARIA 1.2",
+   "rationale": "Documentation entry: 'owns' relations are emitted by the adapter as Owns edges (the relatedNodes carry backend DOM ids, which the data vocabulary cannot resolve). The adapter records the rule id on each edge."
+  },
+  {
+   "id": "a11y.rel.describedby",
+   "family": "relation",
+   "when": {
+    "scope": "once"
+   },
+   "emit": {
+    "builtin": "node_per_element"
+   },
+   "confidence": "certain",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree relatedNodes / ARIA 1.2",
+   "rationale": "Documentation entry: 'describedby' relations are emitted by the adapter as Describes edges (the relatedNodes carry backend DOM ids, which the data vocabulary cannot resolve). The adapter records the rule id on each edge."
+  },
+  {
+   "id": "a11y.vis.effective",
+   "family": "visibility",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "visibility_effective"
+   },
+   "confidence": "derived",
+   "source": "Chrome DevTools Protocol Accessibility.getFullAXTree",
+   "rationale": "An ignored or hidden node hides its subtree.",
+   "phase": 3
+  },
+  {
+   "id": "a11y.interact.final",
+   "family": "interactability",
+   "when": {
+    "selector": "*"
+   },
+   "emit": {
+    "builtin": "interactable"
+   },
+   "confidence": "derived",
+   "source": "Ozone",
+   "rationale": "interactable = interactive base && not disabled && not ignored/hidden.",
+   "phase": 3
+  }
+ ]
+}

@@ -840,6 +840,51 @@ struct PipelineExecutor {
     prompt_pipeline_path: String,
 }
 
+// HONESTY PASS (2026-10-31, modality fork F): a cross-modality "edge" whose
+// target is the SAME node is not a link — it is a placeholder with target ids
+// stuffed in properties. Such edges are removed here (the persist boundary every
+// create/update/hook path crosses) and recorded as an UNRESOLVED reference in the
+// node's keywords: `pending_link:<EdgeType>:no-target-node`. A real cross-graph
+// link is created by the host only when a real target node exists.
+fn drop_self_loops_pending<N, E>(nodes: &mut Vec<N>, edges: &mut Vec<E>)
+where
+    N: HasNodeIdKeywords,
+    E: HasEdgeEndsDebug,
+{
+    let mut kept: Vec<E> = Vec::with_capacity(edges.len());
+    for e in edges.drain(..) {
+        if e.ends().0 == e.ends().1 {
+            let tag = format!("pending_link:{}:no-target-node", e.type_name());
+            let id = e.ends().0;
+            if let Some(n) = nodes.iter_mut().find(|n| n.nid() == id) {
+                if !n.kw().contains(&tag) {
+                    n.kw().push(tag);
+                }
+            }
+        } else {
+            kept.push(e);
+        }
+    }
+    *edges = kept;
+}
+trait HasNodeIdKeywords {
+    fn nid(&self) -> u64;
+    fn kw(&mut self) -> &mut Vec<String>;
+}
+trait HasEdgeEndsDebug {
+    fn ends(&self) -> (u64, u64);
+    fn type_name(&self) -> String;
+}
+
+impl HasNodeIdKeywords for HyperspectralGraphNode {
+    fn nid(&self) -> u64 { self.node_id }
+    fn kw(&mut self) -> &mut Vec<String> { &mut self.keywords }
+}
+impl HasEdgeEndsDebug for HyperspectralGraphEdge {
+    fn ends(&self) -> (u64, u64) { (self.from_node, self.to_node) }
+    fn type_name(&self) -> String { format!("{:?}", self.edge_type) }
+}
+
 impl PipelineExecutor {
     fn new() -> Self {
         Self {
@@ -1249,11 +1294,11 @@ impl PipelineExecutor {
                         let nir = band_at(842.0)?;
                         let red = band_at(665.0)?;
                         let ndvi = if (nir + red).abs() > 1e-6 { (nir - red) / (nir + red) } else { 0.0 };
-                        Some(ndvi * 3.0) // simplified proxy
+                        Some(ndvi) // normalized difference (nir-red)/(nir+red), unscaled
                     }
                     SpectralIndex::Custom { formula, .. } => {
-                        // Custom band math: placeholder — in production parse and evaluate formula
-                        Some(0.0)
+                        // Custom band math is NOT evaluated here (no formula parser): the index is ABSENT, never a made-up 0.0
+                        None
                     }
                 }
             }
@@ -1323,7 +1368,10 @@ impl PipelineExecutor {
 
         /// Persist the built graph as a real ModalityGraph container (parent =
         /// project) + node/edge payload file — the proven revival pattern.
+
+
         async fn persist_hyperspectral_graph(graph: &mut HyperspectralGraph) -> Result<(), String> {
+            drop_self_loops_pending(&mut graph.nodes, &mut graph.edges);
             let keywords: Vec<String> = {
                 let mut k: Vec<String> = graph.nodes.iter()
                     .flat_map(|n| n.keywords.iter().cloned())
@@ -2163,11 +2211,11 @@ impl PipelineExecutor {
                 HyperspectralModalityAction::AtmosphericCorrection { graph_id, method, atmospheric_params } => {
                     let mut graph = executor.load_graph(graph_id)?;
                     let now = executor.now_iso8601();
-                    // Mark correction as applied — in production: run FLAASH/QUAC/etc.
+                    // HONEST: this records the REQUEST only. No atmospheric model (FLAASH/QUAC/…) exists in this pipeline, so no correction is applied.
                     graph.version += 1; graph.updated_at = now.clone();
                     graph.version_notes.push(VersionNote {
                         version: graph.version,
-                        note: format!("Atmospheric correction applied: {:?}", method),
+                        note: format!("Atmospheric correction REQUESTED ({:?}) — NOT applied: no atmospheric model in this pipeline", method),
                         step_index: None, timestamp: now, change_type: ChangeType::Updated,
                     });
                     executor.save_graph(&graph)?;
@@ -2181,19 +2229,10 @@ impl PipelineExecutor {
                         .filter(|n| matches!(n.node_type, HyperspectralNodeType::SpectralSignatureNode))
                         .collect();
                     let index_name = format!("{:?}", index);
-                    let mean_val = 0.35f32; // placeholder — real impl reads band values from ZSEI
-
-                    Ok(HyperspectralModalityOutput {
-                        success: true,
-                        spectral_index: Some(SpectralIndexResult {
-                            index_id: executor.generate_id(),
-                            index_type: index_name.clone(),
-                            mean_value: mean_val, min_value: -1.0, max_value: 1.0,
-                            index_grid: vec![vec![mean_val]],
-                            interpretation: format!("{} computed across {} signature nodes", index_name, sig_nodes.len()),
-                        }),
-                        ..Default::default()
-                    })
+                    let _ = (&index_name, &sig_nodes, &custom_formula);
+                    // HONEST: the cube's band values are not stored in the graph, so no index can be computed here
+                    // (the previous constant 0.35 was a fabricated value). Use the `ComputeCubeIndex` action with an ENVI cube.
+                    Ok(HyperspectralModalityOutput { success: false, error: Some("spectral index needs band values: graph nodes do not carry the cube; run ComputeCubeIndex with an ENVI cube path".to_string()), ..Default::default() })
                 }
 
                 HyperspectralModalityAction::ClassifyLandCover { graph_id, classifier, training_samples } => {
@@ -2392,7 +2431,7 @@ impl PipelineExecutor {
                                 }
                             }
                             HyperspectralOperation::ExportMaterialReport => {
-                                // In production: generate PDF/CSV report
+                                // Report generation is not implemented: no report is produced (ABSENT)
                             }
                             HyperspectralOperation::RefineAnomalyDetection { method } => {
                                 // Re-run detection with stricter params

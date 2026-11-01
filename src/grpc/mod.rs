@@ -2046,7 +2046,12 @@ async fn ingest_image(
                             .data
                             .get("graph_id")
                             .cloned()
-                            .or_else(|| g.data.get("result").and_then(|r| r.get("graph_id")))
+                            .or_else(|| {
+                                g.data
+                                    .get("result")
+                                    .and_then(|r| r.get("graph_id"))
+                                    .cloned()
+                            })
                             .unwrap_or(serde_json::Value::Null);
                         (true, None, Some(container))
                     }

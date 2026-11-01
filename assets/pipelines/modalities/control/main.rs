@@ -109,6 +109,10 @@ pub enum ControlModalityAction {
         duration_sec: f64,
         dt_sec: f64,
         initial_state: Option<Vec<f64>>,
+        /// Plant to simulate. When absent, a PlantNode whose `content` is a StateSpaceModel JSON is used;
+        /// otherwise the action fails honestly (no default plant is ever substituted).
+        #[serde(default)]
+        state_space: Option<StateSpaceModel>,
     },
     /// Design LQR optimal controller
     DesignLQR {
@@ -1217,35 +1221,31 @@ Return ONLY valid JSON array:
         }
     }
 
-    /// Routh-Hurwitz stability: returns true if all signs in first column are positive
+    /// Routh-Hurwitz: asymptotically stable iff every first-column entry has the sign of the leading
+/// coefficient (no sign changes, no zero entries). A zero pivot or an all-zero row means a root on
+/// the imaginary axis or in a symmetric pair: reported as NOT asymptotically stable.
     fn routh_hurwitz(coefficients: &[f64]) -> (bool, Vec<Vec<f64>>) {
         let n = coefficients.len();
-        if n < 2 { return (false, vec![]); }
+        if n < 2 || coefficients[0].abs() < 1e-300 { return (false, vec![]); }
+        let lead = coefficients[0].signum();
+        let same_sign = coefficients.iter().all(|&c| c * lead > 0.0);
         let rows = n;
         let cols = (n + 1) / 2;
         let mut routh: Vec<Vec<f64>> = vec![vec![0.0; cols]; rows];
-
-        // First two rows from coefficients
         for (i, &c) in coefficients.iter().enumerate() {
-            if i % 2 == 0 { routh[0][i / 2] = c; }
-            else           { routh[1][i / 2] = c; }
+            if i % 2 == 0 { routh[0][i / 2] = c; } else { routh[1][i / 2] = c; }
         }
-
+        let mut degenerate = false;
         for row in 2..rows {
             let r1 = row - 2;
             let r2 = row - 1;
-            let pivot = routh[r2][0];
-            if pivot.abs() < 1e-12 {
-                // Special case: replace with small epsilon
-                routh[r2][0] = 1e-12;
-            }
-            for col in 0..cols - 1 {
-                routh[row][col] = (routh[r2][0] * routh[r1][col + 1] - routh[r1][0] * routh[r2][col + 1])
-                    / routh[r2][0];
+            if routh[r2].iter().all(|v| v.abs() < 1e-12) { degenerate = true; break; }
+            if routh[r2][0].abs() < 1e-12 { degenerate = true; routh[r2][0] = 1e-12; }
+            for col in 0..cols.saturating_sub(1) {
+                routh[row][col] = (routh[r2][0] * routh[r1][col + 1] - routh[r1][0] * routh[r2][col + 1]) / routh[r2][0];
             }
         }
-
-        let stable = routh.iter().all(|row| row[0] >= 0.0);
+        let stable = same_sign && !degenerate && routh.iter().all(|row| row[0] * lead > 0.0);
         (stable, routh)
     }
 
@@ -1282,115 +1282,142 @@ Return ONLY valid JSON array:
                 }
             }
             _ => {
-                // Higher order: return estimate based on Routh array
-                // In production: use eigenvalue solver (nalgebra / lapack)
-                vec![]
+                // Order ≥ 3: Durand–Kerner root finding; empty (absent) when it does not converge.
+                poly_roots(denominator).unwrap_or_default()
             }
         }
     }
 
-    /// Simulate a first/second-order LTI system using Euler integration
+    /// Simulate an LTI state-space system with RK4 (input held constant per step = zero-order hold).
+    /// The same scalar input signal drives every input channel. Performance metrics are computed
+    /// from the output trajectory (10–90% rise time, ±2% settling, peak overshoot, ISE/IAE/ITAE for steps).
     fn simulate_lti(
         ss: &StateSpaceModel,
         input: &SimulationInput,
         duration_sec: f64,
         dt: f64,
+        initial_state: Option<&[f64]>,
     ) -> SimulationResult {
-        let n_steps = (duration_sec / dt).ceil() as usize;
+        let n_steps = ((duration_sec / dt).ceil() as usize).max(1);
         let n_states = ss.a_matrix.len();
-        let n_inputs = ss.b_matrix.first().map(|r| r.len()).unwrap_or(1);
+        let n_inputs = ss.b_matrix.first().map(|r| r.len()).unwrap_or(1).max(1);
         let n_outputs = ss.c_matrix.len();
 
         let mut x = vec![0.0f64; n_states];
+        if let Some(x0) = initial_state { for (i, v) in x0.iter().enumerate().take(n_states) { x[i] = *v; } }
+
+        // Deterministic xorshift64* → Box–Muller (seeded; reproducible white noise).
+        let mut rng: u64 = match input {
+            SimulationInput::White_Noise { seed, .. } => seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407) | 1,
+            _ => 1,
+        };
+        let mut uniform = || -> f64 {
+            rng ^= rng >> 12; rng ^= rng << 25; rng ^= rng >> 27;
+            let v = rng.wrapping_mul(0x2545F4914F6CDD1D);
+            ((v >> 11) as f64 + 1.0) / ((1u64 << 53) as f64 + 1.0)
+        };
+
         let mut time = Vec::with_capacity(n_steps);
         let mut x_traj: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
         let mut y_traj: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
         let mut u_traj: Vec<Vec<f64>> = Vec::with_capacity(n_steps);
-
         let mut diverged = false;
         let mut diverge_time = None;
+
+        let deriv = |x: &[f64], u: &[f64]| -> Vec<f64> {
+            let mut d = vec![0.0f64; n_states];
+            for i in 0..n_states {
+                for j in 0..n_states.min(ss.a_matrix[i].len()) { d[i] += ss.a_matrix[i][j] * x[j]; }
+                if i < ss.b_matrix.len() { for j in 0..n_inputs.min(ss.b_matrix[i].len()) { d[i] += ss.b_matrix[i][j] * u[j]; } }
+            }
+            d
+        };
 
         for step in 0..n_steps {
             let t = step as f64 * dt;
             time.push(t);
-
-            // Input value at time t
             let u_val = match input {
-                SimulationInput::Step { amplitude, step_time_sec } =>
-                    if t >= *step_time_sec { *amplitude } else { 0.0 },
+                SimulationInput::Step { amplitude, step_time_sec } => if t >= *step_time_sec { *amplitude } else { 0.0 },
                 SimulationInput::Ramp { slope } => slope * t,
-                SimulationInput::Sinusoidal { amplitude, frequency_hz } =>
-                    amplitude * (2.0 * std::f64::consts::PI * frequency_hz * t).sin(),
-                SimulationInput::ImpulseAt { time_sec, amplitude } =>
-                    if (t - time_sec).abs() < dt { amplitude / dt } else { 0.0 },
-                _ => 0.0,
-            };
-
-            let u = vec![u_val; n_inputs];
-
-            // Compute output y = C*x + D*u
-            let mut y = vec![0.0f64; n_outputs];
-            for i in 0..n_outputs {
-                for j in 0..n_states.min(ss.c_matrix[i].len()) {
-                    y[i] += ss.c_matrix[i][j] * x[j];
-                }
-                if i < ss.d_matrix.len() {
-                    for j in 0..n_inputs.min(ss.d_matrix[i].len()) {
-                        y[i] += ss.d_matrix[i][j] * u[j];
+                SimulationInput::Sinusoidal { amplitude, frequency_hz } => amplitude * (2.0 * std::f64::consts::PI * frequency_hz * t).sin(),
+                SimulationInput::ImpulseAt { time_sec, amplitude } => if t >= *time_sec && t < *time_sec + dt { amplitude / dt } else { 0.0 },
+                SimulationInput::Arbitrary { time: tt, values } => {
+                    let m = tt.len().min(values.len());
+                    if m == 0 { 0.0 }
+                    else if t <= tt[0] { values[0] }
+                    else if t >= tt[m - 1] { values[m - 1] }
+                    else {
+                        let k = (1..m).find(|&k| tt[k] >= t).unwrap_or(m - 1);
+                        let span = tt[k] - tt[k - 1];
+                        if span.abs() < 1e-300 { values[k] } else { values[k - 1] + (values[k] - values[k - 1]) * (t - tt[k - 1]) / span }
                     }
                 }
-            }
+                SimulationInput::White_Noise { variance, .. } => {
+                    let (u1, u2) = (uniform(), uniform());
+                    variance.max(0.0).sqrt() * (-2.0 * u1.ln()).sqrt() * (2.0 * std::f64::consts::PI * u2).cos()
+                }
+            };
+            let u = vec![u_val; n_inputs];
 
+            let mut y = vec![0.0f64; n_outputs];
+            for i in 0..n_outputs {
+                for j in 0..n_states.min(ss.c_matrix[i].len()) { y[i] += ss.c_matrix[i][j] * x[j]; }
+                if i < ss.d_matrix.len() { for j in 0..n_inputs.min(ss.d_matrix[i].len()) { y[i] += ss.d_matrix[i][j] * u[j]; } }
+            }
             x_traj.push(x.clone());
             y_traj.push(y);
             u_traj.push(u.clone());
 
-            // Check divergence
             if x.iter().any(|&v| v.abs() > 1e6 || v.is_nan() || v.is_infinite()) {
                 diverged = true;
                 diverge_time = Some(t);
                 break;
             }
 
-            // Euler integration: x_dot = A*x + B*u
-            let mut x_dot = vec![0.0f64; n_states];
-            for i in 0..n_states {
-                for j in 0..n_states.min(ss.a_matrix[i].len()) {
-                    x_dot[i] += ss.a_matrix[i][j] * x[j];
-                }
-                if i < ss.b_matrix.len() {
-                    for j in 0..n_inputs.min(ss.b_matrix[i].len()) {
-                        x_dot[i] += ss.b_matrix[i][j] * u[j];
-                    }
-                }
-                x[i] += x_dot[i] * dt;
-            }
+            let k1 = deriv(&x, &u);
+            let x2: Vec<f64> = (0..n_states).map(|i| x[i] + 0.5 * dt * k1[i]).collect();
+            let k2 = deriv(&x2, &u);
+            let x3: Vec<f64> = (0..n_states).map(|i| x[i] + 0.5 * dt * k2[i]).collect();
+            let k3 = deriv(&x3, &u);
+            let x4: Vec<f64> = (0..n_states).map(|i| x[i] + dt * k3[i]).collect();
+            let k4 = deriv(&x4, &u);
+            for i in 0..n_states { x[i] += dt / 6.0 * (k1[i] + 2.0 * k2[i] + 2.0 * k3[i] + k4[i]); }
         }
 
-        // Compute performance metrics from output trajectory
-        let final_value = y_traj.last().and_then(|y| y.first()).copied().unwrap_or(0.0);
-        let target = match input { SimulationInput::Step { amplitude, .. } => *amplitude, _ => final_value };
-        let tolerance_band = target.abs() * 0.02; // 2%
+        // ── performance metrics (all computed; absent when not defined for the input) ──
+        let y1: Vec<f64> = y_traj.iter().map(|y| y.first().copied().unwrap_or(0.0)).collect();
+        let u1v: Vec<f64> = u_traj.iter().map(|u| u.first().copied().unwrap_or(0.0)).collect();
+        let final_value = y1.last().copied().unwrap_or(0.0);
+        let step_amp = match input { SimulationInput::Step { amplitude, .. } => Some(*amplitude), _ => None };
+        let measurable = step_amp.is_some() && !diverged && final_value.abs() > 1e-12 && y1.len() > 2;
 
-        let rise_time = if target.abs() > 1e-12 {
-            time.iter().zip(y_traj.iter()).position(|(_, y)| {
-                y.first().copied().unwrap_or(0.0).abs() >= 0.9 * target.abs()
-            }).map(|i| time[i])
-        } else { None };
-
-        let settling_time = if target.abs() > 1e-12 {
-            time.iter().enumerate().rev().find(|(_, &t)| {
-                // Find last time outside tolerance
-                false
-            }).map(|(_, &t)| t)
-        } else { None };
-
-        let overshoot = if target.abs() > 1e-12 {
-            let peak = y_traj.iter().filter_map(|y| y.first().copied()).fold(f64::NEG_INFINITY, f64::max);
-            if peak > target { Some(100.0 * (peak - target) / target.abs()) } else { Some(0.0) }
-        } else { None };
-
-        let steady_state_error = Some((final_value - target).abs());
+        let (mut rise_time, mut settling_time, mut overshoot, mut peak_time) = (None, None, None, None);
+        if measurable {
+            let sgn = final_value.signum();
+            let r = final_value.abs();
+            let ys: Vec<f64> = y1.iter().map(|v| v * sgn).collect();
+            let t10 = ys.iter().position(|&v| v >= 0.1 * r).map(|i| time[i]);
+            let t90 = ys.iter().position(|&v| v >= 0.9 * r).map(|i| time[i]);
+            rise_time = match (t10, t90) { (Some(a), Some(b)) => Some(b - a), _ => None };
+            let band = 0.02 * r;
+            let last_out = ys.iter().rposition(|&v| (v - r).abs() > band);
+            settling_time = match last_out {
+                None => Some(time[0]),
+                Some(i) if i + 1 < ys.len() => Some(time[i + 1]),
+                Some(_) => None, // still outside the band at the end of the run: did not settle
+            };
+            let (pi, pk) = ys.iter().enumerate().fold((0usize, f64::NEG_INFINITY), |(bi, bv), (i, &v)| if v > bv { (i, v) } else { (bi, bv) });
+            overshoot = Some(((pk - r) / r * 100.0).max(0.0));
+            peak_time = Some(time[pi]);
+        }
+        let (mut steady_state_error, mut ise, mut iae, mut itae) = (None, None, None, None);
+        if let (Some(a), false) = (step_amp, diverged) {
+            steady_state_error = Some((a - final_value).abs());
+            let (mut s_ise, mut s_iae, mut s_itae) = (0.0f64, 0.0f64, 0.0f64);
+            for i in 0..y1.len() { let e = a - y1[i]; s_ise += e * e * dt; s_iae += e.abs() * dt; s_itae += time[i] * e.abs() * dt; }
+            ise = Some(s_ise); iae = Some(s_iae); itae = Some(s_itae);
+        }
+        let control_effort_rms = if u1v.is_empty() { None } else { Some((u1v.iter().map(|v| v * v).sum::<f64>() / u1v.len() as f64).sqrt()) };
 
         SimulationResult {
             sim_id: 0,
@@ -1403,7 +1430,10 @@ Return ONLY valid JSON array:
                 rise_time_sec: rise_time,
                 settling_time_sec: settling_time,
                 overshoot_percent: overshoot,
+                peak_time_sec: peak_time,
                 steady_state_error,
+                control_effort_rms,
+                ise, iae, itae,
                 meets_spec: !diverged,
                 violations: if diverged { vec!["System diverged".into()] } else { vec![] },
                 ..Default::default()
@@ -1473,6 +1503,11 @@ Return ONLY valid JSON array:
             }
         }
 
+        // Unwrap the phase (atan2 wraps at ±180°; margins need the continuous curve).
+        for i in 1..phases_deg.len() {
+            while phases_deg[i] - phases_deg[i - 1] > 180.0 { phases_deg[i] -= 360.0; }
+            while phases_deg[i] - phases_deg[i - 1] < -180.0 { phases_deg[i] += 360.0; }
+        }
         (freqs, magnitudes_db, phases_deg)
     }
 
@@ -2365,13 +2400,11 @@ Return ONLY valid JSON:
                             _           => ControllerType::PID,
                         };
                     } else {
-                        ctrl_type = ControllerType::PID;
-                        params.kp = Some(1.0); params.ki = Some(0.1); params.kd = Some(0.05);
+                        return Ok(ControlModalityOutput { success: false, error: Some("controller design unavailable: the model answer was not valid JSON; no default gains are substituted".into()), ..Default::default() });
                     }
                 }
                 Err(_) => {
-                    ctrl_type = ControllerType::PID;
-                    params.kp = Some(1.0); params.ki = Some(0.1); params.kd = Some(0.05);
+                    return Ok(ControlModalityOutput { success: false, error: Some("controller design unavailable: no model answer; no default gains are substituted".into()), ..Default::default() });
                 }
             }
 
@@ -2384,63 +2417,55 @@ Return ONLY valid JSON:
                 is_discrete: requirements.sample_rate_hz.is_some(),
                 sample_time_sec: requirements.sample_rate_hz.map(|r| 1.0 / r),
                 parameters: params,
-                design_method: format!("{:?}", method),
+                design_method: format!("{:?} (LLM-suggested, unverified: run AnalyzeStability/SimulateResponse before trusting)", method),
                 ..Default::default()
             };
             Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
         }
 
         ControlModalityAction::TunePID { plant_model, method, performance_spec } => {
-            // PID tuning using specified method
-            let (kp, ki, kd) = match method {
-                PIDTuningMethod::ZieglerNichols_Step => {
-                    // Step response: estimate dead time L and time constant T from plant
-                    // For a first-order-plus-dead-time model: Kp=1.2T/L, Ki=Kp/(2L), Kd=Kp*0.5*L
-                    let (ku, pu) = if let Some(tf) = plant_model.transfer_functions.first() {
-                        let dc_gain = tf.dc_gain.unwrap_or(1.0).abs();
-                        (1.0 / dc_gain.max(1e-6), 1.0)
-                    } else { (1.0, 1.0) };
-                    let kp = 0.6 * ku;
-                    let ki = 2.0 * kp / pu;
-                    let kd = kp * pu / 8.0;
-                    (kp, ki, kd)
-                }
-                PIDTuningMethod::IMC_Based => {
-                    // IMC-based: lambda tuning
-                    let lambda = performance_spec.target_settling_time_sec.unwrap_or(1.0) / 4.0;
-                    let dc_gain = plant_model.transfer_functions.first().and_then(|tf| tf.dc_gain).unwrap_or(1.0).abs().max(1e-6);
-                    let kp = 1.0 / (dc_gain * lambda);
-                    let ki = kp / lambda;
-                    let kd = 0.0;
-                    (kp, ki, kd)
-                }
-                PIDTuningMethod::ITAE_Optimal => {
-                    // ITAE-optimized coefficients for step disturbance rejection
-                    let dc_gain = plant_model.transfer_functions.first().and_then(|tf| tf.dc_gain).unwrap_or(1.0).abs().max(1e-6);
-                    let kp = 1.4 / dc_gain;
-                    let ki = kp * 0.6;
-                    let kd = kp * 0.15;
-                    (kp, ki, kd)
-                }
-                _ => {
-                    // Generic: use LLM to suggest PID gains
-                    let prompt = format!(r#"
-Suggest PID gains for this plant using {:?} tuning.
-Plant: {} states={} domain={:?}
-Target: settling={:?}s overshoot={:?}%
-Return ONLY valid JSON: {{"kp": 1.0, "ki": 0.1, "kd": 0.05}}"#,
-                        method, plant_model.name, plant_model.n_states, plant_model.physical_domain,
-                        performance_spec.target_settling_time_sec, performance_spec.target_overshoot_percent);
-                    match executor.llm_zero_shot(&prompt, 80).await {
-                        Ok(raw) => {
-                            let json_str = PipelineExecutor::extract_json_object_static(&raw);
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                                (v["kp"].as_f64().unwrap_or(1.0), v["ki"].as_f64().unwrap_or(0.1), v["kd"].as_f64().unwrap_or(0.05))
-                            } else { (1.0, 0.1, 0.05) }
+            // Rule-based tuning needs a plant model; nothing is guessed when it is missing.
+            let tf = match plant_model.transfer_functions.first() {
+                Some(tf) if tf.denominator.len() >= 2 => tf,
+                _ => return Ok(ControlModalityOutput { success: false, error: Some("PID tuning needs a plant transfer function (denominator degree ≥ 1) in plant_model.transfer_functions".into()), ..Default::default() }),
+            };
+            let tuned: Result<(f64, f64, f64, &'static str), String> = match method {
+                PIDTuningMethod::ZieglerNichols_Step => fopdt_from_tf(&tf.numerator, &tf.denominator).and_then(|(k, l, t)| {
+                    if l < 1e-9 { return Err("no measurable dead time L: Ziegler–Nichols step rules (Kp = 1.2 T/(K L)) are undefined".to_string()); }
+                    let kp = 1.2 * t / (k * l);
+                    Ok((kp, kp / (2.0 * l), kp * 0.5 * l, "Ziegler–Nichols step (tangent-method FOPDT fit)"))
+                }),
+                PIDTuningMethod::ZieglerNichols_Ultimate | PIDTuningMethod::Tyreus_Luyben => {
+                    let (freqs, mag, phase) = PipelineExecutor::compute_bode(&tf.numerator, &tf.denominator, 1e-3, 1e4, 4000);
+                    let (gm_db, _pm, _gc, pc) = PipelineExecutor::find_margins(&freqs, &mag, &phase);
+                    match (gm_db, pc) {
+                        (Some(gm), Some(wpc)) if wpc > 0.0 => {
+                            let ku = 10f64.powf(gm / 20.0);
+                            let pu = 2.0 * std::f64::consts::PI / wpc;
+                            if matches!(method, PIDTuningMethod::ZieglerNichols_Ultimate) {
+                                let kp = 0.6 * ku;
+                                Ok((kp, kp / (0.5 * pu), kp * pu / 8.0, "Ziegler–Nichols ultimate (frequency-response Ku, Pu)"))
+                            } else {
+                                let kp = ku / 2.2;
+                                Ok((kp, kp / (2.2 * pu), kp * pu / 6.3, "Tyreus–Luyben (frequency-response Ku, Pu)"))
+                            }
                         }
-                        Err(_) => (1.0, 0.1, 0.05),
+                        _ => Err("phase never crosses −180° in 1e-3..1e4 rad/s: no ultimate gain/period exists for this plant".to_string()),
                     }
                 }
+                PIDTuningMethod::IMC_Based | PIDTuningMethod::Lambda_Tuning => match performance_spec.target_settling_time_sec {
+                    None => Err("IMC/lambda tuning needs performance_spec.target_settling_time_sec (λ = ts/4); no default is assumed".to_string()),
+                    Some(ts) => fopdt_from_tf(&tf.numerator, &tf.denominator).map(|(k, l, t)| {
+                        let lambda = ts / 4.0;
+                        let kp = t / (k * (lambda + l));
+                        (kp, kp / t, 0.0, "IMC/lambda PI on a tangent-method FOPDT fit")
+                    }),
+                },
+                _ => Err(format!("tuning method {:?} is not implemented; no gains are guessed", method)),
+            };
+            let (kp, ki, kd, design_note) = match tuned {
+                Ok(v) => v,
+                Err(e) => return Ok(ControlModalityOutput { success: false, error: Some(e), ..Default::default() }),
             };
 
             let mut params = ControllerParameters::default();
@@ -2456,55 +2481,35 @@ Return ONLY valid JSON: {{"kp": 1.0, "ki": 0.1, "kd": 0.05}}"#,
                 n_outputs: plant_model.n_inputs,
                 is_discrete: false,
                 parameters: params,
-                design_method: format!("{:?}", method),
+                design_method: format!("{:?}: {}", method, design_note),
                 ..Default::default()
             };
             Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
         }
 
         ControlModalityAction::StateSpaceToTransferFunction { a_matrix, b_matrix, c_matrix, d_matrix } => {
-            let n = a_matrix.len();
-            // Characteristic polynomial: det(sI - A) via Cayley-Hamilton / Leverrier's algorithm
-            // Simplified: compute eigenvalues for small systems
-            let n_in = b_matrix.first().map(|r| r.len()).unwrap_or(1);
-            let n_out = c_matrix.len();
-
-            // For SISO: compute denominator from characteristic polynomial
-            // In production: use full Leverrier/Faddeev algorithm
-            let denominator: Vec<f64> = if n == 1 {
-                vec![1.0, -a_matrix[0][0]]
-            } else if n == 2 {
-                let trace = a_matrix[0][0] + a_matrix[1][1];
-                let det = a_matrix[0][0] * a_matrix[1][1] - a_matrix[0][1] * a_matrix[1][0];
-                vec![1.0, -trace, det]
-            } else {
-                // Higher order: placeholder — production would use Krylov/LAPACK
-                vec![1.0]
-            };
-
-            // Numerator: C * adj(sI-A) * B + D * det(sI-A) — simplified for SISO
-            let numerator: Vec<f64> = if n == 1 && n_in >= 1 && n_out >= 1 {
-                let cb = c_matrix[0][0] * b_matrix[0][0];
-                let d = if !d_matrix.is_empty() && !d_matrix[0].is_empty() { d_matrix[0][0] } else { 0.0 };
-                vec![d, cb - d * a_matrix[0][0]]
-            } else {
-                vec![1.0]
-            };
-
-            let poles = PipelineExecutor::compute_poles_from_denominator(&denominator);
-
-            Ok(ControlModalityOutput {
-                success: true,
-                transfer_function: Some(TransferFunctionModel {
-                    tf_id: executor.generate_id(),
-                    name: "ss2tf".into(),
-                    numerator, denominator,
-                    poles,
-                    relative_degree: n as i32,
-                    ..Default::default()
-                }),
-                ..Default::default()
-            })
+            match ss_siso_to_tf(&a_matrix, &b_matrix, &c_matrix, &d_matrix) {
+                Err(e) => Ok(ControlModalityOutput { success: false, error: Some(e), ..Default::default() }),
+                Ok((numerator, denominator)) => {
+                    let poles = poly_roots(&denominator).unwrap_or_default();
+                    let zeros = if numerator.len() > 1 { poly_roots(&numerator).unwrap_or_default() } else { vec![] };
+                    let relative_degree = denominator.len() as i32 - numerator.len() as i32;
+                    let dc_gain = match (numerator.last(), denominator.last()) {
+                        (Some(n0), Some(d0)) if d0.abs() > 1e-12 => Some(n0 / d0),
+                        _ => None,
+                    };
+                    Ok(ControlModalityOutput {
+                        success: true,
+                        transfer_function: Some(TransferFunctionModel {
+                            tf_id: executor.generate_id(),
+                            name: "ss2tf".into(),
+                            numerator, denominator, poles, zeros, dc_gain, relative_degree,
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    })
+                }
+            }
         }
 
         ControlModalityAction::TransferFunctionToStateSpace { numerator, denominator, form } => {
@@ -2603,50 +2608,35 @@ Return ONLY valid JSON: {{"kp": 1.0, "ki": 0.1, "kd": 0.05}}"#,
                         stab.phase_margin_deg = pm;
                         stab.gain_crossover_freq_rad_s = gc_freq;
                         stab.phase_crossover_freq_rad_s = pc_freq;
-                        stab.is_stable = pm.map(|p| p > 0.0).unwrap_or(false) && gm.map(|g| g > 0.0).unwrap_or(false);
+                        // A missing crossover means the loop gain never reaches that condition (margin unbounded), not instability.
+                        // Bode margins are a valid stability test only for an open-loop-stable loop transfer function.
+                        stab.is_stable = pm.map(|p| p > 0.0).unwrap_or(true) && gm.map(|g| g > 0.0).unwrap_or(true);
+                        stab.notes.push("Bode/Nyquist margins assume a stable open-loop transfer function; missing crossovers are treated as unbounded margin".into());
                         stab.stability_type = if stab.is_stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
                         stab.notes.push(format!("GM={:?}dB PM={:?}°", gm.map(|v| format!("{:.2}",v)), pm.map(|v| format!("{:.1}",v))));
                     }
                 }
                 StabilityMethod::EigenvalueAnalysis => {
                     if let Some(ref ss) = system.state_space {
-                        // For 1x1 and 2x2, compute eigenvalues analytically
-                        let n = ss.a_matrix.len();
-                        stab.poles = if n == 1 {
-                            let p = ComplexNumber { real: ss.a_matrix[0][0], imag: 0.0 };
-                            let wn = p.real.abs();
-                            vec![Pole { is_stable: p.real < 0.0, natural_freq_rad_s: wn, damping_ratio: if p.real < 0.0 { 1.0 } else { -1.0 }, decay_rate: -p.real, is_dominant: true, value: p }]
-                        } else if n == 2 {
-                            let a = &ss.a_matrix;
-                            let trace = a[0][0] + a[1][1];
-                            let det = a[0][0] * a[1][1] - a[0][1] * a[1][0];
-                            let disc = trace * trace - 4.0 * det;
-                            if disc >= 0.0 {
-                                let s = disc.sqrt();
-                                vec![
-                                    ComplexNumber { real: (trace + s) / 2.0, imag: 0.0 },
-                                    ComplexNumber { real: (trace - s) / 2.0, imag: 0.0 },
-                                ].into_iter().map(|p| {
-                                    Pole { is_stable: p.real < 0.0, natural_freq_rad_s: p.real.abs(), damping_ratio: if p.real < 0.0 { 1.0 } else { 0.0 }, decay_rate: -p.real, is_dominant: false, value: p }
-                                }).collect()
-                            } else {
-                                let s = (-disc).sqrt();
-                                vec![
-                                    ComplexNumber { real: trace / 2.0, imag: s / 2.0 },
-                                    ComplexNumber { real: trace / 2.0, imag: -s / 2.0 },
-                                ].into_iter().map(|p| {
-                                    let wn = (p.real * p.real + p.imag * p.imag).sqrt();
-                                    let zeta = if wn > 1e-12 { -p.real / wn } else { 0.0 };
-                                    Pole { is_stable: p.real < 0.0, natural_freq_rad_s: wn, damping_ratio: zeta, decay_rate: -p.real, is_dominant: wn < 10.0, value: p }
-                                }).collect()
+                        // Exact characteristic polynomial (Faddeev–LeVerrier) + root finding, any order.
+                        let discrete = system.is_discrete;
+                        match eigenvalues(&ss.a_matrix) {
+                            Some(ev) => {
+                                let mut poles: Vec<Pole> = ev.into_iter().map(|p| pole_from(p, discrete)).collect();
+                                mark_dominant(&mut poles, discrete);
+                                if discrete { stab.notes.push("discrete-time: stable inside the unit circle; ω_n/ζ need the sample time and are left 0".into()); }
+                                stab.poles = poles;
                             }
-                        } else { vec![] };
+                            None => stab.notes.push("eigenvalues unavailable: A is not square or root finding did not converge (e.g. repeated eigenvalues)".into()),
+                        }
+                        let _n = ss.a_matrix.len();
                         stab.is_stable = !stab.poles.is_empty() && stab.poles.iter().all(|p| p.is_stable);
-                        stab.stability_type = if stab.is_stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
+                        stab.stability_type = if stab.poles.is_empty() { StabilityType::Unknown } else if stab.is_stable { StabilityType::AsymptoticallyStable } else { StabilityType::Unstable };
                     }
                 }
                 _ => {
-                    // LLM-assisted for Lyapunov, Circle, etc.
+                    // LLM-assisted for Lyapunov, Circle, etc. NOT a numerical proof: say so in the output.
+                    stab.notes.push(format!("method {:?} is not implemented numerically; any verdict below is an LLM judgement, not a computed result", method));
                     let prompt = format!(r#"
 Analyze stability of control system "{}" using {:?} method.
 Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallyStable|Unstable|MarginallyStable", "notes": ["note1"]}}"#,
@@ -2671,22 +2661,29 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
 
         ControlModalityAction::FrequencyResponse { system, freq_start_rad_s, freq_end_rad_s, points, response_type } => {
             let fr_id = executor.generate_id();
-            let (freqs, mag, phase) = if let Some(ref tf) = system.transfer_function {
-                PipelineExecutor::compute_bode(&tf.numerator, &tf.denominator, freq_start_rad_s, freq_end_rad_s, points)
-            } else {
-                let freqs: Vec<f64> = (0..points).map(|i| freq_start_rad_s * (freq_end_rad_s / freq_start_rad_s).powf(i as f64 / (points - 1).max(1) as f64)).collect();
-                (freqs, vec![0.0f64; points as usize], vec![0.0f64; points as usize])
+            let pair: Option<(Vec<f64>, Vec<f64>)> = if let Some(ref tf) = system.transfer_function {
+                Some((tf.numerator.clone(), tf.denominator.clone()))
+            } else if let Some(ref ss) = system.state_space {
+                ss_siso_to_tf(&ss.a_matrix, &ss.b_matrix, &ss.c_matrix, &ss.d_matrix).ok()
+            } else { None };
+            let (num_c, den_c) = match pair {
+                Some(p) => p,
+                None => return Ok(ControlModalityOutput { success: false, error: Some("frequency response needs a transfer function or a SISO state-space model; no response is fabricated".into()), ..Default::default() }),
             };
+            let (freqs, mag, phase) = PipelineExecutor::compute_bode(&num_c, &den_c, freq_start_rad_s, freq_end_rad_s, points);
 
-            // Find 3dB bandwidth
-            let bw = freqs.iter().zip(mag.iter()).find(|(_, &m)| m <= -3.0).map(|(&w, _)| w);
-            // Find resonant peak
+            // −3 dB bandwidth is relative to the low-frequency magnitude, not to 0 dB.
+            let ref_db = mag.first().copied().unwrap_or(0.0);
+            let bw = freqs.iter().zip(mag.iter()).find(|(_, &m)| m <= ref_db - 3.0).map(|(&w, _)| w);
             let (res_peak, res_freq) = mag.iter().zip(freqs.iter()).fold((f64::NEG_INFINITY, 0.0), |(mp, mf), (&m, &f)| if m > mp { (m, f) } else { (mp, mf) });
-            // Roll-off: last decade slope
+            let res_rel = res_peak - ref_db;
+            // Roll-off: slope over the last decade (or the whole span when shorter), dB per decade.
             let roll_off = if mag.len() >= 2 {
-                let last = mag[mag.len() - 1];
-                let prev = mag[mag.len() - 11.min(mag.len() / 2)];
-                Some((last - prev) / 1.0) // per decade (approximate)
+                let last = mag.len() - 1;
+                let target_f = freqs[last] / 10.0;
+                let j = freqs.iter().position(|&f| f >= target_f).unwrap_or(0).min(last - 1);
+                let decades = (freqs[last] / freqs[j]).log10();
+                if decades > 1e-9 && mag[last].is_finite() && mag[j].is_finite() { Some((mag[last] - mag[j]) / decades) } else { None }
             } else { None };
 
             Ok(ControlModalityOutput {
@@ -2698,137 +2695,55 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                     phase_deg: phase,
                     response_type,
                     bandwidth_3db_rad_s: bw,
-                    resonant_freq_rad_s: if res_peak > 0.0 { Some(res_freq) } else { None },
-                    resonant_peak_db: if res_peak > 0.0 { Some(res_peak) } else { None },
+                    resonant_freq_rad_s: if res_rel > 1e-6 { Some(res_freq) } else { None },
+                    resonant_peak_db: if res_rel > 1e-6 { Some(res_rel) } else { None },
                     roll_off_db_per_decade: roll_off,
                 }),
                 ..Default::default()
             })
         }
 
-        ControlModalityAction::SimulateResponse { graph_id, input_type, duration_sec, dt_sec, initial_state } => {
+        ControlModalityAction::SimulateResponse { graph_id, input_type, duration_sec, dt_sec, initial_state, state_space } => {
             let graph = executor.load_graph(graph_id)?;
-            // Find state-space from first PlantNode in graph
-            let ss = StateSpaceModel {
-                // Default second-order system if no plant found
-                a_matrix: vec![vec![0.0, 1.0], vec![-1.0, -1.4]],
-                b_matrix: vec![vec![0.0], vec![1.0]],
-                c_matrix: vec![vec![1.0, 0.0]],
-                d_matrix: vec![vec![0.0]],
-                state_names: vec!["x1".into(), "x2".into()],
-                input_names: vec!["u".into()],
-                output_names: vec!["y".into()],
+            let ss: Option<StateSpaceModel> = state_space.or_else(|| {
+                graph.nodes.iter()
+                    .filter(|n| matches!(n.node_type, ControlNodeType::PlantNode))
+                    .find_map(|n| serde_json::from_str::<StateSpaceModel>(&n.content).ok())
+            });
+            let ss = match ss {
+                Some(m) => m,
+                None => return Ok(ControlModalityOutput { success: false, error: Some("no state-space model available: pass `state_space`, or store the plant's StateSpaceModel JSON in a PlantNode's content; no default plant is substituted".into()), ..Default::default() }),
             };
-            let mut result = PipelineExecutor::simulate_lti(&ss, &input_type, duration_sec, dt_sec);
+            if !(dt_sec > 0.0) || !(duration_sec > 0.0) || duration_sec / dt_sec > 2_000_000.0 {
+                return Ok(ControlModalityOutput { success: false, error: Some("need duration_sec > 0, dt_sec > 0 and at most 2,000,000 steps".into()), ..Default::default() });
+            }
+            let mut result = PipelineExecutor::simulate_lti(&ss, &input_type, duration_sec, dt_sec, initial_state.as_deref());
             result.sim_id = executor.generate_id();
             Ok(ControlModalityOutput { success: true, simulation_result: Some(result), ..Default::default() })
         }
 
         ControlModalityAction::DesignLQR { a_matrix, b_matrix, q_matrix, r_matrix } => {
             let lqr_id = executor.generate_id();
-            let n = a_matrix.len();
-            let m = b_matrix.first().map(|r| r.len()).unwrap_or(1);
-
-            // Simplified LQR: solve algebraic Riccati equation via iterative method (small systems)
-            // In production: use LAPACK dare() or scipy equivalent
-            // Here: use gradient descent / Newton on P
-            let mut p = q_matrix.clone();  // Initialize P = Q
-
-            // Iterate: P_new = Q + A'PA - A'PB(R + B'PB)^{-1}B'PA
-            for _ in 0..100 {
-                // Compute B'PB (m×m)
-                let mut bpb = vec![vec![0.0f64; m]; m];
-                for i in 0..m {
-                    for j in 0..m {
-                        for k in 0..n {
-                            let pb_kj: f64 = (0..n).map(|l| p[k][l] * b_matrix[l][j]).sum();
-                            bpb[i][j] += b_matrix[k][i] * pb_kj;
-                        }
-                    }
-                }
-                // Add R
-                for i in 0..m { bpb[i][i] += r_matrix[i][i]; }
-
-                // Invert bpb (for m=1: scalar inversion)
-                let bpb_inv = if m == 1 && bpb[0][0].abs() > 1e-12 {
-                    vec![vec![1.0 / bpb[0][0]]]
-                } else {
-                    // 2×2 inversion
-                    if m == 2 {
-                        let det = bpb[0][0] * bpb[1][1] - bpb[0][1] * bpb[1][0];
-                        if det.abs() < 1e-12 { break; }
-                        vec![vec![bpb[1][1]/det, -bpb[0][1]/det], vec![-bpb[1][0]/det, bpb[0][0]/det]]
-                    } else { break; }
-                };
-
-                // K = (R + B'PB)^{-1} B'PA (m×n)
-                // Then P_new = Q + A'PA - A'PBK
-                let mut p_new = q_matrix.clone();
-                for i in 0..n {
-                    for j in 0..n {
-                        // A'PA term
-                        let apa_ij: f64 = (0..n).map(|k| a_matrix[k][i] * (0..n).map(|l| p[k][l] * a_matrix[l][j]).sum::<f64>()).sum();
-                        p_new[i][j] += apa_ij;
-                    }
-                }
-                let max_change: f64 = p.iter().zip(p_new.iter()).flat_map(|(r1, r2)| r1.iter().zip(r2.iter()).map(|(a, b)| (a - b).abs())).fold(0.0f64, f64::max);
-                p = p_new;
-                if max_change < 1e-8 { break; }
-            }
-
-            // Compute gain K = R^{-1} B' P (m×n)
-            let mut k_gain = vec![vec![0.0f64; n]; m];
-            for i in 0..m {
-                for j in 0..n {
-                    let btp_ij: f64 = (0..n).map(|k| b_matrix[k][i] * p[k][j]).sum();
-                    k_gain[i][j] = btp_ij / r_matrix[i][i].max(1e-12);
+            // Continuous-time LQR: Riccati ODE integrated to its stationary solution (see solve_care_lqr).
+            match solve_care_lqr(&a_matrix, &b_matrix, &q_matrix, &r_matrix) {
+                Err(e) => Ok(ControlModalityOutput { success: false, error: Some(e), ..Default::default() }),
+                Ok((k_gain, p, cl_poles)) => {
+                    // optimal_cost = trace(P): the optimal cost summed over the n unit-vector initial states
+                    // (for a specific x0 the cost is x0ᵀ P x0).
+                    let optimal_cost: f64 = (0..p.len()).map(|i| p[i][i]).sum();
+                    Ok(ControlModalityOutput {
+                        success: true,
+                        lqr_solution: Some(LQRSolution { lqr_id, feedback_gain: k_gain, riccati_solution: p, closed_loop_poles: cl_poles, optimal_cost }),
+                        ..Default::default()
+                    })
                 }
             }
-
-            // Closed-loop poles: eigenvalues of A - B*K
-            let mut acl = a_matrix.clone();
-            for i in 0..n {
-                for j in 0..n {
-                    for l in 0..m {
-                        acl[i][j] -= b_matrix[i][l] * k_gain[l][j];
-                    }
-                }
-            }
-            let cl_trace = if n > 0 { acl[0][0] } else { 0.0 };
-            let cl_det = if n == 2 { acl[0][0] * acl[1][1] - acl[0][1] * acl[1][0] } else { cl_trace };
-            let cl_poles = PipelineExecutor::compute_poles_from_denominator(&[1.0, -cl_trace, cl_det]);
-
-            let optimal_cost: f64 = (0..n).map(|i| (0..n).map(|j| p[i][j]).sum::<f64>()).sum();
-
-            Ok(ControlModalityOutput {
-                success: true,
-                lqr_solution: Some(LQRSolution {
-                    lqr_id,
-                    feedback_gain: k_gain,
-                    riccati_solution: p,
-                    closed_loop_poles: cl_poles,
-                    optimal_cost,
-                }),
-                ..Default::default()
-            })
         }
 
         ControlModalityAction::DesignMPC { plant_model, prediction_horizon, control_horizon, constraints, objective } => {
-            // MPC formulation — in production: build and solve QP
-            let mpc_id = executor.generate_id();
-            let ctrl_id = executor.generate_id();
-            let controller = Controller {
-                controller_id: ctrl_id,
-                name: format!("MPC_N{}_{}", prediction_horizon, plant_model.name),
-                controller_type: ControllerType::MPC,
-                n_inputs: plant_model.n_outputs,
-                n_outputs: plant_model.n_inputs,
-                is_discrete: true,
-                sample_time_sec: plant_model.sample_time_sec,
-                design_method: "MPC".into(),
-                ..Default::default()
-            };
-            Ok(ControlModalityOutput { success: true, designed_controller: Some(controller), ..Default::default() })
+            // No QP solver exists in this pipeline: answer honestly instead of returning an empty "MPC" controller.
+            let _ = (&plant_model, prediction_horizon, control_horizon, &constraints, &objective);
+            Ok(ControlModalityOutput { success: false, error: Some("MPC design is not implemented: no quadratic-programming solver is available, so no controller is produced".into()), ..Default::default() })
         }
 
         ControlModalityAction::IdentifySystem { input_data, output_data, dt_sec, method, model_order } => {
@@ -2871,22 +2786,29 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
             }
 
             // Solve via Gaussian elimination (small system)
-            let theta = gaussian_elimination(&phi_t_phi, &phi_t_y).unwrap_or_else(|| vec![0.0; n_reg]);
+            let theta = match gaussian_elimination(&phi_t_phi, &phi_t_y) {
+                Some(t) => t,
+                None => return Ok(ControlModalityOutput { success: false, error: Some("normal equations are singular: the data are not persistently exciting for this model order; no parameters are fabricated".into()), ..Default::default() }),
+            };
 
             // Compute fit
             let y_pred: Vec<f64> = (0..n_valid).map(|k| phi[k].iter().zip(theta.iter()).map(|(p, t)| p * t).sum()).collect();
             let y_mean = y_vec.iter().sum::<f64>() / n_valid as f64;
             let ss_tot: f64 = y_vec.iter().map(|&y| (y - y_mean).powi(2)).sum();
             let ss_res: f64 = y_vec.iter().zip(y_pred.iter()).map(|(y, yp)| (y - yp).powi(2)).sum();
-            let fit = if ss_tot > 1e-12 { 100.0 * (1.0 - ss_res / ss_tot) } else { 100.0 };
+            if ss_tot <= 1e-12 {
+                return Ok(ControlModalityOutput { success: false, error: Some("output has no variance: fit percent is undefined".into()), ..Default::default() });
+            }
+            let fit = 100.0 * (1.0 - ss_res / ss_tot);
 
             // Convert ARX theta to transfer function: G(z) = B(z^{-1}) / A(z^{-1})
             let a_coeffs: Vec<f64> = std::iter::once(1.0).chain(theta[..na].iter().copied()).collect();
             let b_coeffs: Vec<f64> = theta[na..na+nb].to_vec();
 
             let n_params = n_reg as f64;
-            let aic = (n_valid as f64) * (ss_res / n_valid as f64).ln() + 2.0 * n_params;
-            let bic = (n_valid as f64) * (ss_res / n_valid as f64).ln() + n_params * (n_valid as f64).ln();
+            let ss_res_pos = ss_res.max(1e-300);
+            let aic = (n_valid as f64) * (ss_res_pos / n_valid as f64).ln() + 2.0 * n_params;
+            let bic = (n_valid as f64) * (ss_res_pos / n_valid as f64).ln() + n_params * (n_valid as f64).ln();
 
             Ok(ControlModalityOutput {
                 success: true,
@@ -2903,8 +2825,8 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                         denominator: a_coeffs,
                         is_discrete: true,
                         sample_time: Some(dt_sec),
-                        poles: vec![],
-                        zeros: vec![],
+                        poles: poly_roots(&a_coeffs).unwrap_or_default(),
+                        zeros: if b_coeffs.len() > 1 { poly_roots(&b_coeffs).unwrap_or_default() } else { vec![] },
                         ..Default::default()
                     }),
                     residuals_whiteness_p_value: None, // Ljung-Box test not implemented — absent, not fabricated
@@ -2943,12 +2865,21 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                     }
                     _ => (0.0, false),
                 };
+                // A value the graph does not carry is NOT measured: the 0.0 above is a placeholder, never evidence.
+                let available = match spec.spec_type {
+                    ControlSpecType::Stability => stab_node.and_then(|n| n.is_stable).is_some(),
+                    ControlSpecType::GainMargin => stab_node.and_then(|n| n.gain_margin_db).is_some(),
+                    ControlSpecType::PhaseMargin => stab_node.and_then(|n| n.phase_margin_deg).is_some(),
+                    ControlSpecType::Bandwidth => stab_node.and_then(|n| n.bandwidth_hz).is_some(),
+                    _ => false,
+                };
+                let passed = passed && available;
                 let margin = match spec.bound_type {
                     BoundType::Minimum => measured - spec.bound_value,
                     BoundType::Maximum => spec.bound_value - measured,
                     BoundType::Equality => -(measured - spec.bound_value).abs(),
                 };
-                VerificationResult { spec_id: spec.spec_id, passed, measured_value: measured, bound_value: spec.bound_value, margin, notes: if passed { "Specification met".into() } else { format!("Specification violated: measured={:.4}", measured) } }
+                VerificationResult { spec_id: spec.spec_id, passed, measured_value: measured, bound_value: spec.bound_value, margin, notes: if !available { "NOT MEASURED: the graph carries no value for this specification (measured_value 0.0 is a placeholder, not evidence)".to_string() } else if passed { "Specification met".to_string() } else { format!("Specification violated: measured={:.4}", measured) } }
             }).collect();
 
             Ok(ControlModalityOutput { success: true, verification_results: Some(results), ..Default::default() })
@@ -3053,7 +2984,15 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                 ControlExportFormat::CSV_StepResponse => "csv",
                 ControlExportFormat::Custom(s)        => "dat",
             };
-            let export_path = format!("/tmp/ctrl_export_{}_{:?}.{}", graph_id, format, ext);
+            // Only the JSON export is implemented; every other format answers honestly instead of
+            // returning a path to a file that was never written.
+            if !matches!(format, ControlExportFormat::JSON_Schema) {
+                return Ok(ControlModalityOutput { success: false, error: Some(format!("export format {:?} is not implemented; no file was written", format)), ..Default::default() });
+            }
+            let graph = executor.load_graph(graph_id)?;
+            let export_path = std::env::temp_dir().join(format!("ctrl_export_{}.{}", graph_id, ext)).to_string_lossy().to_string();
+            let body = serde_json::to_string_pretty(&graph).map_err(|e| format!("export serialization failed: {}", e))?;
+            std::fs::write(&export_path, body).map_err(|e| format!("export write failed: {}", e))?;
             Ok(ControlModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
         }
 
@@ -3101,7 +3040,8 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                         });
                     }
                     ControlOperation::ExportToMatlab => {
-                        // In production: generate MATLAB script from graph
+                        // Not implemented: refuse instead of silently succeeding.
+                        return Ok(ControlModalityOutput { success: false, error: Some("ExportToMatlab is not implemented".into()), ..Default::default() });
                     }
                 }
             }
@@ -3155,6 +3095,298 @@ fn gaussian_elimination(a: &[Vec<f64>], b: &[f64]) -> Option<Vec<f64>> {
     Some((0..n).map(|i| aug[i][n]).collect())
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PURE-MATH HELPERS (honesty pass 2026-10-31, fork G): real linear algebra and
+// polynomial root finding so no result is canned or silently empty.
+// UNCOMPILED pending the EU build gate.
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn mat_mul(a: &[Vec<f64>], b: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = a.len();
+    let m = b.first().map(|r| r.len()).unwrap_or(0);
+    let mut out = vec![vec![0.0f64; m]; n];
+    for i in 0..n {
+        for l in 0..b.len().min(a[i].len()) {
+            let v = a[i][l];
+            if v == 0.0 { continue; }
+            for j in 0..m { out[i][j] += v * b[l][j]; }
+        }
+    }
+    out
+}
+
+fn mat_transpose(a: &[Vec<f64>]) -> Vec<Vec<f64>> {
+    let n = a.len();
+    let m = a.first().map(|r| r.len()).unwrap_or(0);
+    let mut t = vec![vec![0.0f64; n]; m];
+    for i in 0..n { for j in 0..m { t[j][i] = a[i][j]; } }
+    t
+}
+
+/// Gauss-Jordan inverse with partial pivoting; None when singular or not square.
+fn mat_inverse(a: &[Vec<f64>]) -> Option<Vec<Vec<f64>>> {
+    let n = a.len();
+    if n == 0 || a.iter().any(|r| r.len() != n) { return None; }
+    let mut aug: Vec<Vec<f64>> = (0..n).map(|i| {
+        let mut r = a[i].clone();
+        r.extend((0..n).map(|j| if i == j { 1.0 } else { 0.0 }));
+        r
+    }).collect();
+    for col in 0..n {
+        let mut piv = col;
+        for r in (col + 1)..n { if aug[r][col].abs() > aug[piv][col].abs() { piv = r; } }
+        if aug[piv][col].abs() < 1e-12 { return None; }
+        aug.swap(col, piv);
+        let p = aug[col][col];
+        for j in 0..(2 * n) { aug[col][j] /= p; }
+        for r in 0..n {
+            if r != col {
+                let f = aug[r][col];
+                if f != 0.0 { for j in 0..(2 * n) { aug[r][j] -= f * aug[col][j]; } }
+            }
+        }
+    }
+    Some(aug.into_iter().map(|r| r[n..].to_vec()).collect())
+}
+
+fn trim_leading_zeros(mut c: Vec<f64>) -> Vec<f64> {
+    let scale = c.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    let eps = 1e-12 * scale.max(1e-300);
+    while c.len() > 1 && c[0].abs() <= eps { c.remove(0); }
+    c
+}
+
+/// Faddeev–LeVerrier: characteristic polynomial coefficients det(sI−A) =
+/// c[0] s^n + c[1] s^(n−1) + … (c[0] = 1) and the adjugate coefficient matrices
+/// M_0..M_(n−1) with adj(sI−A) = Σ M_k s^(n−1−k).
+fn faddeev_leverrier(a: &[Vec<f64>]) -> Option<(Vec<f64>, Vec<Vec<Vec<f64>>>)> {
+    let n = a.len();
+    if n == 0 || a.iter().any(|r| r.len() != n) { return None; }
+    let ident: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| if i == j { 1.0 } else { 0.0 }).collect()).collect();
+    let mut c = vec![1.0f64];
+    let mut ms: Vec<Vec<Vec<f64>>> = vec![ident];
+    for k in 1..=n {
+        let am = mat_mul(a, &ms[k - 1]);
+        let tr: f64 = (0..n).map(|i| am[i][i]).sum();
+        let ck = -tr / k as f64;
+        c.push(ck);
+        if k < n {
+            let mut mk = am;
+            for i in 0..n { mk[i][i] += ck; }
+            ms.push(mk);
+        }
+    }
+    Some((c, ms))
+}
+
+/// SISO state-space → (numerator, denominator), highest power first.
+fn ss_siso_to_tf(a: &[Vec<f64>], b: &[Vec<f64>], c: &[Vec<f64>], d: &[Vec<f64>]) -> Result<(Vec<f64>, Vec<f64>), String> {
+    let n = a.len();
+    if n == 0 || b.len() != n || b.iter().any(|r| r.len() != 1) || c.len() != 1 || c[0].len() != n {
+        return Err("only SISO state-space models (A n×n, B n×1, C 1×n) convert to one transfer function; convert MIMO per input/output channel".to_string());
+    }
+    let dval = d.first().and_then(|r| r.first()).copied().unwrap_or(0.0);
+    let (den, ms) = faddeev_leverrier(a).ok_or_else(|| "A must be square and non-empty".to_string())?;
+    let mut num = vec![0.0f64; n + 1];
+    for j in 0..=n {
+        num[j] = dval * den[j];
+        if j >= 1 {
+            let mb = mat_mul(&ms[j - 1], b);
+            let cmb: f64 = (0..n).map(|i| c[0][i] * mb[i][0]).sum();
+            num[j] += cmb;
+        }
+    }
+    Ok((trim_leading_zeros(num), den))
+}
+
+/// Strictly-proper-or-proper transfer function → controllable canonical form (SISO).
+fn tf_to_ss_siso(num: &[f64], den: &[f64]) -> Result<StateSpaceModel, String> {
+    let den = trim_leading_zeros(den.to_vec());
+    let num = trim_leading_zeros(num.to_vec());
+    let n = den.len().saturating_sub(1);
+    if n == 0 { return Err("denominator must have degree ≥ 1".to_string()); }
+    if num.len() > den.len() { return Err("improper transfer function (numerator degree > denominator degree)".to_string()); }
+    let lead = den[0];
+    if lead.abs() < 1e-300 { return Err("zero leading denominator coefficient".to_string()); }
+    let a_c: Vec<f64> = den[1..].iter().map(|v| v / lead).collect();
+    let mut b_c = vec![0.0f64; n + 1];
+    let off = (n + 1) - num.len();
+    for (i, v) in num.iter().enumerate() { b_c[off + i] = v / lead; }
+    let mut a_m = vec![vec![0.0f64; n]; n];
+    for j in 0..n { a_m[0][j] = -a_c[j]; }
+    for i in 1..n { a_m[i][i - 1] = 1.0; }
+    let mut b_m = vec![vec![0.0f64]; n];
+    b_m[0][0] = 1.0;
+    let c_m = vec![(0..n).map(|j| b_c[j + 1] - a_c[j] * b_c[0]).collect::<Vec<f64>>()];
+    let d_m = vec![vec![b_c[0]]];
+    Ok(StateSpaceModel {
+        a_matrix: a_m, b_matrix: b_m, c_matrix: c_m, d_matrix: d_m,
+        state_names: (1..=n).map(|i| format!("x{}", i)).collect(),
+        input_names: vec!["u".into()],
+        output_names: vec!["y".into()],
+    })
+}
+
+fn cx_mul(a: (f64, f64), b: (f64, f64)) -> (f64, f64) { (a.0 * b.0 - a.1 * b.1, a.0 * b.1 + a.1 * b.0) }
+fn cx_div(a: (f64, f64), b: (f64, f64)) -> (f64, f64) {
+    let d = b.0 * b.0 + b.1 * b.1;
+    ((a.0 * b.0 + a.1 * b.1) / d, (a.1 * b.0 - a.0 * b.1) / d)
+}
+
+/// Polynomial roots (coefficients highest power first) by Durand–Kerner.
+/// None when the iteration does not converge (e.g. repeated roots) — absent, never guessed.
+fn poly_roots(coeffs: &[f64]) -> Option<Vec<ComplexNumber>> {
+    let mut c = trim_leading_zeros(coeffs.to_vec());
+    let mut zero_roots = 0usize;
+    while c.len() > 1 && c.last().map_or(false, |v| v.abs() < 1e-14) { c.pop(); zero_roots += 1; }
+    let deg = c.len().saturating_sub(1);
+    let mut out: Vec<ComplexNumber> = (0..zero_roots).map(|_| ComplexNumber { real: 0.0, imag: 0.0 }).collect();
+    if deg == 0 { return Some(out); }
+    let lead = c[0];
+    if lead.abs() < 1e-300 { return None; }
+    let mon: Vec<f64> = c.iter().map(|v| v / lead).collect();
+    let r = 1.0 + mon[1..].iter().fold(0.0f64, |m, v| m.max(v.abs()));
+    let mut z: Vec<(f64, f64)> = (0..deg).map(|k| {
+        let ang = 2.0 * std::f64::consts::PI * (k as f64) / (deg as f64) + 0.4;
+        (0.5 * r * ang.cos(), 0.5 * r * ang.sin())
+    }).collect();
+    let eval = |x: (f64, f64)| -> (f64, f64) {
+        let mut acc = (1.0f64, 0.0f64);
+        for &co in &mon[1..] { acc = cx_mul(acc, x); acc.0 += co; }
+        acc
+    };
+    let mut converged = false;
+    for _ in 0..3000 {
+        let mut maxd = 0.0f64;
+        for i in 0..deg {
+            let p = eval(z[i]);
+            let mut den = (1.0f64, 0.0f64);
+            for j in 0..deg { if j != i { den = cx_mul(den, (z[i].0 - z[j].0, z[i].1 - z[j].1)); } }
+            if den.0.abs() + den.1.abs() < 1e-300 { continue; }
+            let delta = cx_div(p, den);
+            z[i].0 -= delta.0;
+            z[i].1 -= delta.1;
+            maxd = maxd.max(delta.0.abs() + delta.1.abs());
+        }
+        if !maxd.is_finite() { return None; }
+        if maxd < 1e-13 * r.max(1.0) { converged = true; break; }
+    }
+    if !converged { return None; }
+    for (re, im) in z {
+        out.push(ComplexNumber {
+            real: if re.abs() < 1e-12 * r { 0.0 } else { re },
+            imag: if im.abs() < 1e-10 * r { 0.0 } else { im },
+        });
+    }
+    Some(out)
+}
+
+/// Eigenvalues of a square matrix via its characteristic polynomial (exact coefficients,
+/// then root finding). None when A is not square or root finding did not converge.
+fn eigenvalues(a: &[Vec<f64>]) -> Option<Vec<ComplexNumber>> {
+    let (cp, _) = faddeev_leverrier(a)?;
+    poly_roots(&cp)
+}
+
+fn pole_from(p: ComplexNumber, discrete: bool) -> Pole {
+    let wn = (p.real * p.real + p.imag * p.imag).sqrt();
+    if discrete {
+        // z-plane pole: stable inside the unit circle; ω_n/ζ need the sample time (not in the model) → 0 and noted by the caller.
+        return Pole { is_stable: wn < 1.0, natural_freq_rad_s: 0.0, damping_ratio: 0.0, decay_rate: 0.0, is_dominant: false, value: p };
+    }
+    let zeta = if wn > 1e-12 { -p.real / wn } else { 0.0 };
+    Pole { is_stable: p.real < 0.0, natural_freq_rad_s: wn, damping_ratio: zeta, decay_rate: -p.real, is_dominant: false, value: p }
+}
+
+fn mark_dominant(poles: &mut [Pole], discrete: bool) {
+    let key = |p: &Pole| if discrete { p.value.real.hypot(p.value.imag) } else { p.value.real };
+    let best = poles.iter().filter(|p| p.is_stable).map(|p| key(p)).fold(f64::NEG_INFINITY, f64::max);
+    if best.is_finite() { for p in poles.iter_mut() { if p.is_stable && (key(p) - best).abs() < 1e-9 { p.is_dominant = true; } } }
+}
+
+/// Continuous-time LQR: integrate the Riccati ODE P' = AᵀP + PA − P B R⁻¹ Bᵀ P + Q from P = 0
+/// (RK4) until stationary. Returns (K, P, closed-loop poles) or an honest error.
+fn solve_care_lqr(a: &[Vec<f64>], b: &[Vec<f64>], q: &[Vec<f64>], r: &[Vec<f64>]) -> Result<(Vec<Vec<f64>>, Vec<Vec<f64>>, Vec<ComplexNumber>), String> {
+    let n = a.len();
+    let m = b.first().map(|x| x.len()).unwrap_or(0);
+    if n == 0 || m == 0 || a.iter().any(|x| x.len() != n) || b.len() != n || b.iter().any(|x| x.len() != m)
+        || q.len() != n || q.iter().any(|x| x.len() != n) || r.len() != m || r.iter().any(|x| x.len() != m) {
+        return Err("dimension mismatch: need A n×n, B n×m, Q n×n, R m×m".to_string());
+    }
+    let rinv = mat_inverse(r).ok_or_else(|| "R must be invertible (positive definite)".to_string())?;
+    let bt = mat_transpose(b);
+    let s = mat_mul(&mat_mul(b, &rinv), &bt);
+    let at = mat_transpose(a);
+    let deriv = |p: &Vec<Vec<f64>>| -> Vec<Vec<f64>> {
+        let t1 = mat_mul(&at, p);
+        let t2 = mat_mul(p, a);
+        let t3 = mat_mul(&mat_mul(p, &s), p);
+        let mut o = vec![vec![0.0f64; n]; n];
+        for i in 0..n { for j in 0..n { o[i][j] = t1[i][j] + t2[i][j] - t3[i][j] + q[i][j]; } }
+        o
+    };
+    let norm = a.iter().map(|row| row.iter().map(|v| v.abs()).sum::<f64>()).fold(0.0f64, f64::max);
+    let h = 0.02 / (1.0 + norm);
+    let max_steps = ((2.0e8 / ((n * n * n) as f64 * 12.0)) as usize).clamp(2_000, 400_000);
+    let mut p = vec![vec![0.0f64; n]; n];
+    let mut converged = false;
+    for step in 0..max_steps {
+        let k1 = deriv(&p);
+        let add = |base: &Vec<Vec<f64>>, k: &Vec<Vec<f64>>, f: f64| -> Vec<Vec<f64>> {
+            (0..n).map(|i| (0..n).map(|j| base[i][j] + f * k[i][j]).collect()).collect()
+        };
+        let k2 = deriv(&add(&p, &k1, h / 2.0));
+        let k3 = deriv(&add(&p, &k2, h / 2.0));
+        let k4 = deriv(&add(&p, &k3, h));
+        for i in 0..n { for j in 0..n { p[i][j] += h / 6.0 * (k1[i][j] + 2.0 * k2[i][j] + 2.0 * k3[i][j] + k4[i][j]); } }
+        if p.iter().any(|row| row.iter().any(|v| !v.is_finite())) { return Err("Riccati integration diverged: (A,B) is probably not stabilizable for this Q,R".to_string()); }
+        if step % 50 == 0 {
+            let d = deriv(&p);
+            let dmax = d.iter().flat_map(|row| row.iter()).fold(0.0f64, |m, v| m.max(v.abs()));
+            let pmax = p.iter().flat_map(|row| row.iter()).fold(0.0f64, |m, v| m.max(v.abs()));
+            if dmax < 1e-10 * (1.0 + pmax) { converged = true; break; }
+        }
+    }
+    if !converged { return Err(format!("Riccati iteration did not converge in {} steps (slow modes, or not stabilizable/detectable)", max_steps)); }
+    let k_gain = mat_mul(&mat_mul(&rinv, &bt), &p);
+    let bk = mat_mul(b, &k_gain);
+    let acl: Vec<Vec<f64>> = (0..n).map(|i| (0..n).map(|j| a[i][j] - bk[i][j]).collect()).collect();
+    let poles = eigenvalues(&acl).ok_or_else(|| "closed-loop eigenvalues could not be computed (root finding did not converge)".to_string())?;
+    if poles.iter().any(|z| z.real >= -1e-9) { return Err("closed loop is not asymptotically stable: (A,B) not stabilizable or Q not detectable".to_string()); }
+    Ok((k_gain, p, poles))
+}
+
+/// First-order-plus-dead-time (K, L, T) from the unit-step response of a stable SISO
+/// transfer function, by the tangent-at-steepest-slope method.
+fn fopdt_from_tf(num: &[f64], den: &[f64]) -> Result<(f64, f64, f64), String> {
+    let ss = tf_to_ss_siso(num, den)?;
+    let poles = poly_roots(den).ok_or_else(|| "denominator roots did not converge".to_string())?;
+    let slowest = poles.iter().map(|p| -p.real).fold(f64::INFINITY, f64::min);
+    if poles.is_empty() || poles.iter().any(|p| p.real >= 0.0) || !slowest.is_finite() || slowest <= 0.0 {
+        return Err("step-response tuning needs a strictly stable plant (all poles in the open left half-plane)".to_string());
+    }
+    let tmax = 10.0 / slowest;
+    let dt = tmax / 5000.0;
+    let sim = PipelineExecutor::simulate_lti(&ss, &SimulationInput::Step { amplitude: 1.0, step_time_sec: 0.0 }, tmax, dt, None);
+    let y: Vec<f64> = sim.output_trajectory.iter().map(|v| v.first().copied().unwrap_or(0.0)).collect();
+    if y.len() < 10 { return Err("step response too short".to_string()); }
+    let k = *y.last().unwrap();
+    if k.abs() < 1e-9 { return Err("zero DC gain: cannot fit a first-order-plus-dead-time model".to_string()); }
+    let mut best_i = 1usize;
+    let mut best_s = f64::NEG_INFINITY;
+    for i in 1..y.len() { let sl = (y[i] - y[i - 1]) / dt * k.signum(); if sl > best_s { best_s = sl; best_i = i; } }
+    if best_s <= 1e-12 { return Err("no rising slope in the step response".to_string()); }
+    let t_ip = sim.time[best_i];
+    let y_ip = y[best_i];
+    let slope = (y[best_i] - y[best_i - 1]) / dt;
+    let l = (t_ip - y_ip / slope).max(0.0);
+    let t1 = t_ip + (k - y_ip) / slope;
+    let t_const = t1 - l;
+    if t_const <= 0.0 { return Err("could not fit a positive time constant".to_string()); }
+    Ok((k, l, t_const))
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3206,5 +3438,129 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":e})); std::process::exit(1); }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TESTS for the pure-math helpers (honesty pass 2026-10-31; written, not yet run)
+// ─────────────────────────────────────────────────────────────────────────────
+#[cfg(test)]
+mod math_tests {
+    use super::*;
+
+    fn close(a: f64, b: f64, tol: f64) -> bool { (a - b).abs() < tol }
+
+    #[test]
+    fn poly_roots_real_cubic() {
+        let mut r: Vec<f64> = poly_roots(&[1.0, 6.0, 11.0, 6.0]).expect("converges").iter().map(|z| z.real).collect();
+        r.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(close(r[0], -3.0, 1e-6) && close(r[1], -2.0, 1e-6) && close(r[2], -1.0, 1e-6));
+    }
+
+    #[test]
+    fn poly_roots_complex_pair_and_zero_root() {
+        let r = poly_roots(&[1.0, 2.0, 5.0, 0.0]).expect("converges"); // s(s²+2s+5)
+        assert_eq!(r.len(), 3);
+        assert!(r.iter().any(|z| z.real == 0.0 && z.imag == 0.0));
+        assert!(r.iter().any(|z| close(z.real, -1.0, 1e-6) && close(z.imag.abs(), 2.0, 1e-6)));
+    }
+
+    #[test]
+    fn higher_order_poles_are_no_longer_empty() {
+        let p = PipelineExecutor::compute_poles_from_denominator(&[1.0, 6.0, 11.0, 6.0]);
+        assert_eq!(p.len(), 3);
+    }
+
+    #[test]
+    fn routh_stable_and_unstable_cubics() {
+        assert!(PipelineExecutor::routh_hurwitz(&[1.0, 2.0, 3.0, 4.0]).0); // 2·3 > 1·4
+        assert!(!PipelineExecutor::routh_hurwitz(&[1.0, 1.0, 2.0, 8.0]).0); // 1·2 < 8
+        assert!(!PipelineExecutor::routh_hurwitz(&[1.0, 0.0, 1.0]).0); // imaginary-axis roots are not asymptotically stable
+        assert!(!PipelineExecutor::routh_hurwitz(&[1.0, -1.0, 1.0]).0); // sign change
+    }
+
+    #[test]
+    fn faddeev_leverrier_charpoly_and_ss2tf() {
+        let a = vec![vec![0.0, 1.0], vec![-2.0, -3.0]];
+        let (cp, _) = faddeev_leverrier(&a).unwrap();
+        assert!(close(cp[0], 1.0, 1e-12) && close(cp[1], 3.0, 1e-12) && close(cp[2], 2.0, 1e-12));
+        let (num, den) = ss_siso_to_tf(&a, &vec![vec![0.0], vec![1.0]], &vec![vec![1.0, 0.0]], &vec![vec![0.0]]).unwrap();
+        assert_eq!(num.len(), 1);
+        assert!(close(num[0], 1.0, 1e-9));
+        assert!(close(den[1], 3.0, 1e-9) && close(den[2], 2.0, 1e-9));
+    }
+
+    #[test]
+    fn ss2tf_rejects_mimo_honestly() {
+        let r = ss_siso_to_tf(&vec![vec![0.0]], &vec![vec![1.0, 1.0]], &vec![vec![1.0]], &vec![vec![0.0]]);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn third_order_ss2tf_has_real_denominator() {
+        // companion form of s³ + 6s² + 11s + 6
+        let a = vec![vec![0.0, 1.0, 0.0], vec![0.0, 0.0, 1.0], vec![-6.0, -11.0, -6.0]];
+        let (cp, _) = faddeev_leverrier(&a).unwrap();
+        assert!(close(cp[1], 6.0, 1e-9) && close(cp[2], 11.0, 1e-9) && close(cp[3], 6.0, 1e-9));
+    }
+
+    #[test]
+    fn mat_inverse_diag() {
+        let inv = mat_inverse(&[vec![2.0, 0.0], vec![0.0, 4.0]]).unwrap();
+        assert!(close(inv[0][0], 0.5, 1e-12) && close(inv[1][1], 0.25, 1e-12));
+        assert!(mat_inverse(&[vec![1.0, 2.0], vec![2.0, 4.0]]).is_none());
+    }
+
+    #[test]
+    fn lqr_scalar_matches_closed_form() {
+        // A=0, B=1, Q=1, R=1 → P = 1, K = 1, closed-loop pole −1
+        let (k, p, poles) = solve_care_lqr(&[vec![0.0]], &[vec![1.0]], &[vec![1.0]], &[vec![1.0]]).unwrap();
+        assert!(close(p[0][0], 1.0, 1e-6) && close(k[0][0], 1.0, 1e-6));
+        assert!(close(poles[0].real, -1.0, 1e-6));
+    }
+
+    #[test]
+    fn lqr_unstabilizable_fails_honestly() {
+        // unstable mode not reachable (B = 0): the Riccati solution does not exist
+        let r = solve_care_lqr(&[vec![1.0]], &[vec![0.0]], &[vec![1.0]], &[vec![1.0]]);
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn first_order_step_metrics_are_computed() {
+        let ss = tf_to_ss_siso(&[1.0], &[1.0, 1.0]).unwrap();
+        let sim = PipelineExecutor::simulate_lti(&ss, &SimulationInput::Step { amplitude: 1.0, step_time_sec: 0.0 }, 12.0, 0.001, None);
+        assert!(!sim.diverged);
+        let y = sim.output_trajectory.last().unwrap()[0];
+        assert!(close(y, 1.0, 1e-3));
+        let ts = sim.performance.settling_time_sec.expect("settles");
+        assert!(ts > 3.7 && ts < 4.1, "settling {}", ts); // ≈ 3.91 s for 1/(s+1)
+        assert!(sim.performance.overshoot_percent.unwrap() < 1e-6);
+        let tr = sim.performance.rise_time_sec.unwrap();
+        assert!(tr > 2.0 && tr < 2.4, "rise {}", tr); // 10–90% ≈ 2.197 s
+    }
+
+    #[test]
+    fn simulation_honors_initial_state_and_arbitrary_input() {
+        let ss = tf_to_ss_siso(&[1.0], &[1.0, 1.0]).unwrap();
+        let sim = PipelineExecutor::simulate_lti(&ss, &SimulationInput::Arbitrary { time: vec![0.0, 1.0], values: vec![0.0, 0.0] }, 1.0, 0.01, Some(&[1.0]));
+        let y_end = sim.output_trajectory.last().unwrap()[0];
+        assert!(close(y_end, (-1.0f64).exp(), 5e-3)); // free decay of x0 = 1
+    }
+
+    #[test]
+    fn white_noise_is_reproducible_for_a_seed() {
+        let ss = tf_to_ss_siso(&[1.0], &[1.0, 1.0]).unwrap();
+        let a = PipelineExecutor::simulate_lti(&ss, &SimulationInput::White_Noise { variance: 1.0, seed: 7 }, 1.0, 0.01, None);
+        let b = PipelineExecutor::simulate_lti(&ss, &SimulationInput::White_Noise { variance: 1.0, seed: 7 }, 1.0, 0.01, None);
+        assert_eq!(a.output_trajectory, b.output_trajectory);
+    }
+
+    #[test]
+    fn fopdt_fit_on_third_order_lag() {
+        let (k, l, t) = fopdt_from_tf(&[1.0], &[1.0, 3.0, 3.0, 1.0]).unwrap(); // 1/(s+1)³
+        assert!(close(k, 1.0, 1e-3));
+        assert!(l > 0.3 && l < 1.2, "L {}", l);
+        assert!(t > 1.0 && t < 4.0, "T {}", t);
     }
 }

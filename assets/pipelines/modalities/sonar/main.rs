@@ -1140,7 +1140,54 @@ async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, Strin
 
 /// Persist the built graph as a real ModalityGraph container (parent =
 /// project) + node/edge payload file — the proven revival pattern.
+
+// HONESTY PASS (2026-10-31, modality fork F): a cross-modality "edge" whose
+// target is the SAME node is not a link — it is a placeholder with target ids
+// stuffed in properties. Such edges are removed here (the persist boundary every
+// create/update/hook path crosses) and recorded as an UNRESOLVED reference in the
+// node's keywords: `pending_link:<EdgeType>:no-target-node`. A real cross-graph
+// link is created by the host only when a real target node exists.
+fn drop_self_loops_pending<N, E>(nodes: &mut Vec<N>, edges: &mut Vec<E>)
+where
+    N: HasNodeIdKeywords,
+    E: HasEdgeEndsDebug,
+{
+    let mut kept: Vec<E> = Vec::with_capacity(edges.len());
+    for e in edges.drain(..) {
+        if e.ends().0 == e.ends().1 {
+            let tag = format!("pending_link:{}:no-target-node", e.type_name());
+            let id = e.ends().0;
+            if let Some(n) = nodes.iter_mut().find(|n| n.nid() == id) {
+                if !n.kw().contains(&tag) {
+                    n.kw().push(tag);
+                }
+            }
+        } else {
+            kept.push(e);
+        }
+    }
+    *edges = kept;
+}
+trait HasNodeIdKeywords {
+    fn nid(&self) -> u64;
+    fn kw(&mut self) -> &mut Vec<String>;
+}
+trait HasEdgeEndsDebug {
+    fn ends(&self) -> (u64, u64);
+    fn type_name(&self) -> String;
+}
+
+impl HasNodeIdKeywords for SonarGraphNode {
+    fn nid(&self) -> u64 { self.node_id }
+    fn kw(&mut self) -> &mut Vec<String> { &mut self.keywords }
+}
+impl HasEdgeEndsDebug for SonarGraphEdge {
+    fn ends(&self) -> (u64, u64) { (self.from_node, self.to_node) }
+    fn type_name(&self) -> String { format!("{:?}", self.edge_type) }
+}
+
 async fn persist_sonar_graph(graph: &mut SonarGraph) -> Result<(), String> {
+    drop_self_loops_pending(&mut graph.nodes, &mut graph.edges);
     let keywords: Vec<String> = {
         let mut k: Vec<String> = graph.nodes.iter()
             .flat_map(|n| n.keywords.iter().cloned())

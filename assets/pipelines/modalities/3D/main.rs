@@ -54,6 +54,11 @@ use std::env;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// Real readers + geometric relations (modality fork B, 2026-10-31; UNCOMPILED pending the build gate)
+mod glue;
+mod readers;
+mod spatial;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -331,6 +336,10 @@ pub struct ObjectInfo {
     pub cloth_id: Option<u64>,
     pub fluid_id: Option<u64>,
     pub particle_system_ids: Vec<u64>,
+    /// World-space axis-aligned box (computed from the mesh bounds and the cumulative node
+    /// transform); None when the extent is unknown (never guessed).
+    #[serde(default)]
+    pub world_bbox: Option<BoundingBox3D>,
     pub visible: bool,
     pub custom_properties: HashMap<String, serde_json::Value>,
 }
@@ -365,6 +374,9 @@ pub struct MeshInfo {
     pub custom_attributes: Vec<CustomAttributeInfo>,
     pub shapekey_names: Vec<String>,
     pub vertex_group_names: Vec<String>,
+    /// Why a metric is absent (honesty rule: absent with a reason, not defaulted).
+    #[serde(default)]
+    pub metrics_absent: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1142,6 +1154,9 @@ pub struct ThreeDGraphNode {
     pub location: Option<[f64; 3]>,
     pub dimensions: Option<[f64; 3]>,
     pub bounding_box: Option<BoundingBox3D>,
+    /// Geometry in the shared layer (docs/SPATIAL_GEOMETRY_LAYER.md): {frame,kind,min,max}.
+    #[serde(default)]
+    pub geom: Option<serde_json::Value>,
     pub frame_range: Option<(f32, f32)>,
     pub physics_type: Option<String>,
     pub mass: Option<f64>,
@@ -1259,6 +1274,9 @@ pub struct ThreeDGraph {
     pub nodes: Vec<ThreeDGraphNode>,
     pub edges: Vec<ThreeDGraphEdge>,
     pub root_node_id: u64,
+    /// Up axis the graph's world frame uses ("X"|"Y"|"Z"); None when unknown.
+    #[serde(default)]
+    pub up_axis: Option<String>,
     pub state: GraphStateType,
     pub state_history: Vec<GraphStateTransition>,
     pub created_at: String, pub updated_at: String,
@@ -1313,6 +1331,8 @@ pub enum EdgeProvenance {
     DerivedFromModalityGraph(u64), DerivedFromFile(String),
     DerivedFromAMT, DerivedFromBlueprint(u32), DerivedFromMethodology(u64),
     DerivedFromCrossModal, DerivedFromHook, VersionOf(u32), ForkedFrom(u64),
+    /// Computed by geometry (world-space boxes), not inferred by a model.
+    ComputedFromGeometry,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1487,7 +1507,7 @@ impl PipelineExecutor {
     fn generate_id(&self) -> u64 {
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos() as u64
     }
-    fn now_iso8601(&self) -> String { format!("{}", self.generate_id()) }
+    fn now_iso8601(&self) -> String { chrono::Utc::now().to_rfc3339() }
 
     fn extract_json_array(raw: &str) -> String {
         if let (Some(s), Some(e)) = (raw.find('['), raw.rfind(']')) { raw[s..=e].to_string() } else { "[]".to_string() }
@@ -1915,6 +1935,8 @@ async fn create_graph(
             transform: Some(obj.transform.clone()),
             location: Some(obj.location),
             dimensions: Some(obj.dimensions),
+            bounding_box: obj.world_bbox.clone(),
+            geom: obj.world_bbox.as_ref().map(|b| serde_json::json!({"frame": "world", "kind": "box3", "min": b.min, "max": b.max})),
             materialized_path: Some(format!("/Modalities/ThreeD/Project_{}/Graph_{}/Object/{}", project_id, graph_id, obj.object_id)),
             provisional: false, provisional_status: ProvisionalStatus::Finalized, version: 1,
             keywords: { let mut kw = vec!["object".into(), format!("{:?}", obj.object_type).to_lowercase(), obj.name.to_lowercase()]; kw },
@@ -2155,10 +2177,12 @@ async fn create_graph(
     }
 
     // ── HOOK 1: OnGraphCreated ──
+    let graph_up = analysis.up_axis.clone();
     let mut save_errors: Vec<String> = Vec::new();
     if let Err(e) = executor.save_graph(&ThreeDGraph {
         graph_id, project_id, source_description: format!("{} {}", analysis.source_format, analysis.source_path.as_deref().unwrap_or("")),
         nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
+        up_axis: Some(glue::up_name(&graph_up).to_string()),
         state: GraphStateType::Created,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::Created, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
@@ -2186,17 +2210,31 @@ async fn create_graph(
         }
     }
 
-    // ── SPATIAL RELATIONSHIPS (LLM inferred) ──
-    let obj_nodes: Vec<&ThreeDGraphNode> = nodes.iter()
-        .filter(|n| matches!(n.node_type, ThreeDNodeType::Object) && n.location.is_some())
-        .collect();
-    let (spatial, zs_spa) = executor.infer_spatial_relationships_validated(&obj_nodes).await;
-    zs_accepted.extend(zs_spa.accepted);
-    zs_rejected.extend(zs_spa.rejected);
-    for (from, to, etype) in spatial {
-        if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
-            edges.push(ThreeDGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
-            edge_id += 1;
+    // ── SPATIAL RELATIONSHIPS (GEOMETRIC; replaces the LLM inference) ──
+    // From world-space bounding boxes + the scene's up axis. Objects without a box are
+    // skipped and noted (never guessed). Confidence "derived".
+    {
+        let mut spatial_notes: Vec<String> = Vec::new();
+        match glue::relations_for_graph(&nodes, &graph_up, &SpatialMethod::BoundingBox) {
+            Ok((rels, notes)) => {
+                spatial_notes = notes;
+                for (from, to, etype, props) in rels {
+                    if valid_ids.contains(&from) && valid_ids.contains(&to) && from != to {
+                        let mut properties: HashMap<String, serde_json::Value> = HashMap::new();
+                        if let Some(o) = props.as_object() {
+                            for (k, v) in o {
+                                properties.insert(k.clone(), v.clone());
+                            }
+                        }
+                        edges.push(ThreeDGraphEdge { edge_id, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
+                        edge_id += 1;
+                    }
+                }
+            }
+            Err(e) => spatial_notes.push(e),
+        }
+        for n in &spatial_notes {
+            eprintln!("3D create_graph spatial: {n}");
         }
     }
 
@@ -2213,7 +2251,7 @@ async fn create_graph(
     let final_graph = ThreeDGraph {
         graph_id, project_id,
         source_description: format!("{} {}", analysis.source_format, analysis.source_path.unwrap_or_default()),
-        nodes, edges, root_node_id: root_id, state: GraphStateType::SemanticEnriched,
+        nodes, edges, root_node_id: root_id, up_axis: Some(glue::up_name(&graph_up).to_string()), state: GraphStateType::SemanticEnriched,
         state_history: vec![GraphStateTransition { from: GraphStateType::Created, to: GraphStateType::SemanticEnriched, timestamp: now.clone(), triggered_by_step: None }],
         created_at: now.clone(), updated_at: now.clone(), version: 1,
         version_notes: vec![VersionNote { version: 1, note: "Semantic enrichment complete".into(), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic }],
