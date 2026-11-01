@@ -6989,3 +6989,14 @@ matches_any fix corrected the matched-flag semantics); the selectors-crate swap 
 (sibling combinators + more pseudo-classes), queued as such, not a correctness fix. The declared
 charset (D28 completion) is now recorded on html-flavor output as declared_charset (meta charset/
 http-equiv, quote-handled) — a declared-vs-used mismatch is visible, never silent. 69/69 tests.
+
+## 2026-11-01 (zc) — THE AUTO-INGEST LOOP CLOSED END-TO-END ON EU (Gates 1+4 fully live in production)
+The full self-driving chain verified on EU, no manual step: farm_screenshot (the live profile on
+google.com) → the farm-mcp auto-POSTs to /capture/ingest_image with x-oz-internal → the route runs
+Analyze + CreateGraph (both gates) → **container 2377 created with fork A's real pixel analysis
+(RGBA sRGB from the decoded bytes, bit_depth 8 from the IHDR)** → the container id surfaced in the
+farm-mcp's ingested block (FIX: the ingested block now copies ij.container — it previously only
+carried the analysis hint). Earlier empty-body failures explained: the DEPLOYED farm-mcp at
+/opt/ozone-tools was an old version (b23c4a88) without the token/auth handling — the current
+server.mjs (2f486d7) deployed; the local↔EU farm-mcp checksums now match. The chain: every farm
+screenshot now auto-persists as a graph container, ready for the Renders link to its page graph.

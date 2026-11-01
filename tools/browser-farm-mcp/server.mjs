@@ -178,7 +178,7 @@ async function handle(tool, input) {
             signal: AbortSignal.timeout(120000),
           });
           const ij = await ir.json();
-          out.ingested = ij.success ? { container_hint: ij.output ?? null } : { error: ij.error ?? `HTTP ${ir.status}` };
+          out.ingested = ij.success ? { container: ij.container ?? null, container_hint: ij.output ?? null } : { error: ij.error ?? `HTTP ${ir.status}` };
         } catch (e) {
           out.ingested = { error: String(e).slice(0, 200) };
         }
