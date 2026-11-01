@@ -6934,3 +6934,10 @@ audit.** The audit script pattern is in this entry's history (find+md5sum both t
    wrong-level parse, corrected).
 GATES: 0 ✓ 1 ✓ 2 ✓ 3 ✓ **4 ✓** — Gate 5 (shell modalities — the 8 forks' edits, compiled and awaiting
 the next deploy cycle) + dom-live (operator-gated CC-bridge) remain.
+
+## 2026-10-31 (zc) — SYNC AUDIT #2 (post-selective-syncs): ZERO differences
+Fresh full two-way checksum audit after all selective syncs: **0 checksum differences across every
+shared code file** — nothing dropped or missed in either direction. The 6 local-only files (AGENTS.md
++ articles/) shipped to EU for completeness. EU-only remainder: cargo/config.toml + .claude/worktrees
+(CC agent workspaces) — legitimately EU-side. THE RULE stands: edits local-first; EU fixes mirrored
+back + checksum-verified; every sync ends with the two-way audit.
