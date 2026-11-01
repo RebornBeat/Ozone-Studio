@@ -2070,7 +2070,6 @@ async fn ingest_image(
         })),
     }
 }
-}
 
 /// POST /capture/ingest_uidocument — UNCOMPILED pending the build gate.
 /// Hands a UI-element document (HTML / CSS / live-DOM batch / Android XML /
