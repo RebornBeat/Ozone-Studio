@@ -37,6 +37,11 @@ mod capture;
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// Geometric engine (fork D, 2026-10-31, UNCOMPILED): spatial relations from geometry,
+// grid index, GeoJSON/WKT/CSV readers, EPSG:4326<->3857. Pure, no new dependencies.
+mod geometry;
+use geometry::SpatialParams;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // INPUT TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -56,6 +61,9 @@ pub enum GeoModalityAction {
     CreateGraph {
         analysis: GeoAnalysisResult,
         project_id: u64,
+        /// Geometric-pass tunables (fork D); absent = the recorded defaults.
+        #[serde(default)]
+        spatial: Option<SpatialParams>,
     },
     /// Update graph with new features
     UpdateGraph {
@@ -187,6 +195,10 @@ pub enum GeoDataSource {
     NetCDF { file_path: String, variable: String },
     /// Live GPS stream
     LiveGPS { endpoint: String, protocol: GPSProtocol },
+    /// GeoJSON given inline (RFC 7946, legacy crs member honoured)
+    GeoJSONText { text: String },
+    /// WKT / EWKT given inline (POINT, LINESTRING, POLYGON, MULTI*)
+    WKT { text: String, crs: Option<String> },
     /// Multiple sources combined
     MultiSource { sources: Vec<GeoDataSource>, merge_strategy: MergeStrategy },
 }
@@ -681,6 +693,11 @@ pub struct GeoGraphNode {
     pub source_chunk_index: Option<u32>,
     pub source_start_char: Option<usize>,
     pub source_end_char: Option<usize>,
+
+    /// Geometry and provenance attributes (fork D): `geom` (exact shape + frame),
+    /// `geom_box` (enclosing box for the host spatial pass), `geom_provenance`.
+    #[serde(default)]
+    pub attributes: HashMap<String, serde_json::Value>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -714,6 +731,14 @@ pub enum GeoEdgeType {
     DerivedFromTerrain,        // feature derived from DEM analysis
     OnRoute,                    // location is on route
     HasElevationProfile,        // route has elevation profile
+
+    // ── GEOMETRIC (fork D): computed from geometry, never from a model ──
+    /// feature wholly inside another (polygon-in-polygon, holes honoured)
+    Within,
+    /// inverse of Within (available to queries; the graph stores Within)
+    Encloses,
+    /// point features closer than the recorded near_radius_m
+    NearTo,
 
     // ── CROSS-MODAL ──
     /// Text (100) place name → location
@@ -892,6 +917,8 @@ pub enum EdgeProvenance {
     DerivedFromModalityGraph(u64), DerivedFromFile(String), DerivedFromAMT,
     DerivedFromBlueprint(u32), DerivedFromMethodology(u64),
     DerivedFromCrossModal, DerivedFromHook, VersionOf(u32), ForkedFrom(u64),
+    /// computed from the stored geometry (fork D)
+    DerivedFromGeometry,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum GraphStateType { #[default] Created, SemanticEnriched, CrossLinked, Stable, Updated, ReValidating, Archived }
@@ -1306,6 +1333,10 @@ async fn persist_geo_graph(graph: &mut GeoGraph) -> Result<(), String> {
 }
 
 async fn create_graph(executor: &PipelineExecutor, analysis: GeoAnalysisResult, project_id: u64) -> GeoModalityOutput {
+    create_graph_with(executor, analysis, project_id, SpatialParams::default()).await
+}
+
+async fn create_graph_with(executor: &PipelineExecutor, analysis: GeoAnalysisResult, project_id: u64, params: SpatialParams) -> GeoModalityOutput {
     let graph_id = executor.generate_id();
     let now = executor.now_iso8601();
     let mut nodes: Vec<GeoGraphNode> = Vec::new();
@@ -1746,6 +1777,8 @@ pub async fn execute(input: GeoModalityAction) -> Result<GeoModalityOutput, Stri
                 GeoDataSource::CSVPoints { file_path, .. } => format!("CSV points: {}", file_path),
                 GeoDataSource::NetCDF { file_path, variable } => format!("NetCDF: {}/{}", file_path, variable),
                 GeoDataSource::LiveGPS { endpoint, .. } => format!("Live GPS: {}", endpoint),
+                GeoDataSource::GeoJSONText { text } => format!("GeoJSON (inline, {} bytes)", text.len()),
+                GeoDataSource::WKT { text, .. } => format!("WKT (inline, {} bytes)", text.len()),
                 GeoDataSource::MultiSource { sources, .. } => format!("MultiSource: {} sources", sources.len()),
             };
             Ok(GeoModalityOutput {
@@ -1755,8 +1788,8 @@ pub async fn execute(input: GeoModalityAction) -> Result<GeoModalityOutput, Stri
             })
         }
 
-        GeoModalityAction::CreateGraph { analysis, project_id } => {
-            Ok(create_graph(&executor, analysis, project_id).await)
+        GeoModalityAction::CreateGraph { analysis, project_id, spatial } => {
+            Ok(create_graph_with(&executor, analysis, project_id, spatial.unwrap_or_default()).await)
         }
 
         GeoModalityAction::UpdateGraph { graph_id, updates, project_id } => {

@@ -2018,21 +2018,356 @@ RESPOND ONLY WITH THE JSON ARRAY."#,
     }
 }
 
+
+// ─────────────────────────────────────────────────────────────────────────────
+// mexpr — a small REAL arithmetic parser / evaluator / simplifier (fork G honesty pass,
+// 2026-10-31). Replaces the earlier "returns 0.0 / returns the input unchanged" stand-ins.
+// Grammar: + - * / ^ (right-assoc), unary minus, parentheses, function calls, constants pi/e.
+// Anything outside it (LaTeX, calculus, sets) is NOT parsed: callers get an honest error or a
+// low-confidence heuristic marker, never an invented value. UNCOMPILED pending the EU build gate.
+// ─────────────────────────────────────────────────────────────────────────────
+mod mexpr {
+    #[derive(Debug, Clone, PartialEq)]
+    pub enum Expr {
+        Num(f64),
+        Var(String),
+        Neg(Box<Expr>),
+        Bin(char, Box<Expr>, Box<Expr>),
+        Call(String, Vec<Expr>),
+    }
+
+    #[derive(Debug, Clone, PartialEq)]
+    enum Tok { Num(f64), Id(String), Op(char), LP, RP, Comma }
+
+    fn lex(src: &str) -> Result<Vec<Tok>, String> {
+        let cs: Vec<char> = src.chars().collect();
+        let mut i = 0usize;
+        let mut out = Vec::new();
+        while i < cs.len() {
+            let c = cs[i];
+            if c.is_whitespace() { i += 1; continue; }
+            if c.is_ascii_digit() || (c == '.' && i + 1 < cs.len() && cs[i + 1].is_ascii_digit()) {
+                let st = i;
+                while i < cs.len() && (cs[i].is_ascii_digit() || cs[i] == '.') { i += 1; }
+                if i < cs.len() && (cs[i] == 'e' || cs[i] == 'E') {
+                    let mut j = i + 1;
+                    if j < cs.len() && (cs[j] == '+' || cs[j] == '-') { j += 1; }
+                    if j < cs.len() && cs[j].is_ascii_digit() {
+                        while j < cs.len() && cs[j].is_ascii_digit() { j += 1; }
+                        i = j;
+                    }
+                }
+                let t: String = cs[st..i].iter().collect();
+                out.push(Tok::Num(t.parse::<f64>().map_err(|_| format!("bad number '{}'", t))?));
+            } else if c.is_alphabetic() || c == '_' {
+                let st = i;
+                while i < cs.len() && (cs[i].is_alphanumeric() || cs[i] == '_') { i += 1; }
+                out.push(Tok::Id(cs[st..i].iter().collect()));
+            } else if "+-*/^".contains(c) {
+                out.push(Tok::Op(c)); i += 1;
+            } else if c == '·' || c == '×' { out.push(Tok::Op('*')); i += 1; }
+            else if c == '÷' { out.push(Tok::Op('/')); i += 1; }
+            else if c == '(' { out.push(Tok::LP); i += 1; }
+            else if c == ')' { out.push(Tok::RP); i += 1; }
+            else if c == ',' { out.push(Tok::Comma); i += 1; }
+            else { return Err(format!("unsupported character '{}' (only plain arithmetic is parsed)", c)); }
+        }
+        Ok(out)
+    }
+
+    struct P { t: Vec<Tok>, i: usize }
+    impl P {
+        fn peek(&self) -> Option<&Tok> { self.t.get(self.i) }
+        fn next(&mut self) -> Option<Tok> { let v = self.t.get(self.i).cloned(); self.i += 1; v }
+        fn expr(&mut self) -> Result<Expr, String> {
+            let mut l = self.term()?;
+            while let Some(Tok::Op(o)) = self.peek().cloned() {
+                if o == '+' || o == '-' { self.i += 1; let r = self.term()?; l = Expr::Bin(o, Box::new(l), Box::new(r)); } else { break; }
+            }
+            Ok(l)
+        }
+        fn term(&mut self) -> Result<Expr, String> {
+            let mut l = self.unary()?;
+            while let Some(Tok::Op(o)) = self.peek().cloned() {
+                if o == '*' || o == '/' { self.i += 1; let r = self.unary()?; l = Expr::Bin(o, Box::new(l), Box::new(r)); } else { break; }
+            }
+            Ok(l)
+        }
+        fn unary(&mut self) -> Result<Expr, String> {
+            match self.peek().cloned() {
+                Some(Tok::Op('-')) => { self.i += 1; Ok(Expr::Neg(Box::new(self.unary()?))) }
+                Some(Tok::Op('+')) => { self.i += 1; self.unary() }
+                _ => self.power(),
+            }
+        }
+        fn power(&mut self) -> Result<Expr, String> {
+            let base = self.atom()?;
+            if let Some(Tok::Op('^')) = self.peek().cloned() { self.i += 1; let e = self.unary()?; return Ok(Expr::Bin('^', Box::new(base), Box::new(e))); }
+            Ok(base)
+        }
+        fn atom(&mut self) -> Result<Expr, String> {
+            match self.next() {
+                Some(Tok::Num(n)) => Ok(Expr::Num(n)),
+                Some(Tok::Id(name)) => {
+                    if let Some(Tok::LP) = self.peek() {
+                        self.i += 1;
+                        let mut args = Vec::new();
+                        if let Some(Tok::RP) = self.peek() { self.i += 1; return Ok(Expr::Call(name, args)); }
+                        loop {
+                            args.push(self.expr()?);
+                            match self.next() { Some(Tok::Comma) => continue, Some(Tok::RP) => break, _ => return Err("expected ',' or ')' in call".to_string()) }
+                        }
+                        Ok(Expr::Call(name, args))
+                    } else { Ok(Expr::Var(name)) }
+                }
+                Some(Tok::LP) => { let e = self.expr()?; match self.next() { Some(Tok::RP) => Ok(e), _ => Err("missing ')'".to_string()) } }
+                other => Err(format!("unexpected token {:?}", other)),
+            }
+        }
+    }
+
+    pub fn parse(src: &str) -> Result<Expr, String> {
+        let t = lex(src)?;
+        if t.is_empty() { return Err("empty expression".to_string()); }
+        let mut p = P { t, i: 0 };
+        let e = p.expr()?;
+        if p.i != p.t.len() { return Err(format!("unexpected trailing input at token {}", p.i)); }
+        Ok(e)
+    }
+
+    pub fn eval(e: &Expr, env: &dyn Fn(&str) -> Option<f64>) -> Result<f64, String> {
+        let v = match e {
+            Expr::Num(n) => *n,
+            Expr::Var(n) => match env(n) {
+                Some(v) => v,
+                None => match n.as_str() {
+                    "pi" => std::f64::consts::PI,
+                    "e" => std::f64::consts::E,
+                    _ => return Err(format!("unbound variable '{}'", n)),
+                },
+            },
+            Expr::Neg(a) => -eval(a, env)?,
+            Expr::Bin(o, a, b) => {
+                let (x, y) = (eval(a, env)?, eval(b, env)?);
+                match o {
+                    '+' => x + y, '-' => x - y, '*' => x * y,
+                    '/' => { if y == 0.0 { return Err("division by zero".to_string()); } x / y }
+                    '^' => x.powf(y),
+                    _ => return Err(format!("unknown operator '{}'", o)),
+                }
+            }
+            Expr::Call(f, args) => {
+                let a: Result<Vec<f64>, String> = args.iter().map(|x| eval(x, env)).collect();
+                let a = a?;
+                let one = |n: usize| -> Result<(), String> { if a.len() == n { Ok(()) } else { Err(format!("{}() takes {} argument(s)", f, n)) } };
+                match f.as_str() {
+                    "sin" => { one(1)?; a[0].sin() } "cos" => { one(1)?; a[0].cos() } "tan" => { one(1)?; a[0].tan() }
+                    "asin" => { one(1)?; a[0].asin() } "acos" => { one(1)?; a[0].acos() } "atan" => { one(1)?; a[0].atan() }
+                    "sinh" => { one(1)?; a[0].sinh() } "cosh" => { one(1)?; a[0].cosh() } "tanh" => { one(1)?; a[0].tanh() }
+                    "sqrt" => { one(1)?; a[0].sqrt() } "exp" => { one(1)?; a[0].exp() }
+                    "ln" => { one(1)?; a[0].ln() } "log" | "log10" => { one(1)?; a[0].log10() } "log2" => { one(1)?; a[0].log2() }
+                    "abs" => { one(1)?; a[0].abs() } "floor" => { one(1)?; a[0].floor() } "ceil" => { one(1)?; a[0].ceil() }
+                    _ => return Err(format!("unknown function '{}'", f)),
+                }
+            }
+        };
+        if v.is_finite() { Ok(v) } else { Err("result is not a finite real number (domain error or overflow)".to_string()) }
+    }
+
+    fn num_str(n: f64) -> String {
+        if n.fract() == 0.0 && n.abs() < 1e15 { format!("{}", n as i64) } else { format!("{}", n) }
+    }
+
+    fn prec(o: char) -> u8 { match o { '+' | '-' => 1, '*' | '/' => 2, '^' => 4, _ => 0 } }
+
+    pub fn to_string(e: &Expr) -> String { fmt(e, 0) }
+    fn fmt(e: &Expr, ctx: u8) -> String {
+        match e {
+            Expr::Num(n) => if *n < 0.0 && ctx > 0 { format!("({})", num_str(*n)) } else { num_str(*n) },
+            Expr::Var(n) => n.clone(),
+            Expr::Neg(a) => { let s = format!("-{}", fmt(a, 3)); if ctx > 2 { format!("({})", s) } else { s } }
+            Expr::Bin(o, a, b) => {
+                let p = prec(*o);
+                let (lc, rc) = if *o == '^' { (p + 1, p) } else if *o == '-' || *o == '/' { (p, p + 1) } else { (p, p) };
+                let s = format!("{}{}{}", fmt(a, lc), o, fmt(b, rc));
+                if p < ctx { format!("({})", s) } else { s }
+            }
+            Expr::Call(f, args) => format!("{}({})", f, args.iter().map(|x| fmt(x, 0)).collect::<Vec<_>>().join(",")),
+        }
+    }
+
+    pub fn identifiers(e: &Expr, out: &mut Vec<String>) {
+        match e {
+            Expr::Var(n) => { if n != "pi" && n != "e" && !out.contains(n) { out.push(n.clone()); } }
+            Expr::Neg(a) => identifiers(a, out),
+            Expr::Bin(_, a, b) => { identifiers(a, out); identifiers(b, out); }
+            Expr::Call(_, args) => for x in args { identifiers(x, out); },
+            Expr::Num(_) => {}
+        }
+    }
+
+    pub fn operators(e: &Expr, out: &mut Vec<char>) {
+        match e {
+            Expr::Neg(a) => operators(a, out),
+            Expr::Bin(o, a, b) => { if !out.contains(o) { out.push(*o); } operators(a, out); operators(b, out); }
+            Expr::Call(_, args) => for x in args { operators(x, out); },
+            _ => {}
+        }
+    }
+
+    /// True when the value is exactly representable: integer literals combined with + − × and ^ by a
+    /// non-negative integer literal only.
+    pub fn exact_integer(e: &Expr) -> bool {
+        match e {
+            Expr::Num(n) => n.fract() == 0.0 && n.abs() < 1e15,
+            Expr::Neg(a) => exact_integer(a),
+            Expr::Bin(o, a, b) => match o {
+                '+' | '-' | '*' => exact_integer(a) && exact_integer(b),
+                '^' => exact_integer(a) && matches!(**b, Expr::Num(n) if n >= 0.0 && n.fract() == 0.0 && n < 64.0),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// (sub-expression text, value) for every operator/call node, children first, at most `max`.
+    pub fn trace(e: &Expr, env: &dyn Fn(&str) -> Option<f64>, out: &mut Vec<(String, f64)>, max: usize) {
+        if out.len() >= max { return; }
+        match e {
+            Expr::Neg(a) => trace(a, env, out, max),
+            Expr::Bin(_, a, b) => { trace(a, env, out, max); trace(b, env, out, max); }
+            Expr::Call(_, args) => for x in args { trace(x, env, out, max); },
+            _ => return,
+        }
+        if let Ok(v) = eval(e, env) { if out.len() < max { out.push((to_string(e), v)); } }
+    }
+
+    /// Algebraic simplification by constant folding and identity removal. Each applied rewrite is
+    /// recorded as (rule, before, after). Variables stay symbolic; nothing is evaluated numerically
+    /// unless both operands are numeric literals.
+    pub fn simplify(e: &Expr, log: &mut Vec<(String, String, String)>) -> Expr {
+        let rec = |log: &mut Vec<(String, String, String)>, rule: &str, before: &Expr, after: &Expr| {
+            log.push((rule.to_string(), to_string(before), to_string(after)));
+        };
+        match e {
+            Expr::Num(_) | Expr::Var(_) => e.clone(),
+            Expr::Neg(a) => {
+                let a2 = simplify(a, log);
+                let out = match a2 {
+                    Expr::Num(n) => Expr::Num(-n),
+                    Expr::Neg(inner) => *inner,
+                    other => Expr::Neg(Box::new(other)),
+                };
+                if out != *e { rec(log, "negation", e, &out); }
+                out
+            }
+            Expr::Call(f, args) => Expr::Call(f.clone(), args.iter().map(|x| simplify(x, log)).collect()),
+            Expr::Bin(o, a, b) => {
+                let (x, y) = (simplify(a, log), simplify(b, log));
+                let before = Expr::Bin(*o, Box::new(x.clone()), Box::new(y.clone()));
+                let is = |v: &Expr, k: f64| matches!(v, Expr::Num(n) if *n == k);
+                let out = match (o, &x, &y) {
+                    (_, Expr::Num(p), Expr::Num(q)) => match eval(&before, &|_| None) { Ok(v) => { let _ = (p, q); Expr::Num(v) } Err(_) => before.clone() },
+                    ('+', _, _) if is(&y, 0.0) => x.clone(),
+                    ('+', _, _) if is(&x, 0.0) => y.clone(),
+                    ('-', _, _) if is(&y, 0.0) => x.clone(),
+                    ('*', _, _) if is(&y, 1.0) => x.clone(),
+                    ('*', _, _) if is(&x, 1.0) => y.clone(),
+                    ('*', _, _) if is(&y, 0.0) || is(&x, 0.0) => Expr::Num(0.0),
+                    ('/', _, _) if is(&y, 1.0) => x.clone(),
+                    ('^', _, _) if is(&y, 1.0) => x.clone(),
+                    ('^', _, _) if is(&y, 0.0) => Expr::Num(1.0),
+                    _ => before.clone(),
+                };
+                if out != before {
+                    let rule = match (o, &x, &y) {
+                        (_, Expr::Num(_), Expr::Num(_)) => "constant folding",
+                        ('+', _, _) | ('-', _, _) => "additive identity",
+                        ('*', _, _) if is(&y, 0.0) || is(&x, 0.0) => "multiplication by zero",
+                        ('*', _, _) | ('/', _, _) => "multiplicative identity",
+                        _ => "power identity",
+                    };
+                    rec(log, rule, &before, &out);
+                }
+                out
+            }
+        }
+    }
+}
+
 async fn parse_expression(
     expression: &str,
     format: MathFormat,
     extract_variables: bool,
     _simplify: bool,
 ) -> Result<ParseResult, String> {
-    // In production, this would use a proper math parser (sympy, mathjs, etc.)
-    
+    // REAL parse for plain arithmetic (mexpr). Anything else (LaTeX, calculus, sets) falls through to the
+    // keyword heuristic below, whose confidence is honestly LOW and which builds no real AST.
+    if let Ok(ex) = mexpr::parse(expression) {
+        fn to_node(e: &mexpr::Expr) -> MathNode {
+            let mk = |t: MathNodeType, v: Option<String>, c: Vec<MathNode>| MathNode { node_type: t, value: v, children: c, position: None, type_annotation: None };
+            match e {
+                mexpr::Expr::Num(_) => mk(MathNodeType::Number, Some(mexpr::to_string(e)), vec![]),
+                mexpr::Expr::Var(n) => mk(if n == "pi" || n == "e" { MathNodeType::Constant } else { MathNodeType::Variable }, Some(n.clone()), vec![]),
+                mexpr::Expr::Neg(a) => mk(MathNodeType::UnaryOp, Some("-".to_string()), vec![to_node(a)]),
+                mexpr::Expr::Bin(o, a, b) => mk(if *o == '^' { MathNodeType::Power } else { MathNodeType::BinaryOp }, Some(o.to_string()), vec![to_node(a), to_node(b)]),
+                mexpr::Expr::Call(f, args) => mk(MathNodeType::Function, Some(f.clone()), args.iter().map(to_node).collect()),
+            }
+        }
+        let mut ids = Vec::new();
+        mexpr::identifiers(&ex, &mut ids);
+        let mut fn_names: Vec<String> = Vec::new();
+        fn calls(e: &mexpr::Expr, out: &mut Vec<String>) {
+            match e {
+                mexpr::Expr::Call(f, a) => { if !out.contains(f) { out.push(f.clone()); } for x in a { calls(x, out); } }
+                mexpr::Expr::Neg(a) => calls(a, out),
+                mexpr::Expr::Bin(_, a, b) => { calls(a, out); calls(b, out); }
+                _ => {}
+            }
+        }
+        calls(&ex, &mut fn_names);
+        let variables: Vec<Variable> = if extract_variables {
+            ids.into_iter().map(|name| Variable { name, var_type: VariableType::Unknown, constraints: vec![], scope: None, quantifier: None, initial_value: None }).collect()
+        } else { vec![] };
+        let mut ops_found = Vec::new();
+        mexpr::operators(&ex, &mut ops_found);
+        let mut operations: Vec<MathOperation> = ops_found.into_iter().map(|o| {
+            let (name, prec_, assoc) = match o {
+                '+' => ("addition", 1, Associativity::Left), '-' => ("subtraction", 1, Associativity::Left),
+                '*' => ("multiplication", 2, Associativity::Left), '/' => ("division", 2, Associativity::Left),
+                _ => ("exponentiation", 4, Associativity::Right),
+            };
+            MathOperation { name: name.to_string(), symbol: o.to_string(), operand_types: vec!["number".to_string(), "number".to_string()], result_type: "number".to_string(), associativity: Some(assoc), precedence: Some(prec_) }
+        }).collect();
+        for f in fn_names {
+            operations.push(MathOperation { name: f.clone(), symbol: f, operand_types: vec!["number".to_string()], result_type: "number".to_string(), associativity: None, precedence: None });
+        }
+        return Ok(ParseResult {
+            ast: to_node(&ex),
+            expression_type: ExpressionType::Statement,
+            variables,
+            operations,
+            content_keywords: extract_content_keywords(expression),
+            constants: vec![],
+            domain: None,
+            range: None,
+            properties: vec![],
+            normalized: Some(mexpr::to_string(&ex)),
+            confidence: 1.0, // deterministic parse of the full input
+        });
+    }
+
     let mut variables = Vec::new();
     let mut operations = Vec::new();
     
     if extract_variables {
         // Simple variable extraction (in production, parse the AST properly)
-        for c in expression.chars() {
-            if c.is_ascii_lowercase() && c != 'e' && c != 'i' {
+        // Heuristic only: single-letter identifiers; multi-letter runs (function names) and \\commands are skipped.
+        let cs: Vec<char> = expression.chars().collect();
+        for (idx, &c) in cs.iter().enumerate() {
+            let prev_alpha = idx > 0 && (cs[idx - 1].is_alphabetic() || cs[idx - 1] == '\\');
+            let next_alpha = idx + 1 < cs.len() && cs[idx + 1].is_alphabetic();
+            if c.is_ascii_lowercase() && c != 'e' && c != 'i' && !prev_alpha && !next_alpha {
                 let var_name = c.to_string();
                 if !variables.iter().any(|v: &Variable| v.name == var_name) {
                     variables.push(Variable {
@@ -2119,7 +2454,7 @@ async fn parse_expression(
         range: None,
         properties: vec![],
         normalized: Some(expression.to_string()),
-        confidence: 0.85,
+        confidence: 0.3, // keyword heuristic only: no AST was built, the whole input is one Symbol node
     })
 }
 
@@ -2129,7 +2464,7 @@ async fn analyze_proof(
     verify: bool,
     check_completeness: bool,
 ) -> Result<ProofAnalysis, String> {
-    // In production, this would parse the proof and create proper step analysis
+    // Line-based step analysis with real per-step reference detection (no formal proof parser).
     
     // Split proof into steps (simplified)
     let lines: Vec<&str> = proof.lines()
@@ -2239,7 +2574,7 @@ async fn verify_step(
     context: &ProofContext,
     _allowed_rules: Option<&[String]>,
 ) -> Result<VerificationResult, String> {
-    // In production, this would do actual logical verification
+    // Structural checks only (dependency existence, scope); NOT a formal logical verification.
     
     let mut details = Vec::new();
     let mut errors = Vec::new();
@@ -2363,29 +2698,26 @@ async fn evaluate_expression(
     variables: &HashMap<String, MathValue>,
     _precision: Option<u32>,
 ) -> Result<EvaluationResult, String> {
-    // In production, use a proper math evaluation library
-    
-    // Simple evaluation for basic arithmetic
-    let mut result_value = 0.0f64;
-    let mut steps = Vec::new();
-
-    // Very simplified - just demonstrate the structure
-    steps.push(EvaluationStep {
-        expression: expression.to_string(),
-        value: MathValue::Symbol(expression.to_string()),
-        rule_applied: "input".to_string(),
-    });
-
-    // If it's a simple number, parse it
-    if let Ok(num) = expression.trim().parse::<f64>() {
-        result_value = num;
-    }
-
+    // Real evaluation of plain arithmetic (mexpr). Unparseable or unbound input is an ERROR, not 0.0.
+    let ex = mexpr::parse(expression).map_err(|e| format!("cannot evaluate '{}': {}", expression, e))?;
+    let lookup = |name: &str| -> Option<f64> {
+        match variables.get(name)? {
+            MathValue::Integer(i) => Some(*i as f64),
+            MathValue::Real(r) => Some(*r),
+            MathValue::Rational(n, d) if *d != 0 => Some(*n as f64 / *d as f64),
+            _ => None,
+        }
+    };
+    let value = mexpr::eval(&ex, &lookup).map_err(|e| format!("cannot evaluate '{}': {}", expression, e))?;
+    let mut tr = Vec::new();
+    mexpr::trace(&ex, &lookup, &mut tr, 40);
+    let intermediate_steps: Vec<EvaluationStep> = tr.into_iter().map(|(text, v)| EvaluationStep { expression: text, value: MathValue::Real(v), rule_applied: "evaluate subexpression".to_string() }).collect();
+    let exact = mexpr::exact_integer(&ex) && value.fract() == 0.0 && value.abs() < 9.0e15;
     Ok(EvaluationResult {
-        value: MathValue::Real(result_value),
-        exact: true,
-        precision: Some(15),
-        intermediate_steps: steps,
+        value: if exact { MathValue::Integer(value as i64) } else { MathValue::Real(value) },
+        exact,
+        precision: if exact { None } else { Some(15) },
+        intermediate_steps,
     })
 }
 
@@ -2393,14 +2725,19 @@ async fn simplify_expression(
     expression: &str,
     _rules: &[SimplificationRule],
 ) -> Result<SimplificationResult, String> {
-    // In production, use sympy or similar for actual simplification
-    
+    // Real rewriting (constant folding + identities) for plain arithmetic; custom `rules` are not applied.
+    let ex = mexpr::parse(expression).map_err(|e| format!("cannot simplify '{}': {}", expression, e))?;
+    let mut log = Vec::new();
+    let out = mexpr::simplify(&ex, &mut log);
+    let steps: Vec<SimplificationStep> = log.iter().map(|(rule, before, after)| SimplificationStep { before: before.clone(), after: after.clone(), rule: rule.clone(), explanation: None }).collect();
+    let mut rules_applied: Vec<String> = Vec::new();
+    for (r, _, _) in &log { if !rules_applied.contains(r) { rules_applied.push(r.clone()); } }
     Ok(SimplificationResult {
         original: expression.to_string(),
-        simplified: expression.to_string(), // No actual simplification
-        steps: vec![],
-        rules_applied: vec![],
-        is_canonical: false,
+        simplified: mexpr::to_string(&out),
+        steps,
+        rules_applied,
+        is_canonical: log.is_empty(), // fixed point of THESE rules only (not a canonical form in the CAS sense)
     })
 }
 
@@ -3489,6 +3826,40 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn mexpr_evaluates_real_arithmetic_and_rejects_the_rest() {
+        let ex = mexpr::parse("2+3*4^2").unwrap();
+        assert_eq!(mexpr::eval(&ex, &|_| None).unwrap(), 50.0);
+        assert!(mexpr::exact_integer(&ex));
+        let ex = mexpr::parse("-2^2").unwrap(); // unary minus binds looser than ^ here: -(2^2)
+        assert_eq!(mexpr::eval(&ex, &|_| None).unwrap(), -4.0);
+        let ex = mexpr::parse("sqrt(x)+pi*0").unwrap();
+        assert!((mexpr::eval(&ex, &|n| if n == "x" { Some(9.0) } else { None }).unwrap() - 3.0).abs() < 1e-12);
+        assert!(mexpr::eval(&mexpr::parse("1/0").unwrap(), &|_| None).is_err());
+        assert!(mexpr::eval(&mexpr::parse("y+1").unwrap(), &|_| None).is_err()); // unbound, never silently 0
+        assert!(mexpr::parse("\\frac{1}{2}").is_err()); // LaTeX is not plain arithmetic
+    }
+
+    #[test]
+    fn mexpr_simplifies_identities_and_folds_constants() {
+        let mut log = Vec::new();
+        let out = mexpr::simplify(&mexpr::parse("x*1+0*y+2*3").unwrap(), &mut log);
+        assert_eq!(mexpr::to_string(&out), "x+6");
+        assert!(!log.is_empty());
+        let mut none = Vec::new();
+        let same = mexpr::simplify(&mexpr::parse("x+y").unwrap(), &mut none);
+        assert_eq!(mexpr::to_string(&same), "x+y");
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn mexpr_identifiers_exclude_functions_and_constants() {
+        let ex = mexpr::parse("sin(x)+pi*y").unwrap();
+        let mut ids = Vec::new();
+        mexpr::identifiers(&ex, &mut ids);
+        assert_eq!(ids, vec!["x".to_string(), "y".to_string()]);
+    }
     use super::*;
 
     #[tokio::test]

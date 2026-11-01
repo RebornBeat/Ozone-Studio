@@ -2289,65 +2289,69 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
 
     match input {
         ThreeDModalityAction::AnalyzeScene { data, extract_hierarchy, extract_physics, extract_animation, extract_materials } => {
+            // REAL readers (readers.rs/glue.rs): values come from the file; unsupported sources are an
+            // honest error, never a canned analysis (the old fps 24 / frame_end 250 / up Z defaults are gone).
             let analysis_id = executor.generate_id();
-            let (source_format, source_path) = match &data {
-                SceneDataSource::GLTF { file_path, .. } => ("GLTF".into(), Some(file_path.clone())),
-                SceneDataSource::GLB { file_path } => ("GLB".into(), Some(file_path.clone())),
-                SceneDataSource::OBJ { file_path, .. } => ("OBJ".into(), Some(file_path.clone())),
-                SceneDataSource::FBX { file_path } => ("FBX".into(), Some(file_path.clone())),
-                SceneDataSource::USD { file_path, .. } | SceneDataSource::USDA { file_path } | SceneDataSource::USDC { file_path } | SceneDataSource::USDZ { file_path } => ("USD".into(), Some(file_path.clone())),
-                SceneDataSource::Blend { file_path, .. } => ("Blend".into(), Some(file_path.clone())),
-                SceneDataSource::STL { file_path, .. } => ("STL".into(), Some(file_path.clone())),
-                SceneDataSource::PLY { file_path } => ("PLY".into(), Some(file_path.clone())),
-                SceneDataSource::URDF { file_path, .. } => ("URDF".into(), Some(file_path.clone())),
-                SceneDataSource::MJCF { file_path } => ("MJCF".into(), Some(file_path.clone())),
-                SceneDataSource::LiveStream { endpoint, .. } => ("LiveStream".into(), Some(endpoint.clone())),
-                SceneDataSource::ManifestJSON { manifest_path } => ("Manifest".into(), Some(manifest_path.clone())),
-                _ => ("Procedural".into(), None),
-            };
-            Ok(ThreeDModalityOutput {
-                success: true,
-                analysis: Some(ThreeDAnalysisResult { analysis_id, source_format, source_path, fps: 24.0, frame_end: 250, up_axis: Axis::Z, ..Default::default() }),
-                ..Default::default()
-            })
+            let mut analysis = glue::analyze_scene(analysis_id, &data, extract_materials, extract_animation)?;
+            if extract_physics {
+                analysis.processing_notes.push("physics extraction requested: no physics reader exists for this source; none was fabricated".to_string());
+            }
+            let _ = extract_hierarchy; // the node hierarchy is always part of the result when the format has one
+            Ok(ThreeDModalityOutput { success: true, analysis: Some(analysis), ..Default::default() })
         }
 
         ThreeDModalityAction::AnalyzeMesh { data, compute_normals, compute_uv, compute_topology } => {
-            let mesh = match data {
-                MeshDataSource::RawArrays { vertices, faces, normals, uvs } => MeshInfo {
-                    mesh_id: executor.generate_id(), name: "raw_mesh".into(),
-                    vertex_count: vertices.len() as u32, edge_count: 0,
-                    face_count: faces.len() as u32, loop_count: faces.len() as u32 * 3,
-                    has_uvs: uvs.is_some(), has_normals: normals.is_some(),
-                    ..Default::default()
-                },
-                _ => MeshInfo { mesh_id: executor.generate_id(), name: "mesh_from_file".into(), ..Default::default() }
+            let mut analysis = glue::analyze_mesh(executor.generate_id(), &data)?;
+            if compute_normals {
+                analysis.processing_notes.push("compute_normals requested: normals are reported only if present in the file; none were synthesized".to_string());
+            }
+            if compute_uv {
+                analysis.processing_notes.push("compute_uv requested: UV coordinates are reported only if present in the file; none were generated".to_string());
+            }
+            let _ = compute_topology; // edge/manifold topology is always computed from the faces
+            Ok(ThreeDModalityOutput { success: true, analysis: Some(analysis), ..Default::default() })
+        }
+
+        ThreeDModalityAction::AnalyzeRig { data, .. } => {
+            let hint = match &data {
+                ArmatureDataSource::URDF { .. } => "URDF robots are owned by the kinematics modality (121): use its ImportURDF action",
+                _ => "no armature reader exists in this pipeline",
             };
-            Ok(ThreeDModalityOutput {
-                success: true,
-                analysis: Some(ThreeDAnalysisResult { meshes: vec![mesh], ..Default::default() }),
-                ..Default::default()
-            })
+            Err(format!("AnalyzeRig not implemented: {} (no placeholder armature was fabricated)", hint))
         }
 
-        ThreeDModalityAction::AnalyzeRig { data, extract_constraints, extract_weights } => {
-            let arm = ArmatureInfo { armature_id: executor.generate_id(), name: "armature".into(), bone_count: 0, ..Default::default() };
-            Ok(ThreeDModalityOutput { success: true, analysis: Some(ThreeDAnalysisResult { armatures: vec![arm], ..Default::default() }), ..Default::default() })
+        ThreeDModalityAction::AnalyzeAnimation { .. } => {
+            Err("AnalyzeAnimation not implemented: no BVH/FBX/Alembic/action reader exists (no placeholder action or 0-250 frame range was fabricated)".to_string())
         }
 
-        ThreeDModalityAction::AnalyzeAnimation { data, .. } => {
-            let action = ActionInfo { action_id: executor.generate_id(), name: "action".into(), frame_range: (0.0, 250.0), ..Default::default() };
-            Ok(ThreeDModalityOutput { success: true, analysis: Some(ThreeDAnalysisResult { actions: vec![action], ..Default::default() }), ..Default::default() })
+        ThreeDModalityAction::AnalyzePhysics { .. } => {
+            Err("AnalyzePhysics not implemented: no physics-description reader exists (an empty analysis was NOT returned as success)".to_string())
         }
 
-        ThreeDModalityAction::AnalyzePhysics { data, .. } => {
-            Ok(ThreeDModalityOutput { success: true, analysis: Some(ThreeDAnalysisResult { ..Default::default() }), ..Default::default() })
-        }
-
-        ThreeDModalityAction::AnalyzeMaterials { data, .. } => {
-            let mat = MaterialInfo { material_id: executor.generate_id(), name: "material".into(), use_nodes: true, roughness: 0.5, ..Default::default() };
-            Ok(ThreeDModalityOutput { success: true, analysis: Some(ThreeDAnalysisResult { materials: vec![mat], ..Default::default() }), ..Default::default() })
-        }
+        ThreeDModalityAction::AnalyzeMaterials { data, .. } => match data {
+            MaterialDataSource::GLTF_PBR { base_color, metallic, roughness, emissive } => {
+                // These numbers are the CALLER's own PBR parameters: reported as given, nothing else invented.
+                let mat = MaterialInfo {
+                    material_id: executor.generate_id(),
+                    name: "gltf_pbr".into(),
+                    base_color,
+                    metallic,
+                    roughness,
+                    emission: emissive,
+                    ..Default::default()
+                };
+                Ok(ThreeDModalityOutput {
+                    success: true,
+                    analysis: Some(ThreeDAnalysisResult {
+                        materials: vec![mat],
+                        processing_notes: vec!["only the supplied PBR parameters are reported; other material fields are unset, not defaulted".to_string()],
+                        ..Default::default()
+                    }),
+                    ..Default::default()
+                })
+            }
+            _ => Err("AnalyzeMaterials not implemented for this source: only GLTF_PBR parameters are echoed; graph/texture-set materials need a reader (no placeholder material was fabricated)".to_string()),
+        },
 
         ThreeDModalityAction::CreateGraph { analysis, project_id } => {
             Ok(create_graph(&executor, analysis, project_id).await)
@@ -2474,31 +2478,69 @@ pub async fn execute(input: ThreeDModalityAction) -> Result<ThreeDModalityOutput
         }
 
         ThreeDModalityAction::ComputeSpatialRelationships { graph_id, method } => {
+            // GEOMETRIC (world-space boxes / centres); ConvexHull/MeshDistance are refused, not approximated.
             let mut graph = executor.load_graph(graph_id)?;
             let now = executor.now_iso8601();
-            let obj_nodes: Vec<&ThreeDGraphNode> = graph.nodes.iter().filter(|n| matches!(n.node_type, ThreeDNodeType::Object)).collect();
-            let (spatial, zs) = executor.infer_spatial_relationships_validated(&obj_nodes).await;
-            for r in zs.accepted { if !graph.zero_shot_relations.contains(&r) { graph.zero_shot_relations.push(r); } }
-            for r in zs.rejected { if !graph.zero_shot_rejected.contains(&r) { graph.zero_shot_rejected.push(r); } }
+            let (up, up_note) = match graph.up_axis.as_deref() {
+                Some("X") => (Axis::X, None),
+                Some("Y") => (Axis::Y, None),
+                Some("Z") => (Axis::Z, None),
+                _ => (Axis::Z, Some("graph stores no up axis: Z assumed".to_string())),
+            };
+            let (rels, mut notes) = glue::relations_for_graph(&graph, &up, &method)?;
+            if let Some(n) = up_note {
+                notes.push(n);
+            }
+            // idempotent: replace the previously computed geometric edges
+            graph.edges.retain(|e| !matches!(e.provenance, EdgeProvenance::ComputedFromGeometry));
             let valid: std::collections::HashSet<u64> = graph.nodes.iter().map(|n| n.node_id).collect();
             let mut next_eid = graph.edges.iter().map(|e| e.edge_id).max().unwrap_or(0) + 1;
-            let mut added = 0;
-            for (from, to, etype) in spatial {
+            let mut added = 0usize;
+            for (from, to, etype, props) in rels {
                 if valid.contains(&from) && valid.contains(&to) && from != to {
-                    graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
-                    next_eid += 1; added += 1;
+                    let mut properties: HashMap<String, serde_json::Value> = HashMap::new();
+                    if let Some(o) = props.as_object() {
+                        for (k, v) in o {
+                            properties.insert(k.clone(), v.clone());
+                        }
+                    }
+                    graph.edges.push(ThreeDGraphEdge { edge_id: next_eid, from_node: from, to_node: to, edge_type: etype, weight: 0.7, provenance: EdgeProvenance::ComputedFromGeometry, version: 1, properties, ..Default::default() });
+                    next_eid += 1;
+                    added += 1;
                 }
             }
-            graph.version += 1; graph.updated_at = now.clone();
-            graph.version_notes.push(VersionNote { version: graph.version, note: format!("Spatial: {} new edges (method={:?})", added, method), step_index: None, timestamp: now, change_type: ChangeType::EnrichedBySemantic });
+            graph.version += 1;
+            graph.updated_at = now.clone();
+            graph.version_notes.push(VersionNote { version: graph.version, note: format!("Spatial (geometric, method={:?}): {} edges; {}", method, added, notes.join(" | ")), step_index: None, timestamp: now, change_type: ChangeType::Updated });
             executor.save_graph(&graph)?;
-            Ok(ThreeDModalityOutput { success: true, graph_id: Some(graph_id), graph: Some(graph), ..Default::default() })
+            Ok(ThreeDModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                graph: Some(graph),
+                query_result: Some(serde_json::json!({ "edges_added": added, "notes": notes })),
+                ..Default::default()
+            })
         }
 
         ThreeDModalityAction::BuildSpatialIndex { graph_id, index_type } => {
+            // A REAL BVH over object boxes, persisted beside the graph. Octree/KDTree: honest refusal.
             let graph = executor.load_graph(graph_id)?;
-            // In production: build Octree/BVH/KDTree over all object bounding boxes
-            Ok(ThreeDModalityOutput { success: true, graph_id: Some(graph_id), spatial_index_built: Some(true), ..Default::default() })
+            let (index, notes) = glue::build_index(&graph, &index_type)?;
+            let path = format!("{}/local/3d_index_{}.json", executor.zsei_path, graph_id);
+            std::fs::write(&path, serde_json::to_string_pretty(&index).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("index write failed: {e}"))?;
+            let mut summary = index.clone();
+            if let Some(o) = summary.as_object_mut() {
+                o.remove("nodes");
+                o.remove("order");
+            }
+            Ok(ThreeDModalityOutput {
+                success: true,
+                graph_id: Some(graph_id),
+                spatial_index_built: Some(true),
+                query_result: Some(serde_json::json!({ "index": summary, "path": path, "notes": notes })),
+                ..Default::default()
+            })
         }
 
         ThreeDModalityAction::RunSimulation { graph_id, domain, frames, headless, cache_results } => {

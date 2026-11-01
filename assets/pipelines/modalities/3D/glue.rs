@@ -445,3 +445,68 @@ pub fn build_index(graph: &ThreeDGraph, index_type: &SpatialIndexType) -> Result
     let bvh = spatial::build_bvh(&items, 4);
     Ok((bvh.to_json(&items, 2000), skipped))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_arrays_metrics_are_computed_not_defaulted() {
+        let d = MeshDataSource::RawArrays {
+            vertices: vec![[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [0.0, 2.0, 0.0]],
+            faces: vec![[0, 1, 2]],
+            normals: None,
+            uvs: None,
+        };
+        let r = analyze_mesh(1, &d).unwrap();
+        let m = &r.meshes[0];
+        assert_eq!(m.vertex_count, 3);
+        assert_eq!(m.edge_count, 3);
+        assert!((m.surface_area - 2.0).abs() < 1e-9);
+        assert!(m.volume.is_none());
+        assert!(!m.metrics_absent.is_empty()); // open mesh: volume absent with a reason; no normals
+    }
+
+    #[test]
+    fn unsupported_scene_source_is_an_error_not_a_canned_result() {
+        let e = analyze_scene(1, &SceneDataSource::FBX { file_path: "x.fbx".into() }, false, false).unwrap_err();
+        assert!(e.contains("FBX") && e.contains("nothing was fabricated"));
+        let e2 = analyze_scene(1, &SceneDataSource::URDF { file_path: "r.urdf".into(), mesh_dir: None }, false, false).unwrap_err();
+        assert!(e2.contains("kinematics"));
+    }
+
+    #[test]
+    fn procedural_node_without_box_has_no_extent() {
+        let n = ProceduralNode { node_type: "mesh".into(), name: "a".into(), transform: Transform4x4::default(), parameters: HashMap::new() };
+        let r = analyze_scene(1, &SceneDataSource::Procedural { nodes: vec![n] }, false, false).unwrap();
+        assert!(r.objects[0].world_bbox.is_none());
+        assert!(r.processing_notes.iter().any(|x| x.contains("extent absent")));
+        assert_eq!(r.fps, 0.0);
+        assert_eq!(r.frame_end, 0);
+    }
+
+    #[test]
+    fn procedural_box_is_transformed_to_world() {
+        let mut params = HashMap::new();
+        params.insert("bounding_box".to_string(), serde_json::json!({"min": [0, 0, 0], "max": [1, 1, 1]}));
+        let mut t = Transform4x4::default();
+        t.matrix[0][3] = 10.0;
+        let n = ProceduralNode { node_type: "mesh".into(), name: "a".into(), transform: t, parameters: params };
+        let r = analyze_scene(1, &SceneDataSource::Procedural { nodes: vec![n] }, false, false).unwrap();
+        let b = r.objects[0].world_bbox.clone().unwrap();
+        assert_eq!(b.min[0], 10.0);
+        assert_eq!(b.max[0], 11.0);
+    }
+
+    #[test]
+    fn mesh_based_spatial_methods_are_refused() {
+        let g = ThreeDGraph {
+            graph_id: 1, project_id: 1, source_description: String::new(), nodes: vec![], edges: vec![], root_node_id: 0,
+            up_axis: Some("Z".into()), state: GraphStateType::Created, state_history: vec![], created_at: String::new(),
+            updated_at: String::new(), version: 1, version_notes: vec![], zero_shot_relations: vec![], zero_shot_rejected: vec![],
+        };
+        assert!(relations_for_graph(&g, &Axis::Z, &SpatialMethod::ConvexHull).is_err());
+        assert!(build_index(&g, &SpatialIndexType::Octree).is_err());
+        assert!(build_index(&g, &SpatialIndexType::BVH).is_err()); // no boxes: nothing built
+    }
+}
