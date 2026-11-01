@@ -1,6 +1,8 @@
 # OZONE STUDIO — COMPREHENSIVE STATE CAPTURE
 ## 2026-09-17 · ZCode + Claude Code joint session · living graph operational
 
+> **LATEST 2026-10-31 (zc, GATES 0-4 ALL GREEN)** — Gate 4 COMPLETE: the REAL screenshot→page Renders edge LIVE (farm screenshot container 2153 RENDERS the google.com graph root 2256 — 101 entities/28 relations post-crowding-fix); the stale-binary anomaly ROOT-CAUSED (an Oct-20-era candidate-path binary shadowed everything — all paths aligned + checksum-verified); the route now serves fork A's real pixel statistics (1920×1080, luma, edge density, geom frame image-px). Gates 0-4 green; Gate 5 (shell values — the forks' compiled work) + dom-live (operator-gated) remain.
+
 > **LATEST 2026-10-31 (zc, GATE 4 FIRST LINK)** — the cross-graph relations are LIVE: Renders/Locates/DepictsSameEntity/RegisteredTo added to RelationType (93-96) + mcp_graph arms; the deterministic producer `link_containers` (ZSEI UpdateContainer choke point, dedupe) wired into ingest_uidocument via `renders_container`; LIVE PROOF: svg ingest → root 2006 (5 entities, 6 spatial relations) RENDERS container 1998, created=true. Remaining Gate 4: Locates (needs visual-mcp detections on EU).
 
 > **LATEST 2026-10-31 (zc, GATE 3 STATIC PROOF)** — REAL google.com (90 KB, EU-locale) ingested through /capture/ingest_uidocument: PERSISTED — 164 entities, 28 relations (root 1683), edges carrying real rule provenance (html.form.owns-ancestor → FormOwns, certain), 82/164 nodes with rule flags. Production HTML at scale handled without truncation. Minor finding: bounds.rule_hits aggregation empty while per-node/per-edge provenance is real (display gap). Gates 0 ✓ 1 ✓ 3(static) ✓; Gate 2 (spatial pass at the choke point) next.

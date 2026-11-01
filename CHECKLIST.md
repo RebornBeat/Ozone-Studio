@@ -6918,3 +6918,19 @@ workspaces) — legitimately EU-side. Local-only: AGENTS.md + articles/ (repo do
 need). **THE RULE going forward: edits happen LOCALLY first; EU in-place fixes must be mirrored back
 and checksum-verified before any local→EU sync with --delete; every sync ends with a two-way checksum
 audit.** The audit script pattern is in this entry's history (find+md5sum both trees, diff).
+
+## 2026-10-31 (zc, GATE 4 COMPLETE) — the REAL screenshot→page Renders edge LIVE + the stale-binary anomaly FIXED
+1. **The stale-binary anomaly ROOT-CAUSED + FIXED**: candidate path 1 (CARGO_MANIFEST_DIR-relative,
+   /opt/ozone-build/target/pipelines/release/) held an Oct-20-era binary set from CC's earlier EU build —
+   it shadowed every current binary. ALL candidate paths aligned (the current binaries copied to BOTH
+   pipelines/modalities/X/X and target/pipelines/release/X, checksums verified). Re-test: the route
+   returned the REAL analysis — 1920×1080 (the actual screenshot), pixel metrics, geom frame image-px.
+2. **THE REAL SCREENSHOT→PAGE RENDERS EDGE — CREATED LIVE**: farm screenshot of google.com (the live
+   profile) → ingest_image → container 2153 → ingest_uidocument of the same page with
+   renders_container=2153 → **renders_link created=true** — container 2153 RENDERS root 2256 (101
+   entities, 28 relations). Gate 4's core: pixels and document structure linked in the same graph.
+3. Earlier in the pass: the google.com re-ingest after the crowding fix — 101 entities (down from 164),
+   rule_hits verified at bounds level (429 hits / 37 rules — the empty-aggregation finding was a
+   wrong-level parse, corrected).
+GATES: 0 ✓ 1 ✓ 2 ✓ 3 ✓ **4 ✓** — Gate 5 (shell modalities — the 8 forks' edits, compiled and awaiting
+the next deploy cycle) + dom-live (operator-gated CC-bridge) remain.
