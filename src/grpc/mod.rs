@@ -1987,16 +1987,89 @@ async fn ingest_image(
     )
     .await
     {
-        Ok(out) => Json(serde_json::json!({
-            "success": out.success,
-            "error": out.error,
-            "output": out.data.get("result").cloned().unwrap_or(serde_json::Value::Null),
-        })),
+        Ok(out) => {
+            // FIX (CC finding 1, 2026-10-31): Analyze alone persists nothing —
+            // the screenshot never became a container and never rippled.
+            // Dispatch CreateGraph with the SAME analysis so the screenshot
+            // lands in the graph (container + ripple) through the same gate.
+            // RE-APPLIED 2026-10-31: the first application was lost to a
+            // concurrent write before the commit (verify: grep persist_error).
+            let analysis = out
+                .data
+                .get("result")
+                .cloned()
+                .unwrap_or(serde_json::Value::Null);
+            let (persisted, persist_error, container_hint) = if out.success {
+                let ws = req.workspace_id.or_else(|| {
+                    std::env::var("OZONE_INGEST_WORKSPACE_ID")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                });
+                let pj = req
+                    .project_id
+                    .or_else(|| std::env::var("OZONE_INGEST_PROJECT_ID").ok().and_then(|v| v.parse().ok()));
+                let (w0, h0) = (
+                    analysis.get("width").and_then(|v| v.as_u64()).unwrap_or(0),
+                    analysis.get("height").and_then(|v| v.as_u64()).unwrap_or(0),
+                );
+                let cg_input = crate::types::pipeline::PipelineInput {
+                    data: vec![(
+                        "action".to_string(),
+                        json_to_typed_value(serde_json::json!({
+                            "type": "CreateGraph",
+                            "analysis": analysis,
+                            "project_id": pj.unwrap_or(0),
+                            "graph_name": format!("screenshot {}x{}", w0, h0),
+                        })),
+                    )]
+                    .into_iter()
+                    .collect(),
+                    context: crate::types::pipeline::ExecutionContext {
+                        user_id: 0,
+                        device_id: 0,
+                        workspace_id: ws,
+                        project_id: pj,
+                        task_context_id: None,
+                        metadata: [("source".to_string(), "screenshot-ingest".to_string())]
+                            .into_iter()
+                            .collect(),
+                    },
+                };
+                match crate::orchestrator::entry_gate::gated(
+                    102u64,
+                    registry.execute(102, cg_input, None),
+                )
+                .await
+                {
+                    Ok(g) => {
+                        let container = g
+                            .data
+                            .get("graph_id")
+                            .cloned()
+                            .or_else(|| g.data.get("result").and_then(|r| r.get("graph_id")))
+                            .unwrap_or(serde_json::Value::Null);
+                        (true, None, Some(container))
+                    }
+                    Err(e) => (false, Some(e.to_string()), None),
+                }
+            } else {
+                (false, Some("analyze failed — nothing to persist".to_string()), None)
+            };
+            Json(serde_json::json!({
+                "success": out.success,
+                "error": out.error,
+                "output": analysis,
+                "persisted": persisted,
+                "persist_error": persist_error,
+                "container": container_hint,
+            }))
+        }
         Err(e) => Json(serde_json::json!({
             "success": false,
             "error": e.to_string()
         })),
     }
+}
 }
 
 /// POST /capture/ingest_uidocument — UNCOMPILED pending the build gate.
