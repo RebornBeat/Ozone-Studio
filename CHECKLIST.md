@@ -6885,3 +6885,25 @@ MODALITY GROUP FORKS LAUNCHED (edits only, no build/test until each group is cap
 - Fork A's image/main.rs pixel-statistics work is respected: CreateGraph carries the full analysis
   (geom "image-px" grid frame included via metadata) — the host route change is compatible.
 Uncompiled pending the EU build gate (fork A's main.rs edits share the build).
+
+## 2026-10-31 (zc, GATE 0b) — GREENLIGHT BUILD PASSED: everything compiles on EU; host + 24 pipelines built + deployed; two LIVE verifications; one anomaly scoped
+- **The whole tree (the 8 forks' work + the host fixes) compiles on EU: 0 errors** (cargo check 1m50s).
+  Release build pass: the host + 24 modality pipelines built; 3 fork compile errors FIXED en route
+  (3D: relations_for_graph wanted &ThreeDGraph — a temp graph is now constructed; control: a_coeffs/
+  b_coeffs moves — cloned; depth: three &-pattern destructures — deref'd).
+- **DEPLOYED**: host swapped; 22 pipeline binaries placed at the CWD-relative paths
+  (/opt/ozone-studio/pipelines/modalities/X/X); haptic/image/etc "examples" binaries noted for the
+  alias check.
+- **LIVE VERIFICATION 1 — the screenshot-container fix (CC finding 1)**: farm_screenshot of google.com
+  → ingest_image → **persisted: True, container: 2131** — the screenshot is a real graph container
+  through the same entry gate (CreateGraph after Analyze).
+- **LIVE VERIFICATION 2 — the honest image binary (fork A + FX3)**: the deployed binary run DIRECTLY
+  on the newest farm shot → **1920×1080 real dims, decoded pixels, mean luma 151.1, pixel_metrics,
+  geom frame image-px, absent_reasons** — the full honest analysis in production.
+- **ANOMALY SCOPED (next session)**: the route's response in the same window returned 800×600 with no
+  metadata — the pre-FX3 fabricated shape. The direct binary run on the SAME file returns the correct
+  analysis. Likely an old binary copy in a registry candidate path (assets/ copy is gate-1-era; the
+  pipelines/ copy is current) or registry execute caching. Pin with a journal-level candidate dump at
+  the next ingest, then align ALL candidate paths to the current binaries.
+- Note: the google.com re-ingest after the crowding fix: 101 entities (down from 164 — the unmatched
+  StyleRule nodes now summarized), 28 relations. The fix works in production.
