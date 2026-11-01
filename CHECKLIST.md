@@ -7040,3 +7040,17 @@ screenshot now auto-persists as a graph container, ready for the Renders link to
 - The matcher REFRAMED: class/id/descendant/attribute selectors verified matching and cascading (the
   capability test); the "weak cascade" was the visibility-only CASCADE_PROPS filter by design; the
   selectors-crate swap re-queued as an ENHANCEMENT (sibling combinators + broader pseudo-classes).
+
+## 2026-11-01 (zc, G12 COMPLETE) — DOM-LIVE LIVE ON EU: the full chain verified end-to-end
+**The chain, every link verified live**: the dom-live farm profile (observer + the emit bridge script)
+→ started on the live google.com page → the observer auto-started (the __uidocument_emit binding) →
+REAL MutationObserver deltas flowed → emit → set_state → the farm shared state
+(ozone~domlive~google) → farm_state_get → **ingest_uidocument dom-live flavor → persisted: true**
+(entity created, root 2493). Fixes en route: the observer file staged at the path the script reads;
+two &-pattern derefs in the depth fork's neighbor loops (unrelated sweep); the STYLE_DEBUG prop
+removed from the shipped binary path.
+The design decision is RESOLVED by what works: the CC-bridge shared-state pattern is the injection +
+transport path (the binding + set_state); no CDP addScriptToEvaluateOnNewDocument needed.
+REMAINING (minor): the delta batch carried 1 change-entity; full-batch node ingest verifies on the
+next restart (the observer emits full:true on start); STYLE_DEBUG rides out of the shipped binary at
+the next rebuild. G12's use-case study (option b, CDP) stays queued as the alternative path.
