@@ -7022,3 +7022,21 @@ screenshot now auto-persists as a graph container, ready for the Renders link to
   depth indicator + a per-depth histogram is a display-layer feature (the data exists).
 - DEPTH here = traversal/structural depth, distinct from image depth (visual-mcp's relative per-box
   depth) and the depth MODALITY (point clouds). Three different "depths" — the guide names them.
+
+## 2026-11-01 (zc, G12 STAGED + Gate 2 residual CLOSED + README current)
+- **Gate 2 residual CLOSED**: rule_hits now counts the EDGES' rule provenance alongside the nodes'
+  (an edge produced by a rule is as much a rule hit as a node flag) — 69/69 tests.
+- **declared_charset recorded** (D28 completion): html-flavor output carries the DECLARED charset from
+  meta charset/http-equiv (quote-handled) — declared-vs-used mismatches visible, never silent.
+  69/69 tests including the new declared_charset test.
+- **G12 STAGED**: the observer source staged on EU (zsei_data/ingest/); the dom-live farm profile
+  created (google-dom-live, profile_1793527040709). THE OPEN DESIGN DECISION: the in-page injection
+  path — the farm's script_runner executes scripts at ACTION time (not persistently injected), so the
+  options are (a) the CC-bridge script pattern: a small bootstrap in the page pulls batches and writes
+  them to the shared state Ozone polls, or (b) CDP Page.addScriptToEvaluateOnNewDocument via the
+  browser tool. Each is a contained edit; the choice is recorded at implementation.
+- **README**: System Status updated to 2026-11-01 (UiDocument live on EU, the ingest routes, the
+  auto-ingest loop, the Renders edge, the image honesty in production).
+- The matcher REFRAMED: class/id/descendant/attribute selectors verified matching and cascading (the
+  capability test); the "weak cascade" was the visibility-only CASCADE_PROPS filter by design; the
+  selectors-crate swap re-queued as an ENHANCEMENT (sibling combinators + broader pseudo-classes).

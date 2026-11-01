@@ -317,7 +317,15 @@ pub fn build_ext(dom: &Dom, facts: &Facts, mode: RelationMode, include_context: 
     }
     let mut notes: Vec<String> = dom.notes.clone();
     notes.extend(facts.notes.iter().cloned());
-    let rule_hits: BTreeMap<String, usize> = facts.rules_applied.clone();
+    // GATE 2 RESIDUAL (2026-11-01): the edges' rule provenance counts into
+    // rule_hits alongside the nodes' — an edge produced by a rule is as much
+    // a rule hit as a node flag is.
+    let mut rule_hits: BTreeMap<String, usize> = facts.rules_applied.clone();
+    for e in &edges {
+        if let Some(r) = e.get("rule").and_then(|v| v.as_str()) {
+            *rule_hits.entry(r.to_string()).or_insert(0) += 1;
+        }
+    }
     let mode_name = if mode == RelationMode::Host { "host" } else { "semantic" };
     let bounds = json!({
         "nodes": nodes.len(), "edges": edges.len(),
