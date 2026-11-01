@@ -1383,18 +1383,18 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
         edge_id += 1;
 
         // Cluster → plane: SupportedBy (cluster above floor/road planes)
-        for (_, &plane_nid) in &plane_node_ids {
+        for (_, plane_nid) in &plane_node_ids {
             let plane = analysis.extracted_planes.iter().find(|p| {
                 // plane_node_id → find original plane via node content check (simplified)
                 true
             });
             // Find lowest centroid z, associate with floor if cluster z > plane z
-            if let Some(plane_node) = nodes.iter().find(|n| n.node_id == plane_nid) {
+            if let Some(plane_node) = nodes.iter().find(|n| n.node_id == *plane_nid) {
                 if let (Some(c_z), Some(p_type)) = (c.centroid.get(2), &plane_node.plane_type) {
                     if p_type == "Floor" || p_type == "Road" {
                         if let Some(p_centroid) = plane_node.centroid {
                             if *c_z > p_centroid[2] + 0.05 {
-                                edges.push(DepthGraphEdge { edge_id, from_node: cid, to_node: plane_nid, edge_type: DepthEdgeType::SupportedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
+                                edges.push(DepthGraphEdge { edge_id, from_node: cid, to_node: *plane_nid, edge_type: DepthEdgeType::SupportedBy, weight: 0.8, provenance: EdgeProvenance::DerivedFromHook, version: 1, ..Default::default() });
                                 edge_id += 1;
                             }
                         }
@@ -1435,8 +1435,8 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
         edge_id += 1;
 
         // Classified object → source cluster
-        if let Some((_, &cluster_nid)) = cluster_node_ids.iter().find(|(id, _)| *id == obj.cluster_id) {
-            edges.push(DepthGraphEdge { edge_id, from_node: oid, to_node: cluster_nid, edge_type: DepthEdgeType::SegmentedFrom, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+        if let Some((_, cluster_nid)) = cluster_node_ids.iter().find(|(id, _)| *id == obj.cluster_id) {
+            edges.push(DepthGraphEdge { edge_id, from_node: oid, to_node: *cluster_nid, edge_type: DepthEdgeType::SegmentedFrom, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
         node_id += 1;
@@ -1480,8 +1480,8 @@ async fn create_graph(executor: &PipelineExecutor, analysis: DepthAnalysisResult
         edge_id += 1;
 
         if let Some(occluder_id) = occ.occluder_cluster_id {
-            if let Some((_, &occ_cid)) = cluster_node_ids.iter().find(|(id, _)| *id == occluder_id) {
-                edges.push(DepthGraphEdge { edge_id, from_node: occ_cid, to_node: oid, edge_type: DepthEdgeType::Occludes, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
+            if let Some((_, occ_cid)) = cluster_node_ids.iter().find(|(id, _)| *id == occluder_id) {
+                edges.push(DepthGraphEdge { edge_id, from_node: *occ_cid, to_node: oid, edge_type: DepthEdgeType::Occludes, weight: 1.0, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
                 edge_id += 1;
             }
         }

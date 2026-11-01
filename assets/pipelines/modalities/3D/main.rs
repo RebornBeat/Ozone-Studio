@@ -2215,7 +2215,19 @@ async fn create_graph(
     // skipped and noted (never guessed). Confidence "derived".
     {
         let mut spatial_notes: Vec<String> = Vec::new();
-        match glue::relations_for_graph(&nodes, &graph_up, &SpatialMethod::BoundingBox) {
+        // The relations fn reads the whole graph — build the temp view from
+        // the nodes/edges this action assembled (the graph_id assignment
+        // happens later at save_graph).
+        let spatial_graph = ThreeDGraph {
+            graph_id, project_id, source_description: String::new(),
+            nodes: nodes.clone(), edges: edges.clone(), root_node_id: root_id,
+            up_axis: Some(glue::up_name(&graph_up).to_string()),
+            state: GraphStateType::Created,
+            state_history: vec![],
+            created_at: now.clone(), updated_at: now.clone(), version: 1,
+            version_notes: vec![], zero_shot_relations: vec![], zero_shot_rejected: vec![],
+        };
+        match glue::relations_for_graph(&spatial_graph, &graph_up, &SpatialMethod::BoundingBox) {
             Ok((rels, notes)) => {
                 spatial_notes = notes;
                 for (from, to, etype, props) in rels {

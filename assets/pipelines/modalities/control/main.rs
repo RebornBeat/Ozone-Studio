@@ -2821,8 +2821,8 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
                     transfer_function: Some(TransferFunctionModel {
                         tf_id: executor.generate_id(),
                         name: "identified".into(),
-                        numerator: b_coeffs,
-                        denominator: a_coeffs,
+                        numerator: b_coeffs.clone(),
+                        denominator: a_coeffs.clone(),
                         is_discrete: true,
                         sample_time: Some(dt_sec),
                         poles: poly_roots(&a_coeffs).unwrap_or_default(),
