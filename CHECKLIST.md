@@ -6981,3 +6981,11 @@ the ARCHIVE, retrievable on demand. The retrieval guarantee = the verified bundl
 **CONCLUSION: no modification since the fresh start is uncaptured, no capability was silently
 dropped (the exclusions are documented + archived + retrievable), and local git == EU tree == the
 deployed binaries. The guarantee is structural (checksums + journals), not memory.**
+
+## 2026-10-31 (zc, XIX) — the matcher REFRAMED (the cascade weakness was the props filter, not the matcher) + declared_charset recorded
+The matcher-capability test (new) proves class/id/descendant/attribute selectors ALL match and
+cascade — CC's "2 of 66 matched" was the CASCADE_PROPS filter doing its visibility-only job (my
+matches_any fix corrected the matched-flag semantics); the selectors-crate swap is an ENHANCEMENT
+(sibling combinators + more pseudo-classes), queued as such, not a correctness fix. The declared
+charset (D28 completion) is now recorded on html-flavor output as declared_charset (meta charset/
+http-equiv, quote-handled) — a declared-vs-used mismatch is visible, never silent. 69/69 tests.

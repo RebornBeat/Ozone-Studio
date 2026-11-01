@@ -199,7 +199,15 @@ fn analyze_html(input: &Value) -> Value {
     let dom = Dom::from_html(src, url_of(input).as_deref());
     let sheets = collect_sheets(&dom, &provided_css(input));
     match analyse_dom(&dom, &sheets, "html") {
-        Ok(a) => finish("html", &dom, &a, input, GEOMETRY_REASON_STATIC, false).0,
+        Ok(a) => {
+            let mut out = finish("html", &dom, &a, input, GEOMETRY_REASON_STATIC, false).0;
+            // D28 completion: record the DECLARED charset so a declared-vs-used
+            // mismatch (mojibake risk) is visible, never silent.
+            if let Some(declared) = find_declared_charset(&src) {
+                out["declared_charset"] = serde_json::Value::String(declared);
+            }
+            out
+        }
         Err(e) => fail("html", e),
     }
 }
@@ -730,6 +738,38 @@ mod tests {
             "the cascade must apply color:red to the <a> element; notes: {notes:?}");
     }
 
+
+    #[test]
+    fn class_and_descendant_selectors_match() {
+        // CC's real-page question: do CLASS selectors (google's .gb_Lb style)
+        // match? The matcher must support type/class/id/attribute selectors —
+        // the static analyzer correctly refuses only pseudo-class INTERACTION
+        // states and sibling combinators (recorded as unsupported, counted).
+        let out = analyze(&json!({
+            "flavor": "html",
+            "html": "<html><body><div class=\"gb_Lb\"><span id=\"target\">x</span><p class=\"note deep\">t</p></div></body></html>",
+            "css": [".gb_Lb{display:flex}", "#target{visibility:hidden}", "div > span{position:absolute}", ".note.deep{opacity:0.5}"],
+        }));
+        let notes = out["graph"]["notes"].as_array().cloned().unwrap_or_default();
+        eprintln!("CASCADE NOTES: {notes:?}");
+        let s = serde_json::to_string(&out).unwrap();
+        // display:flex + visibility:hidden + position:absolute are CASCADE_PROPS:
+        // their application proves the class/id/descendant matching works.
+        assert!(s.contains("flex"), "class selector should cascade display:flex");
+        assert!(s.contains("hidden"), "id selector should cascade visibility:hidden");
+        assert!(s.contains("absolute"), "descendant selector should cascade position:absolute");
+    }
+
+
+    #[test]
+    fn declared_charset_is_recorded() {
+        let out = analyze(&json!({
+            "flavor": "html",
+            "html": "<html><head><meta charset=\"shift_jis\"><title>t</title></head><body>p</body></html>",
+        }));
+        assert_eq!(out["declared_charset"], "shift_jis");
+    }
+
     fn normalize_accepts_ingest_route_shape_and_engine_shape() {
         let route = serde_json::json!({"action":{"type":"Analyze","flavor":"html","url":"https://x.test","document_data":{"Html":"<p id=a>hi</p>"}}});
         let n = normalize_input(&route);
@@ -744,4 +784,21 @@ mod tests {
         assert_eq!(c["flavor"], "css");
         assert!(c["css"].is_array());
     }
+}
+
+/// The declared charset from <meta charset> or <meta http-equiv=Content-Type>
+/// (first 4 KB of the head — the HTML5 prescription). None when undeclared.
+fn find_declared_charset(src: &str) -> Option<String> {
+    let head: String = src.chars().take(4096).collect::<String>().to_ascii_lowercase();
+    let meta_pos = head.find("<meta")?;
+    let rest = &head[meta_pos..head.len().min(meta_pos + 600)];
+    if let Some(p) = rest.find("charset=") {
+        let after = rest[p + 8..].trim_start();
+        let after = after.strip_prefix('"').or_else(|| after.strip_prefix('\'')).unwrap_or(after);
+        let value: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_').collect();
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+    None
 }
