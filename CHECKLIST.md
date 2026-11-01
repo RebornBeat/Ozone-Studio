@@ -7009,3 +7009,16 @@ screenshot now auto-persists as a graph container, ready for the Renders link to
 - The guides: all 8 governing docs present and current.
 - CC DOWN (weekly limit, resets 7pm Santo Domingo): its 8 modality forks + audit fork died mid-work;
   their partial work WIP-committed (4af0752); I am the standing agent.
+
+## 2026-11-01 (zc) — THE GRAPH VISUALIZED + depth feasibility ANSWERED
+- **The interactive visualization is LIVE**: ui/dist/vis.html (served at localhost:8901/vis.html) renders
+  the REAL google.com UiDocument graph (101 nodes / 28 edges / root 2382) as a canvas force layout with
+  the depth rings, kind colors, and the sidebar carrying: graph depth 12 levels, composition, the 429
+  rule hits as bars, and the provenance chain including the embedded farm screenshot. Verified by
+  browser-mcp screenshot (docs/evidence/vis-google-graph.png).
+- **DEPTH FEASIBILITY (the operator's question) — YES, feasible and partially live**: the graph depth
+  is computed from each node's parent chain (12 levels for google.com) — the same walk the UI depth
+  indicator can read from the ZSEI store. The store tracks per-container parent chains in full; a
+  depth indicator + a per-depth histogram is a display-layer feature (the data exists).
+- DEPTH here = traversal/structural depth, distinct from image depth (visual-mcp's relative per-box
+  depth) and the depth MODALITY (point clouds). Three different "depths" — the guide names them.
