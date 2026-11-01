@@ -4,8 +4,16 @@
 
 ---
 
-## System Status (2026-10-23 — read this first)
+## System Status (2026-11-01 — read this first)
 
+**New this arc — the UiDocument modality (pipeline 127), LIVE on EU:**
+- **Rule-driven analysis of interface-element trees**: html (74 rules), css (11 + cascade), dom-live (the in-page JS observer + MutationObserver deltas), svg (exact vector geometry — moved OUT of Image), android-xml + a11y-json (honest "not implemented"). Rules are DATA (one pack per flavor: when/emit/confidence/source/rationale).
+- **The governed ingest routes**: /capture/ingest_uidocument (page HTML → graph), /capture/ingest_image (screenshots → containers — CreateGraph runs after Analyze, so screenshots are real graph containers now), both through the strict gate + entry gate.
+- **The auto-ingest loop is CLOSED on EU**: farm_screenshot → the farm-mcp auto-POSTs (x-oz-internal) → the image container is created automatically — every farm screenshot now persists as a graph container.
+- **The REAL screenshot→page Renders edge is LIVE**: the farm screenshot container RENDERS the google.com UiDocument graph root (101 entities / 28 relations post-crowding-fix) — pixels and document structure linked in the same graph.
+- **The honesty fix is LIVE in production**: the image pipeline parses real byte headers (PNG IHDR / JPEG SOF / GIF) — the fabricated example_object/800×600 constants are gone; semantic layers report absent with the reason (visual-mcp is the detection surface).
+
+**Still true from 2026-10-23 (full detail in `CHECKLIST.md` and `docs/STATE_CAPTURE.md`):**
 **What is real and running** (verified against the tree; full detail in `CHECKLIST.md` and `docs/STATE_CAPTURE.md`):
 
 - **Graph-native orchestration**: `/orchestrate` runs the 14-stage walk (jurisdiction → methodologies → modality graphs → AMT → blueprint → simulation → gates → steps → delivery), detached from the client, with multi-model fallback and per-call capture.
