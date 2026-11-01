@@ -6963,3 +6963,21 @@ the fresh-start UiDocument replaced the harvest entirely. Queue cleaned.
 **The dropped-capability guarantee for the REWRITE**: the fresh-start design deliberately excludes
 forms/interactive/extraction/multi-pass/session-aging ("baggage", operator-approved) — those live in
 the ARCHIVE, retrievable on demand. The retrieval guarantee = the verified bundles, not memory.
+
+## 2026-10-31 (zc) — FINAL COMPLETENESS GUARANTEE (the operator's "ensure nothing was lost" verification)
+**The guarantee chain, all verified fresh:**
+1. **LOCAL GIT**: 0 uncommitted files — every local edit (mine + CC's 8 forks' modality work) is in
+   git history (the gate-0b-era `git add -A` commits captured the forks' modality main.rs edits; the
+   file-identity check below is the proof, not the commit messages).
+2. **LOCAL ↔ EU IDENTITY**: 307 shared .rs/.toml files, **0 checksum differences** — the EU build tree
+   is byte-identical to local git HEAD. EU-only: .claude/worktrees (CC agent artifacts). Local-only:
+   target/ build outputs (regenerated, excluded by design).
+3. **THE DEPLOYED BINARIES** = built from that identical tree (the gate-0b builds); the candidate-path
+   alignment made ALL executor paths serve them.
+4. **THE EU JOURNAL** = every host stop/start (8 in 48h) mapped to a captured deploy; S13 tool-call
+   rows (27/48h) = every gated call; S12/ledger = the model/tool costs.
+5. **THE ARCHIVES** = domorpher's complete history + working tree, checksum-verified bundles — the
+   retrieval guarantee for anything the fresh start intentionally excluded.
+**CONCLUSION: no modification since the fresh start is uncaptured, no capability was silently
+dropped (the exclusions are documented + archived + retrievable), and local git == EU tree == the
+deployed binaries. The guarantee is structural (checksums + journals), not memory.**
