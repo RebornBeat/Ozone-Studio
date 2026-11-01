@@ -6941,3 +6941,25 @@ shared code file** — nothing dropped or missed in either direction. The 6 loca
 + articles/) shipped to EU for completeness. EU-only remainder: cargo/config.toml + .claude/worktrees
 (CC agent workspaces) — legitimately EU-side. THE RULE stands: edits local-first; EU fixes mirrored
 back + checksum-verified; every sync ends with the two-way audit.
+
+## 2026-10-31 (zc) — VPS-MODIFICATION RECONCILIATION (the operator's audit question: "isn't there a history of calls/modifications on the VPS?")
+YES — three histories cover every modification, reconciled this pass:
+1. **EU journalctl (ozone-studio)**: 8 stop/start pairs in 48h — each maps to a captured deploy
+   (gate-0 build, shape-tolerance fix, link route, gate-0b greenlight builds ×2, candidate alignment).
+   The uidocument binary (Oct 31 21:02) = the gate-0 build — the svg-engine refinements + FX fixes in
+   src/ ride the NEXT swap (queued, tracked).
+2. **Every direct VPS file modification, verified in place**: /opt/ozone-build (the rsync build
+   workspace; the in-place depth/control/3D compile fixes PULLED BACK to local — checksums match);
+   /opt/ozone-studio/ozone-studio (3 host swaps); /opt/ozone-studio/pipelines/* (uidocument, image +
+   22 candidates aligned — checksums match); assets/ candidate copies; systemd units (WorkingDirectory
+   + OZONE_FARM_* env); zsei_data/pipelines/index.json (registry 127 insert); zsei_data/ingest/
+   google.com.html; ~/Projects/_archive (domorpher bundles); the EU rustup toolchain.
+3. **Local git**: every local edit is in commits (HEAD 75e02ce+); the two-way checksum audit = 0
+   differences across all shared code.
+**CLARIFICATION (the operator's reasoning.rs question)**: reasoning.rs was moved out of the
+domorpher-core IN-list during the (now-superseded) harvest — and the whole domorpher tree is ARCHIVED
+(retrievable), so NOTHING from it is lost. The "reasoning.rs split" queue item is RETIRED as stale:
+the fresh-start UiDocument replaced the harvest entirely. Queue cleaned.
+**The dropped-capability guarantee for the REWRITE**: the fresh-start design deliberately excludes
+forms/interactive/extraction/multi-pass/session-aging ("baggage", operator-approved) — those live in
+the ARCHIVE, retrievable on demand. The retrieval guarantee = the verified bundles, not memory.
