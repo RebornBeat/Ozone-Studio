@@ -6907,3 +6907,14 @@ Uncompiled pending the EU build gate (fork A's main.rs edits share the build).
   the next ingest, then align ALL candidate paths to the current binaries.
 - Note: the google.com re-ingest after the crowding fix: 101 entities (down from 164 — the unmatched
   StyleRule nodes now summarized), 28 relations. The fix works in production.
+
+## 2026-10-31 (zc) — SYNC DISCIPLINE AUDIT (the operator's one-sided-sync concern — confirmed + fixed)
+The Gate 0b compile fixes for depth/control/3D were made IN-PLACE on the EU build tree and had NOT
+returned to local — the operator's concern was correct; a later local→EU sync would have silently
+overwritten them. FIXED: the three files pulled back (checksums match both sides), committed. Then a
+FULL two-way checksum audit (every .rs/.toml/.json/.mjs/.md, both trees): **0 differences** across all
+shared code. EU-only files: cargo/config.toml (EU build config) + .claude/worktrees (CC's agent
+workspaces) — legitimately EU-side. Local-only: AGENTS.md + articles/ (repo docs the build doesn't
+need). **THE RULE going forward: edits happen LOCALLY first; EU in-place fixes must be mirrored back
+and checksum-verified before any local→EU sync with --delete; every sync ends with a two-way checksum
+audit.** The audit script pattern is in this entry's history (find+md5sum both trees, diff).
