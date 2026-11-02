@@ -9,68 +9,26 @@
 import React, { useEffect, useState } from "react";
 import { useGraphKit } from "../graphkit/graphProvider";
 import { hostGet, hostPost } from "../ozoneClient";
-import { PeerState, ActivityPulse, TaskStateIcon, GateState, CapturePresence } from "../graphkit/indicators";
+import { ActivityPulse, TaskStateIcon, GateState, CapturePresence } from "../graphkit/indicators";
 
 export const WorkspaceStatusStrip: React.FC = () => {
-  const [peerCount, setPeerCount] = useState(0);
-  const [pairedCount, setPairedCount] = useState(0);
-  const [available, setAvailable] = useState(false);
+  // P2P posture moved to the bottom StatusBar (2026-11-01): it is a host-wide
+  // fact, not a workspace one. The strip keeps only workspace-scoped signals.
   const nodeEventCount = useGraphKit((s) => s.nodeEventCount);
-
-  useEffect(() => {
-    let cancelled = false;
-    const fetchOnce = async () => {
-      try {
-        // /health already carries the real peer_count (HealthResponse) — no
-        // new route needed; paired-peers is the trust half.
-        // Through the shared host client (Electron bridge-first) — a bare
-        // relative fetch("/health") only works when the page origin IS the
-        // host, so under Electron (file://) the strip silently never showed.
-        const health: any = await hostGet("/health");
-        if (cancelled) return;
-        setPeerCount(Number(health?.peer_count ?? 0));
-        setAvailable(true);
-        // Trust half is best-effort: /network/* is session-gated when the
-        // host runs OZONE_REQUIRE_SESSION=1, so an unpaired UI gets 401 here.
-        // Honest degrade: paired count stays 0 and the chip says so.
-        try {
-          const paired: any = await hostGet("/network/paired-peers");
-          if (!cancelled) {
-            setPairedCount(Array.isArray(paired?.paired_peers) ? paired.paired_peers.length : 0);
-          }
-        } catch {
-          if (!cancelled) setPairedCount(0);
-        }
-      } catch {
-        if (!cancelled) setAvailable(false);
-      }
-    };
-    fetchOnce();
-    const t = setInterval(fetchOnce, 30_000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
-
-  if (!available) return null; // honest absence: no strip when the host doesn't answer
+  const health = usePolled<any>(() => hostGet("/health"), 30_000);
+  if (!health) return null; // honest absence: no strip when the host doesn't answer
 
   return (
     <div className="gnw-ind">
       <TaskChip />
-      <GateChip />
-      <CaptureChip />
-      <span className="gnw-ind-sep" />
-      <PeerState peerCount={peerCount} pairedCount={pairedCount} />
       <ActivityPulse active={nodeEventCount > 0} label={`${nodeEventCount} live construction events this session`} />
-      <LoopChips />
     </div>
   );
 };
 
 /** Poll a host route; null until the first answer, null again on failure
  * (honest absence — a chip never shows a stale or invented number). */
-function usePolled<T>(fetcher: () => Promise<T>, ms: number): T | null {
+export function usePolled<T>(fetcher: () => Promise<T>, ms: number): T | null {
   const [v, setV] = useState<T | null>(null);
   useEffect(() => {
     let dead = false;
@@ -90,7 +48,7 @@ interface CaptureTotal { total?: number }
  * routes, fed to the GraphKit CapturePresence indicator. Each store polls
  * independently; a route that fails renders honest absence for that store
  * only. The last unwired indicator of the GraphKit set (wave 8, 2026-10-29). */
-function CaptureChip() {
+export function CaptureChip() {
   const s10 = usePolled(() => hostGet<CaptureTotal>("/capture/decision-reviews?limit=1"), 60_000);
   const s11 = usePolled(() => hostGet<CaptureTotal>("/capture/zero-shot-calls?limit=1"), 60_000);
   const s12 = usePolled(() => hostGet<CaptureTotal>("/capture/pipeline-zero-shot-calls?limit=1"), 60_000);
@@ -108,23 +66,29 @@ interface TaskRow { task_id: number; status: string; progress: number; descripti
 
 /** TaskChip — real /task/list: running / queued / failed counts, click for the
  * most recent tasks with their own status + progress (never an invented %). */
-function TaskChip() {
+export function TaskChip() {
   const data = usePolled(() => hostPost<{ tasks: TaskRow[] }>("/task/list", { limit: 30 }), 8000);
   const [open, setOpen] = useState(false);
   if (!data || !Array.isArray(data.tasks)) return null;
   const tasks = data.tasks;
-  const n = (st: string) => tasks.filter((t) => t.status.toLowerCase() === st).length;
+  const norm = (v: string) => String(v ?? "").replace(/["']/g, "").toLowerCase();
+  const n = (st: string) => tasks.filter((t) => norm(t.status) === st).length;
   const running = n("running"), queued = n("queued"), failed = n("failed"), interrupted = n("interrupted");
-  const lead = running ? "running" : failed ? "failed" : interrupted ? "interrupted" : queued ? "queued" : "completed";
+  const awaiting = tasks.filter((t) => norm(t.status).startsWith("awaiting")).length;
+  // Failure-paused tasks (a failed step PAUSED the task; resumable from its Tasks entry).
+  const paused = n("paused");
+  const lead = running ? "running" : paused ? "paused" : awaiting ? "awaiting" : failed ? "failed" : interrupted ? "interrupted" : queued ? "queued" : "completed";
   return (
     <span className="gnw-ind-wrap">
       <button
         className={`gnw-ind-chip${open ? " on" : ""}`}
         onClick={() => setOpen((o) => !o)}
-        title={`${tasks.length} most recent tasks — ${running} running, ${queued} queued, ${failed} failed, ${interrupted} interrupted`}
+        title={`${tasks.length} most recent tasks — ${running} running, ${awaiting} awaiting a judgment, ${paused} paused by a failed step (resumable), ${queued} queued, ${failed} failed, ${interrupted} interrupted`}
       >
         <TaskStateIcon status={lead} size={12} />
         <span>{running ? `${running} running` : tasks.length ? "tasks idle" : "no tasks"}</span>
+        {awaiting > 0 && <span className="gnw-ind-n" title="awaiting a meta/consciousness judgment (retrying, not failed)">⏳{awaiting}</span>}
+        {paused > 0 && <span className="gnw-ind-n bad" title="paused by a failed step — open the task and Resume from that step">⏸{paused}</span>}
         {failed > 0 && <span className="gnw-ind-n bad">{failed}</span>}
         {queued > 0 && <span className="gnw-ind-n">{queued}</span>}
       </button>
@@ -148,7 +112,7 @@ function TaskChip() {
 
 /** GateChip — the consciousness gate's real posture: reviews awaiting a human
  * (amber), else the most recent decision-review outcome. */
-function GateChip() {
+export function GateChip() {
   const pending = usePolled(() => hostGet<{ count?: number; rows?: any[] }>("/consciousness/reviews/pending"), 15000);
   const last = usePolled(() => hostGet<{ rows?: any[] }>("/capture/decision-reviews"), 30000);
   const pendingN = pending ? Number(pending.count ?? pending.rows?.length ?? 0) : null;
@@ -156,7 +120,12 @@ function GateChip() {
   if (pendingN === null && !lastRow) return null;
   if (pendingN && pendingN > 0) {
     return (
-      <span className="gnw-ind-chip warn" title={`${pendingN} consciousness-gate review${pendingN === 1 ? "" : "s"} waiting for a human decision — nothing proceeds on an unjudged chunk`}>
+      <span
+        className="gnw-ind-chip warn"
+        style={{ cursor: "pointer" }}
+        onClick={() => window.dispatchEvent(new Event("ozone:open-pending-reviews"))}
+        title={`${pendingN} review${pendingN === 1 ? "" : "s"} pending — click to open the confirmation dialog (only jurisdiction confirmations need you; meta/consciousness gates await meta)`}
+      >
         <GateState decision="pending" size={12} />
         <span>{pendingN} to review</span>
       </span>
@@ -177,7 +146,7 @@ export default WorkspaceStatusStrip;
  * nodeEventCount delta over the last poll interval. In a future pass, these
  * would subscribe to per-loop capture events; today the pulse is honest
  * aggregate activity (real event count from the live WS stream). */
-function LoopChips() {
+export function LoopChips() {
   const lastEventAt = useGraphKit((s) => s.lastEventAt);
   const [now, setNow] = useState(Date.now());
   useEffect(() => {

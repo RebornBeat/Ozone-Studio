@@ -52,6 +52,10 @@ pub mod i_loop;
 pub mod amt_candidates;
 pub mod decision_review;
 pub mod jurisdiction;
+pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed step (2026-11-02)
+pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
+pub mod chat_store; // scoped chat persistence: ChatSession/ChatTurn containers, full text (2026-11-02)
+pub mod awaiting; // durable awaiting items for meta/consciousness gates (2026-11-01 doctrine); file created by the gate fork
 pub mod jurisdiction_search;
 
 /// Executor decorator that indexes EVERY executor call as a trace span
@@ -1876,11 +1880,10 @@ impl PromptOrchestrator {
         crate::trace::with_trace(ctx, self.orchestrate_traced(request, trace_id)).await
     }
 
-    async fn orchestrate_traced(
-        &self,
-        request: OrchestrationRequest,
-        trace_id: String,
-    ) -> OrchestrationResponse {
+    /// Build a fresh `OrchestrationState` for `request` (model window, pipeline index,
+    /// capability summary, trace id). Shared by `orchestrate_traced` and `resume_run`
+    /// (resume rebuilds the state, then overlays the saved checkpoint).
+    pub(crate) async fn init_state(&self, request: OrchestrationRequest, trace_id: String) -> OrchestrationState {
         let model_identifier = request
             .model_config
             .as_ref()
@@ -1992,6 +1995,15 @@ impl PromptOrchestrator {
             });
         }
 
+        state
+    }
+
+    async fn orchestrate_traced(
+        &self,
+        request: OrchestrationRequest,
+        trace_id: String,
+    ) -> OrchestrationResponse {
+        let mut state = self.init_state(request.clone(), trace_id).await;
         // ── Voice input (Whisper, headless path) ──
         // Non-UI callers attach audio here; the Voice pipeline (#10)
         // transcribes it (local Whisper preferred per config::VoiceConfig).
@@ -2043,7 +2055,10 @@ impl PromptOrchestrator {
         // Check I-Loop before starting (if consciousness enabled)
         if request.consciousness_enabled {
             if let Err(e) = self.wait_for_i_loop().await {
-                return self.build_error_response(&mut state, format!("I-Loop wait failed: {}", e));
+                let resp = self.build_error_response(&mut state, format!("I-Loop wait failed: {}", e));
+                // Chat persistence covers early failures too (the prompt must not vanish).
+                let _ = self.persist_chat_turn(&state, &resp).await;
+                return resp;
             }
         }
 
@@ -2093,10 +2108,16 @@ impl PromptOrchestrator {
             }
         }
 
-        match result {
+        let response = match result {
             Ok(_) => self.build_success_response(&state),
             Err(e) => self.build_error_response(&mut state, e),
-        }
+        };
+        // CHAT PERSISTENCE (2026-11-02): the full prompt + full response become a
+        // scoped ChatTurn container (and the response is graphed in the
+        // background) before the answer is returned — success, clarification
+        // and failure alike. Never fails the answer; failures are logged.
+        let _ = self.persist_chat_turn(&state, &response).await;
+        response
     }
 
     // ========================================================================
@@ -3031,8 +3052,12 @@ impl PromptOrchestrator {
                 }
             }
             Outcome::HttpError { status: 429 } => NextStep::MoveOn {
-                reason: "rate limited (HTTP 429): the per-minute limit is account-wide",
-                pause_secs: 2,
+                reason: "rate limited (HTTP 429): the per-minute limit is account-wide — cooling down before the next candidate (the cross-process limiter in the prompt binary also paces calls)",
+                pause_secs: 20,
+            },
+            Outcome::HttpError { status: 404 } => NextStep::MoveOn {
+                reason: "HTTP 404: provider/model endpoint is gone — model-gone, not retried",
+                pause_secs: 0,
             },
             Outcome::HttpError { status: 403 } => NextStep::MoveOn {
                 reason: "HTTP 403: this model is not available to this account (e.g. age-gated) — treated as permanent for ranking",
@@ -3245,6 +3270,12 @@ impl PromptOrchestrator {
     /// from each CANDIDATE model's own context_length on every fallback
     /// attempt (fixed 2026-09-22 — the budget previously froze at the
     /// primary model's context across the whole walk).
+    /// True only when the operator forced a provider-side cap (see the prompt binary's
+    /// `effective_api_cap`). By default NO response cap is sent anywhere.
+    fn api_cap_forced() -> bool {
+        std::env::var("OZONE_API_FORCE_MAX_TOKENS").as_deref() == Ok("1")
+    }
+
     fn derive_output_budget(model_context_limit: u64, fraction: f32) -> u32 {
         ((model_context_limit as f32 * fraction) as u32).max(256)
     }
@@ -3405,8 +3436,11 @@ impl PromptOrchestrator {
             state.request.primary_default_model.as_deref(),
         )
         .unwrap_or_else(|| "primary-unknown".to_string());
-        let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64());
+        // No response cap is sent to the provider (prompt binary `effective_api_cap`): the
+        // ledger records a cap only when the operator forced one (OZONE_API_FORCE_MAX_TOKENS=1).
+        let mut max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64()).filter(|_| Self::api_cap_forced());
         let mut retries = 0;
+        let mut cap_doubled = false;
         let mut result;
         loop {
             let started = std::time::Instant::now();
@@ -3417,6 +3451,33 @@ impl PromptOrchestrator {
                 note_attempt(&primary_model, "success", latency_ms, "usable: primary answered");
                 crate::model_ledger::record(&primary_model, outcome, latency_ms, call_site);
                 break;
+            }
+            // Reasoning model burned the whole max_tokens (finish_reason=length,
+            // content null): retry ONCE with 2x max_tokens, bounded to half the
+            // model window, before moving on.
+            // The doubling retry only means something when a cap was actually sent.
+            if !cap_doubled && max_tokens_sent.is_some() {
+                if let crate::model_ledger::Outcome::EmptyResponse { finish_reason, has_reasoning, completion_tokens, .. } = &outcome {
+                    let spent = matches!((completion_tokens, max_tokens_sent), (Some(c), Some(m)) if *c >= m);
+                    if (*has_reasoning && finish_reason.as_deref() == Some("length")) || spent {
+                        if let Some(m) = max_tokens_sent {
+                            let ceiling = (state.model_context_limit as u64) / 2;
+                            // Base on what the provider actually spent (the pipeline raises small hints to its API floor), so the retry always grows the real cap.
+                            let base = m.max(completion_tokens.unwrap_or(0));
+                            let doubled = (base * 2).min(ceiling.max(m));
+                            if doubled > m {
+                                cap_doubled = true;
+                                let _ = crate::model_ledger::record_with_cap(&primary_model, outcome.clone(), latency_ms, call_site, max_tokens_sent);
+                                note_attempt(&primary_model, "reasoning_cap", latency_ms, "reasoning exhausted max_tokens — one retry with 2x max_tokens");
+                                if let Some(obj) = input.as_object_mut() {
+                                    obj.insert("max_tokens".to_string(), serde_json::json!(doubled));
+                                }
+                                max_tokens_sent = Some(doubled);
+                                continue;
+                            }
+                        }
+                    }
+                }
             }
             let retry_used = retries >= 1;
             let step = Self::next_step(&outcome, max_tokens_sent, retry_used);
@@ -4480,7 +4541,7 @@ impl PromptOrchestrator {
                 quota_blocked.len()
             );
         }
-        let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64());
+        let max_tokens_sent = input.get("max_tokens").and_then(|t| t.as_u64()).filter(|_| Self::api_cap_forced());
 
         // PARALLEL-CANDIDATE DISPATCH (A3, docs/REVIEW_WATCHDOG_2026-10-07.md
         // §9-10, operator-approved): User-tier calls only — a human is
@@ -4749,7 +4810,11 @@ impl PromptOrchestrator {
                             let raw = result
                                 .get("response")
                                 .and_then(|r| r.as_str())
-                                .unwrap_or("{}");
+                                .unwrap_or("");
+                            if raw.trim().is_empty() {
+                                // A blank vote is NO vote (None) — never parsed from a fake "{}".
+                                tracing::warn!("strength-N vote returned no response text — vote not counted");
+                            }
                             k_validation::parse_yes_no(raw)
                         }
                         Err(_) => None,
@@ -4866,11 +4931,26 @@ impl PromptOrchestrator {
             let raw = result
                 .get("response")
                 .and_then(|r| r.as_str())
-                .unwrap_or("{}");
+                .unwrap_or("");
             let start = raw.find('{').unwrap_or(0);
             let end = raw.rfind('}').map(|i| i + 1).unwrap_or(raw.len());
 
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw[start..end]) {
+            let alignment_parsed = serde_json::from_str::<serde_json::Value>(&raw[start..end]);
+            if let Err(e) = &alignment_parsed {
+                // Was a silent "no expansion needed". A blank/unparseable review is a
+                // FAILED review: recorded, and the AMT is not assumed aligned.
+                crate::orchestrator::amt::record_intent_event(
+                    state,
+                    "alignment_review_unparseable",
+                    serde_json::json!({
+                        "step": step.step_index,
+                        "blank_response": raw.trim().is_empty(),
+                        "error": e.to_string(),
+                    }),
+                );
+                tracing::warn!(step = step.step_index, blank = raw.trim().is_empty(), error = %e, "AMT alignment review unparseable — recorded, alignment NOT assumed");
+            }
+            if let Ok(v) = alignment_parsed {
                 let amt_expanded = v
                     .get("amt_needs_expansion")
                     .and_then(|b| b.as_bool())
@@ -5219,6 +5299,43 @@ impl PromptOrchestrator {
 
     fn estimate_tokens(text: &str) -> u32 {
         ((text.len() + 3) / 4) as u32
+    }
+
+    /// The model's response text, or `None` when it is missing or blank. NEVER
+    /// substitute `"{}"` / `"[]"` / `""` for `None` and carry on: a missing response is
+    /// a failed call and every caller must treat it as one (record it, retry, await,
+    /// or fail) — see docs/CALL_ROUTE_REGISTRY.md §4.
+    pub(crate) fn response_text(result: &serde_json::Value) -> Option<&str> {
+        result
+            .get("response")
+            .and_then(|r| r.as_str())
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    /// Strict object parse: `Err` (with the reason) when the text holds no parseable,
+    /// non-empty JSON object. Replaces `parse_json_object`'s silent `{}` at the
+    /// sites where an empty object would be mistaken for a real (empty) answer.
+    pub(crate) fn parse_json_object_strict(s: &str) -> Result<serde_json::Value, String> {
+        let t = s.trim();
+        if t.is_empty() {
+            return Err("empty response text".to_string());
+        }
+        for c in Self::extract_all_json_candidates_shared(t) {
+            if c.starts_with('{') {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(&c) {
+                    return Ok(v);
+                }
+            }
+        }
+        let slice = match (t.find('{'), t.rfind('}')) {
+            (Some(a), Some(b)) if b >= a => &t[a..=b],
+            _ => t,
+        };
+        match serde_json::from_str::<serde_json::Value>(slice) {
+            Ok(v) if v.as_object().map(|o| !o.is_empty()).unwrap_or(false) => Ok(v),
+            Ok(_) => Err("response parsed to an empty or non-object JSON value".to_string()),
+            Err(e) => Err(format!("no parseable JSON object in the response ({e})")),
+        }
     }
 
     fn parse_json_object(s: &str) -> serde_json::Value {

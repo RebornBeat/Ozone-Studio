@@ -81,6 +81,12 @@ pub enum ContextAggInput {
         /// the session context and before container text.
         #[serde(default)]
         prior_design_context: Option<String>,
+        /// Graph SPAN-OUT block computed host-side (src/orchestrator/span_out.rs): what
+        /// spans out from the step's captured seeds along the captured relationships,
+        /// token-budgeted. Placed with the other host-supplied layers, before the
+        /// pipeline's own keyword-found containers. Optional so older callers stay valid.
+        #[serde(default)]
+        span_out_context: Option<String>,
     },
     /// Section S — reconstruct provided texts at a token limit, honoring
     /// sentence boundaries (greedy packing, ~4 chars/token). Session chunk
@@ -692,6 +698,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             include_coordination,
             known_seed_ids,
             prior_design_context,
+            span_out_context,
         } => {
             // Container context (store side) — real keyword search now:
             // search for matching ids, then resolve each to full content.
@@ -759,8 +766,6 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                 }
             }
             let containers = resolve_containers(&ids).await;
-            let (container_text, sources, mut truncated) =
-                build_context_from_containers(&containers, token_budget);
 
             // …merged with the SESSION graph reconstruction, session first.
             let mut context_text = String::new();
@@ -781,14 +786,31 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
                     token_count += (prior.len() as u32) / 4;
                 }
             }
+            if let Some(span) = &span_out_context {
+                if !span.trim().is_empty() {
+                    context_text.push_str("[Graph span-out context — what connects to this step through the captured relationships]\n");
+                    context_text.push_str(span);
+                    context_text.push_str("\n");
+                    token_count += (span.len() as u32) / 4;
+                }
+            }
+            // The keyword-found containers get the REMAINING budget (whole items; the
+            // last one is the only one that may be shortened) instead of the old
+            // "assemble everything, then chop the string at the budget".
+            let remaining_budget = token_budget.saturating_sub(token_count);
+            let (container_text, sources, mut truncated) =
+                build_context_from_containers(&containers, remaining_budget);
             context_text.push_str(&container_text);
             token_count += (container_text.len() as u32) / 4;
             if token_count > token_budget {
+                // Host-supplied layers (session / prior design / span-out) alone exceeded the
+                // window share. NOTHING is chopped here — the caller (step execution) owns
+                // overflow through its compaction pass; the overflow is reported instead.
                 truncated = true;
-                let keep = (token_budget.saturating_mul(4)) as usize;
-                if context_text.len() > keep {
-                    context_text.truncate(keep);
-                }
+                eprintln!(
+                    "context_aggregation: host-supplied layers use {} tokens of a {} token share — passing whole, caller compacts",
+                    token_count, token_budget
+                );
             }
 
             // Global consciousness — a distinct layer, never merged into

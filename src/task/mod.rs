@@ -673,7 +673,12 @@ impl TaskManager {
                 // reflects how far it actually got.
                 let mut reconciled = 0u32;
                 for task in tasks.values_mut() {
-                    if task.status == "queued" || task.status == "running" {
+                    // An "awaiting" task is parked INSIDE a live walk (stage 8 loops
+                    // in-process waiting for meta). A restart ends that walk and
+                    // nothing re-enters it, so leaving the task "awaiting" would be a
+                    // phantom — it becomes "interrupted" like any stranded run, and
+                    // the boot driver cancels its gate item (resubmit the prompt).
+                    if task.status == "queued" || task.status == "running" || task.status == "awaiting" {
                         // Coordination tasks (created via /task/create — they
                         // carry a "source" input from the API wrapper) are
                         // AGENT-routed work, not in-flight host execution: a
@@ -842,7 +847,29 @@ impl TaskManager {
                 .and_then(|m| m.as_str())
                 .map(String::from),
             external_ref: inputs.get("external_ref").cloned(),
-            checklist: Vec::new(),
+            // Checklist items arrive as [{text, done}] (or bare strings) on
+            // /task/create; normalised to {text, done} objects.
+            checklist: inputs
+                .get("checklist")
+                .and_then(|c| c.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|it| {
+                            if let Some(t) = it.as_str() {
+                                Some(serde_json::json!({"text": t, "done": false}))
+                            } else if it.get("text").and_then(|t| t.as_str()).is_some() {
+                                Some(serde_json::json!({
+                                    "text": it["text"].clone(),
+                                    "done": it.get("done").and_then(|d| d.as_bool()).unwrap_or(false),
+                                }))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             note_body: inputs
                 .get("note")
                 .and_then(|n| n.as_str())
@@ -1402,6 +1429,147 @@ Ok(task_id)
         Ok(())
     }
 
+    /// Park an ORCHESTRATION task in the durable "awaiting" state (the walk
+    /// returned an awaiting item — a gate could not be judged yet). Unlike
+    /// `update_coordination_status` this is NOT restricted to source-tagged
+    /// coordination tasks: the orchestrator wrapper owns this transition.
+    /// `await_id` is recorded in the task's `inputs.await_id` so the order
+    /// view and the resume route can join the task to its awaiting item.
+    pub async fn mark_awaiting(&self, task_id: &TaskID, await_id: &str) -> bool {
+        let ok = {
+            let mut tasks = self.tasks.write().await;
+            match tasks.get_mut(task_id) {
+                Some(task) => {
+                    task.status = "awaiting".to_string();
+                    task.completed_at = None;
+                    let mut inputs = task
+                        .inputs
+                        .take()
+                        .unwrap_or_else(|| serde_json::json!({}));
+                    if let Some(obj) = inputs.as_object_mut() {
+                        obj.insert("await_id".to_string(), serde_json::json!(await_id));
+                    }
+                    task.inputs = Some(inputs);
+                    true
+                }
+                None => false,
+            }
+        };
+        if ok {
+            let _ = self.save_to_disk().await;
+            if let Some(t) = self.tasks.read().await.get(task_id) {
+                emit_task_ripple("updated", *task_id, t.workspace_id, t.project_id);
+            }
+        }
+        ok
+    }
+
+    /// FAILURE DOCTRINE (2026-11-02): the walk never continues past a failed step. The
+    /// task is PAUSED at that step with the error recorded, and can be resumed from
+    /// exactly there at any time (Tasks tab, project tabs, meta chat). The failed step's
+    /// row is marked `failed`; every completed step keeps its recorded output.
+    pub async fn pause_for_error(&self, task_id: TaskID, step_index: u32, error: &str) -> bool {
+        let ok = {
+            let mut tasks = self.tasks.write().await;
+            match tasks.get_mut(&task_id) {
+                Some(task) => {
+                    task.status = "paused".to_string();
+                    task.completed_at = None;
+                    task.error = Some(format!("paused at step {step_index}: {error}"));
+                    if let Some(st) = task.steps.iter_mut().find(|s| s.step_index == step_index) {
+                        st.status = "failed".to_string();
+                    }
+                    true
+                }
+                None => false,
+            }
+        };
+        if ok {
+            {
+                let mut running = self.running.write().await;
+                running.retain(|&id| id != task_id);
+            }
+            let _ = self.save_to_disk().await;
+            if let Some(t) = self.tasks.read().await.get(&task_id) {
+                emit_task_ripple("updated", task_id, t.workspace_id, t.project_id);
+            }
+        }
+        ok
+    }
+
+    /// The step a failure-paused task stopped at (parsed from its recorded error), or
+    /// `None` when the task is not paused for a step failure.
+    pub async fn paused_step_of(&self, task_id: TaskID) -> Option<u32> {
+        let tasks = self.tasks.read().await;
+        let t = tasks.get(&task_id)?;
+        if t.status != "paused" {
+            return None;
+        }
+        let e = t.error.as_deref()?;
+        let rest = e.strip_prefix("paused at step ")?;
+        rest.split(':').next()?.trim().parse().ok()
+    }
+
+    /// paused (step failure) -> running. Clears the recorded error and resets the failed
+    /// step to `pending`. False when the task is missing or not failure-paused.
+    pub async fn resume_paused(&self, task_id: TaskID) -> bool {
+        let ok = {
+            let mut tasks = self.tasks.write().await;
+            match tasks.get_mut(&task_id) {
+                Some(task)
+                    if task.status == "paused"
+                        && task.error.as_deref().map(|e| e.starts_with("paused at step ")).unwrap_or(false) =>
+                {
+                    task.status = "running".to_string();
+                    task.error = None;
+                    for st in task.steps.iter_mut() {
+                        if st.status == "failed" {
+                            st.status = "pending".to_string();
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            }
+        };
+        if ok {
+            {
+                let mut running = self.running.write().await;
+                if !running.contains(&task_id) {
+                    running.push(task_id);
+                }
+            }
+            let _ = self.save_to_disk().await;
+            if let Some(t) = self.tasks.read().await.get(&task_id) {
+                emit_task_ripple("updated", task_id, t.workspace_id, t.project_id);
+            }
+        }
+        ok
+    }
+
+    /// Resume a parked task: awaiting -> running (the meta drain or the UI
+    /// asked for resume after the item was judged). Returns false when the
+    /// task does not exist or is not awaiting. Never touches other states.
+    pub async fn resume_awaiting(&self, task_id: &TaskID) -> bool {
+        let ok = {
+            let mut tasks = self.tasks.write().await;
+            match tasks.get_mut(task_id) {
+                Some(task) if task.status == "awaiting" => {
+                    task.status = "running".to_string();
+                    true
+                }
+                _ => false,
+            }
+        };
+        if ok {
+            let _ = self.save_to_disk().await;
+            if let Some(t) = self.tasks.read().await.get(task_id) {
+                emit_task_ripple("updated", *task_id, t.workspace_id, t.project_id);
+            }
+        }
+        ok
+    }
+
     /// Coordination-task lifecycle: the routed agent flips its own task to
     /// completed/failed/queued. Only /task/create tasks (source-tagged
     /// inputs) are eligible — host-executed orchestration tasks keep their
@@ -1419,7 +1587,12 @@ Ok(task_id)
             // coordination gate rejected it, so "what's live vs paused"
             // was unstateable. Interrupted is the boot-reconciliation
             // state — settable here so restoration flows can mark it too.
-            "completed" | "failed" | "queued" | "running" | "paused" | "interrupted" => {}
+            // "awaiting" added 2026-11-01 (awaiting-item doctrine): a walk is
+            // parked until meta/consciousness (or, for jurisdiction
+            // confirmations only, a human) produces a judgment. Durable:
+            // boot reconciliation never maps it to "interrupted".
+            "completed" | "failed" | "queued" | "running" | "paused" | "interrupted"
+            | "awaiting" => {}
             other => {
                 return Err(OzoneError::TaskError(format!(
                     "invalid coordination status: {}",

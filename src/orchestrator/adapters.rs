@@ -203,6 +203,133 @@ pub struct ZseiStoreAdapter {
     pub zsei: Arc<RwLock<ZSEI>>,
 }
 
+/// Turn the legacy flat container JSON into the full `Container` shape.
+/// Already-full JSON (has `global_state` and `local_state`) is returned as is.
+/// Any payload the typed shape has no slot for (an arbitrary `storage` object,
+/// extra `local_state` keys such as `voice`) is written to a content file under
+/// the ZSEI data dir and referenced via `object_store_path`, so nothing the
+/// caller supplied is dropped.
+fn normalize_container_json(
+    parent_id: u64,
+    v: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    use serde_json::{json, Value};
+    if v.get("global_state").is_some() && v.get("local_state").is_some() {
+        return Ok(v);
+    }
+    let Value::Object(mut flat) = v else {
+        return Err("container JSON must be an object".to_string());
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    // Start from the typed defaults, then overlay what the caller gave.
+    let mut local = serde_json::to_value(crate::types::container::LocalState::default())
+        .map_err(|e| e.to_string())?;
+    let nested_local = flat.remove("local_state").unwrap_or(Value::Null);
+    let meta_in = flat
+        .remove("metadata")
+        .or_else(|| nested_local.get("metadata").cloned())
+        .unwrap_or(Value::Null);
+    let ctx_in = flat
+        .remove("context")
+        .or_else(|| nested_local.get("context").cloned())
+        .unwrap_or(Value::Null);
+    let storage_in = flat
+        .remove("storage")
+        .or_else(|| nested_local.get("storage").cloned())
+        .unwrap_or(Value::Null);
+
+    let type_name = flat
+        .remove("container_type")
+        .or_else(|| meta_in.get("container_type").cloned())
+        .and_then(|t| t.as_str().map(String::from))
+        .ok_or_else(|| "container JSON has no container_type".to_string())?;
+    let ctype: crate::types::container::ContainerType =
+        serde_json::from_value(json!(type_name))
+            .map_err(|_| format!("unknown container_type '{type_name}'"))?;
+    let modality = flat
+        .remove("modality")
+        .or_else(|| meta_in.get("modality").cloned())
+        .filter(|m| m.is_string())
+        .unwrap_or_else(|| json!("Unknown"));
+
+    local["metadata"]["container_type"] = serde_json::to_value(ctype).map_err(|e| e.to_string())?;
+    local["metadata"]["modality"] = modality;
+    local["metadata"]["created_at"] = json!(now);
+    local["metadata"]["updated_at"] = json!(now);
+    local["metadata"]["provenance"] = json!(meta_in
+        .get("created_by")
+        .and_then(|c| c.as_str())
+        .unwrap_or("orchestrator"));
+    if let Some(name) = meta_in.get("name").and_then(|n| n.as_str()) {
+        local["metadata"]["name"] = json!(name);
+    }
+    for key in ["keywords", "topics", "categories", "methodologies"] {
+        if let Some(arr) = ctx_in.get(key).filter(|a| a.is_array()) {
+            local["context"][key] = arr.clone();
+        }
+    }
+
+    // Payload with no typed slot -> content file (never dropped).
+    let known_storage = ["db_shard_id", "vector_index_ref", "object_store_path", "compression_type"];
+    let mut payload = serde_json::Map::new();
+    if let Value::Object(st) = &storage_in {
+        if st.keys().any(|k| known_storage.contains(&k.as_str())) {
+            for k in known_storage {
+                if let Some(x) = st.get(k) {
+                    local["storage"][k] = x.clone();
+                }
+            }
+        } else if !st.is_empty() {
+            payload.insert("storage".to_string(), storage_in.clone());
+        }
+    }
+    if let Value::Object(nl) = &nested_local {
+        for (k, val) in nl {
+            if !["metadata", "context", "storage", "hints", "integrity"].contains(&k.as_str()) {
+                payload.insert(k.clone(), val.clone());
+            }
+        }
+    }
+    if let Some(d) = meta_in.get("description") {
+        payload.insert("description".to_string(), d.clone());
+    }
+    if !payload.is_empty() && local["storage"]["object_store_path"].is_null() {
+        let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let rel = format!(
+            "flat_payload/{}-{}.json",
+            type_name.to_lowercase(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        let abs = std::path::Path::new(&base).join(&rel);
+        if let Some(dir) = abs.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        match std::fs::write(&abs, serde_json::to_vec_pretty(&Value::Object(payload)).unwrap_or_default()) {
+            Ok(()) => local["storage"]["object_store_path"] = json!(rel),
+            Err(e) => tracing::error!(path = %abs.display(), error = %e, "create_container: payload file write failed — payload not stored"),
+        }
+    }
+
+    tracing::info!(container_type = %type_name, "create_container: normalized legacy flat container JSON");
+    Ok(json!({
+        "global_state": {
+            "container_id": 0,
+            "parent_id": parent_id,
+            "child_ids": [],
+            "child_count": 0,
+            "version": 1
+        },
+        "local_state": local
+    }))
+}
+
 #[async_trait::async_trait]
 impl super::StoreAccess for ZseiStoreAdapter {
     async fn query(&self, query: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -224,7 +351,17 @@ impl super::StoreAccess for ZseiStoreAdapter {
         parent_id: u64,
         container: serde_json::Value,
     ) -> Result<u64, String> {
-        let c: Container = serde_json::from_value(container).map_err(|e| e.to_string())?;
+        // FLAT-SHAPE NORMALIZATION (2026-11-02 audit): several orchestrator sites
+        // (auto-created categories, synthesized methodologies, voice identity)
+        // passed a flat JSON ({container_type, metadata, context, storage}) that
+        // does not deserialize into `Container` (needs global_state/local_state).
+        // Their callers ignore the Err, so those containers were silently never
+        // created. Normalize here — one place — and surface real failures.
+        let container = normalize_container_json(parent_id, container)?;
+        let c: Container = serde_json::from_value(container).map_err(|e| {
+            tracing::error!(error = %e, "create_container: JSON does not form a Container");
+            e.to_string()
+        })?;
         let zsei = self.zsei.read().await;
         // Route through the query processor: it allocates the container id,
         // links the parent, and seeds version history.
@@ -305,7 +442,7 @@ impl super::StoreAccess for ZseiStoreAdapter {
                 // lookup return zero results regardless of real content
                 // existing. Every other caller keeps today's default
                 // ("scan") behavior unchanged.
-                strategy: if other == Some("JurisdictionRuleSet") {
+                strategy: if other == Some("JurisdictionRuleSet") || other == Some("ChatSession") {
                     Some("exact".to_string())
                 } else {
                     None
@@ -338,5 +475,38 @@ impl super::StoreAccess for ZseiStoreAdapter {
             ZSEIQueryResult::Containers(ids) => Ok(ids),
             _ => Err("GetCategories returned an unexpected result".to_string()),
         }
+    }
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::normalize_container_json;
+    use crate::types::container::{Container, ContainerType};
+
+    #[test]
+    fn flat_category_becomes_a_real_container() {
+        let flat = serde_json::json!({
+            "container_type": "Category",
+            "modality": "Text",
+            "metadata": { "name": "physics", "description": "auto" },
+            "context": { "keywords": ["physics"], "topics": [] }
+        });
+        let v = normalize_container_json(0, flat).unwrap();
+        let c: Container = serde_json::from_value(v).unwrap();
+        assert_eq!(c.local_state.metadata.container_type, ContainerType::Category);
+        assert_eq!(c.local_state.metadata.name.as_deref(), Some("physics"));
+        assert_eq!(c.local_state.context.keywords, vec!["physics".to_string()]);
+    }
+
+    #[test]
+    fn unknown_type_is_a_loud_error_not_a_silent_drop() {
+        let flat = serde_json::json!({ "container_type": "NoSuchType" });
+        assert!(normalize_container_json(0, flat).unwrap_err().contains("unknown container_type"));
+    }
+
+    #[test]
+    fn full_shape_passes_through_untouched() {
+        let full = serde_json::json!({ "global_state": {}, "local_state": {} });
+        assert_eq!(normalize_container_json(5, full.clone()).unwrap(), full);
     }
 }

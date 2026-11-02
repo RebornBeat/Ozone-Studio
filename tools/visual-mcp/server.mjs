@@ -695,7 +695,9 @@ function spatialFromDetections(dets) {
   return rels;
 }
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   if (req.method === "GET" && (req.url ?? "").startsWith("/status")) {
     reply(res, 200, {
       tool: "visual-mcp",

@@ -533,6 +533,117 @@ async fn create_global_amt(store: &dyn StoreAccess) -> Result<u64, String> {
     store.create_container(SHARED_CONTEXT_ROOT_ID, container_json).await
 }
 
+/// PER-FINDING TARGET (2026-11-01, starvation fix). Before this, EVERY
+/// non-project finding resolved to the single "Global Findings AMT"
+/// container, so one failing/parked container (40560 in the live log: 43 of
+/// 45 retry lines, all 8 actor findings) starved every other finding and
+/// nothing else benefited. Now each distinct finding (route + detail digest)
+/// gets its OWN small Derived container under the Global Findings AMT, with
+/// its own AMT body (a childless verified root whose content is the finding
+/// text — the ThinTree shape the loop already deepens). Deterministic per
+/// (route, digest) so an identical finding reuses the same container and the
+/// candidate store's dedupe key (container, route, digest) keeps working.
+async fn resolve_or_create_finding_target(
+    store: &dyn StoreAccess,
+    global_amt: u64,
+    route: &str,
+    detail: &str,
+) -> Result<u64, String> {
+    let digest = amt_candidates::detail_digest(Some(detail));
+    let key = format!("finding:{}:{}", route, digest);
+    // Existing? (search by the exact keyword; verify the keyword really is
+    // present — keyword search can be fuzzy.)
+    if let Ok(ids) = store.search_by_keywords(&[key.clone()], None).await {
+        for id in ids {
+            if let Ok(Some(c)) = store.get_container(id).await {
+                let has = c
+                    .get("local_state")
+                    .and_then(|l| l.get("context"))
+                    .and_then(|x| x.get("keywords"))
+                    .and_then(|k| k.as_array())
+                    .map(|a| a.iter().any(|v| v.as_str() == Some(key.as_str())))
+                    .unwrap_or(false);
+                if has {
+                    return Ok(id);
+                }
+            }
+        }
+    }
+    let now = now_secs();
+    let root_node = AMTNode {
+        id: 0,
+        node_type: AMTNodeType::Root,
+        content: format!("[{}] {}", route, detail.chars().take(600).collect::<String>()),
+        source_chunk_indices: vec![],
+        children: vec![],
+        relationships: vec![],
+        methodology_ids: vec![],
+        metadata: Default::default(),
+        depth: 0,
+        verified: true,
+        confidence: 1.0,
+    };
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let rel_dir = "shared_context/findings".to_string();
+    std::fs::create_dir_all(std::path::PathBuf::from(&data_dir).join(&rel_dir)).map_err(|e| e.to_string())?;
+    let rel_path = format!("{}/{}_{}.json", rel_dir, route, digest);
+    std::fs::write(
+        std::path::PathBuf::from(&data_dir).join(&rel_path),
+        serde_json::to_string_pretty(&root_node).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let container = Container {
+        global_state: GlobalState {
+            container_id: 0,
+            parent_id: global_amt,
+            child_ids: vec![],
+            child_count: 0,
+            version: 1,
+        },
+        local_state: LocalState {
+            metadata: Metadata {
+                container_type: ContainerType::Derived,
+                modality: Modality::Unknown,
+                created_at: now,
+                updated_at: now,
+                provenance: "ripple-actor-dispatch".to_string(),
+                permissions: 0,
+                owner_id: 0,
+                name: Some(format!("Finding: {} {}", route, digest)),
+                materialized_path: Some(format!("/SharedContext/global/amt/global-findings/{}", digest)),
+            },
+            context: Context {
+                categories: vec![],
+                methodologies: vec![],
+                keywords: vec![
+                    "amt".to_string(),
+                    "global-finding".to_string(),
+                    "scope:global".to_string(),
+                    key,
+                ],
+                topics: vec![],
+                relationships: vec![],
+                learned_associations: vec![],
+                embedding: None,
+            },
+            storage: StoragePointers {
+                db_shard_id: None,
+                vector_index_ref: None,
+                object_store_path: Some(rel_path),
+                compression_type: CompressionType::None,
+            },
+            hints: TraversalHints::default(),
+            integrity: IntegrityData::default(),
+            file_context: None,
+            code_context: None,
+            text_context: None,
+            external_ref: None,
+        },
+    };
+    let container_json = serde_json::to_value(&container).map_err(|e| e.to_string())?;
+    store.create_container(global_amt, container_json).await
+}
+
 // ── the registry + dispatch loop ─────────────────────────────────────────
 
 /// The set of actors, registered once at boot — mirrors
@@ -667,7 +778,19 @@ async fn dispatch_event(
             // No real project anchor (or the project has no AMT yet) —
             // route to the shared global anchor rather than silently
             // dropping a real finding.
-            None => resolve_or_create_global_amt(store).await?,
+            // Each distinct finding gets its OWN target container under the
+            // Global Findings AMT (starvation fix) — falling back to the
+            // shared global container itself only if creating one fails.
+            None => {
+                let global = resolve_or_create_global_amt(store).await?;
+                match resolve_or_create_finding_target(store, global, finding.route, &finding.detail).await {
+                    Ok(id) => id,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "per-finding target creation failed — using the shared Global Findings AMT");
+                        global
+                    }
+                }
+            }
         };
 
         let appended = amt_candidates::append(
@@ -1019,7 +1142,12 @@ mod tests {
             "a real global security finding must queue exactly one SecurityFinding candidate — got: {:#?}",
             candidates
         );
-        assert_eq!(mine[0]["container_id"], 9000, "must target the fresh global AMT this test's own MockStore created");
+        // Starvation fix: the finding targets its OWN container under the
+        // global AMT (9000 is the global AMT, the per-finding child is next).
+        assert_ne!(mine[0]["container_id"], 9000, "must NOT pile onto the shared global container");
+        let tid = mine[0]["container_id"].as_u64().unwrap();
+        let target = store.get_container(tid).await.unwrap().expect("per-finding container exists");
+        assert_eq!(target["global_state"]["parent_id"], 9000);
         assert!(candidates[0]["handled"] == false);
     }
 }
@@ -1048,6 +1176,7 @@ pub fn spawn_sensor_tick(
             tick.tick().await;
             let tool = tools[i % tools.len()];
             i += 1;
+            let tick_started = std::time::Instant::now();
             let result = crate::mcp::call_global(crate::mcp::McpCall {
                 tool: tool.to_string(),
                 agent: "sensor-tick".to_string(),
@@ -1056,6 +1185,18 @@ pub fn spawn_sensor_tick(
                 session_token: None,
             })
             .await;
+            // Compact posture summary carried on the mirrored event (counts
+            // and flags only — never the raw output).
+            let posture_summary: serde_json::Value = {
+                let out_owned = result.output.clone().unwrap_or(serde_json::json!({}));
+                let out = &out_owned;
+                let count = |k: &str| out.get(k).and_then(|v| v.as_array()).map(|a| a.len());
+                serde_json::json!({
+                    "inspectable": out.get("inspectable").cloned(),
+                    "rows": count("rows").or_else(|| count("connections")).or_else(|| count("ports")).or_else(|| count("processes")),
+                    "keys": out.as_object().map(|o| o.keys().take(8).cloned().collect::<Vec<_>>()),
+                })
+            };
             let req = crate::context_mirror::MirrorRequest {
                 kind: "tool_call".to_string(),
                 agent: "sensor-tick".to_string(),
@@ -1067,6 +1208,8 @@ pub fn spawn_sensor_tick(
                     "success": result.success,
                     "error": result.error,
                     "source": "sensor-tick",
+                    "summary": posture_summary,
+                    "took_ms": tick_started.elapsed().as_millis() as u64,
                 })),
                 scope: Some("global".to_string()),
                 workspace_id: None,
@@ -1082,6 +1225,29 @@ pub fn spawn_sensor_tick(
                     error = ?result.error,
                     "sensor tick: posture tool unavailable/failed (mirrored as data — the actor chain decides what it means)"
                 );
+            } else {
+                // Successes were invisible in the log (EU "0 tick lines in 3
+                // days" could not be told from a wiring break). Log + a
+                // compact append-only row so absence of a finding is
+                // provably "looked, found nothing", not "never looked".
+                tracing::info!(tool, took_ms = tick_started.elapsed().as_millis() as u64, "sensor tick: posture check ok");
+                let row = serde_json::json!({
+                    "ts": now_secs(),
+                    "tool": tool,
+                    "success": true,
+                    "took_ms": tick_started.elapsed().as_millis() as u64,
+                    "summary": posture_summary.clone(),
+                });
+                let dir = std::path::PathBuf::from(&data_dir).join("model_calls");
+                let _ = std::fs::create_dir_all(&dir);
+                if let Ok(mut f) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(dir.join("sensor_ticks.jsonl"))
+                {
+                    use std::io::Write;
+                    let _ = writeln!(f, "{}", row);
+                }
             }
         }
     });

@@ -191,3 +191,13 @@ The AMT is the PLAN; the order is the PLAN MOVING. Tie-ins:
 - NOT storing foreign schemas — external items land as tasks with refs
 - NOT blocking on external APIs — the order is complete without them;
   connectors enrich, never gate
+
+
+## Corrections (2026-11-02, code-verified)
+
+- **Recurrence** is stored but never expanded into new instances (no code does it). Do not rely on recurring items re-appearing.
+- **Checklist** cannot be created through any API today: `enqueue_task` initialises it empty and `/task/create` has no checklist input. Only the stored field and display exist.
+- **Time buckets**: the guide's "someday" is not what the code does — an item with no `due_at` lands in "upcoming". Boundary caveat: the order labels anything due within the last 24 h as "today", while the assistant calls any `due_at < now` item "overdue"; the two views disagree for ~24 h until the boundary is unified (tracked in the E2E review §14).
+- **gcal/zoom sync is now idempotent** (2026-11-02, unbuilt): each external event is keyed by `<provider>:<external_id>` in a local `order_sync.json` map beside the connector; unchanged events are skipped, changed ones retire the previous task and create one replacement, and events deleted/cancelled upstream retire their task (marked failed with reason `cancelled`/`removed-upstream`, agent `order-sync`) — never silently duplicated. Both connectors still return LOCKED without OAuth credentials; nothing has run live. Caveat: `/task/create` drops `external_ref` and no list route exposes it, so identity lives in the connector's local map, not on the task.
+- **Follow-ups**: the assistant now creates real follow-up tasks (overdue ≥ urgent, slippage cascade → one re-plan task per project, meeting ended ≤ 24 h ago → follow-up task), deduped by a persisted finding key (`assistant_followups.json`). A user-authored "child follow-up" relationship is still not modelled.
+- `priority_rank` is constant 0.

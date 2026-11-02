@@ -11,6 +11,13 @@ use std::path::{Path, PathBuf};
 #[path = "../../shared/ozone_serve.rs"]
 mod ozone_serve;
 
+// ONE extension->modality table shared with the host (src/types/modality.rs)
+// — 2026-11-01. detect_modality below consults it first; the legacy match is
+// only the fallback for extensions the table does not know.
+#[allow(dead_code)]
+#[path = "../../shared/modality_ext.rs"]
+mod modality_ext;
+
 // Same real-ZSEI-over-HTTP pattern as text/code modality and
 // context_aggregation — ZSEIQuery is externally-tagged, wire format
 // {"VariantName": {fields...}}.
@@ -128,7 +135,26 @@ fn modality_pipeline_id(modality: &str) -> Option<u64> {
         "CAD" => Some(120),
         "Kinematics" => Some(121),
         "Control" => Some(122),
+        // UiDocument (127): html/htm/xhtml/css/scss/sass/less/svg. Wired
+        // 2026-11-01 — previously "Web" had no dispatch and got a crude
+        // line-count approximation.
+        "UiDocument" => Some(127),
         _ => None,
+    }
+}
+
+/// UiDocument flavor from the file extension (mirrors the host's
+/// `/capture/ingest_uidocument` flavors: html | css | svg).
+fn uidocument_flavor(file_path: &str) -> &'static str {
+    let ext = Path::new(file_path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    match ext.as_str() {
+        "css" | "scss" | "sass" | "less" => "css",
+        "svg" => "svg",
+        _ => "html",
     }
 }
 
@@ -141,6 +167,17 @@ fn modality_pipeline_id(modality: &str) -> Option<u64> {
 /// covered).
 fn analyze_action_payload(modality: &str, file_path: &str) -> Option<serde_json::Value> {
     match modality {
+        // UiDocument (127) contract (see `ingest_uidocument` in
+        // src/grpc/mod.rs): data.action = {"type":"Analyze","flavor",
+        // "document_data":{"FilePath":p}}. The pipeline reads the file
+        // itself (with its own charset decode); we do not read it here.
+        "UiDocument" => Some(serde_json::json!({
+            "action": {
+                "type": "Analyze",
+                "flavor": uidocument_flavor(file_path),
+                "document_data": {"FilePath": file_path}
+            }
+        })),
         "Image" => Some(serde_json::json!({
             "type": "Analyze",
             "image_data": {"FilePath": file_path}
@@ -162,6 +199,22 @@ fn analyze_action_payload(modality: &str, file_path: &str) -> Option<serde_json:
         // detected for text-based extensions). A read failure returns
         // `None`, same honest "no payload" path as an unwired modality.
         "Text" => {
+            // Binary document formats (pdf/doc/docx/rtf/odt): hand the path
+            // to the text pipeline, which extracts real text and returns an
+            // honest error (scanned/encrypted/unsupported) — never raw bytes
+            // read as UTF-8. Added 2026-11-01.
+            let ext = Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            if matches!(ext.as_str(), "pdf" | "doc" | "docx" | "rtf" | "odt" | "ods" | "odp" | "pptx" | "ppt") {
+                return Some(serde_json::json!({
+                    "type": "Analyze",
+                    "text": "",
+                    "file_path": file_path
+                }));
+            }
             let text = fs::read_to_string(file_path).ok()?;
             Some(serde_json::json!({
                 "type": "Analyze",
@@ -676,8 +729,44 @@ fn now() -> u64 {
         .as_secs()
 }
 
-/// Detect modality from file extension
+/// Detect modality: the shared table first (extension + word-boundary path
+/// hints + sdf rule), then the legacy per-extension match for anything the
+/// table does not know. Keys map to this file's bucket names; metadata-only
+/// buckets (Data/Config/Archive/Document) stay honest metadata-only in
+/// `analyze_file`'s fallback. Added 2026-11-01.
 fn detect_modality(path: &str) -> String {
+    if let Some(key) = modality_ext::resolve_modality(path) {
+        let bucket = match key {
+            "text" => "Text",
+            "code" => "Code",
+            "uidocument" => "UiDocument",
+            "image" => "Image",
+            "audio" => "Audio",
+            "video" => "Video",
+            "math" => "Math",
+            "chemistry" => "Chemistry",
+            "dna" => "DNA",
+            "eeg" => "EEG",
+            "3d" => "3D",
+            "cad" => "CAD",
+            "kinematics" => "Kinematics",
+            "control_systems" | "control" => "Control",
+            "data" => "Data",
+            "config" => "Config",
+            "archive" => "Archive",
+            "document" => "Document",
+            // Other known modalities (depth, radar, sonar, ...) have no
+            // dispatch from this file: report the key itself so the
+            // metadata-only fallback labels it truthfully.
+            other => return other.to_string(),
+        };
+        return bucket.to_string();
+    }
+    detect_modality_legacy(path)
+}
+
+/// Legacy extension match — fallback only.
+fn detect_modality_legacy(path: &str) -> String {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())

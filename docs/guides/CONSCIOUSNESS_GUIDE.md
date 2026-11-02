@@ -68,7 +68,7 @@ share_experiences_collective = false
 anonymize_shared_data = true
 
 # Development
-i_loop_interval_ms = 60000
+i_loop_interval_ms = 60000   # clamped UP to a 1800 s floor at runtime (see Corrections)
 playback_enabled = true
 ```
 
@@ -77,12 +77,12 @@ playback_enabled = true
 1. Navigate to Settings tab
 2. Find "Consciousness System" section
 3. Toggle "Enable Consciousness"
-4. Restart backend for changes to take effect
+4. The flag is read at runtime from the consciousness store (config.toml is copied into it at boot); a UI toggle takes effect without a restart. Only edits made directly to config.toml need a host restart.
 
 ### Effect on System
 
 When enabled:
-- 16 additional pipelines are loaded
+- The consciousness pipeline ids are registered (see Corrections: most have no binary)
 - META portion displays emotional state and I-Loop status
 - Responses include emotional context
 - Experience memory is active
@@ -124,7 +124,7 @@ When disabled:
 
 ### Pipelines
 
-The consciousness system adds 16 specialized pipelines:
+The guide historically listed 16 pipelines. Status today (code-verified 2026-11-01): 5 are aliased onto binaries (39, 41, 42, 43, 47), 11 are registered without any crate (40, 44–46, 48–54), and 12 crates exist with no registry id. 39 is intercepted in-process by `DecisionReviewExecutor`, so its missing binary is harmless. Treat the table as intent, not as a list of working pipelines:
 
 | Pipeline | Function |
 |----------|----------|
@@ -153,13 +153,13 @@ The I-Loop (Introspective Loop) is the core self-reflection mechanism.
 
 ### How It Works
 
-Every 60 seconds (configurable), the system:
+Every `max(i_loop_interval_ms, 1800 s)` (the 1800 s floor matches amt_loop/meta_loop; a configured 60 s is clamped up and logged), when there is unhandled work, the I-Loop:
 
-1. **Observes**: What happened since last cycle?
-2. **Reflects**: What patterns are emerging?
-3. **Evaluates**: How do I feel about this?
-4. **Integrates**: What should I remember?
-5. **Plans**: What should I consider next?
+1. Reads unhandled AMT candidates (zero-cost skip when none).
+2. Makes **one** reflection model call.
+3. Writes a reflection JSON and one CoordinationEvent.
+
+It **identifies only**: it does not create tasks, edit the AMT or modify code. The five-phase observe/reflect/evaluate/integrate/plan cycle is aspiration, not what the code does.
 
 ### I-Loop Questions
 
@@ -174,8 +174,8 @@ The system asks itself questions like:
 
 The META portion displays:
 - Current I-Loop status (active/paused)
-- Current reflection question
-- Time until next cycle
+- Current reflection question (the last reflection's content)
+- Time until next cycle (derived from the real interval, not a fixed 60 s)
 
 ---
 
@@ -289,11 +289,10 @@ Before executing tasks, the system evaluates:
 
 ### Consciousness Decision Gate
 
-High-stakes tasks pass through an ethical gate:
-- Assess against principles
-- Consider emotional implications
-- Evaluate relationship context
-- Make proceed/modify/decline decision
+Tasks pass through the consciousness gate (stage 8) judged by the **meta model only — never a human**:
+- Chunks are judged independently and merged: any Decline = Decline; Proceed requires every chunk judged Proceed; anything unjudged is `review_pending`.
+- `review_pending` is NOT a pass. It is a durable *awaiting* state: the task waits until the meta model has judged every chunk (the meta loop re-runs only the unjudged chunks), then the same task resumes. (Awaiting mechanism: docs/REVIEW_E2E_STATE_2026-11-01.md §10.)
+- Humans are asked only for jurisdiction `RequireConfirmation`, via the confirmation modal.
 
 ---
 
@@ -388,3 +387,15 @@ Slightly. The I-Loop and emotional processing add minimal overhead. Most users w
 ---
 
 *OZONE STUDIO v0.4.0 - Consciousness Documentation*
+
+
+---
+
+## Corrections (2026-11-02, code-verified; supersedes any conflicting text above)
+
+- **Dead toggles** (no runtime reader today): `identity_system_enabled`, `relationship_system_enabled`, `ethical_system_enabled`, `collective_enabled`, `show_decision_reasoning`, `show_experience_retrieval`, `share_experiences_collective`, `anonymize_shared_data`, `playback_enabled`. Setting them does nothing yet. `show_emotional_state` is not read by the UI.
+- **Emotion circle**: the store's emotional flow is real (task lifecycle → store → assistant digest), but the UI's `GetCurrent` call targets pipeline 40, which has no crate and is rejected by `/pipeline/execute`. Until the read route over the store lands, the UI shows defaults.
+- **Stage 12** reports honest failures for pipelines 41/43/47 (aliased, no binary built).
+- **Storage layout**: do not rely on the `experiences/ emotional_state/ relationships/ identity/` tree shown above; the real files live under `zsei_data/consciousness/` as flat files (insights `insight_<kind>_<ts>.json`, `assistant_last_digest.json`, `assistant_followups.json`, `consciousness_responses.jsonl`, review rows). Check the directory rather than the diagram.
+- **Core pipeline count**: "Core 38 pipelines" is stale; the registry is larger today.
+- **Responses**: consciousness-generated responses now also write a structured `CONSCIOUSNESS_RESPONSE` record (`src/consciousness/response_record.rs`, see CONSCIOUSNESS_RESPONSE_INTEGRATION.md).

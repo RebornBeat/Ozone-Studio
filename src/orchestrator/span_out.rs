@@ -1,0 +1,460 @@
+//! SPAN-OUT — the one context fan-out algorithm (2026-11-02).
+//!
+//! Doctrine: the AMT build, the modality graphs and the cross-modal passes already
+//! CAPTURE every relationship; context is never "assigned" to a step. What a step
+//! (or a loop, or a ripple reaction) needs is what SPANS OUT from the things it is
+//! about, along those captured relationships, ranked by how strongly they connect,
+//! until the model window is full — not until an arbitrary count of containers or
+//! hops is reached. The old per-step path (`context_aggregation`) took at most 4
+//! traversal seeds × depth 2 × 10 results and resolved at most 8 containers; this
+//! module replaces those fixed counts with a token budget.
+//!
+//! Algorithm (best-first, score-ranked):
+//! 1. Seeds arrive with a score (1.0 = the thing the step is literally about:
+//!    its AMT container, prompt/chunk/file/modality graphs, the triggering
+//!    container of a ripple; lower for keyword rediscovery).
+//! 2. Pop the highest-scoring unvisited node, fetch it, render it; add it to the
+//!    packed context if the budget allows.
+//! 3. Expand: every captured relationship (`context.relationships`, weighted by
+//!    relation type × edge confidence), structural children, and the parent. A
+//!    neighbour's score = node score × relation weight × confidence.
+//! 4. Stop when the token budget is full, the frontier is empty, or the score floor
+//!    is reached. A fetch cap exists ONLY as a runaway guard on host work; hitting
+//!    it is reported (`fetch_cap_hit`), never silent.
+//!
+//! Infrastructure containers (Root/User/Workspace/Project/Pipeline/…roots) are never
+//! rendered and never expanded through (they connect everything to everything);
+//! they may still be SEEDS' parents but do not carry score.
+//!
+//! The same function serves: step startup, AMT re-expansion, the I-Loop, ripple
+//! reactions — wherever "what is connected to this?" is the question.
+
+use super::StoreAccess;
+use std::collections::{BinaryHeap, HashSet};
+use std::sync::Arc;
+
+/// One starting point.
+#[derive(Debug, Clone)]
+pub struct SpanSeed {
+    pub id: u64,
+    pub score: f32,
+    pub why: String,
+}
+
+impl SpanSeed {
+    pub fn new(id: u64, score: f32, why: &str) -> Self {
+        Self { id, score, why: why.to_string() }
+    }
+}
+
+/// One container that made it into the packed context.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SpanItem {
+    pub id: u64,
+    pub container_type: String,
+    pub name: String,
+    pub score: f32,
+    pub hops: u16,
+    /// How it was reached: "seed:<why>" or "<parent id> -<relation>-> this".
+    pub via: String,
+    pub tokens: u32,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct SpanOutResult {
+    pub text: String,
+    pub items: Vec<SpanItem>,
+    pub tokens: u32,
+    pub fetched: usize,
+    pub budget_filled: bool,
+    pub fetch_cap_hit: bool,
+    pub frontier_left: usize,
+}
+
+const SCORE_FLOOR: f32 = 0.02;
+/// Runaway guard on host work (store reads), NOT a context cap.
+const DEFAULT_FETCH_CAP: usize = 400;
+
+fn fetch_cap() -> usize {
+    std::env::var("OZONE_SPAN_OUT_MAX_FETCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(DEFAULT_FETCH_CAP)
+}
+
+/// How strongly a relation type carries context (multiplied with edge confidence).
+fn relation_weight(rel: &str) -> f32 {
+    match rel {
+        "Continues" => 0.95,
+        "Contains" | "PartOf" | "ChildOf" | "ParentOf" => 0.9,
+        "Renders" | "Supports" | "DerivedFrom" | "DependsOn" | "Calls" | "Imports" | "Implements" => 0.85,
+        "RelatedTo" | "SimilarTo" | "Locates" | "DepictsSameEntity" | "References" | "Mentions" => 0.8,
+        _ => 0.6,
+    }
+}
+
+const STRUCTURAL_CHILD_WEIGHT: f32 = 0.85;
+const STRUCTURAL_PARENT_WEIGHT: f32 = 0.6;
+
+fn is_infrastructure(t: &str) -> bool {
+    matches!(
+        t,
+        "Root"
+            | "User"
+            | "Workspace"
+            | "Project"
+            | "Pipeline"
+            | "ModalityRoot"
+            | "MethodologyRoot"
+            | "BlueprintRoot"
+            | "PipelineRoot"
+            | "ConsciousnessRoot"
+            | "ExternalRoot"
+            | "PackageRoot"
+            | "URLRoot"
+            | "JurisdictionRoot"
+    )
+}
+
+/// Wrapper giving f32 a total order for the max-heap (scores are finite, non-NaN).
+#[derive(Debug, Clone)]
+struct Frontier {
+    score: f32,
+    id: u64,
+    hops: u16,
+    via: String,
+}
+impl PartialEq for Frontier {
+    fn eq(&self, o: &Self) -> bool {
+        self.score == o.score && self.id == o.id
+    }
+}
+impl Eq for Frontier {}
+impl PartialOrd for Frontier {
+    fn partial_cmp(&self, o: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(o))
+    }
+}
+impl Ord for Frontier {
+    fn cmp(&self, o: &Self) -> std::cmp::Ordering {
+        self.score
+            .partial_cmp(&o.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| o.id.cmp(&self.id))
+    }
+}
+
+fn est_tokens(s: &str) -> u32 {
+    ((s.len() as f32) / 4.0).ceil() as u32
+}
+
+/// Text fields worth carrying from a container's content file. Whole values only —
+/// a value is included entire or not at all (never cut mid-text).
+const CONTENT_KEYS: [&str; 8] = [
+    "text", "content", "summary", "response", "prompt", "description", "reflection", "note",
+];
+
+fn read_content_text(data_dir: &str, rel: &str) -> Option<String> {
+    let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| data_dir.to_string());
+    let raw = std::fs::read_to_string(std::path::Path::new(&base).join(rel)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let mut parts: Vec<String> = Vec::new();
+    for k in CONTENT_KEYS {
+        if let Some(s) = v.get(k).and_then(|x| x.as_str()) {
+            if !s.trim().is_empty() {
+                parts.push(format!("{k}: {s}"));
+            }
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n"))
+    }
+}
+
+struct Rendered {
+    container_type: String,
+    name: String,
+    header_and_keywords: String,
+    content: Option<String>,
+    expansions: Vec<(u64, f32, String)>, // (target id, relative weight, relation label)
+}
+
+fn render(data_dir: &str, c: &serde_json::Value) -> Option<Rendered> {
+    let local = c.get("local_state")?;
+    let meta = local.get("metadata")?;
+    let container_type = meta.get("container_type").and_then(|t| t.as_str()).unwrap_or("Unknown").to_string();
+    let name = meta.get("name").and_then(|n| n.as_str()).unwrap_or("Unnamed").to_string();
+    let id = c
+        .get("global_state")
+        .and_then(|g| g.get("container_id"))
+        .and_then(|x| x.as_u64())
+        .unwrap_or(0);
+    let ctx = local.get("context");
+    let keywords: Vec<String> = ctx
+        .and_then(|c| c.get("keywords"))
+        .and_then(|k| k.as_array())
+        .map(|a| a.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+        .unwrap_or_default();
+
+    let mut expansions: Vec<(u64, f32, String)> = Vec::new();
+    if let Some(rels) = ctx.and_then(|c| c.get("relationships")).and_then(|r| r.as_array()) {
+        for r in rels {
+            let Some(t) = r.get("target_id").and_then(|x| x.as_u64()) else { continue };
+            let rel = r.get("relation_type").and_then(|x| x.as_str()).unwrap_or("Related");
+            let conf = r.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0) as f32;
+            expansions.push((t, relation_weight(rel) * conf.clamp(0.05, 1.0), format!("-{rel}->")));
+        }
+    }
+    if let Some(g) = c.get("global_state") {
+        if let Some(children) = g.get("child_ids").and_then(|x| x.as_array()) {
+            for ch in children.iter().filter_map(|x| x.as_u64()) {
+                expansions.push((ch, STRUCTURAL_CHILD_WEIGHT, "-child->".to_string()));
+            }
+        }
+        if let Some(p) = g.get("parent_id").and_then(|x| x.as_u64()) {
+            if p != 0 {
+                expansions.push((p, STRUCTURAL_PARENT_WEIGHT, "-parent->".to_string()));
+            }
+        }
+    }
+
+    let summary = local
+        .get("file_context")
+        .filter(|v| !v.is_null())
+        .and_then(|f| f.get("semantic_summary"))
+        .and_then(|s| s.as_str())
+        .filter(|s| !s.is_empty())
+        .map(String::from);
+    let content_file = local
+        .get("storage")
+        .and_then(|s| s.get("object_store_path"))
+        .and_then(|p| p.as_str())
+        .and_then(|rel| read_content_text(data_dir, rel));
+    let content = match (summary, content_file) {
+        (Some(s), Some(f)) => Some(format!("{s}\n{f}")),
+        (Some(s), None) => Some(s),
+        (None, f) => f,
+    };
+    let header_and_keywords = format!(
+        "## {container_type}: {name} (id {id})\nKeywords: {}\n",
+        keywords.join(", ")
+    );
+    Some(Rendered { container_type, name, header_and_keywords, content, expansions })
+}
+
+/// Span out from `seeds` into `store` until `token_budget` tokens of rendered
+/// context are packed (see the module doc for the algorithm and the stop rules).
+pub async fn span_out(
+    store: &Arc<dyn StoreAccess>,
+    data_dir: &str,
+    seeds: Vec<SpanSeed>,
+    token_budget: u32,
+) -> SpanOutResult {
+    let cap = fetch_cap();
+    let mut heap: BinaryHeap<Frontier> = BinaryHeap::new();
+    let mut seen: HashSet<u64> = HashSet::new();
+    let mut result = SpanOutResult::default();
+    let mut packed = String::new();
+
+    for s in seeds {
+        if seen.insert(s.id) {
+            heap.push(Frontier { score: s.score.clamp(0.0, 1.0), id: s.id, hops: 0, via: format!("seed:{}", s.why) });
+        }
+    }
+    // `seen` marks "queued", so a node is scored by the first (strongest, because
+    // best-first) path that reaches it.
+
+    while let Some(node) = heap.pop() {
+        if result.tokens >= token_budget {
+            result.budget_filled = true;
+            break;
+        }
+        if result.fetched >= cap {
+            result.fetch_cap_hit = true;
+            break;
+        }
+        result.fetched += 1;
+        let Ok(Some(container)) = store.get_container(node.id).await else { continue };
+        let Some(r) = render(data_dir, &container) else { continue };
+        if is_infrastructure(&r.container_type) {
+            continue; // never rendered, never expanded through
+        }
+
+        // Pack: header+keywords always (small); content only if it fits whole.
+        let head_tokens = est_tokens(&r.header_and_keywords);
+        let remaining = token_budget.saturating_sub(result.tokens);
+        if head_tokens > remaining {
+            result.budget_filled = true;
+            break;
+        }
+        let mut block = r.header_and_keywords.clone();
+        let mut tokens = head_tokens;
+        if let Some(c) = &r.content {
+            let ct = est_tokens(c);
+            if tokens + ct <= remaining {
+                block.push_str(c);
+                block.push('\n');
+                tokens += ct;
+            }
+        }
+        block.push_str(&format!("[reached: {} | score {:.2} | hops {}]\n\n", node.via, node.score, node.hops));
+        tokens += 12;
+        packed.push_str(&block);
+        result.tokens += tokens;
+        result.items.push(SpanItem {
+            id: node.id,
+            container_type: r.container_type.clone(),
+            name: r.name.clone(),
+            score: node.score,
+            hops: node.hops,
+            via: node.via.clone(),
+            tokens,
+        });
+
+        for (target, w, label) in r.expansions {
+            if seen.contains(&target) {
+                continue;
+            }
+            let score = node.score * w;
+            if score < SCORE_FLOOR {
+                continue;
+            }
+            seen.insert(target);
+            heap.push(Frontier { score, id: target, hops: node.hops + 1, via: format!("{} {} this", node.id, label) });
+        }
+    }
+    result.frontier_left = heap.len();
+    result.text = packed;
+    result
+}
+
+impl super::PromptOrchestrator {
+    /// Span out from everything THIS RUN already captured about the step — the AMT
+    /// container, the prompt / chunk / attached-file / modality graphs, the blueprint
+    /// and methodologies — plus keyword rediscovery for the step's own terms, along the
+    /// captured relationships, until `state.model_context_limit / 4` tokens are packed.
+    pub(crate) async fn span_out_for_step(
+        &self,
+        state: &super::OrchestrationState,
+        step: &super::BlueprintStep,
+    ) -> SpanOutResult {
+        let mut seeds: Vec<SpanSeed> = Vec::new();
+        for id in state.file_graphs.values() {
+            seeds.push(SpanSeed::new(*id, 1.0, "attached-file graph"));
+        }
+        for id in state.modality_graphs.values() {
+            seeds.push(SpanSeed::new(*id, 1.0, "prompt modality graph"));
+        }
+        for id in &state.chunk_graph_ids {
+            seeds.push(SpanSeed::new(*id, 0.9, "prompt chunk graph"));
+        }
+        if let Some(id) = state.amt_container_id {
+            seeds.push(SpanSeed::new(id, 1.0, "AMT"));
+        }
+        if let Some(id) = state.blueprint_id {
+            seeds.push(SpanSeed::new(id, 0.7, "blueprint"));
+        }
+        for id in &state.methodologies {
+            seeds.push(SpanSeed::new(*id, 0.6, "methodology"));
+        }
+        // Keyword rediscovery for this step's own terms (branch-derived keywords first).
+        let mut kws: Vec<String> = step.context_requirements.iter().cloned().collect();
+        for w in step.description.split_whitespace() {
+            if kws.len() >= 12 {
+                break;
+            }
+            if !kws.iter().any(|k| k == w) {
+                kws.push(w.to_string());
+            }
+        }
+        if !kws.is_empty() {
+            if let Ok(ids) = self.store.search_by_keywords(&kws, None).await {
+                for id in ids.into_iter().take(40) {
+                    seeds.push(SpanSeed::new(id, 0.5, "keyword"));
+                }
+            }
+        }
+        let budget = (state.model_context_limit / 4).max(256);
+        let r = span_out(&self.store, &self.data_dir, seeds, budget).await;
+        tracing::info!(
+            step = step.step_index,
+            items = r.items.len(),
+            tokens = r.tokens,
+            fetched = r.fetched,
+            budget_filled = r.budget_filled,
+            fetch_cap_hit = r.fetch_cap_hit,
+            frontier_left = r.frontier_left,
+            "span-out for step: context spanned out along captured relationships"
+        );
+        r
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use async_trait::async_trait;
+    use std::collections::HashMap;
+
+    /// In-memory store: id -> container JSON. Only `get_container` is exercised.
+    struct MemStore(HashMap<u64, serde_json::Value>);
+
+    #[async_trait]
+    impl StoreAccess for MemStore {
+        async fn query(&self, _q: serde_json::Value) -> Result<serde_json::Value, String> { Err("n/a".into()) }
+        async fn traverse(&self, _r: serde_json::Value) -> Result<serde_json::Value, String> { Err("n/a".into()) }
+        async fn create_container(&self, _p: u64, _c: serde_json::Value) -> Result<u64, String> { Err("n/a".into()) }
+        async fn update_container(&self, _i: u64, _u: serde_json::Value) -> Result<(), String> { Err("n/a".into()) }
+        async fn get_container(&self, id: u64) -> Result<Option<serde_json::Value>, String> { Ok(self.0.get(&id).cloned()) }
+        async fn search_by_keywords(&self, _k: &[String], _t: Option<&str>) -> Result<Vec<u64>, String> { Ok(vec![]) }
+        async fn get_categories(&self, _m: &str) -> Result<Vec<u64>, String> { Ok(vec![]) }
+    }
+
+    fn node(id: u64, ty: &str, name: &str, rels: &[(u64, &str, f64)], children: &[u64]) -> serde_json::Value {
+        serde_json::json!({
+            "global_state": { "container_id": id, "parent_id": 0, "child_ids": children, "child_count": children.len(), "version": 1 },
+            "local_state": {
+                "metadata": { "container_type": ty, "name": name },
+                "context": {
+                    "keywords": [name],
+                    "relationships": rels.iter().map(|(t, r, c)| serde_json::json!({"target_id": t, "relation_type": r, "confidence": c})).collect::<Vec<_>>()
+                },
+                "storage": { "object_store_path": null }
+            }
+        })
+    }
+
+    fn store() -> Arc<dyn StoreAccess> {
+        let mut m = HashMap::new();
+        m.insert(1, node(1, "ModalityGraph", "seed", &[(2, "RelatedTo", 1.0)], &[]));
+        m.insert(2, node(2, "ModalityGraph", "hop1", &[(3, "SimilarTo", 0.9)], &[]));
+        m.insert(3, node(3, "ModalityGraph", "hop2", &[], &[]));
+        m.insert(9, node(9, "Project", "project", &[(1, "RelatedTo", 1.0)], &[]));
+        Arc::new(MemStore(m))
+    }
+
+    #[tokio::test]
+    async fn spans_out_past_depth_two_along_relationships() {
+        let r = span_out(&store(), ".", vec![SpanSeed::new(1, 1.0, "test")], 10_000).await;
+        let ids: Vec<u64> = r.items.iter().map(|i| i.id).collect();
+        assert_eq!(ids, vec![1, 2, 3]);
+        assert_eq!(r.items[2].hops, 2);
+        assert!(r.text.contains("hop2"));
+        assert!(!r.budget_filled && !r.fetch_cap_hit);
+    }
+
+    #[tokio::test]
+    async fn stops_when_the_token_budget_is_full() {
+        let r = span_out(&store(), ".", vec![SpanSeed::new(1, 1.0, "test")], 30).await;
+        assert!(r.items.len() < 3);
+        assert!(r.budget_filled);
+    }
+
+    #[tokio::test]
+    async fn infrastructure_is_neither_rendered_nor_expanded_through() {
+        let r = span_out(&store(), ".", vec![SpanSeed::new(9, 1.0, "project")], 10_000).await;
+        assert!(r.items.is_empty());
+    }
+}

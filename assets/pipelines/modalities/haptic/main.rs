@@ -29,6 +29,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
 
+#[path = "../../shared/link_handler.rs"]
+mod link_handler;
+
 #[path = "../../shared/semantic_relations.rs"]
 mod semantic_relations;
 
@@ -45,6 +48,8 @@ mod capture;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum HapticModalityAction {
+    /// Link this modality graph to another modality's graph (bidirectional RelatedTo, idempotent).
+    LinkToModality { source_graph_id: u64, target_graph_id: u64, target_modality: String, relationship: serde_json::Value },
     /// Analyze haptic sensor data — produces HapticAnalysisResult
     Analyze {
         data: HapticDataSource,
@@ -935,6 +940,9 @@ pub struct HapticModalityOutput {
     pub compliance_model: Option<ComplianceModelResult>,
     pub query_result: Option<serde_json::Value>,
     pub export_path: Option<String>,
+    /// Set by the LinkToModality action (shared/link_handler.rs); None for every other action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_result: Option<serde_json::Value>,
     pub error: Option<String>,
 }
 
@@ -970,12 +978,12 @@ impl PipelineExecutor {
     fn new() -> Self {
         Self {
             zsei_path: env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".into()),
-            prompt_pipeline_path: env::var("OZONE_PROMPT_PIPELINE").unwrap_or_else(|_| "./pipeline_9".into()),
+            prompt_pipeline_path: env::var("OZONE_PROMPT_PIPELINE_PATH").or_else(|_| env::var("OZONE_PROMPT_PIPELINE")).unwrap_or_else(|_| "./pipeline_9".into()),
         }
     }
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
-        let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"Haptic sensor analysis. Return only valid JSON."});
+        let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_prompt":"Haptic sensor analysis. Return only valid JSON."});
         let result: Result<serde_json::Value, String> = (|| {
             let out = std::process::Command::new(&self.prompt_pipeline_path)
                 .arg("--input").arg(input.to_string())
@@ -984,7 +992,7 @@ impl PipelineExecutor {
         })();
         capture::capture_zero_shot_call("haptic", "llm_zero_shot", prompt, &result);
         let r = result?;
-        Ok(r["response"].as_str().unwrap_or("{}").to_string())
+        r["response"].as_str().filter(|s| !s.trim().is_empty()).map(|s| s.to_string()).ok_or_else(|| "prompt pipeline returned no response (not substituting an empty object)".to_string())
     }
 
     fn save_graph(&self, g: &HapticGraph) -> Result<(), String> {
@@ -2006,6 +2014,16 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
     let executor = PipelineExecutor::new();
 
     match input {
+        HapticModalityAction::LinkToModality { source_graph_id, target_graph_id, target_modality, relationship } => {
+            match link_handler::link_bidirectional(&zsei_query, source_graph_id, target_graph_id).await {
+                Ok(outcome) => Ok(HapticModalityOutput {
+                    success: true,
+                    link_result: Some(link_handler::link_result_json(source_graph_id, target_graph_id, &target_modality, &relationship, outcome)),
+                    ..Default::default()
+                }),
+                Err(e) => Ok(HapticModalityOutput { success: false, error: Some(e), ..Default::default() }),
+            }
+        }
         HapticModalityAction::Analyze { data, extract_contact_events, extract_texture, extract_force_profiles, extract_vibration, classify_material } => {
             let analysis_id = executor.generate_id();
             let (source_description, sensor_model) = match &data {

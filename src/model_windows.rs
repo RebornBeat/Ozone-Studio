@@ -136,6 +136,19 @@ pub fn is_openrouter(m: &crate::config::AvailableModel) -> bool {
     m.api_endpoint.as_deref().is_some_and(|e| e.contains("openrouter.ai"))
 }
 
+/// Id fragments of models that are not general chat models (moderation /
+/// safety classifiers, music, image, embedding). They fail every structured
+/// prompt (e.g. a moderation model failed 28 times in one day), so they are
+/// never pool members.
+const NON_CHAT_ID_MARKERS: &[&str] = &[
+    "guard", "moderation", "shield", "lyria", "embed", "rerank", "whisper", "tts", "image", "imagen", "veo",
+];
+
+fn is_non_chat_model(id: &str) -> bool {
+    let l = id.to_lowercase();
+    NON_CHAT_ID_MARKERS.iter().any(|m| l.contains(m))
+}
+
 /// Concrete catalog models for the pool. Only `free` selects anything, and it
 /// keeps is_free entries. Router ids (`openrouter/...`) are never pool members.
 /// Ids in `exclude` (already in the configured chain) are skipped before the
@@ -162,6 +175,7 @@ pub fn catalog_pool(
         .filter(|e| !e.id.starts_with("openrouter/"))
         .filter(|e| !exclude.contains(&e.id))
         .filter(|e| e.is_free)
+        .filter(|e| !is_non_chat_model(&e.id))
         .filter(|e| !free_only || e.is_free)
         .cloned()
         .collect();

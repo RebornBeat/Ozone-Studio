@@ -11,7 +11,7 @@
 
 import { create } from "zustand";
 import { SystemStats } from "../App";
-import { OZONE_HOST } from "../ozoneClient";
+import { OZONE_HOST, hostGet } from "../ozoneClient";
 
 // GET /quota's real shape (src/grpc/mod.rs get_quota, 2026-10-07). `known`
 // is false — never a fabricated number — when the host hasn't completed a
@@ -521,8 +521,8 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   fetchQuota: async () => {
     try {
-      const res = await fetch(`${OZONE_HOST}/quota`);
-      const data: QuotaStatus = await res.json();
+      // bridge-first (a file:// renderer cannot fetch localhost directly)
+      const data = await hostGet<QuotaStatus>("/quota");
       set({ quotaStatus: data });
     } catch {
       // Best-effort: leave quotaStatus as whatever it already was, never
@@ -532,8 +532,7 @@ export const useOzoneStore = create<UIState & UIActions>((set, get) => ({
 
   fetchLedgerSummary: async () => {
     try {
-      const res = await fetch(`${OZONE_HOST}/model-ledger-summary`);
-      const data: LedgerSummary = await res.json();
+      const data = await hostGet<LedgerSummary>("/model-ledger-summary");
       set({ ledgerSummary: data });
     } catch {
       // Best-effort: keep the last good reading; a network failure never

@@ -74,3 +74,9 @@ the contract is one call, already wired everywhere.
 - src/orchestrator/amt_loop.rs — review loop + ripple sync + wake
 - src/orchestrator/amt.rs — build routes + UnverifiedNode producer
 - Tests: amt_loop::tests (T-S1..S5 + lifecycle), amt_candidates paths
+
+
+## Addendum 2026-11-02
+- Ripple echo fixed at the producer: the graph-ripple sync never turns `AMTExpansion`, `Task`, `CoordinationEvent`, `McpResult`, `McpEntity`, `Insight`, `ChatSession` or `ChatTurn` events (or source `amt-expansion` / `amt-loop`) back into candidates. (Before: 317 of 491 candidates ended `failed_structural`.)
+- Deepening calls now send no response cap (reasoning models were starved); they are call-indexed (`call_spans.jsonl`) like the walk's calls.
+- Doctrine unchanged: re-expansion is *knowledge* action — it deepens one unverified branch per candidate, rejects placeholder echoes and confetti, escalates across passes through `meta_fallback`, and persists in place with an `AMTExpansion` event.

@@ -165,3 +165,12 @@ The screen overlay is a **mobile-side client feature, not a dependency**.
 The assistant must be complete — loops, feed, tasks — with no overlay at
 all; a future mobile client renders `GET /assistant/feed` like any other
 derived view.
+
+
+## Corrections (2026-11-02, code-verified)
+
+- **§4.2 follow-ups**: previously the assistant only produced *proposals* (REVIEW rows) and never created tasks. It now also creates follow-up tasks directly (`plan_followups` / `create_followups` in `src/consciousness/assistant.rs`): urgent overdue items, one re-plan task per slippage-cascade project, and a follow-up for any meeting that ended within the last 24 h. Each is deduped by a stable finding key (`overdue:<task>`, `cascade:<project>`, `meeting-followup:<task>`) persisted in `zsei_data/consciousness/assistant_followups.json`, so restarts do not duplicate. A failed enqueue is not recorded and is retried next pass. Created tasks carry `source=assistant-followup`. Pending first build.
+- **Overdue vs "today"**: the assistant's `overdue` is `due_at < now`; the Order's "today" bucket also contains items due in the last 24 h. Follow-ups use the assistant's definition; the unification is tracked in the E2E review §14.
+- **Response record**: each paid check-up now also appends a structured `CONSCIOUSNESS_RESPONSE` record (see CONSCIOUSNESS_RESPONSE_INTEGRATION.md).
+- Follow-up creation runs before the unchanged-digest skip, so the free path still acts when the paid digest is skipped.
+- gcal/zoom order sync is now idempotent (UNIVERSAL_ORDER_GUIDE corrections); neither has run live.

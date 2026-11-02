@@ -142,9 +142,105 @@ function meetingToTaskInput(m) {
   };
 }
 
+// ── Idempotent order sync (2026-11-01) ───────────────────────────────────
+// WHY a local map: the host's /task/list and /order/global do NOT expose a
+// task's external_ref (and /task/create did not persist it when this was
+// written), so "look up the existing task by external_id" has nothing to
+// read. This MCP therefore keeps its own external_id -> task record map
+// (order_sync.json beside this file, 0600, never in the graph) and uses the
+// host only to create tasks and to mark them failed/cancelled via
+// /task/update (the only status writes that route accepts: completed |
+// failed | queued). Result: a re-sync NEVER duplicates — unchanged events
+// are skipped, changed events supersede (old task marked failed with a
+// reason, ONE replacement created), cancelled/removed events mark their
+// task failed with a reason. Never deletes history.
+const SYNC_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "order_sync.json");
+let syncMap = {};
+try { syncMap = JSON.parse(fs.readFileSync(SYNC_FILE, "utf8")); } catch {}
+function saveSyncMap() {
+  try { fs.writeFileSync(SYNC_FILE, JSON.stringify(syncMap, null, 1), { mode: 0o600 }); } catch {}
+}
+function fingerprint(ti) {
+  return crypto.createHash("sha1")
+    .update(JSON.stringify([ti.prompt, ti.due_at, ti.meeting_url, ti.note]))
+    .digest("hex");
+}
+function internalHeaders() {
+  const h = { "Content-Type": "application/json" };
+  let t = process.env.OZONE_INTERNAL_TOKEN || "";
+  if (!t) {
+    const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+    for (const f of [
+      process.env.OZONE_INTERNAL_TOKEN_FILE,
+      process.env.OZONE_DATA_DIR && path.join(process.env.OZONE_DATA_DIR, ".internal_token"),
+      path.join(repo, "target", "release", "zsei_data", ".internal_token"),
+      path.join(repo, "zsei_data", ".internal_token"),
+      "/opt/ozone-studio/zsei_data/.internal_token",
+    ]) {
+      if (!f) continue;
+      try { t = fs.readFileSync(f, "utf8").trim(); if (t) break; } catch {}
+    }
+  }
+  if (t) h["x-oz-internal"] = t;
+  return h;
+}
+async function hostPost(route, body) {
+  const r = await fetch(`${HOST}${route}`, { method: "POST", headers: internalHeaders(), body: JSON.stringify(body) });
+  let j = null;
+  try { j = await r.json(); } catch {}
+  return { ok: r.ok && j?.success !== false, status: r.status, body: j };
+}
+async function createOrderTask(ti, sessionToken) {
+  // session_token is a REQUIRED String on /task/create — null made the old
+  // sync fail deserialisation silently; "" is what local MCP callers send.
+  const r = await hostPost("/task/create", { ...ti, created_by: ti.source, session_token: sessionToken ?? "" });
+  return r.ok ? r.body?.task_id ?? null : null;
+}
+async function retireOrderTask(taskId, reason) {
+  const r = await hostPost("/task/update", { task_id: taskId, status: "failed", error: reason, agent: "order-sync" });
+  return r.ok;
+}
+// items: [{ external_id, ti, cancelled }]; window: {min,max} unix secs or null.
+async function syncToOrder(provider, items, window, sessionToken) {
+  const out = { created: 0, updated: 0, unchanged: 0, cancelled: 0, failed: 0, removed: 0 };
+  const seen = new Set();
+  for (const it of items) {
+    const key = `${provider}:${it.external_id}`;
+    seen.add(key);
+    const known = syncMap[key];
+    if (it.cancelled) {
+      if (known && known.status === "active") {
+        if (await retireOrderTask(known.task_id, `cancelled in ${provider}`)) { known.status = "cancelled"; out.cancelled++; } else out.failed++;
+      }
+      continue;
+    }
+    const fp = fingerprint(it.ti);
+    if (known && known.status === "active" && known.fp === fp) { out.unchanged++; continue; }
+    if (known && known.status === "active") {
+      // Changed upstream: supersede (fields cannot be patched through /task/update).
+      await retireOrderTask(known.task_id, `superseded: event changed in ${provider}`);
+      out.updated++;
+    }
+    const id = await createOrderTask(it.ti, sessionToken);
+    if (id == null) { out.failed++; if (known) known.status = "retired-unreplaced"; continue; }
+    syncMap[key] = { task_id: id, fp, due_at: it.ti.due_at ?? null, status: "active", last_synced: Math.floor(Date.now() / 1000) };
+    if (!known || known.status !== "active") out.created++;
+  }
+  // Events that disappeared from the window since the last pass.
+  for (const [key, v] of Object.entries(syncMap)) {
+    if (!key.startsWith(`${provider}:`) || v.status !== "active" || seen.has(key)) continue;
+    if (window && v.due_at != null && (v.due_at < window.min || v.due_at > window.max)) continue;
+    if (await retireOrderTask(v.task_id, `removed from ${provider}`)) { v.status = "cancelled"; out.removed++; } else out.failed++;
+  }
+  saveSyncMap();
+  return out;
+}
+
 const pendingAuth = { verifier: null };
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   if (req.method !== "POST" || !(req.url ?? "").startsWith("/call")) {
     reply(res, 404, { error: "POST /call only" });
     return;
@@ -216,26 +312,20 @@ const server = createServer((req, res) => {
         const m = await zoomApi(`/meetings/${encodeURIComponent(input.meeting_id)}`);
         reply(res, 200, { success: true, output: { meeting_id: m.id, join_url: m.join_url, topic: m.topic } });
       } else if (tool === "zoom_sync_to_order") {
-        // Same real idempotent-per-pass shape as gcal_sync_to_order —
-        // full external_id diff-sync is the same queued refinement noted
-        // there, not duplicated as a separate promise here.
+        // Same idempotent external_id diff sync as gcal_sync_to_order (syncToOrder).
         const meetings = await zoomApi(`/users/me/meetings?type=upcoming&page_size=50`);
-        let created = 0;
-        for (const m of meetings.meetings ?? []) {
-          const ti = meetingToTaskInput(m);
-          const body = { ...ti, session_token: input.session_token ?? null };
-          try {
-            const r = await fetch(`${HOST}/task/create`, {
-              method: "POST", headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
-            });
-            if (r.ok) created++;
-          } catch { /* host hiccup — next sync pass retries */ }
-        }
+        const items = (meetings.meetings ?? []).map((m) => ({
+          external_id: String(m.id), cancelled: false, ti: meetingToTaskInput(m),
+        }));
+        // "upcoming" listing has no fixed window: only retire tasks whose
+        // recorded due time is still in the future and no longer listed.
+        const win = { min: Math.floor(Date.now() / 1000), max: Number.MAX_SAFE_INTEGER };
+        const r = await syncToOrder("zoom", items, win, input.session_token);
         reply(res, 200, { success: true, output: {
-          meetings_seen: (meetings.meetings ?? []).length,
-          tasks_created: created,
-          note: "Full idempotent external_id diff-sync is the queued refinement (same as gcal-mcp) — this pass creates tasks for currently-upcoming meetings; re-syncs may duplicate until the diff stage lands.",
+          meetings_seen: items.length,
+          tasks_created: r.created, tasks_superseded: r.updated, tasks_unchanged: r.unchanged,
+          tasks_cancelled: r.cancelled + r.removed, tasks_failed: r.failed,
+          note: "Idempotent by external_id via order_sync.json: re-syncs never duplicate. Changed meetings supersede (old task marked failed with a reason, one replacement created); upcoming meetings that disappeared are marked failed with a reason. tasks_failed counts host rejections (see host log).",
         }});
       } else {
         reply(res, 200, { success: false, error: `unknown zoom tool '${tool}' (zoom_status, zoom_auth_start, zoom_auth_code, zoom_list_meetings, zoom_create_meeting, zoom_join_url, zoom_sync_to_order)` });

@@ -15,16 +15,18 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useOzoneStore } from '../services/store';
 import { AgentActivityIndicator } from '../views/coordination/AgentActivity';
-import ChatNotificationStream from '../views/coordination/ChatNotifications';
-import OrchestrationStatusPanel from './OrchestrationStatusPanel';
-import DiscoveryEffects from './DiscoveryEffects';
-import McpActivityIndicator from './McpActivityIndicator';
 import {
   TranscriptEntry,
   modelStyle,
   renderMarkdown,
-  summarizeTrail,
 } from '../chatRendering';
+import TranscriptEntryMeta from './TranscriptEntryMeta';
+import ThinkingRow from './ThinkingRow';
+import PausedBanner from './PausedBanner';
+import { OrchestrationPanels, CoordinationStrip } from './OrchestrationPanels';
+import { useConsciousnessToggles } from '../hooks/useConsciousnessToggles';
+import { useChatSession } from '../hooks/useChatSession';
+import { hostGet } from '../ozoneClient';
 import { loadILoopStatus } from '../data/iLoopReflections';
 import { getGraphEventClient, GraphEventFrame } from '../graphEventClient';
 
@@ -62,6 +64,8 @@ export function MetaPortion({ width }: MetaPortionProps) {
   
   const [voiceActive, setVoiceActive] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  // Honest voice failures (no TTS engine, STT error) — shown beside the mic, never swallowed.
+  const [voiceError, setVoiceError] = useState<string | null>(null);
   // Live mic level (RMS from an AnalyserNode) — drives the orb + bars with
   // real captured audio, never simulated.
   const [micLevel, setMicLevel] = useState(0);
@@ -91,20 +95,25 @@ export function MetaPortion({ width }: MetaPortionProps) {
   const [chatContext, setChatContext] = useState<ChatContext>({ type: 'global' });
   const [workspaceOptions, setWorkspaceOptions] = useState<Array<{ id: number; name: string }>>([]);
   const contextKey = chatContext.type === 'global' ? 'global' : `ws:${chatContext.id}`;
-  const [transcriptsByContext, setTranscriptsByContext] = useState<Record<string, TranscriptEntry[]>>({});
-  const transcript = transcriptsByContext[contextKey] ?? [];
-  // Same call shape as a plain useState setter (setTranscript(prev => [...prev, x]))
-  // so every existing call site below keeps working unchanged — only what
-  // transcript/setTranscript resolve to is now context-scoped.
-  const setTranscript = useCallback(
-    (updater: (prev: TranscriptEntry[]) => TranscriptEntry[]) => {
-      setTranscriptsByContext(prev => ({
-        ...prev,
-        [contextKey]: updater(prev[contextKey] ?? []),
-      }));
+  // Shared chat engine (same hook ProjectChatPanel uses): per-context
+  // persisted transcripts, task discovery, timeout/awaiting recovery.
+  const chat = useChatSession({
+    workspaceId: chatContext.type === 'workspace' ? chatContext.id : undefined,
+    contextKey: `meta:${contextKey}`,
+    modelConfig: selectedModel ? { model_identifier: selectedModel } : undefined,
+    consciousnessEnabled,
+    onResult: async (result: any) => {
+      // Voice + orb extras (global chat only).
+      if (consciousnessEnabled && result?.response) {
+        setIsSpeaking(true);
+        try { await speakResponse(result.response); } finally { setIsSpeaking(false); }
+      }
+      fetchEmotionalState();
     },
-    [contextKey],
-  );
+  });
+  const { transcript, setTranscript, isRunning, elapsedSeconds, awaiting: awaitingKind } = chat;
+  const currentStepInfo = chat.stepInfo;
+  const currentTaskId = chat.currentTaskId;
 
   // Fetch the real workspace list once connected (pipeline 6's real
   // ListWorkspaces action, assets/pipelines/general/workspace_tab/main.rs)
@@ -122,88 +131,48 @@ export function MetaPortion({ width }: MetaPortionProps) {
     })();
   }, [isConnected]);
 
-  // Which transcript entries have their "Thinking" section expanded —
-  // collapsed by default since raw_response content can be long.
-  const [expandedThinking, setExpandedThinking] = useState<Set<number>>(new Set());
-  // Which transcript entries have their "Trail" (attempt_trail + refusals)
-  // section expanded — same collapsed-by-default pattern as Thinking above.
-  const [expandedTrail, setExpandedTrail] = useState<Set<number>>(new Set());
   const [voiceWaveform, setVoiceWaveform] = useState<number[]>(new Array(24).fill(0.1));
   const transcriptRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // In-flight orchestration tracking: /orchestrate blocks until the whole
-  // run finishes, so there's no execution_id to cancel-by upfront. We poll
-  // /task/list for the newest running task right after firing the request —
-  // once found, both Stop and live step progress become available.
-  const [isRunning, setIsRunning] = useState(false);
-  const [currentTaskId, setCurrentTaskId] = useState<number | null>(null);
-  const [currentStepInfo, setCurrentStepInfo] = useState<{
-    completed: number;
-    total: number;
-    lastAction?: string;
-  } | null>(null);
   const [cancelling, setCancelling] = useState(false);
-  const taskPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  // Live elapsed-time ticker for the pre-task-execution phase. currentStepInfo
-  // only ever populates once a real task record exists (stage 7, Task
-  // Creation) — everything before that (Jurisdiction, Text Normalization,
-  // Build AMT, Blueprint Assignment, Zero-Shot Simulation) has no task to
-  // poll, so there was previously no live signal at all: a static "Starting…"
-  // for however long those stages take, confirmed this session to often be
-  // several minutes (BitNet cold-loads, free-tier rate-limit fallback walks).
-  // This doesn't claim to know which stage is current (that would require a
-  // backend push mechanism this UI doesn't have) — it just proves the app is
-  // still alive rather than leaving a motionless label the whole time.
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const elapsedTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const stopTaskPolling = useCallback(() => {
-    if (taskPollRef.current) {
-      clearInterval(taskPollRef.current);
-      taskPollRef.current = null;
-    }
-  }, []);
-
   const handleStop = async () => {
     if (!currentTaskId || cancelling) return;
     setCancelling(true);
-    try {
-      await (window as any).ozone?.task?.cancel?.(currentTaskId);
-    } catch (e) {
-      console.warn('Cancel request failed:', e);
-    } finally {
-      setCancelling(false);
-    }
-    // The orchestrator stops before its NEXT step once cancellation lands —
-    // a step already in flight still runs to completion, so this doesn't
-    // resolve instantly. isRunning clears itself when the orchestrate
-    // promise in handleSubmit finally settles.
+    try { await chat.stop(); } finally { setCancelling(false); }
   };
 
-  // Fetch actual emotional state from backend
+  // Emotion orb: read-only GET /consciousness/state (pipeline 40 was a dead
+  // route). If the route/fields are absent the orb keeps its honest neutral
+  // defaults and emotionSource says so.
+  // [consciousness].show_emotional_state — hides the orb when false.
+  const { showEmotionalState } = useConsciousnessToggles();
+  const [emotionSource, setEmotionSource] = useState<'live' | 'default (no /consciousness/state data)'>('default (no /consciousness/state data)');
   const fetchEmotionalState = useCallback(async () => {
     if (!isConnected || !consciousnessEnabled) return;
-    
     try {
-      const result = await executePipeline(40, { action: 'GetCurrent' });
-      if (result?.state) {
-        const state = result.state;
-        const primaryEmotion = state.primary_emotions?.[0];
-        
+      const res: any = await hostGet('/consciousness/state');
+      const st = res?.state ?? res?.emotional_state ?? res;
+      const primaryEmotion = st?.primary_emotions?.[0];
+      // The host route returns emotional_state.primary_emotion as a STRING.
+      const primaryName: string | undefined =
+        typeof st?.primary_emotion === 'string' ? st.primary_emotion : primaryEmotion?.emotion;
+      if (primaryName || primaryEmotion || typeof st?.valence === 'number') {
         setEmotionState({
-          primary: primaryEmotion?.emotion || 'neutral',
-          intensity: primaryEmotion?.intensity || 0.3,
-          secondary: state.primary_emotions?.[1]?.emotion,
-          valence: state.valence ?? 0.0,
-          arousal: state.arousal ?? 0.3,
+          primary: primaryName || 'neutral',
+          intensity: primaryEmotion?.intensity ?? Math.min(1, Math.abs(typeof st?.arousal === 'number' ? st.arousal : 0.3)),
+          secondary: st?.primary_emotions?.[1]?.emotion,
+          valence: st?.valence ?? 0.0,
+          arousal: st?.arousal ?? 0.3,
         });
+        setEmotionSource('live');
+      } else {
+        setEmotionSource('default (no /consciousness/state data)');
       }
-    } catch (err) {
-      console.warn('Failed to fetch emotional state:', err);
+    } catch {
+      setEmotionSource('default (no /consciousness/state data)');
     }
-  }, [isConnected, consciousnessEnabled, executePipeline]);
+  }, [isConnected, consciousnessEnabled]);
 
   // Real I-Loop status (2026-10-18) — was polling pipeline #44
   // (`GetILoopStatus`), a separate subprocess-per-call implementation whose
@@ -466,7 +435,11 @@ export function MetaPortion({ width }: MetaPortionProps) {
           format: 'wav',
         });
 
+        if (transcribeResult && transcribeResult.success === false) {
+          setVoiceError(`speech-to-text failed: ${transcribeResult.error ?? 'no transcript'}`);
+        }
         if (transcribeResult?.transcription && transcribeResult.is_final) {
+          setVoiceError(null);
           const prev = typeof promptInput === 'string' ? promptInput : '';
           const space = prev && !prev.endsWith(' ') ? ' ' : '';
           setPromptInput(prev + space + transcribeResult.transcription);
@@ -474,6 +447,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
       }
     } catch (err) {
       console.error('Voice toggle failed:', err);
+      setVoiceError(`voice capture failed: ${err instanceof Error ? err.message : String(err)}`);
       // Cleanup partial capture on failure
       try { await stopWhisperCapture(); } catch { /* already gone */ }
       setVoiceActive(false);
@@ -537,6 +511,13 @@ export function MetaPortion({ width }: MetaPortionProps) {
         speed: speechRate,
       });
       
+      // The voice pipeline reports success:false (with the engines it tried)
+      // when no TTS engine is installed — surface it, don't stay silent.
+      if (result && result.success === false) {
+        setVoiceError(`speech failed: ${result.error ?? 'no TTS engine produced audio'}`);
+      } else {
+        setVoiceError(null);
+      }
       // Play audio if returned
       if (result?.audio_base64) {
         const audio = new Audio(`data:audio/wav;base64,${result.audio_base64}`);
@@ -554,6 +535,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
       }
     } catch (err) {
       console.warn('Speech failed:', err);
+      setVoiceError(`speech failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       // Only set false if we didn't start playing audio
       if (!(window as any).__audioPlaying) {
@@ -564,308 +546,29 @@ export function MetaPortion({ width }: MetaPortionProps) {
 
   // Handle prompt submission
   const handleSubmit = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    if (!promptInput.trim() || !isConnected) return;
-    
-    // Add user message to transcript
-    const userEntry: TranscriptEntry = {
-      id: Date.now(),
-      role: 'user',
-      content: promptInput,
-      timestamp: Date.now()
-    };
-    setTranscript(prev => [...prev, userEntry]);
-    // Clear the input immediately on send, not after the response arrives —
-    // the primary path built its own request directly instead of going
-    // through the store's submitPrompt (which already clears promptInput),
-    // so this call was missing here.
+    e?.preventDefault?.();
+    if (!promptInput.trim() || !isConnected || isRunning) return;
+    const text = promptInput;
+    // Clear immediately on send, not after the response arrives.
     setPromptInput('');
-
-    // Declared outside the try block (not inside it) so the catch block
-    // below can still see it — tracks the primary path's in-transcript
-    // "⏳ Thinking..." placeholder id, set only once that branch pushes it.
-    let primaryProcessingId: number | null = null;
-
-    // Use the orchestrator for full 14-stage flow
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    if ((window as any).ozone?.orchestrate) {
+      await chat.send(text);
+      return;
+    }
+    // Web fallback (no Electron bridge): the store's orchestratePrompt.
+    setTranscript(prev => [...prev, { id: Date.now(), role: 'user', content: text, timestamp: Date.now() }]);
+    const processingId = Date.now() + 1;
+    setTranscript(prev => [...prev, { id: processingId, role: 'assistant', content: '⏳ Processing...', timestamp: Date.now() }]);
     try {
-      setIsSpeaking(true);
-      setIsRunning(true);
-      setCurrentTaskId(null);
-      setCurrentStepInfo(null);
-      setElapsedSeconds(0);
-      if (elapsedTickRef.current) clearInterval(elapsedTickRef.current);
-      elapsedTickRef.current = setInterval(() => {
-        setElapsedSeconds(s => s + 1);
-      }, 1000);
-
-      // Real context from the switcher above — previously read from
-      // window.ozone.sharedState, which electron/preload.js never actually
-      // exposes (confirmed by grep: zero references), so this was always
-      // undefined and every message was silently sent as global regardless
-      // of any workspace selection anywhere in the app. chatContext is real
-      // component state now, driven by a visible switcher.
-      const currentProjectId: number | undefined = undefined;
-      const currentWorkspaceId = chatContext.type === 'workspace' ? chatContext.id : undefined;
-
-      // Use orchestration (full flow) instead of direct pipeline call
-      if ((window as any).ozone?.orchestrate) {
-        const orchestratePromise = (window as any).ozone.orchestrate({
-          prompt: promptInput,
-          project_id: currentProjectId,
-          workspace_id: currentWorkspaceId,
-          user_id: 1,
-          device_id: 1,
-          consciousness_enabled: consciousnessEnabled,
-          token_budget: 100000,
-          // Real per-request model selection (Phase 6 routing) — only sent
-          // when the user picked something other than the host's default.
-          model_config: selectedModel
-            ? { model_identifier: selectedModel }
-            : undefined,
-        });
-
-        // In-transcript "thinking" placeholder. OrchestrationStatusPanel/
-        // DiscoveryEffects/McpActivityIndicator (near the input, driven by
-        // real orchestration_stage/pipeline_progress WS frames) already show
-        // live stage detail — this does NOT duplicate that; it just gives
-        // the scrollable transcript itself a visible in-flight marker, since
-        // /orchestrate blocks until the whole run finishes and nothing in
-        // the transcript previously indicated a run was happening. Mirrors
-        // the deprecated fallback branch's own "⏳ Processing..." placeholder
-        // below; replaced in place once the real result (or an honest
-        // empty/error message) is known.
-        primaryProcessingId = Date.now() + 1;
-        setTranscript(prev => [...prev, {
-          id: primaryProcessingId!,
-          role: 'assistant',
-          content: '⏳ Thinking...',
-          timestamp: Date.now(),
-          emotion: emotionState.primary,
-        }]);
-
-        // Find the task this request creates so Stop + step progress work
-        // while /orchestrate is still blocking on the response.
-        let foundTaskId: number | null = null;
-        taskPollRef.current = setInterval(async () => {
-          try {
-            if (!foundTaskId) {
-              const list = await (window as any).ozone?.task?.list?.();
-              const running = (list?.tasks ?? [])
-                .filter((t: any) => String(t.status ?? '').toLowerCase().includes('running')
-                  || String(t.status ?? '').toLowerCase().includes('inprogress'))
-                .sort((a: any, b: any) => (b.created_at ?? 0) - (a.created_at ?? 0));
-              if (running.length > 0) {
-                foundTaskId = running[0].task_id;
-                setCurrentTaskId(foundTaskId);
-                useOzoneStore.getState().setLastTaskId(foundTaskId);
-              }
-            } else {
-              const detail = await (window as any).ozone?.task?.status?.(foundTaskId);
-              const steps = detail?.steps ?? [];
-              if (steps.length > 0) {
-                setCurrentStepInfo({
-                  completed: steps.filter((s: any) => s.status === 'completed').length,
-                  total: steps.length,
-                  lastAction: steps[steps.length - 1]?.action,
-                });
-              }
-            }
-          } catch {
-            /* transient — keep polling */
-          }
-        }, 900);
-
-        const result = await orchestratePromise;
-        stopTaskPolling();
-        setIsRunning(false);
-        setCurrentTaskId(null);
-        setCurrentStepInfo(null);
-        if (elapsedTickRef.current) {
-          clearInterval(elapsedTickRef.current);
-          elapsedTickRef.current = null;
-        }
-
-        setPromptInput('');
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
-
-        // Add response to transcript. Widened beyond `result.response` alone:
-        // a failed orchestration returns response: null with its diagnosis in
-        // attempt_trail/refusals/error (confirmed shape: {"success":false,
-        // "response":null,...,"attempt_trail":[],"refusals":[]}) — the old
-        // condition dropped that case entirely, so a failure with real trail/
-        // refusal content produced no transcript entry and nothing to expand.
-        // Replace the "⏳ Thinking..." placeholder in place with the real
-        // result — honest "No response generated" fallback if the run
-        // produced none of response/error/attempt_trail/refusals, same text
-        // already used elsewhere in this file for that exact case, rather
-        // than leaving the placeholder bubble stuck forever.
-        setTranscript(prev => prev.map(entry =>
-          entry.id === primaryProcessingId
-            ? {
-                ...entry,
-                content: result.response || result.error || 'No response generated',
-                modelUsed: result.model_used,
-                stageCount: Array.isArray(result.stages_completed)
-                  ? result.stages_completed.length
-                  : undefined,
-                thinkingLog: Array.isArray(result.thinking_log)
-                  ? result.thinking_log
-                  : undefined,
-                amtSummary: result.amt_summary ?? undefined,
-                attemptTrail: Array.isArray(result.attempt_trail) ? result.attempt_trail : undefined,
-                refusals: Array.isArray(result.refusals) ? result.refusals : undefined,
-              }
-            : entry
-        ));
-
-        // Speak the response if voice output is enabled
-        if (consciousnessEnabled && result.response) {
-          await speakResponse(result.response);
-        }
-        
-        // Update emotion if consciousness provided gate result
-        if (result.consciousness_gate?.decision === 'Proceed') {
-          setEmotionState(prev => ({
-            ...prev,
-            primary: 'satisfied',
-            intensity: result.consciousness_gate.confidence || 0.8
-          }));
-        }
-        
-        // Trigger emotional update based on task success
-        if (consciousnessEnabled && result.success) {
-          try {
-            await executePipeline(40, {
-              action: 'ProcessTrigger',
-              trigger_type: 'task_success',
-              source: 'prompt_completion',
-              intensity: 0.6,
-            });
-            // Refresh emotional state after trigger
-            fetchEmotionalState();
-          } catch (err) {
-            console.warn('Failed to process emotional trigger:', err);
-          }
-        }
-      } else {
-        // Fallback: Use store's submitPrompt with response subscription
-        const promptText = promptInput;
-        setPromptInput('');
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
-        
-        // Add processing indicator
-        const processingId = Date.now();
-        setTranscript(prev => [...prev, {
-          id: processingId,
-          role: 'assistant',
-          content: '⏳ Processing...',
-          timestamp: Date.now(),
-          emotion: emotionState.primary
-        }]);
-        
-        try {
-          // Call store's orchestratePrompt which handles the full flow
-          const { orchestratePrompt } = useOzoneStore.getState();
-          const result = await orchestratePrompt(promptText);
-          
-          // Replace processing indicator with actual response
-          const responseText = result?.response || 'Response received';
-          setTranscript(prev => prev.map(entry => 
-            entry.id === processingId 
-              ? {
-                  ...entry,
-                  content: responseText,
-                  emotion: result?.consciousness_gate?.decision === 'Proceed' ? 'satisfied' : emotionState.primary
-                }
-              : entry
-          ));
-          
-          // Speak the response if voice output is enabled
-          if (consciousnessEnabled && result?.response) {
-            await speakResponse(result.response);
-          }
-          
-          // Update emotional state based on success
-          if (consciousnessEnabled && result?.success) {
-            try {
-              await executePipeline(40, {
-                action: 'ProcessTrigger',
-                trigger_type: 'task_success',
-                source: 'prompt_fallback',
-                intensity: 0.5,
-              });
-              fetchEmotionalState();
-            } catch (e) {
-              console.warn('Failed to process emotional trigger:', e);
-            }
-          }
-        } catch (fallbackErr) {
-          // Update processing indicator with error
-          setTranscript(prev => prev.map(entry =>
-            entry.id === processingId
-              ? {
-                  ...entry,
-                  content: `Error: ${fallbackErr instanceof Error ? fallbackErr.message : 'Request failed'}`,
-                  emotion: 'concerned'
-                }
-              : entry
-          ));
-        }
-      }
+      const result = await useOzoneStore.getState().orchestratePrompt(text);
+      setTranscript(prev => prev.map(en => en.id === processingId
+        ? { ...en, content: result?.response || result?.error || '⚠ The host returned neither a response nor an error — this is a failure to answer, not an empty answer.' } : en));
+      if (consciousnessEnabled && result?.response) await speakResponse(result.response);
+      fetchEmotionalState();
     } catch (err) {
-      console.error('Prompt orchestration failed:', err);
-      const errorContent = `Error: ${err instanceof Error ? err.message : 'Unknown error'}`;
-      // If the primary path's own "⏳ Thinking..." placeholder is still
-      // present (orchestratePromise itself rejected before the result-
-      // handling block above could replace it), update it in place instead
-      // of appending a second entry alongside a permanently-stuck bubble.
-      setTranscript(prev => {
-        const hasPlaceholder = primaryProcessingId !== null
-          && prev.some(entry => entry.id === primaryProcessingId);
-        if (hasPlaceholder) {
-          return prev.map(entry =>
-            entry.id === primaryProcessingId
-              ? { ...entry, content: errorContent, emotion: 'concerned' }
-              : entry
-          );
-        }
-        return [...prev, {
-          id: Date.now(),
-          role: 'assistant',
-          content: errorContent,
-          timestamp: Date.now(),
-          emotion: 'concerned'
-        }];
-      });
-      
-      // Trigger negative emotional update
-      if (consciousnessEnabled) {
-        try {
-          await executePipeline(40, {
-            action: 'ProcessTrigger',
-            trigger_type: 'task_failure',
-            source: 'prompt_error',
-            intensity: 0.4,
-          });
-          fetchEmotionalState();
-        } catch (e) {
-          console.warn('Failed to process emotional trigger:', e);
-        }
-      }
-    } finally {
-      setIsSpeaking(false);
-      stopTaskPolling();
-      setIsRunning(false);
-      setCurrentTaskId(null);
-      setCurrentStepInfo(null);
-      if (elapsedTickRef.current) {
-        clearInterval(elapsedTickRef.current);
-        elapsedTickRef.current = null;
-      }
+      setTranscript(prev => prev.map(en => en.id === processingId
+        ? { ...en, content: `Error: ${err instanceof Error ? err.message : 'Request failed'}`, emotion: 'concerned' } : en));
     }
   };
 
@@ -959,9 +662,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
             only the decorative emotion/reflection area fixes that while
             keeping the exact same nudge-to-enable message. */}
         <div className={`meta-decorative ${!consciousnessEnabled ? 'has-overlay' : ''}`}>
-          <div className="emotion-display">
+          <div className="emotion-display" style={showEmotionalState ? undefined : { display: 'none' }}>
             <div
-              className={`emotion-orb ${isSpeaking ? 'speaking' : ''}`}
+              title={`emotion source: ${emotionSource}`} className={`emotion-orb ${isSpeaking ? 'speaking' : ''}`}
               style={{
                 '--emotion-color': emotionColor,
                 '--emotion-glow': `${emotionColor}40`
@@ -1099,243 +802,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
                         >
                           {entry.role === 'assistant' ? renderMarkdown(entry.content) : entry.content}
                         </div>
-                        {entry.role === 'assistant' && (
-                          entry.modelUsed || entry.stageCount ||
-                          (entry.attemptTrail && entry.attemptTrail.length > 0) ||
-                          (entry.refusals && entry.refusals.length > 0)
-                        ) && (
-                          <div
-                            className="message-meta"
-                            style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 5 }}
-                          >
-                            {entry.modelUsed && (
-                              <span
-                                style={{
-                                  border: `1px solid ${ms.color}55`,
-                                  color: ms.color,
-                                  background: ms.color + '14',
-                                  borderRadius: 999,
-                                  fontSize: 11,
-                                  padding: '2px 8px',
-                                  display: 'inline-flex',
-                                  gap: 5,
-                                  alignItems: 'center',
-                                }}
-                              >
-                                {ms.icon} {entry.modelUsed}
-                              </span>
-                            )}
-                            {entry.stageCount ? (
-                              <span style={{ fontSize: 11, opacity: 0.5 }}>{entry.stageCount} stages</span>
-                            ) : null}
-                            {entry.amtSummary && (
-                              <span
-                                title={`AMT: ${entry.amtSummary.total_nodes} nodes, depth ${entry.amtSummary.max_depth}, ${entry.amtSummary.validation_status}`}
-                                style={{
-                                  fontSize: 11,
-                                  opacity: 0.6,
-                                  border: '1px solid #223046',
-                                  borderRadius: 999,
-                                  padding: '2px 8px',
-                                  display: 'inline-flex',
-                                  gap: 5,
-                                  alignItems: 'center',
-                                }}
-                              >
-                                🌳 {entry.amtSummary.branch_count} branch{entry.amtSummary.branch_count === 1 ? '' : 'es'}
-                                {' · '}depth {entry.amtSummary.max_depth}
-                                {entry.amtSummary.validation_status === 'Validated' ? ' · ✓' : ''}
-                              </span>
-                            )}
-                            {entry.thinkingLog && entry.thinkingLog.length > 0 && (
-                              <button
-                                onClick={() => {
-                                  setExpandedThinking(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(entry.id)) {
-                                      next.delete(entry.id);
-                                    } else {
-                                      next.add(entry.id);
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  fontSize: 11,
-                                  opacity: 0.6,
-                                  background: 'none',
-                                  border: '1px solid #223046',
-                                  borderRadius: 999,
-                                  padding: '2px 8px',
-                                  cursor: 'pointer',
-                                  color: 'inherit',
-                                }}
-                              >
-                                {expandedThinking.has(entry.id) ? '▾' : '▸'} Thinking ({entry.thinkingLog.length})
-                              </button>
-                            )}
-                            {((entry.attemptTrail && entry.attemptTrail.length > 0) ||
-                              (entry.refusals && entry.refusals.length > 0)) && (
-                              <button
-                                onClick={() => {
-                                  setExpandedTrail(prev => {
-                                    const next = new Set(prev);
-                                    if (next.has(entry.id)) {
-                                      next.delete(entry.id);
-                                    } else {
-                                      next.add(entry.id);
-                                    }
-                                    return next;
-                                  });
-                                }}
-                                style={{
-                                  fontSize: 11,
-                                  opacity: 0.6,
-                                  background: 'none',
-                                  border: '1px solid #223046',
-                                  borderRadius: 999,
-                                  padding: '2px 8px',
-                                  cursor: 'pointer',
-                                  color: 'inherit',
-                                }}
-                                title="Fallback-walk attempt trail and any paid/unknown-model refusals for this run"
-                              >
-                                {expandedTrail.has(entry.id) ? '▾' : '▸'} Trail (
-                                {(entry.attemptTrail?.length ?? 0) + (entry.refusals?.length ?? 0)})
-                              </button>
-                            )}
-                          </div>
-                        )}
-                        {entry.thinkingLog && entry.thinkingLog.length > 0 && expandedThinking.has(entry.id) && (
-                          <div
-                            className="thinking-log"
-                            style={{
-                              marginTop: 8,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 6,
-                            }}
-                          >
-                            {entry.thinkingLog.map((t, i) => (
-                              <div
-                                key={i}
-                                style={{
-                                  border: '1px solid #223046',
-                                  borderRadius: 8,
-                                  padding: '8px 10px',
-                                  fontSize: 12,
-                                  background: 'rgba(255,255,255,0.02)',
-                                }}
-                              >
-                                <div
-                                  style={{
-                                    display: 'flex',
-                                    justifyContent: 'space-between',
-                                    gap: 8,
-                                    opacity: 0.7,
-                                    marginBottom: 4,
-                                    fontSize: 11,
-                                  }}
-                                >
-                                  <span>{t.stage}</span>
-                                  <span>
-                                    {t.tokens_used != null ? `${t.tokens_used} tok` : ''}
-                                    {t.eval_tokens_per_sec != null
-                                      ? ` · ${t.eval_tokens_per_sec.toFixed(1)} tok/s`
-                                      : ''}
-                                  </span>
-                                </div>
-                                <div style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                                  {t.raw_response}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {((entry.attemptTrail && entry.attemptTrail.length > 0) ||
-                          (entry.refusals && entry.refusals.length > 0)) &&
-                          expandedTrail.has(entry.id) && (
-                          <div
-                            className="attempt-trail"
-                            style={{
-                              marginTop: 8,
-                              display: 'flex',
-                              flexDirection: 'column',
-                              gap: 6,
-                              fontSize: 12,
-                            }}
-                          >
-                            {entry.attemptTrail && entry.attemptTrail.length > 0 && (
-                              <div
-                                style={{
-                                  border: '1px solid #223046',
-                                  borderRadius: 8,
-                                  padding: '8px 10px',
-                                  background: 'rgba(255,255,255,0.02)',
-                                }}
-                              >
-                                <div style={{ opacity: 0.7, marginBottom: 4, fontSize: 11 }}>
-                                  Attempt trail ({entry.attemptTrail.length})
-                                </div>
-                                {(() => {
-                                  const trail = entry.attemptTrail ?? [];
-                                  const ts = summarizeTrail(trail);
-                                  const causeText = Object.entries(ts.causes)
-                                    .map(([c, n]) => `${c} ${n}`)
-                                    .join(', ');
-                                  const bits: string[] = [];
-                                  if (ts.succeeded > 0) bits.push(`${ts.succeeded} answered`);
-                                  if (ts.failed > 0) bits.push(`${ts.failed} failed`);
-                                  if (ts.skipped > 0) bits.push(`${ts.skipped} skipped (quota)`);
-                                  if (ts.sameModelRetries > 0) bits.push(`${ts.sameModelRetries} same-model retr${ts.sameModelRetries === 1 ? 'y' : 'ies'}`);
-                                  if (ts.windowCapped > 0) bits.push(`${ts.windowCapped} window-capped`);
-                                  if (ts.timeouts > 0) bits.push(`${ts.timeouts} timed out`);
-                                  if (ts.recoveredByWalk) bits.push('recovered by fallback walk');
-                                  return (
-                                    <div
-                                      style={{
-                                        fontSize: 11,
-                                        opacity: 0.75,
-                                        marginBottom: 6,
-                                        paddingBottom: 6,
-                                        borderBottom: '1px solid #223046',
-                                      }}
-                                      title="Computed from the trail lines below — counts only what the backend wrote"
-                                    >
-                                      {bits.length > 0 ? bits.join(' · ') : `${ts.attempts} attempt${ts.attempts === 1 ? '' : 's'}`}
-                                      {causeText && ` — causes: ${causeText}`}
-                                      {ts.unparsable > 0 && ` · ${ts.unparsable} line${ts.unparsable === 1 ? '' : 's'} not summarized (shown raw)`}
-                                    </div>
-                                  );
-                                })()}
-                                {entry.attemptTrail.map((line, i) => (
-                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                                    {line}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                            {entry.refusals && entry.refusals.length > 0 && (
-                              <div
-                                style={{
-                                  border: '1px solid #5a2a2a',
-                                  borderRadius: 8,
-                                  padding: '8px 10px',
-                                  background: 'rgba(255,100,100,0.04)',
-                                }}
-                              >
-                                <div style={{ opacity: 0.8, marginBottom: 4, fontSize: 11, color: '#f87171' }}>
-                                  ⛔ Refused ({entry.refusals.length})
-                                </div>
-                                {entry.refusals.map((line, i) => (
-                                  <div key={i} style={{ whiteSpace: 'pre-wrap', opacity: 0.85, overflowWrap: 'break-word', wordBreak: 'break-word' }}>
-                                    {line}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
+                        <TranscriptEntryMeta entry={entry} />
                       </div>
                     </React.Fragment>
                   );
@@ -1347,30 +814,9 @@ export function MetaPortion({ width }: MetaPortionProps) {
                   and currentStepInfo comes from the /task/list poll once a
                   real task record exists (stage 7+). Before that record
                   exists we say exactly that instead of inventing a stage. */}
-              {isRunning && (
-                <div
-                  className="orchestration-thinking-row"
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    margin: '6px 0',
-                    fontSize: 12,
-                    opacity: 0.75,
-                  }}
-                >
-                  <span className="orchestration-thinking-dot" />
-                  <span>
-                    Thinking… {Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')}
-                    {currentStepInfo
-                      ? ` · step ${currentStepInfo.completed}/${currentStepInfo.total}${
-                          currentStepInfo.lastAction ? ` — ${currentStepInfo.lastAction}` : ''
-                        }`
-                      : ' · working — no task record yet (early stages)'}
-                  </span>
-                </div>
-              )}
-              <ChatNotificationStream />
+              <ThinkingRow isRunning={isRunning} elapsedSeconds={elapsedSeconds} stepInfo={currentStepInfo} awaiting={awaitingKind} />
+              <PausedBanner paused={chat.paused} onResume={chat.resumePaused} busy={isRunning} />
+              <CoordinationStrip />
             </div>
           )}
         </div>
@@ -1414,9 +860,7 @@ export function MetaPortion({ width }: MetaPortionProps) {
             below) are no longer rendered directly here; OrchestrationStatusPanel
             covers that ground with the real orchestration_stage/pipeline_progress
             WS frames instead. */}
-        <OrchestrationStatusPanel isRunning={isRunning} />
-        <DiscoveryEffects isRunning={isRunning} />
-        <McpActivityIndicator isRunning={isRunning} />
+        <OrchestrationPanels isRunning={isRunning} scope={{ workspaceId: undefined }} />
         <form onSubmit={handleSubmit}>
           <div className={`prompt-input-wrapper ${voiceActive ? 'listening' : ''}`}>
             {voiceActive && (
@@ -1486,6 +930,17 @@ export function MetaPortion({ width }: MetaPortionProps) {
             </button>
             {voiceActive && (
               <span className="voice-db">level {Math.round(micLevel * 100)}%</span>
+            )}
+            {voiceError && (
+              <span
+                className="voice-db"
+                role="alert"
+                title={voiceError}
+                onClick={() => setVoiceError(null)}
+                style={{ color: '#f87171', cursor: 'pointer', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                ⚠ {voiceError}
+              </span>
             )}
             {isRunning ? (
               <button

@@ -406,7 +406,9 @@ async function handle(tool, input) {
 
 function reply(res, code, body) { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); }
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   const url = req.url ?? "";
   if (req.method === "GET" && url.startsWith("/status")) { handle("browser_status", {}).then((o) => reply(res, 200, o)); return; }
   if (req.method !== "POST" || !url.startsWith("/call")) { reply(res, 404, { error: "POST /call or GET /status" }); return; }

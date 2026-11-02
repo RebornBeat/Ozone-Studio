@@ -13,6 +13,8 @@ import { useOzoneStore } from "../services/store";
 import TaskInsightSections from "../views/task/TaskInsightSections";
 import { getGraphEventClient, GraphEventFrame } from "../graphEventClient";
 import { TaskStateIcon, StepPips } from "../graphkit/indicators";
+import { AwaitingBadge } from "./AwaitingBadge";
+import { fetchAwaiting, resumeTask, resolveReview, resumeRun, parsePause, type AwaitingOrderItem } from "../ozoneClient";
 
 interface TaskStep {
   step_index: number;
@@ -63,7 +65,7 @@ function statusColor(status: string): string {
   const s = status.toLowerCase();
   if (s === "completed") return "#4ade80";
   if (s === "failed") return "#f87171";
-  if (s === "interrupted") return "#fbbf24";
+  if (s === "interrupted" || s.startsWith("awaiting")) return "#fbbf24";
   if (s === "cancelled") return "#94a3b8";
   return "#93c5fd"; // queued / running / anything else in-flight
 }
@@ -148,6 +150,53 @@ export const TaskDetailPanel: React.FC = () => {
     }
   };
 
+  // Awaiting record for this task (2026-11-01 doctrine): meta-resolved gates
+  // retry on their own; only a human-resolver item shows Proceed/Decline.
+  const [awaitItem, setAwaitItem] = useState<AwaitingOrderItem | null>(null);
+  const [awaitBusy, setAwaitBusy] = useState(false);
+  const isAwaitingStatus = normalizeStatus(task?.status).toLowerCase().startsWith("awaiting");
+  useEffect(() => {
+    if (!activeTaskId || !isAwaitingStatus) { setAwaitItem(null); return; }
+    let off = false;
+    const load = () => fetchAwaiting()
+      .then((l) => { if (!off) setAwaitItem(l.find((a) => a.task_id === activeTaskId) ?? null); })
+      .catch(() => { if (!off) setAwaitItem(null); });
+    load();
+    const id = setInterval(load, 5000);
+    return () => { off = true; clearInterval(id); };
+  }, [activeTaskId, isAwaitingStatus]);
+
+  const doResume = async () => {
+    if (!activeTaskId) return;
+    setAwaitBusy(true);
+    try {
+      const r = await resumeTask(activeTaskId);
+      setError(r?.error ?? "");
+    } catch (e: any) { setError(e?.message ?? "Resume failed"); }
+    finally { setAwaitBusy(false); }
+  };
+  // FAILURE DOCTRINE: a failed step PAUSES the task; resume re-enters at exactly that step.
+  const pauseNotice = normalizeStatus(task?.status).toLowerCase() === "paused" ? parsePause((task as any)?.error, activeTaskId) : null;
+  const doResumeRun = async () => {
+    if (!activeTaskId) return;
+    setAwaitBusy(true);
+    try {
+      const r = await resumeRun(activeTaskId);
+      setError(r?.success ? "" : (r?.error ?? "Resume refused by the host"));
+    } catch (e: any) { setError(e?.message ?? "Resume failed"); }
+    finally { setAwaitBusy(false); }
+  };
+  const doResolve = async (decision: "Proceed" | "Decline") => {
+    const id = awaitItem?.review_id;
+    if (!id) { setError("No review id recorded for this awaiting item"); return; }
+    setAwaitBusy(true);
+    try {
+      const r = await resolveReview(id, decision);
+      setError(r?.error ? String(r.error) : "");
+    } catch (e: any) { setError(e?.message ?? "Resolve failed"); }
+    finally { setAwaitBusy(false); }
+  };
+
   const doRerun = async (stepIndex: number) => {
     if (!activeTaskId) return;
     setRerunning(true);
@@ -176,7 +225,7 @@ export const TaskDetailPanel: React.FC = () => {
     }
   };
 
-  const isRunning = task && ["running", "queued", "inprogress"].some((s) =>
+  const isRunning = task && ["running", "queued", "inprogress", "awaiting"].some((s) =>
     normalizeStatus(task.status).toLowerCase().includes(s),
   );
 
@@ -208,6 +257,36 @@ export const TaskDetailPanel: React.FC = () => {
         <div className="oempty">Loading task {activeTaskId}…</div>
       ) : (
         <>
+          {pauseNotice && (
+            <div style={{ border: "1px solid #6b5420", background: "#241d10", borderRadius: 6, padding: 8, margin: "6px 0", fontSize: 12, color: "#f6c177" }}>
+              ⏸ Paused at step {pauseNotice.step} — the task was not continued past the failure.
+              <div style={{ opacity: 0.85, marginTop: 4 }}>{pauseNotice.error}</div>
+              <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                <button className="obtn" disabled={awaitBusy} onClick={doResumeRun} title="Re-enter the run at exactly the failed step; completed steps are kept">Resume from step {pauseNotice.step}</button>
+              </div>
+            </div>
+          )}
+          {isAwaitingStatus && (
+            <div style={{ border: "1px solid #d9b45f55", borderRadius: 6, padding: 8, margin: "6px 0", fontSize: 12 }}>
+              {awaitItem ? <AwaitingBadge item={awaitItem} /> : <span style={{ color: "#d9b45f" }}>Awaiting — details not served by the host yet</span>}
+              {awaitItem?.unjudged_chunks && (
+                <div style={{ opacity: 0.8, marginTop: 4 }}>
+                  unjudged chunks: {awaitItem.unjudged_chunks.length}
+                  {awaitItem.judged ? ` · judged: ${Object.keys(awaitItem.judged).length}` : ""}
+                </div>
+              )}
+              {awaitItem?.last_error && <div style={{ opacity: 0.8, marginTop: 4 }}>last error: {awaitItem.last_error}</div>}
+              <div style={{ marginTop: 6, display: "flex", gap: 8 }}>
+                <button className="obtn" disabled={awaitBusy} onClick={doResume} title="Ask the host to re-enter the walk now (meta also retries on its own)">Resume</button>
+                {awaitItem?.resolver === "human" && (
+                  <>
+                    <button className="obtn" disabled={awaitBusy} onClick={() => doResolve("Proceed")}>Proceed</button>
+                    <button className="obtn" disabled={awaitBusy} onClick={() => doResolve("Decline")} style={{ color: "#f87171" }}>Decline</button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
           <div className="ostats">
             <div className="ostat">
               <div className="ostat-num" style={{ fontSize: 13, color: statusColor(normalizeStatus(task.status)), display: 'flex', alignItems: 'center', gap: 5 }}>

@@ -119,7 +119,8 @@ pub const JURISDICTION_EU_MEMBER_CODES: &[&str] = &[
 /// `copied-new`, `unchanged`, `upgraded`, or `kept-newer-available`.
 /// `manifest` maps a relative key to the blake3 hex of the version this sync
 /// last wrote; an existing copy is upgraded only if it still matches that
-/// hash (unmodified since) or `force` is set (old copy saved as `<name>.bak`).
+/// hash (unmodified since) or `force` is set (old copy saved as `<name>.bak`). A file with no manifest entry is adopted
+/// the same way (first sync after the manifest was introduced).
 pub fn sync_jurisdiction_file(
     src: &std::path::Path,
     dst: &std::path::Path,
@@ -144,8 +145,12 @@ pub fn sync_jurisdiction_file(
         return Ok("unchanged");
     }
     let unmodified_since_last_sync = manifest.get(key).map_or(false, |h| *h == dst_hash);
-    if force || unmodified_since_last_sync {
-        if force && !unmodified_since_last_sync {
+    // First-sync adoption (2026-11-01): a file with NO manifest entry predates
+    // the manifest, so the shipped content is adopted (stale content was found
+    // live) with the old copy preserved as `<name>.bak` — never lost.
+    let no_manifest_entry = !manifest.contains_key(key);
+    if force || unmodified_since_last_sync || no_manifest_entry {
+        if (force || no_manifest_entry) && !unmodified_since_last_sync {
             let mut bak = dst.as_os_str().to_owned();
             bak.push(".bak");
             let _ = std::fs::write(std::path::PathBuf::from(bak), &dst_bytes);
@@ -992,17 +997,12 @@ impl OzoneRuntime {
         // Left unset (never a guessed/fake path) if pipeline 9 isn't built
         // on this instance — callers must treat "not set" as "no real
         // executor available", same as today's stub fallback.
-        if let Some(info) = crate::pipeline::registry::get_pipeline_info(9) {
-            let name = info.folder_name.as_str();
-            let assets_pipeline_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("assets/pipelines")
-                .join(info.category)
-                .join(name);
-            let candidates = [
-                assets_pipeline_dir.join("target/release").join(name),
-                assets_pipeline_dir.join("target/debug").join(name),
-            ];
-            if let Some(found) = candidates.iter().find(|c| c.exists()) {
+        // Same candidate search as the executor (workspace target/pipelines/release
+        // first, then per-crate target dirs) so the boot check cannot disagree with
+        // what execute_builtin will actually spawn (edit fork 2 / coordinator 2026-11-02).
+        {
+            let builtin_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/pipelines");
+            if let Some(found) = crate::pipeline::PipelineExecutor::find_builtin_binary(&builtin_root, 9) {
                 std::env::set_var("OZONE_PROMPT_PIPELINE_PATH", found);
             } else {
                 tracing::warn!(
@@ -1121,10 +1121,16 @@ impl OzoneRuntime {
         // executor/store adapters do. Respects the same RefinementConfig
         // (enabled/interval_secs) the dormant daemon uses.
         {
+            // CALL-INDEX COVERAGE (2026-11-02 audit): the background loops
+            // (amt re-expansion, meta, I-Loop, assistant) used the bare registry
+            // adapter, so their model calls left no capture/call_spans.jsonl row.
+            // Same decorator the walk uses; shape-only, best-effort.
             let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
-                Arc::new(crate::orchestrator::RegistryExecutorAdapter {
-                    registry: runtime.read().await.pipeline_registry.clone(),
-                });
+                Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(Arc::new(
+                    crate::orchestrator::RegistryExecutorAdapter {
+                        registry: runtime.read().await.pipeline_registry.clone(),
+                    },
+                )));
             let store_adapter: Arc<dyn crate::orchestrator::StoreAccess> =
                 Arc::new(crate::orchestrator::ZseiStoreAdapter {
                     zsei: runtime.read().await.zsei.clone(),
@@ -1230,6 +1236,83 @@ impl OzoneRuntime {
                 runtime.read().await.config.models.available_models.clone(),
                 runtime.read().await.config.models.meta_fallback.clone(),
             )));
+
+            // PER-STEP JURISDICTION GATE (2026-11-02): tool_routing's process-global
+            // step gate was never installed, so per-step tool calls relied only on
+            // the stage-0/8b passes. Install it from the SAME rule loader the other
+            // gates use, then refresh periodically so rule syncs take effect
+            // without a restart. Honest fallback if no rules load: gate stays
+            // uninstalled and tool_routing logs that it is (not silently open).
+            {
+                let sg_store: Arc<dyn crate::orchestrator::StoreAccess> =
+                    Arc::new(crate::orchestrator::ZseiStoreAdapter {
+                        zsei: runtime.read().await.zsei.clone(),
+                    });
+                let sg_region = {
+                    let rt = runtime.read().await;
+                    if rt.config.jurisdiction.enabled {
+                        rt.config.jurisdiction.instance_region.clone()
+                    } else {
+                        None
+                    }
+                };
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    loop {
+                        let (rules, source) =
+                            crate::orchestrator::jurisdiction::load_rules_from_store(&sg_store, sg_region.as_deref()).await;
+                        if rules.is_empty() {
+                            tracing::warn!("step gate: no jurisdiction rules loaded — per-step gate not installed");
+                        } else {
+                            tracing::info!("step gate: installed with {} rules (source {})", rules.len(), source);
+                            // Same snapshot gates in-process MCP calls (mcp::call_global).
+                            crate::mcp::set_call_gate(Some(crate::orchestrator::jurisdiction::build_step_gate(rules.clone())));
+                            crate::orchestrator::jurisdiction::install_step_gate(rules);
+                        }
+                        tokio::time::sleep(std::time::Duration::from_secs(600)).await;
+                    }
+                });
+            }
+
+            // AWAITING DRIVER (2026-11-02 doctrine): consciousness/meta gates are
+            // decided ONLY by meta — when it cannot judge, the walk parks as an
+            // awaiting item (durable, restart-safe). This tick (a) wakes every
+            // walk whose backoff elapsed so it re-asks meta, and (b) applies
+            // resolved items' resume requests by flipping the parked task
+            // awaiting -> running. No model call here; no human involved.
+            {
+                let aw_task_manager = runtime.read().await.task_manager.clone();
+                let aw_data_dir = runtime.read().await.config.general.data_dir.clone();
+                tokio::spawn(async move {
+                    // BOOT CLEANUP: a meta/consciousness gate item belongs to a walk that lived
+                    // in the previous process; that walk is gone and is not resumable. Cancel
+                    // such items (loudly) instead of leaving phantom "awaiting" rows.
+                    // jurisdiction_confirm items are operator-held reviews and stay.
+                    for item in crate::orchestrator::awaiting::pending_actions(&aw_data_dir) {
+                        if item.kind != crate::orchestrator::awaiting::KIND_JURISDICTION_CONFIRM {
+                            tracing::warn!(await_id = %item.await_id, kind = %item.kind, "boot: awaiting item's walk did not survive the restart — cancelled (resubmit the prompt)");
+                            crate::orchestrator::awaiting::mark_cancelled(
+                                &aw_data_dir,
+                                &item.await_id,
+                                "host restarted while awaiting; the in-flight walk was not resumable",
+                            );
+                        }
+                    }
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+                        let _woken = crate::orchestrator::meta_loop::drain_awaiting_once(&aw_data_dir);
+                        for item in crate::orchestrator::awaiting::take_resume_requests(&aw_data_dir) {
+                            let tid = item.task_id.as_deref().and_then(|t| t.parse::<u64>().ok());
+                            if let Some(tid) = tid {
+                                let tm = aw_task_manager.read().await;
+                                // false = task not parked (already running/finished): still mark applied.
+                                let _ = tm.resume_awaiting(&tid).await;
+                            }
+                            crate::orchestrator::awaiting::mark_applied(&aw_data_dir, &item.await_id);
+                        }
+                    }
+                });
+            }
 
             // FILE BEACON (docs/guides/file-beacon-design.md): real
             // external file-change -> live-graph ripple for registered
@@ -1632,6 +1715,63 @@ impl OzoneRuntime {
 
         let response = orchestrator.orchestrate(request).await;
 
+        Ok(OrchestrationOutput {
+            success: response.success,
+            response_text: response.response,
+            task_id: response.task_id,
+            blueprint_id: response.blueprint_id,
+            stages_completed: response
+                .stages_completed
+                .iter()
+                .map(|s| serde_json::to_value(s).unwrap_or_default())
+                .collect(),
+            needs_clarification: response.needs_clarification,
+            clarification_points: response.clarification_points,
+            model_used: response.model_used,
+            total_tokens_used: response.total_tokens_used,
+            amt_summary: response
+                .amt_summary
+                .as_ref()
+                .and_then(|s| serde_json::to_value(s).ok()),
+            error: response.error,
+            thinking_log: response
+                .thinking_log
+                .iter()
+                .map(|t| serde_json::to_value(t).unwrap_or_default())
+                .collect(),
+        })
+    }
+
+    /// Resume a failure-paused task from the step it stopped at (see
+    /// `orchestrator::run_checkpoint`). Same executor chain, store and gates as a normal
+    /// walk; the saved request is replayed, completed steps are restored, not re-run.
+    pub async fn resume_run(&self, task_id: u64) -> OzoneResult<OrchestrationOutput> {
+        let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
+            registry: self.pipeline_registry.clone(),
+        });
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::decision_review::DecisionReviewExecutor {
+                inner: base_executor_adapter,
+                available_models: self.config.models.available_models.clone(),
+                fallback_order: self.config.models.fallback.order.clone(),
+                fallback_free_only: self.config.models.fallback.free_only,
+                data_dir: self.config.general.data_dir.clone(),
+            });
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(executor_adapter));
+        let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
+            zsei: self.zsei.clone(),
+        });
+        let orchestrator = crate::orchestrator::PromptOrchestrator::new(
+            executor_adapter,
+            zsei_adapter,
+            self.task_manager.clone(),
+            Arc::new(RwLock::new(None)),
+            self.config.models.context_length as u32,
+            self.config.jurisdiction.clone(),
+            self.config.general.data_dir.clone(),
+        );
+        let response = orchestrator.resume_run(task_id).await;
         Ok(OrchestrationOutput {
             success: response.success,
             response_text: response.response,

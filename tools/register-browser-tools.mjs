@@ -1,7 +1,7 @@
 // Register browser-mcp + browser-farm-mcp tools into the Ozone host registry
 // (docs/NEW_MCP_GUIDE.md §1.4). Re-registration REPLACES and bumps server_version;
 // the registry persists ({data_dir}/mcp_tool_registry.json), so re-run only when an endpoint changes.
-//   node tools/register-browser-tools.mjs [browser|farm|android|security|all]
+//   node tools/register-browser-tools.mjs [browser|farm|android|security|document|all]
 //   node tools/register-browser-tools.mjs --prune agent_      (unregister stale rows by name prefix)
 // (domorpher_agent family REMOVED 2026-10-31: fresh start; archived under ~/Projects/_archive)
 // --prune <prefix> asks the host to drop every currently-registered tool whose name starts with
@@ -55,6 +55,12 @@ const FAMILIES = {
     android_ui_snapshot: "perceive the screen: numbered interactive elements via uiautomator (untrusted labels)", android_ui_tap_element: "tap an element by snapshot index or label text",
     android_term_open: "open a terminal-like session (tracked cwd)", android_term_exec: "run an allowlisted command in a session", android_term_close: "close a session",
     android_forward: "adb forward to a whitelisted device port (Termux sshd 8022)", android_termux_status: "is Termux installed on the device?",
+  } },
+  document: { port: Number(process.env.OZONE_DOCUMENT_PORT ?? 3282), version: "0.1.0", tools: {
+    document_info: "document facts (format, size, PDF pages/metadata/encrypted) via pdfinfo",
+    document_extract: "extract real text from pdf/docx/odt/pptx/xlsx/rtf/legacy-doc (poppler/unzip/LibreOffice; OCR only if tesseract present; honest error on no text)",
+    document_images: "list embedded images in a PDF (pdfimages) for image-modality hand-off",
+    document_formats: "which document backends are installed on this host (honest capability probe)",
   } },
   security: { port: Number(process.env.OZONE_SECURITY_PORT ?? 3240), version: "0.2.0", tools: {
     exposure_report: "listeners split loopback/external, risky ports flagged", security_status: "security-mcp self posture (privileged?, tools)",

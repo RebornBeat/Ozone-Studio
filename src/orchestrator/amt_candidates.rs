@@ -41,7 +41,7 @@ fn is_finding_route(route: &str) -> bool {
 }
 
 /// Short stable digest of a candidate's detail text (blake3, 16 hex chars).
-fn detail_digest(detail: Option<&str>) -> String {
+pub fn detail_digest(detail: Option<&str>) -> String {
     let h = blake3::hash(detail.unwrap_or("").as_bytes()).to_hex();
     h.as_str()[..16].to_string()
 }

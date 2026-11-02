@@ -25,6 +25,9 @@
  */
 
 import React, { useEffect, useState } from 'react';
+import { PeerState } from '../graphkit/indicators';
+import { GateChip, CaptureChip, LoopChips } from './WorkspaceStatusStrip';
+import { hostGet } from '../ozoneClient';
 import { useOzoneStore } from '../services/store';
 import { SystemStats } from '../App';
 
@@ -60,6 +63,35 @@ export function StatusBar() {
     return num.toLocaleString();
   };
 
+  // Contribution figures: a real, non-zero value is shown; "—" while a value is
+  // absent/zero (not yet connected or nothing contributed) — never a fake 0.
+  const formatStat = (num?: number | null): string => {
+    return typeof num === 'number' && Number.isFinite(num) && num > 0 ? num.toLocaleString() : '—';
+  };
+
+  // Trust half of the P2P posture (connected != trusted). Best-effort; the
+  // route may be session-gated, in which case paired stays 0 (honest).
+  const [pairedCount, setPairedCount] = useState(0);
+  const [lastReflection, setLastReflection] = useState<string | null>(null);
+  useEffect(() => {
+    let off = false;
+    const tick = async () => {
+      try {
+        const r: any = await hostGet('/network/paired-peers');
+        if (!off) setPairedCount(Array.isArray(r?.paired_peers) ? r.paired_peers.length : 0);
+      } catch { if (!off) setPairedCount(0); }
+      if (!consciousnessEnabled) return;
+      try {
+        const c: any = await hostGet('/consciousness/state');
+        const ts = c?.i_loop?.last_reflection_ts;
+        if (!off) setLastReflection(ts ? new Date(ts < 1e12 ? ts * 1000 : ts).toLocaleTimeString() : null);
+      } catch { if (!off) setLastReflection(null); }
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => { off = true; clearInterval(id); };
+  }, [consciousnessEnabled]);
+
   // Get connection status display
   const getConnectionDisplay = () => {
     if (!isConnected) {
@@ -69,11 +101,18 @@ export function StatusBar() {
         icon: '○',
       };
     }
+    if (systemStats.p2pEnabled && pairedCount > 0) {
+      return {
+        color: '#4ade80', // green — only PAIRED (trusted) peers count
+        text: `Paired ${pairedCount}`,
+        icon: '●',
+      };
+    }
     if (systemStats.p2pEnabled && systemStats.peerCount > 0) {
       return {
-        color: '#4ade80', // green
-        text: 'Connected',
-        icon: '●',
+        color: '#fbbf24',
+        text: `${systemStats.peerCount} unpaired`,
+        icon: '◐',
       };
     }
     return {
@@ -105,12 +144,15 @@ export function StatusBar() {
       {/* Divider */}
       <div className="status-divider" />
 
-      {/* P2P Peers */}
-      <div className="status-item status-peers" title="Connected P2P peers">
-        <span className="status-icon">👥</span>
-        <span className="status-value">{formatNumber(systemStats.peerCount)}</span>
-        <span className="status-label">Peers</span>
+      {/* P2P posture (moved here from the workspace strip, 2026-11-01) */}
+      <div className="status-item status-peers" title="P2P: connected is not trusted — pairing is the trust boundary">
+        <PeerState peerCount={systemStats.peerCount} pairedCount={pairedCount} />
       </div>
+
+      <div className="status-divider" />
+      <div className="status-item"><GateChip /></div>
+      <div className="status-item"><CaptureChip /></div>
+      <div className="status-item"><LoopChips /></div>
 
       {/* Divider */}
       <div className="status-divider" />
@@ -138,35 +180,35 @@ export function StatusBar() {
       <div className="status-divider" />
 
       {/* COLLECTIVE CONTRIBUTIONS - THE MAIN FOCUS */}
-      <div className="status-item status-contributions primary" title="Total collective contributions to the ecosystem">
+      <div className="status-item status-contributions primary" title="Collective contributions">
         <span className="status-icon">✨</span>
-        <span className="status-value highlight">{formatNumber(totalContributions)}</span>
+        <span className="status-value highlight">{formatStat(totalContributions)}</span>
         <span className="status-label">Collective Contributions</span>
 
         {/* Contribution breakdown tooltip/dropdown */}
         <div className="contribution-breakdown">
           <div className="breakdown-item">
             <span className="breakdown-icon">📚</span>
-            <span className="breakdown-value">{formatNumber(systemStats.methodologiesShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.methodologiesShared)}</span>
             <span className="breakdown-label">Methodologies</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">📋</span>
-            <span className="breakdown-value">{formatNumber(systemStats.blueprintsShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.blueprintsShared)}</span>
             <span className="breakdown-label">Blueprints</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">💡</span>
-            <span className="breakdown-value">{formatNumber(systemStats.findingsShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.findingsShared)}</span>
             <span className="breakdown-label">Findings</span>
           </div>
         </div>
       </div>
 
       {/* My Contributions */}
-      <div className="status-item status-my-contributions" title="Your contributions to the ecosystem">
+      <div className="status-item status-my-contributions" title="My contributions">
         <span className="status-icon">🎯</span>
-        <span className="status-value">{formatNumber(systemStats.myContributions)}</span>
+        <span className="status-value">{formatStat(systemStats.myContributions)}</span>
         <span className="status-label">My Contributions</span>
 
         {/* My contribution breakdown on hover — each value independently
@@ -176,17 +218,17 @@ export function StatusBar() {
           <div className="breakdown-title">Your Contributions</div>
           <div className="breakdown-item">
             <span className="breakdown-icon">📚</span>
-            <span className="breakdown-value">{formatNumber(systemStats.myMethodologiesShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.myMethodologiesShared)}</span>
             <span className="breakdown-label">Methodologies</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">📋</span>
-            <span className="breakdown-value">{formatNumber(systemStats.myBlueprintsShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.myBlueprintsShared)}</span>
             <span className="breakdown-label">Blueprints</span>
           </div>
           <div className="breakdown-item">
             <span className="breakdown-icon">💡</span>
-            <span className="breakdown-value">{formatNumber(systemStats.myFindingsShared)}</span>
+            <span className="breakdown-value">{formatStat(systemStats.myFindingsShared)}</span>
             <span className="breakdown-label">Findings</span>
           </div>
         </div>
@@ -203,7 +245,7 @@ export function StatusBar() {
         className="status-item status-ledger"
         title={
           ledgerSummary
-            ? "Per-model outcome ledger (all history) — hover for the breakdown"
+            ? "Per-model outcome ledger (all-time) — hover for the breakdown"
             : "Model ledger not read yet"
         }
       >
@@ -221,7 +263,7 @@ export function StatusBar() {
 
         {ledgerSummary && (
           <div className="contribution-breakdown">
-            <div className="breakdown-title">Model ledger (all history)</div>
+            <div className="breakdown-title">Model ledger (all-time)</div>
             {ledgerSummary.models.map((m) => (
               <div
                 className="breakdown-item"
@@ -265,11 +307,11 @@ export function StatusBar() {
       <div className="status-divider" />
 
       {/* ZSEI Status */}
-      <div className="status-item status-zsei" title="ZSEI knowledge containers and traversal depth">
+      <div className="status-item status-zsei" title="ZSEI container count / depth are not tracked by the host yet — shown as — rather than a fake 0">
         <span className="status-icon">🔍</span>
-        <span className="status-value">{formatNumber(systemStats.zseiContainers)}</span>
+        <span className="status-value">{systemStats.zseiContainers ? formatNumber(systemStats.zseiContainers) : '—'}</span>
         <span className="status-label">ZSEI</span>
-        <span className="status-sublabel">Depth: {systemStats.zseiDepth}</span>
+        <span className="status-sublabel">Depth: {systemStats.zseiDepth ? systemStats.zseiDepth : '—'}</span>
       </div>
 
       {/* Divider */}
@@ -290,9 +332,9 @@ export function StatusBar() {
             <span className="status-icon">🧠</span>
             <span className="status-value">{systemStats.consciousnessState || 'Active'}</span>
             <span className="status-label">I-Loop</span>
-            {systemStats.iLoopStatus && (
-              <span className="status-sublabel">{systemStats.iLoopStatus}</span>
-            )}
+            <span className="status-sublabel" title="Last real I-Loop reflection from GET /consciousness/state">
+              {lastReflection ? `reflected ${lastReflection}` : 'no reflection yet'}
+            </span>
           </div>
         </>
       )}
@@ -323,7 +365,7 @@ export function StatusBar() {
       </div>
 
       {/* Uptime */}
-      <div className="status-item status-uptime" title="Session uptime">
+      <div className="status-item status-uptime" title="Backend uptime">
         <span className="status-icon">⏱️</span>
         <span className="status-value">{formatUptime(systemStats.uptime)}</span>
       </div>

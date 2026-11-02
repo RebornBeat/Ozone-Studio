@@ -30,6 +30,7 @@ export {
   PeerState,
   EdgeRealismLegend,
   ActivityPulse,
+  CapturePresence,
 } from "./indicators";
 export {
   defineLens,

@@ -221,8 +221,8 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
     };
     // Lineage edge: this event continues the previous event of the same
     // (kind, agent) written by this process (real id, no graph scan). Claims
-    // are excluded — they dedupe per file path instead. The request carries
-    // no "subject container" id, so no subject edge is invented here.
+    // are excluded — they dedupe per file path instead. A subject edge is added
+    // only from detail.subject_container_id when present.
     let lineage_key = format!("{}:{}", req.kind, req.agent);
     let prior_event_id = if dedupe_keyword.is_none() {
         LAST_EVENT_BY_KIND_AGENT
@@ -260,17 +260,36 @@ pub async fn mirror(zsei: &ZSEI, data_dir: &str, req: &MirrorRequest) -> Result<
                 methodologies: vec![],
                 keywords,
                 topics: vec!["coordination".to_string()],
-                relationships: prior_event_id
-                    .map(|prev| {
-                        vec![Relation {
+                relationships: {
+                    let mut rels: Vec<Relation> = Vec::new();
+                    if let Some(prev) = prior_event_id {
+                        rels.push(Relation {
                             target_id: prev,
                             relation_type: RelationType::ForkOf,
                             confidence: 1.0,
                             discovered_via: DiscoveryMethod::Manual,
                             graph_hops: None,
-                        }]
-                    })
-                    .unwrap_or_default(),
+                        });
+                    }
+                    // Subject edge: only when the caller supplied a real
+                    // container id in detail.subject_container_id.
+                    if let Some(subj) = req
+                        .detail
+                        .as_ref()
+                        .and_then(|d| d.get("subject_container_id"))
+                        .and_then(|v| v.as_u64())
+                        .filter(|id| *id > 0)
+                    {
+                        rels.push(Relation {
+                            target_id: subj as _,
+                            relation_type: RelationType::RelatedTo,
+                            confidence: 1.0,
+                            discovered_via: DiscoveryMethod::Manual,
+                            graph_hops: None,
+                        });
+                    }
+                    rels
+                },
                 learned_associations: vec![],
                 embedding: None,
             },

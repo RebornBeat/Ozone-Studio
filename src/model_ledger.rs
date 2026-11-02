@@ -345,6 +345,24 @@ fn load_file() -> Table {
                     .apply(&outcome, latency_ms, ts_ms);
             }
             Err(reason) => {
+                // Tolerant recovery: interleaved concurrent writes can leave
+                // several JSON objects on one physical line. Salvage every
+                // parseable object before counting the line as unreadable.
+                let mut salvaged = 0usize;
+                for item in serde_json::Deserializer::from_str(raw).into_iter::<LedgerLine>() {
+                    let Ok(line) = item else { break };
+                    if let Ok(outcome) = from_line(&line) {
+                        table
+                            .entries
+                            .entry(line.model)
+                            .or_default()
+                            .apply(&outcome, line.latency_ms, line.ts_ms);
+                        salvaged += 1;
+                    }
+                }
+                if salvaged > 0 {
+                    continue;
+                }
                 skipped += 1;
                 if first_bad.is_none() {
                     first_bad = Some((index + 1, reason));
@@ -383,7 +401,13 @@ fn append_line(line: &LedgerLine) {
         .create(true)
         .append(true)
         .open(&path)
-        .and_then(|mut f| writeln!(f, "{text}"));
+        .and_then(|mut f| {
+            // ONE write call so concurrent processes (O_APPEND) cannot
+            // interleave the row body and its newline.
+            let mut buf = text.clone();
+            buf.push('\n');
+            f.write_all(buf.as_bytes())
+        });
     if let Err(e) = written {
         tracing::warn!(path = %path.display(), error = %e, "model ledger row not persisted");
     }
@@ -539,7 +563,7 @@ pub fn cause_of_with_cap(outcome: &Outcome, model: &str, max_tokens_sent: Option
             Some(Cause::Unknown)
         }
         Outcome::HttpError { status } => Some(match *status {
-            429 | 402 | 500..=599 => Cause::Provider,
+            429 | 402 | 404 | 500..=599 => Cause::Provider,
             401 | 403 => Cause::OzoneStudio,
             _ => Cause::Unknown,
         }),

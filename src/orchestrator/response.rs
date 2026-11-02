@@ -387,7 +387,8 @@ Return ONLY the rendered text. No explanation. No markdown."#
         // Graph's voice spec, and PERSISTED through the ZSEI store contract.
         // It conditions rendering (register/word choice via the ladder's
         // render-only rules) — it never alters content.
-        if state.request.consciousness_enabled {
+        // Honors [consciousness].identity_system_enabled (was stored but unread).
+        if state.request.consciousness_enabled && crate::consciousness::store::identity_system_enabled() {
             let voice_input = serde_json::json!({ "action": "GetVoice" });
             if let Ok(voice_result) = self.executor.execute(46, voice_input).await {
                 if let Some(voice) = voice_result.get("voice") {
@@ -414,19 +415,11 @@ Return ONLY the rendered text. No explanation. No markdown."#
             }
         }
 
-        // Update consciousness dashboard (Pipeline 54) — unchanged.
-        if state.request.consciousness_enabled {
-            let dashboard_input = serde_json::json!({
-                "action": "Update",
-                "task_completed": true,
-                "task_id": state.task_id,
-                "success": state.final_response.is_some(),
-                "tokens_used": state.tokens_used_so_far,
-                "methodologies_used": state.methodologies.len(),
-                "blueprint_id": state.blueprint_id
-            });
-            let _ = self.executor.execute(54, dashboard_input).await;
-        }
+        // Consciousness dashboard (Pipeline 54): its crate (`consciousness_dashboard`) has no
+        // "Update" action — the call this stage used to make (action "Update") could never
+        // deserialize, even with a built binary. The dashboard numbers are served from the host
+        // store (`GET /consciousness/state`: counts, last gate, awaiting items), so there is
+        // nothing to push; the dispatch is removed rather than left failing silently.
 
         // Task recommendations for next steps (Pipeline 23) — unchanged.
         let recommend_input = serde_json::json!({

@@ -505,6 +505,15 @@ pub enum ContainerType {
     McpResult = 90,
     McpEntity = 91,
 
+    // ── Chat persistence (2026-11-02): scoped conversation containers ────────
+    /// One per chat scope (global / workspace / project); parent of its turns.
+    ChatSession = 94,
+    /// One conversation turn: the FULL prompt + FULL response, never truncated.
+    ChatTurn = 95,
+    /// Persistent voice identity (consciousness self_model) — was written with a
+    /// string type that matched no variant, so it never persisted.
+    VoiceIdentity = 96,
+
     // ── Code-specific ─────────────────────────────────────────────────────────
     CodeModule = 60,
     CodeFunction = 61,
@@ -622,6 +631,9 @@ impl ContainerType {
             Self::PackageReference => "PackageReference",
             Self::McpResult => "McpResult",
             Self::McpEntity => "McpEntity",
+            Self::ChatSession => "ChatSession",
+            Self::ChatTurn => "ChatTurn",
+            Self::VoiceIdentity => "VoiceIdentity",
             Self::CodeModule => "CodeModule",
             Self::CodeFunction => "CodeFunction",
             Self::CodeClass => "CodeClass",

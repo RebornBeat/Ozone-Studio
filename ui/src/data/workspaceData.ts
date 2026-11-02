@@ -70,6 +70,33 @@ function basename(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1] : path;
 }
 
+/** Extension fallback for legacy FileReference containers whose keywords lack
+ * the modality entry. Lower-case bucket names, matching what file_link now
+ * writes to keywords[1] (shared table assets/pipelines/shared/modality_ext.rs,
+ * 2026-11-01). Deliberately small: anything unlisted stays undefined (honest
+ * unknown), never guessed. */
+const EXT_FALLBACK: Record<string, string> = {
+  html: "uidocument", htm: "uidocument", xhtml: "uidocument", css: "uidocument",
+  scss: "uidocument", sass: "uidocument", less: "uidocument", svg: "uidocument",
+  pdf: "text", doc: "text", docx: "text", rtf: "text", odt: "text",
+  txt: "text", md: "text", rst: "text",
+  rs: "code", py: "code", js: "code", ts: "code", tsx: "code", jsx: "code",
+  json: "code", yaml: "code", yml: "code", toml: "code", xml: "code",
+  png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image", bmp: "image",
+  mp3: "audio", wav: "audio", flac: "audio", ogg: "audio",
+  mp4: "video", mov: "video", mkv: "video", webm: "video", avi: "video",
+  csv: "data", tsv: "data", zip: "archive", tar: "archive", gz: "archive",
+  xls: "document", xlsx: "document", ppt: "document", pptx: "document",
+};
+
+function modalityForFileRef(keywords: string[], path: string | null): string | undefined {
+  const kw = keywords[1];
+  if (kw && kw !== "unknown") return kw;
+  if (!path) return undefined;
+  const dot = path.lastIndexOf(".");
+  return dot >= 0 ? EXT_FALLBACK[path.slice(dot + 1).toLowerCase()] : undefined;
+}
+
 const KIND_BY_CONTAINER_TYPE: Record<string, FileRefKind> = {
   FileReference: "file",
   URLReference: "url",
@@ -91,7 +118,7 @@ function toFileRef(containerId: number, c: RawContainer): FileRef | null {
       path: path ?? undefined,
       // Real per-file modality lives ONLY here (see file header) — never
       // read metadata.modality for these containers, it's always "Unknown".
-      modality: keywords[1],
+      modality: modalityForFileRef(keywords, path),
       keywords,
       raw: c,
     };

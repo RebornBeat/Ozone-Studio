@@ -13,7 +13,7 @@ is written but pending its first build.
 | Voice Identity persistence | `src/orchestrator/voice.rs` — `persist_voice_identity`: search-or-create a `VoiceIdentity` container through StoreAccess; survives sessions | **real, wired** |
 | Emotional state model | `src/consciousness/store.rs` — `EmotionalState {primary_emotion, valence, arousal, dominance, stability, triggers}`, `EmotionalBaseline`, `get_current_emotional_state()` | **real** |
 | Emotional update path | `consciousness_hooks::post_task_experience` called from `src/task/mod.rs:1168/1235` on task completion (success flag + tokens) | **wired — but see §3: the live `current_emotional_state` reads DEFAULT** |
-| Consciousness response records | assistant check-up insights carry `[consciousness-response: type=consciousness channel=text emotion=... findings=N]` | **live (this pass)** |
+| Consciousness response records | assistant check-up insights carry `[consciousness-response: type=consciousness channel=text emotion=... findings=N]` | **live** — now ALSO a structured `CONSCIOUSNESS_RESPONSE` JSONL record (`response_record.rs`) |
 | Marker vocabulary → UI | `marker_info` + `emit_marker` → orchestration events → OrchestrationStatusPanel | **live** |
 | Raw Thoughts | thinking_log (per-task) + S11/S12 capture stores; viewer = capture tab | **live — shows description AND raw response** |
 | I-Loop / assistant / meta loops | `i_loop.rs`, `assistant.rs`, `meta_loop.rs` — boot-spawned, consciousness-gated | **live** |
@@ -99,3 +99,11 @@ Chat surfaces render two visually distinct entries:
 `[5.xref.3]` created/FAILED markers on the container create; `[5.xref.4]`
 layer-complete marker. Any recurrence of the wedge names the exact sub-step.
 **Build these first next session.**
+
+
+## Corrections (2026-11-02)
+
+- Structured record implemented: `src/consciousness/response_record.rs` appends one JSON line per assistant check-up response to `zsei_data/consciousness/consciousness_responses.jsonl` (fields: type, schema, at, source, channel, emotion{primary,valence,arousal,dominance}, content, container_id, findings, trace_id). The text trailer remains for human readers; consumers should read the record. Pending first build.
+- Not yet written (absent, not faked): `audio_ref`, `voice_identity_id`, `voice_policy`, `graph_context`, `self_heard`. The read route `GET /consciousness/responses?scope=` does not exist yet.
+- TTS is now real-or-loud (see VOICE_BOX_GUIDE §8); consumers must treat `success:false` as "no audio", never as playable.
+- I-Loop reflections do not write this record yet (assistant only).

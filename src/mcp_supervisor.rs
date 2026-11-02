@@ -145,6 +145,10 @@ pub fn facts_for_port(port: u16) -> Option<McpProcessFacts> {
         // Known to the supervisor so on-demand start works; auto_start stays
         // a per-tool operator opt-in (default false) like every other tool.
         3279 => Some(facts("code-graph-mcp", "server.mjs", "OZONE_CODE_GRAPH_PORT")),
+        3280 => Some(facts("browser-mcp", "server.mjs", "OZONE_BROWSER_PORT")),
+        3281 => Some(facts("browser-farm-mcp", "server.mjs", "OZONE_FARM_PORT")),
+        // document-mcp (2026-11-02): PDF/Office text extraction tool the text modality calls onto.
+        3282 => Some(facts("document-mcp", "server.mjs", "OZONE_DOCUMENT_PORT")),
         _ => None,
     }
 }
@@ -376,6 +380,10 @@ impl McpProcessSupervisor {
                 .arg(&script)
                 .env(facts.port_env, port.to_string())
                 .env("OZONE_ZSEI_DATA_DIR", zsei_data_dir)
+                // The loopback guard (tools/shared/guard.mjs) verifies the host's
+                // x-oz-internal header against this token. Absent token => the guard
+                // searches the data dir files itself.
+                .envs(crate::grpc::internal_token().map(|t| ("OZONE_INTERNAL_TOKEN", t)))
                 .stdin(std::process::Stdio::null())
                 .stdout(out_stdio)
                 .stderr(err_stdio)

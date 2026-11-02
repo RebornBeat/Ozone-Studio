@@ -129,7 +129,9 @@ function proteinGraph(detail) {
   return { nodes, edges: [] };
 }
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   if (req.method !== "POST" || !(req.url ?? "").startsWith("/call")) {
     reply(res, 404, { error: "POST /call only" });
     return;

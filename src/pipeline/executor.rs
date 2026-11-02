@@ -647,22 +647,13 @@ impl PipelineExecutor {
         crate::pipeline::registry::get_pipeline_info(pipeline_id).is_some()
     }
 
-    /// Execute a builtin pipeline
-    async fn execute_builtin(
-        &self,
-        pipeline_id: PipelineID,
-        input: PipelineInput,
-        execution_id: ExecutionID,
-        task_id: Option<TaskID>,
-    ) -> OzoneResult<PipelineOutput> {
-        let (category, pipeline_name) = self.get_builtin_info(pipeline_id);
-
-        let pipeline_dir = self.builtin_path.join(category).join(&pipeline_name);
-
-        // Candidate executables, in order: binary next to the pipeline
-        // folder, crate target builds, sibling of the host binary. NEVER
-        // execute main.rs — that was an EACCES trap (source isn't runnable).
-        let name = pipeline_name.as_str();
+    /// Candidate executables for a builtin pipeline, in resolution order. ONE list
+    /// shared by dispatch (execute_builtin) and by boot-time checks (lib.rs used to
+    /// look only at the per-crate target dir and logged a false "binary not found"
+    /// warning for pipeline 9 although dispatch found it in the shared dir).
+    pub fn builtin_candidates(builtin_path: &std::path::Path, category: &str, pipeline_name: &str) -> Vec<PathBuf> {
+        let pipeline_dir = builtin_path.join(category).join(pipeline_name);
+        let name = pipeline_name;
         // SHARED TARGET FIRST (2026-10-13): the per-pipeline local targets
         // (pipeline_dir/target/{release,debug}) were searched BEFORE the
         // shared build dir — so any per-crate build outside
@@ -704,9 +695,9 @@ impl PipelineExecutor {
                     .join("target/pipelines/release")
                     .join(alias),
             );
-            candidates.push(self.builtin_path.join(category).join(alias).join(alias));
+            candidates.push(builtin_path.join(category).join(alias).join(alias));
             candidates.push(
-                self.builtin_path
+                builtin_path
                     .join(category)
                     .join(alias)
                     .join("target/release")
@@ -739,6 +730,29 @@ impl PipelineExecutor {
             }
         }
 
+        candidates
+    }
+
+    /// First existing candidate for a builtin pipeline id, or None. Boot-time
+    /// callers (lib.rs) use this instead of a private partial search.
+    pub fn find_builtin_binary(builtin_path: &std::path::Path, pipeline_id: PipelineID) -> Option<PathBuf> {
+        let info = crate::pipeline::registry::get_pipeline_info(pipeline_id)?;
+        Self::builtin_candidates(builtin_path, info.category, info.folder_name.as_str())
+            .into_iter()
+            .find(|c| c.exists())
+    }
+
+    /// Execute a builtin pipeline
+    async fn execute_builtin(
+        &self,
+        pipeline_id: PipelineID,
+        input: PipelineInput,
+        execution_id: ExecutionID,
+        task_id: Option<TaskID>,
+    ) -> OzoneResult<PipelineOutput> {
+        let (category, pipeline_name) = self.get_builtin_info(pipeline_id);
+
+        let candidates = Self::builtin_candidates(&self.builtin_path, category, &pipeline_name);
         let pipeline_path = candidates
             .iter()
             .find(|c| c.exists())
@@ -859,6 +873,29 @@ impl PipelineExecutor {
             }
         }
 
+        // Model identifier for failure logs (404 "Provider returned error" etc.
+        // are otherwise anonymous): best-effort from the serialized input.
+        let model_for_log: String = serde_json::to_value(&input)
+            .ok()
+            .and_then(|v| {
+                fn find(v: &serde_json::Value) -> Option<String> {
+                    match v {
+                        serde_json::Value::Object(m) => {
+                            for k in ["model", "model_id", "model_name"] {
+                                if let Some(serde_json::Value::String(s)) = m.get(k) {
+                                    if !s.is_empty() {
+                                        return Some(s.clone());
+                                    }
+                                }
+                            }
+                            m.values().find_map(find)
+                        }
+                        _ => None,
+                    }
+                }
+                find(&v)
+            })
+            .unwrap_or_else(|| "unknown".to_string());
         let input_json = serde_json::to_string(&input)
             .map_err(|e| OzoneError::SerializationError(e.to_string()))?;
 
@@ -904,6 +941,30 @@ impl PipelineExecutor {
         // bound: one load + generation with headroom. The child itself is
         // not age-bounded anymore — idle-kill governs (run_child_bounded).
         cmd.env("OZONE_PIPELINE_TIMEOUT_SECS", "600");
+        // CROSS-PROCESS RATE LIMITER (prompt binary): every model call in the
+        // system ends in a prompt-binary process — the host walk spawns it
+        // directly, and modality binaries spawn it as a nested child. The
+        // per-minute token bucket therefore lives in the prompt binary, in a
+        // lock-file bucket shared by all of those processes. Pass the bucket's
+        // directory explicitly so a modality binary with a different cwd still
+        // lands on the SAME file (OZONE_OPENROUTER_RPM is inherited as-is). The
+        // admission gate (concurrency tiers) stays HOST-side: nested spawns
+        // are covered by the limiter (rate), not by the gate (concurrency).
+        // Host-internal token so a spawned pipeline can call strict-session host
+        // routes (e.g. the text modality's document tool call via /mcp/call).
+        if let Some(tok) = crate::grpc::internal_token() {
+            cmd.env("OZONE_INTERNAL_TOKEN", tok);
+        }
+        if std::env::var_os("OZONE_LIMITER_DIR").is_none() {
+            let data = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+            let dir = std::path::Path::new(&data).join("model_calls");
+            let dir = if dir.is_absolute() {
+                dir
+            } else {
+                std::env::current_dir().map(|c| c.join(&dir)).unwrap_or(dir)
+            };
+            cmd.env("OZONE_LIMITER_DIR", dir);
+        }
         if let Some(ctx) = trace_ctx.as_ref() {
             for (k, v) in ctx.env_pairs() {
                 cmd.env(k, v);
@@ -947,6 +1008,7 @@ impl PipelineExecutor {
             };
             tracing::error!(
                 execution_id = %execution_id,
+                model = %model_for_log,
                 stderr = %stderr,
                 stdout = %stdout,
                 "Pipeline execution failed (non-zero exit)"

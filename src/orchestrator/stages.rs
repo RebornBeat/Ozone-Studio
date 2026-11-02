@@ -826,11 +826,13 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // at graphs.rs's File Role Classification call.
         let bp_result = self.metered_execute_resilient(state, bp_input, "blueprint_assignment").await?;
         self.record_thinking(state, "Blueprint Assignment", &bp_result);
-        let response = bp_result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("{}");
-        let bp_json = Self::parse_json_object(response);
+        // No silent `{}`: a missing/unparseable blueprint is a FAILED stage, not a
+        // "Generated Blueprint" with no steps that reconciliation then invents around.
+        let response = Self::response_text(&bp_result).ok_or_else(|| {
+            "Blueprint Assignment: the model returned no response text — not substituting an empty blueprint".to_string()
+        })?;
+        let bp_json = Self::parse_json_object_strict(response)
+            .map_err(|e| format!("Blueprint Assignment: {e}"))?;
 
         let name = bp_json
             .get("name")
@@ -1548,11 +1550,13 @@ Return JSON:
         // second chance instead of accepting a degraded first attempt.
         let sim_result = self.metered_execute_resilient(state, sim_input, "zero_shot_simulation").await?;
         self.record_thinking(state, "Zero-Shot Simulation", &sim_result);
-        let response = sim_result
-            .get("response")
-            .and_then(|r| r.as_str())
-            .unwrap_or("{}");
-        let sim_json = Self::parse_json_object(response);
+        // No silent `{}`: an unreadable simulation is a FAILED stage, not "medium
+        // feasibility, no predictions, no clarifications".
+        let response = Self::response_text(&sim_result).ok_or_else(|| {
+            "Zero-Shot Simulation: the model returned no response text — not substituting an empty simulation".to_string()
+        })?;
+        let sim_json = Self::parse_json_object_strict(response)
+            .map_err(|e| format!("Zero-Shot Simulation: {e}"))?;
 
         // NO self-reported confidence: the model's numeric self-assessment is
         // fabricated precision. Clarification is decided structurally —
@@ -1817,15 +1821,90 @@ Return JSON:
         });
 
         tracing::info!(stage = 8, "[8.2] gate input assembled — executing decision_gate (39), adapter-watchdog-bounded");
-        let result = self.executor.execute(39, input).await;
-        tracing::info!(stage = 8, "[8.3] gate execute returned");
-        let result = result?;
+        // DOCTRINE (2026-11-01): the consciousness gate is decided ONLY by
+        // meta/consciousness. If it cannot judge (error, rate limit, empty,
+        // ReviewPending/ReviewFailed, no decision) the walk AWAITS in a
+        // durable awaiting item and re-asks with backoff — it never fails
+        // open and never hands the decision to a human. The orchestrate walk
+        // is detached, so waiting does not hold a client connection.
+        let mut await_id: Option<String> = None;
+        let result = loop {
+            let attempt = self.executor.execute(39, input.clone()).await;
+            tracing::info!(stage = 8, "[8.3] gate execute returned");
+            let (judged, why) = match &attempt {
+                Ok(v) => {
+                    let d = v.get("gate").and_then(|g| g.get("decision")).and_then(|d| d.as_str());
+                    match d {
+                        None => (false, "gate returned no decision".to_string()),
+                        Some("ReviewPending") | Some("ReviewFailed") => (
+                            false,
+                            v.get("gate")
+                                .and_then(|g| g.get("reasoning"))
+                                .and_then(|r| r.as_str())
+                                .unwrap_or("meta could not judge (rate limit / empty / all models failed)")
+                                .to_string(),
+                        ),
+                        Some(_) => (true, String::new()),
+                    }
+                }
+                Err(e) => (false, format!("gate call failed: {}", e)),
+            };
+            if judged {
+                if let Some(id) = &await_id {
+                    super::awaiting::mark_resolved(&self.data_dir, id, "meta judged");
+                    super::awaiting::mark_applied(&self.data_dir, id);
+                }
+                break attempt?;
+            }
+            let item = match &await_id {
+                Some(id) => super::awaiting::record_attempt(&self.data_dir, id, &why),
+                None => {
+                    let subject: String = state.cleaned_prompt.chars().take(200).collect();
+                    let it = super::awaiting::open(
+                        &self.data_dir,
+                        super::awaiting::KIND_CONSCIOUSNESS_GATE,
+                        &subject,
+                        state.task_id.map(|t| t.to_string()).as_deref(),
+                        None,
+                        &why,
+                    )
+                    .ok();
+                    if let Some(it) = &it {
+                        await_id = Some(it.await_id.clone());
+                    }
+                    it
+                }
+            };
+            let attempts = item.as_ref().map(|i| i.attempts).unwrap_or(0);
+            tracing::warn!(
+                stage = 8,
+                attempts,
+                "[8.3w] consciousness gate AWAITING meta judgment (not proceeding): {}",
+                why
+            );
+            self.record_stage(
+                state,
+                8,
+                "Consciousness Gate",
+                true,
+                &format!("AWAITING meta judgment (attempt {}): {}", attempts, why),
+            );
+            let wait = std::time::Duration::from_secs(super::awaiting::backoff_secs(attempts));
+            let _ = tokio::time::timeout(wait, super::awaiting::await_wake().notified()).await;
+            if let Some(id) = &await_id {
+                if let Some(cur) = super::awaiting::get(&self.data_dir, id) {
+                    if cur.status == super::awaiting::STATUS_CANCELLED {
+                        return Err(format!("AWAITING:{} cancelled", id));
+                    }
+                }
+            }
+        };
 
         let decision = result
             .get("gate")
             .and_then(|g| g.get("decision"))
             .and_then(|d| d.as_str())
-            .unwrap_or("Proceed");
+            .unwrap_or("Decline");
 
         // Captured from the gate pipeline when it reports one — absence is
         // None, never a fabricated default.
@@ -1867,13 +1946,28 @@ Return JSON:
         Ok(())
     }
 
+    /// Re-enter a failure-paused run: the step loop (which skips completed steps), then the
+    /// same result collection / post-execution / delivery stages as a fresh run.
+    pub(crate) async fn execute_resumed_stages(&self, state: &mut OrchestrationState) -> Result<(), String> {
+        self.stage_6_to_8_execute_steps(state).await?;
+        self.stage_9_result_collection(state).await?;
+        if state.request.consciousness_enabled {
+            self.stage_10_post_execution(state).await?;
+        } else {
+            self.record_stage(state, 12, "Post-execution", true, "Skipped (disabled)");
+        }
+        self.link_walk_content(state).await;
+        self.stage_11_response_delivery(state).await
+    }
+
     async fn stage_6_to_8_execute_steps(
         &self,
         state: &mut OrchestrationState,
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
 
-        // STAGE 7: Create task via TaskManager
+        // STAGE 7: Create task via TaskManager (skipped on resume: the task already exists)
+        if state.task_id.is_none() {
         let mut inputs = HashMap::new();
         inputs.insert(
             "prompt".to_string(),
@@ -1929,14 +2023,31 @@ Return JSON:
             state.task_id.is_some(),
             &format!("Task: {:?}", state.task_id),
         );
+        }
+        // Initial checkpoint: from here a failure can pause + resume this run.
+        self.write_checkpoint(state, None);
 
         // STAGES 6 & 8: Execute steps
         let steps = state.blueprint_steps.clone();
-        let mut all_outputs: Vec<String> = Vec::new();
-        let mut completed: HashSet<u32> = HashSet::new();
+        // RESUME: steps whose output is already recorded (restored from the run checkpoint)
+        // are complete and are not re-run; a fresh run starts with both sets empty.
+        let mut completed: HashSet<u32> = state.step_outputs.keys().cloned().collect();
+        let mut all_outputs: Vec<String> = state
+            .step_results
+            .iter()
+            .filter_map(|r| {
+                state
+                    .step_outputs
+                    .get(&r.step_index)
+                    .and_then(|o| o.get("output"))
+                    .and_then(|o| o.as_str())
+                    .map(String::from)
+            })
+            .collect();
 
         // Build dependency order
-        let mut step_queue: Vec<&BlueprintStep> = steps.iter().collect();
+        let mut step_queue: Vec<&BlueprintStep> =
+            steps.iter().filter(|s| !completed.contains(&s.step_index)).collect();
         let mut iterations = 0;
         let max_iterations = steps.len() * 2;
 
@@ -1964,7 +2075,11 @@ Return JSON:
             if ready_steps.is_empty() && !step_queue.is_empty() {
                 // Force execute first remaining step (break deadlock)
                 if let Some(step) = step_queue.first().cloned() {
-                    let result = self.execute_step(state, step, &all_outputs).await?;
+                    // FAILURE DOCTRINE: never continue past a failed step — pause the task here.
+                    let result = match self.execute_step(state, step, &all_outputs).await {
+                        Ok(r) => r,
+                        Err(e) => return Err(self.pause_on_step_error(&*state, step.step_index, &e).await),
+                    };
                     let output_text = self.extract_output_text(&result.output);
                     let model_used = result
                         .output
@@ -1979,6 +2094,7 @@ Return JSON:
                     );
                     completed.insert(step.step_index);
                     step_queue.retain(|s| s.step_index != step.step_index);
+                    self.write_checkpoint(state, None);
 
                     // Update TaskManager (full step metadata — measured
                     // tokens go into the version note, never fake scores)
@@ -2028,7 +2144,11 @@ Return JSON:
                 }
             } else {
                 for step in ready_steps {
-                    let result = self.execute_step(state, step, &all_outputs).await?;
+                    // FAILURE DOCTRINE: never continue past a failed step — pause the task here.
+                    let result = match self.execute_step(state, step, &all_outputs).await {
+                        Ok(r) => r,
+                        Err(e) => return Err(self.pause_on_step_error(&*state, step.step_index, &e).await),
+                    };
                     let output_text = self.extract_output_text(&result.output);
                     let model_used = result
                         .output
@@ -2043,6 +2163,7 @@ Return JSON:
                     );
                     completed.insert(step.step_index);
                     step_queue.retain(|s| s.step_index != step.step_index);
+                    self.write_checkpoint(state, None);
 
                     // Update TaskManager (full step metadata — measured
                     // tokens go into the version note, never fake scores)
@@ -2167,16 +2288,23 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         let sub_queries: Vec<String> = match self.metered_execute_resilient(state, decompose_input, "web_search_decompose").await {
             Ok(result) => {
                 self.record_thinking(state, "Web Search — query decomposition", &result);
-                let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
                 let json_str = Self::extract_json_from_response(response, '{', '}');
                 serde_json::from_str::<serde_json::Value>(json_str.trim())
                     .ok()
                     .and_then(|v| v.get("sub_queries").cloned())
                     .and_then(|v| serde_json::from_value::<Vec<String>>(v).ok())
                     .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| vec![query.clone()])
+                    .unwrap_or_else(|| {
+                        // Designed degrade (search the original query), but never silent.
+                        tracing::warn!(site = "web_search_decompose", "decomposition response had no usable sub_queries — searching the original query only");
+                        vec![query.clone()]
+                    })
             }
-            Err(_) => vec![query.clone()],
+            Err(e) => {
+                tracing::warn!(site = "web_search_decompose", error = %e, "decomposition call failed — searching the original query only");
+                vec![query.clone()]
+            }
         };
 
         let mut all_results = Vec::new();
@@ -2276,7 +2404,15 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // executing the step only sees THIS walk's session replay and
             // cannot build on prior work.
             let prior_design = self.load_prior_design_context(state, &step.description).await;
+            // SPAN-OUT (2026-11-02): fan out from everything the run already captured
+            // (AMT, prompt/chunk/file/modality graphs, blueprint, methodologies) along the
+            // captured relationships until the window share is full. This replaces
+            // "4 seeds x depth 2 x 8 containers" as the primary graph context; the
+            // pipeline's keyword path still runs beside it.
+            let span = self.span_out_for_step(state, step).await;
+            let span_out_context: Option<String> = if span.text.trim().is_empty() { None } else { Some(span.text.clone()) };
             let context_input = serde_json::json!({
+                "span_out_context": span_out_context,
                 "action": "ForStep",
                 "query": format!("{} - {}", state.cleaned_prompt, step.description),
                 "session_context": session_context,
@@ -2329,7 +2465,22 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                         task_id,
                         step.step_index,
                         &step_context,
-                        vec!["keyword-scan".to_string()],
+                        {
+                            let mut m = vec!["keyword-scan".to_string()];
+                            if span.items.is_empty() {
+                                m.push("span-out:empty".to_string());
+                            } else {
+                                m.push(format!(
+                                    "span-out:{} items, {} tokens, {} fetched{}{}",
+                                    span.items.len(),
+                                    span.tokens,
+                                    span.fetched,
+                                    if span.budget_filled { ", budget filled" } else { "" },
+                                    if span.fetch_cap_hit { ", FETCH CAP HIT" } else { "" },
+                                ));
+                            }
+                            m
+                        },
                     )
                     .await
                 {
@@ -2367,6 +2518,13 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 .unwrap_or("");
             let full_context = {
                 let mut fc = String::new();
+                // CHAT MEMORY (2026-11-02): the last turns of THIS chat scope (full
+                // text) so a follow-up prompt sees the conversation, not only the
+                // graph. Labelled as history, never as the task.
+                if let Some(history) = self.recent_chat_context(state) {
+                    fc.push_str("[Conversation so far in this chat (earlier turns, oldest first)]\n");
+                    fc.push_str(&history);
+                }
                 if !coordination_layer.is_empty() {
                     fc.push_str("[Agent coordination history]\n");
                     fc.push_str(coordination_layer);
@@ -2491,6 +2649,14 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     output: sub_result.clone().unwrap_or_default(),
                     success: sub_result.is_ok(),
                 });
+                // FAILURE DOCTRINE: a failed sub-step fails the step (which pauses the task);
+                // it is never recorded and walked past.
+                if let Err(e) = &sub_result {
+                    return Err(format!(
+                        "sub-step {} (pipeline {}) of step {} failed: {}",
+                        sub_step.sub_index, sub_step.pipeline_id, step.step_index, e
+                    ));
+                }
             }
 
             // Execute main step — pipeline 56 (WebSearch) gets its own
@@ -2503,6 +2669,14 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             if step.pipeline_id == 56 {
                 tracing::info!(stage = 10, "[10.w{}] web-search step begin", step.step_index);
                 final_output = self.execute_web_search_step(state, step).await?;
+                if final_output.get("success").and_then(|v| v.as_bool()) == Some(false) {
+                    // Every sub-query failed: that is a failed step, not an empty search result.
+                    return Err(format!(
+                        "web search step {} failed: {}",
+                        step.step_index,
+                        final_output.get("error").and_then(|e| e.as_str()).unwrap_or("no sub-query succeeded")
+                    ));
+                }
                 tracing::info!(stage = 10, "[10.w{}] web-search step done", step.step_index);
                 self.record_thinking(
                     state,
@@ -2545,9 +2719,10 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // OZONE_TOOL_ROUTING=1, simulation-selected tools may contribute
             // budget-capped, untrusted-labeled REAL output to the step's
             // prompt. Gate off (default) = byte-for-byte today's prompt.
-            let step_prompt = match crate::orchestrator::tool_routing::tool_context_for_step(
+            let step_prompt = match crate::orchestrator::tool_routing::tool_context_for_step_with_task(
                 &step.description,
                 &state.applicable_tools,
+                state.task_id,
             )
             .await
             {
@@ -2915,12 +3090,28 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                     Some(line) => format!("No response generated: last attempt {line}"),
                     None => "No response generated".to_string(),
                 };
-                let _ = self
-                    .task_manager
-                    .read()
-                    .await
-                    .fail_task(task_id, message)
-                    .await;
+                // FAILURE DOCTRINE: a run that produced no final response is not "done" — pause
+                // it at the first step with no recorded output so it can be resumed from there.
+                // Only when every step has output yet there is still no response is the task
+                // marked failed (nothing to resume into).
+                let first_missing = state
+                    .blueprint_steps
+                    .iter()
+                    .find(|st| !state.step_outputs.contains_key(&st.step_index))
+                    .map(|st| st.step_index);
+                match first_missing {
+                    Some(i) => {
+                        let _ = self.pause_on_step_error(&*state, i, &message).await;
+                    }
+                    None => {
+                        let _ = self
+                            .task_manager
+                            .read()
+                            .await
+                            .fail_task(task_id, message)
+                            .await;
+                    }
+                }
             }
         }
 
@@ -2956,27 +3147,25 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         //
         // Additional consciousness processing can be done here if needed:
 
-        // Store experience with more detail via consciousness pipelines
-        let experience_input = serde_json::json!({
-            "action": "StoreExperience",
-            "experience_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
-            "summary": crate::orchestrator::prefix_at_char_boundary(&state.cleaned_prompt, 200),
-            "task_id": state.task_id,
-            "user_id": state.request.user_id,
-            "tags": state.topics.clone(),
-            "keywords": state.keywords.iter().cloned().collect::<Vec<_>>(),
-            "methodologies_used": state.methodologies.clone(),
-            "blueprint_id": state.blueprint_id,
-            "significance": if state.final_response.is_some() { 0.5 } else { 0.3 },
-            "tokens_used": state.tokens_used_so_far
-        });
-
-        // Pipeline 41 = CoreMemoryFormation — RESULT TRUTH (2026-10-23):
-        // these three calls used to be `let _ =` drops under a blanket
-        // "Experience stored..." success record (the no-invisible-failures
-        // violation). Each result is now captured and the stage detail
-        // reports the real per-pipeline outcome.
-        let experience_result = self.executor.execute(41, experience_input).await;
+        // EXPERIENCE + EMOTION (2026-11-02): pipelines 41 and 43 have no built binary
+        // (every stage-12 run recorded "binary not built"), and the host store
+        // already does this work: TaskManager's consciousness observer calls
+        // `post_task_experience_with` when the task completes or fails (stage 11),
+        // storing the experience AND moving the emotional state. Stage 12 therefore
+        // VERIFIES that record in the host store instead of dispatching a duplicate.
+        let experience_result: Result<serde_json::Value, String> = match state.task_id {
+            Some(tid) => {
+                let n = crate::consciousness::store::experience_count_for_task(tid);
+                if n > 0 {
+                    Ok(serde_json::json!({ "recorded_by": "task-manager-observer", "experiences": n }))
+                } else if !crate::consciousness::store::is_consciousness_enabled() {
+                    Err("skipped: consciousness disabled in the store".to_string())
+                } else {
+                    Err("no experience recorded for this task by the host store (observer did not run or experience_memory_enabled = false)".to_string())
+                }
+            }
+            None => Err("no task id: nothing to verify".to_string()),
+        };
 
         // Update relationship if we know the user
         let relationship_input = serde_json::json!({
@@ -2988,19 +3177,18 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         });
 
         // Pipeline 47 = RelationshipDevelopment
-        let relationship_result = self.executor.execute(47, relationship_input).await;
+        // Honors [consciousness].relationship_system_enabled (was stored but unread).
+        let relationship_result = if crate::consciousness::store::relationship_system_enabled() {
+            self.executor.execute(47, relationship_input).await
+        } else {
+            Err("skipped: relationship_system_enabled = false".to_string())
+        };
 
-        // Update emotional state
-        let emotion_input = serde_json::json!({
-            "action": "ProcessTrigger",
-            "trigger_type": if state.final_response.is_some() { "task_success" } else { "task_failure" },
-            "source": "orchestrator",
-            "intensity": 0.5,
-            "context": crate::orchestrator::prefix_at_char_boundary(&state.cleaned_prompt, 100)
-        });
-
-        // Pipeline 43 = EmotionalBaselineUpdate
-        let emotion_result = self.executor.execute(43, emotion_input).await;
+        // Emotional state: read the host store's live state (moved by the same observer).
+        let emotion_result: Result<serde_json::Value, String> = {
+            let e = crate::consciousness::store::get_current_emotional_state();
+            Ok(serde_json::json!({ "primary": e.primary_emotion, "valence": e.valence, "arousal": e.arousal }))
+        };
 
         // HONEST stage record: which of the three really ran, which failed
         // (with the real error) — never a blanket success over dropped calls.
@@ -3014,6 +3202,12 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         for (pipeline, label, result) in &outcomes {
             match result {
                 Ok(_) => ok.push(label.to_string()),
+                // A config-disabled subsystem is a deliberate skip, not a failure.
+                Err(e) if e.starts_with("skipped:") => ok.push(format!("{label}(skipped by config)")),
+                // An unbuilt pipeline binary is "unavailable", reported as such (not hidden, not a run failure).
+                Err(e) if e.contains("binary not built") => {
+                    failed.push(format!("{label}({pipeline}): unavailable — {e}"));
+                }
                 Err(e) => {
                     failed.push(format!("{label}({pipeline}): {e}"));
                     tracing::warn!(pipeline, stage = 12, error = %e, "post-execution consciousness call FAILED (recorded, not dropped)");
@@ -3031,7 +3225,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             state,
             12,
             "Post-execution Consciousness",
-            !failed.is_empty() && ok.is_empty(), // false only when everything failed
+            failed.is_empty(), // truth: success only when NO call failed (was inverted)
             &detail,
             stage_start.elapsed().as_millis() as u64,
         );

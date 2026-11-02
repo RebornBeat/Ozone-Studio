@@ -13,6 +13,10 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { modelStyle, renderMarkdown } from '../chatRendering';
+import TranscriptEntryMeta from './TranscriptEntryMeta';
+import ThinkingRow from './ThinkingRow';
+import PausedBanner from './PausedBanner';
+import { OrchestrationPanels, CoordinationStrip } from './OrchestrationPanels';
 import { useChatSession } from '../hooks/useChatSession';
 
 export interface ProjectChatPanelProps {
@@ -22,7 +26,9 @@ export interface ProjectChatPanelProps {
 }
 
 export default function ProjectChatPanel({ projectId, workspaceId, projectName }: ProjectChatPanelProps) {
-  const { transcript, isRunning, send } = useChatSession({ projectId, workspaceId });
+  // Same engine as MetaPortion; only the scope differs (project-scoped,
+  // persisted per project+workspace across restarts).
+  const { transcript, isRunning, send, elapsedSeconds, stepInfo, awaiting, paused, resumePaused } = useChatSession({ projectId, workspaceId });
   const [input, setInput] = useState('');
   const transcriptRef = useRef<HTMLDivElement>(null);
 
@@ -63,11 +69,16 @@ export default function ProjectChatPanel({ projectId, workspaceId, projectName }
                   )}
                 </div>
                 <div>{renderMarkdown(entry.content)}</div>
+                <TranscriptEntryMeta entry={entry} />
               </div>
             );
           })
         )}
+        <ThinkingRow isRunning={isRunning} elapsedSeconds={elapsedSeconds} stepInfo={stepInfo} awaiting={awaiting} />
+        <PausedBanner paused={paused} onResume={resumePaused} busy={isRunning} />
+        <CoordinationStrip />
       </div>
+      <OrchestrationPanels isRunning={isRunning} scope={{ projectId, workspaceId }} />
       <form className="project-chat-input" onSubmit={handleSubmit}>
         <textarea
           value={input}

@@ -44,7 +44,7 @@ Legend: ✔ verified (date + evidence) · ☐ pending · ⚠ known defect to rep
 
 Port table (source of truth = `src/mcp_supervisor.rs`): bridges 3210 · terminal 3215 · visual 3220 · web 3225 · code 3230 · git 3235 ·
 security 3240 · gcal 3241 · cerebrix 3245 · threed 3250 · connectome 3255(+3256) · re 3260 · zoom 3265 · dna 3271 · chemistry 3272 ·
-proteomics 3273 · geospatial 3274 · mesh 3276 · android 3277 · p2p-bridge 3278 · code-graph 3279 · **browser 3280 · browser-farm 3281**.
+proteomics 3273 · geospatial 3274 · mesh 3276 · android 3277 · p2p-bridge 3278 · code-graph 3279 · **browser 3280 · browser-farm 3281 · document 3282**.
 
 ## 2. Build and unit/regression layer (L1)
 | ID | Test | Command | Status |
@@ -231,7 +231,7 @@ container, (c) pipeline run result or honest "no pipeline", (d) viewer in the UI
 | Group | Fixtures (extension) | Known issue to assert |
 |---|---|---|
 | Text | `.txt .md .rst .adoc .org` | ✔ `.md` → Text (live file refs); ⚠ viewer must not render as Math (MathViewer is modality-blind) |
-| Text-PDF | `.pdf .doc .docx` (DESIGNED_NOT_BUILT_REGISTRY §6) | text pipeline 100 gains real pdf/docx extraction (pdf-extract / zip+xml) BEFORE plain-text read; per-PAGE provenance in chunk meta; scanned-PDF → honest "no text layer" error (OCR out of scope, recorded); encrypted PDF → honest error; `.tex` → **Math** (canonical table, post-unification) |
+| Text-PDF | `.pdf .doc .docx` (DESIGNED_NOT_BUILT_REGISTRY §6) | text pipeline 100 gets real pdf/docx text by CALLING the **document MCP** (`document_extract`, tools/document-mcp :3282 — poppler/unzip/LibreOffice; NOT a text-pipeline crate dependency, corrected 2026-11-02) BEFORE plain-text read; per-PAGE provenance in chunk meta; scanned-PDF → honest "no text layer" error (OCR out of scope, recorded); encrypted PDF → honest error; `.tex` → **Math** (canonical table, post-unification) |
 | Code | `.rs .py .js .ts .tsx .java .go .c .cpp .sql .sh .v .fs .ml` | ⚠ `.ts` is Code (MPEG-TS never reached); `.v/.d/.fs/.ml` ambiguity; T-C4/C5 |
 | Data | `.json .yaml .toml .xml .csv` | Data has **no pipeline** ⚠ |
 | Config / Web | `.conf .ini .env`, `.html .css` | Config & Web have no pipeline ⚠ |
@@ -424,3 +424,104 @@ UE-ENC1 non-UTF-8 file ingests with `source_encoding` recorded · UE-ENC2 invali
 
 ## §25 Screenshot-to-graph, scope, and cross-modality rows (post 845ba7b review) — NOT RUN
 IMG-PERSIST1 a farm screenshot ingest creates a ZSEI image container (parent = project) AND a ripple (today: analysis JSON only; `Analyze` does not persist) · SCOPE1 screenshot/ingest with no ids -> default workspace/project from `OZONE_FARM_DEFAULT_WORKSPACE/PROJECT` · SCOPE2 ripple carries `ws:`/`proj:` keywords for ingest_image and ingest_uidocument · SCOPE3 `/mcp/call` context scope is forwarded into the tool call (SC1-SC4) so MCPs never invent scope · XLINK1 Renders from a real SCREENSHOT container to its page's UiDocument root (image<->UiDocument; the 845ba7b proof was svg<->svg) · XLINK2 Locates from a screenshot detection to the DOM element it overlaps (needs a detector on EU) · G1-ROUTE every direct-persist modality (image, geospatial, 3D…) gets the spatial pass at the ZSEI choke point.
+
+## §26 Final E2E additions (2026-11-01 review; authoritative detail in docs/REVIEW_E2E_STATE_2026-11-01.md §7, §10–§16) — all NOT RUN
+Awaiting/gates: AW1–AW10 (unjudged chunk → await, drain re-runs only unjudged, resume same task, outage never drops, restart keeps awaiting, Decline fails with reason, meta never prompts a human, `ReviewFailed` awaits, Order bucket fields, UI shows no "Error", plan-gate confirmation retained); TD-G1–TD-G12 (stage 8 pending, jurisdiction hold/resume/decline, plan gate hold, blueprint coercion, reuse fall-through, `/mcp/call` forged agent, tool-routing untrusted, per-step gate, `rerun_step` bypass, nested modality call, loop tier, proposal whitelist).
+Reliability: T-TIMEOUT (>5 min walk shows recovery then answer), T-RATE, T-AMT-DEDUPE, T-CONFETTI, T-REASONING-CAP, T-STAGE12, T-JUR-SYNC, T-RESTART-RECOVERY, T-SENSOR, T-CLAIMS, ledger line integrity.
+Acting chain: edit registered file → beacon ≤45 s; failing tool → one event/finding/candidate/pass; sensor cycle file; failed task → TaskFailure; burst of 10 → one candidate; `kind=finding` note; unchanged digest skip; paired-peer path; unscoped write no ripple-sync.
+Workspace/modality: W-IN1–W-IN11 with the two-workspace fixture matrix (Research / Build) in the review doc §13.
+Order/assistant: OR1–OR12 (recurrence, checklist, gcal/zoom idempotency and bucket-boundary expected FAIL today).
+UI: U17–U25 (chat parity, >5 min recovery, awaiting rendering, jurisdiction modal, reload persistence, nine engine views with fixtures, bar content, emotion orb, node-event pulse) and one real Electron run.
+Voice: VB1–VB8.
+
+
+### §26a — Document MCP rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-DOC-1 | `document_formats` | honest backend probe (pdftotext/unzip/soffice true here; tesseract false) |
+| T-DOC-2 | `document_extract` on a text-layer PDF | real text, backend `pdftotext`, chars>0 |
+| T-DOC-3 | `.docx` / `.odt` | paragraph-aware text via unzip+XML |
+| T-DOC-4 | scanned/image-only PDF, no tesseract | `success:false`, error names OCR not performed (never empty success) |
+| T-DOC-5 | text pipeline Analyze with `file_path` .pdf, tool registered | chunked text graph from tool text; tool unregistered → tool-missing error surfaced verbatim |
+| T-DOC-6 | `file_link` on a .pdf | Text dispatch with `file_path`, no UTF-8 read of binary |
+| T-DOC-7 | strict-session host: text pipeline → /mcp/call with `x-oz-internal` | allowed; no header → 401 |
+
+
+### §26b — Call-route / guardrail rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-ROUTE-1 | Loop calls (AMT re-expansion, meta, I-Loop, assistant) | each leaves a `capture/call_spans.jsonl` row |
+| T-ROUTE-2 | `/pipeline/execute` with input matching a Block rule | refused with the jurisdiction reason; gate-verdict row `pipeline-execute` |
+| T-ROUTE-3 | `call_global` tool call matching a Block rule (tool routing, proposal exec) | `blocked by the jurisdiction gate`; no tool invoked |
+| T-ROUTE-4 | Strict-session host, `/mcp/call` without credentials | 401; with `x-oz-internal` or session → allowed |
+| T-ROUTE-5 | `zero_shot_simulation` pipeline LLM call | goes through the prompt binary (limiter wait line in stderr), no direct provider POST |
+| T-ROUTE-6 | Modality `llm_zero_shot` (e.g. kinematics) with the host-exported env | reaches the prompt binary (previously always failed) |
+| T-CAP-1 | Reasoning model on a 150-token-hint call site | request body has NO `max_tokens`; answer non-empty; ledger `max_tokens_sent` absent |
+| T-CAP-2 | `OZONE_API_FORCE_MAX_TOKENS=1` | body carries the caller's value; ledger records it |
+| T-CAP-3 | Local BitNet/llama call | `-n` = half the window, independent of the caller hint |
+| T-ROUTE-7 | terminal-mcp, declared agent with a named role | gets the `*` tier only; validated agent gets its tier |
+
+
+### §26c — Chat persistence rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-CHAT-1 | Global/meta chat turn | `ChatSession` `chatsession:global` exists once; `ChatTurn` child; `chat/global/<task>-<ns>.json` holds FULL prompt + response |
+| T-CHAT-2 | Project chat turn (project P, workspace W) | session `chatsession:proj:P` parented to project P; keywords `proj:P`,`ws:W` |
+| T-CHAT-3 | Workspace chat turn | session `chatsession:ws:W`, separate from the global session |
+| T-CHAT-4 | Response >100k chars | stored byte-for-byte; `/chat/turns` returns it whole; UI shows it whole |
+| T-CHAT-5 | Awaiting/failed/clarification turn | still persisted (error / clarification text, `success:false`) |
+| T-CHAT-6 | Response graph | background text graph created; turn has `RelatedTo` to it; `response_graph_id` written into the file |
+| T-CHAT-7 | Clear browser storage, reopen | transcript rebuilt from `/chat/turns` |
+| T-CHAT-8 | Ripple | a ChatTurn write does NOT create an AMT re-expansion candidate |
+| T-STORE-1 | Auto-created Category / synthesized Methodology / voice identity | containers now exist (previously silently dropped: flat JSON did not deserialize); payload in `flat_payload/*.json` |
+
+
+### §26d — Remaining-edits rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-ORD-EXT-1 | `/task/create` twice with equal `external_ref` | second returns the first `task_id`, `deduped:true`; `/order/global` entry carries `external_ref` |
+| T-CONS-RESP-1 | assistant check-up + I-Loop reflection | one `CONSCIOUSNESS_RESPONSE` each; `GET /consciousness/responses` lists them |
+| T-TOGGLE-1 | `relationship_system_enabled=false` | stage 12 reports relationship "skipped by config", not FAILED |
+| T-TOGGLE-2 | `identity_system_enabled=false` | stage 13 skips voice-identity fetch/persist |
+| T-AWAIT-J1 | RequireConfirmation review unresolved | `jurisdiction_confirm` awaiting item (resolver human) appears; operator resolve closes it |
+| T-AWAIT-R1 | restart while a walk is awaiting | task becomes `interrupted`, gate item cancelled at boot, no phantom awaiting row |
+| T-S12-1 | completed task | stage 12 shows experience verified in the host store (count ≥ 1) and live emotion; relationship reported unavailable if its binary is unbuilt |
+| T-LLM-1 | modality helper when the prompt binary returns nothing | `Err("prompt pipeline returned no response…")`, not `{}` |
+| T-EXT-1 | `.pptx` / `.odp` / `.ods` / `.ppt` through file_link | Text modality via document MCP; `.xlsx/.xls` stay metadata-only |
+
+
+### §26e — Missing-response and loopback-guard rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-EMPTY-1 | stub model returns blank for blueprint | stage fails with "returned no response text"; no "Generated Blueprint" |
+| T-EMPTY-2 | blank for simulation | stage fails; no "medium feasibility" |
+| T-EMPTY-3 | blank for AMT detail / cross-ref / domain-id | event `detail_parse_failed` / `crossref_parse_failed` / `domain_id_empty_response` in the thinking log |
+| T-EMPTY-4 | blank/prose for AMT re-expansion | attempt fails (Err), candidate escalates; not "nothing to add" |
+| T-EMPTY-5 | text modality: every sentence call returns blank | `ExtractionOutcome::Failed` x3 ⇒ chunk incomplete, cleaned text = raw chunk (not empty) |
+| T-EMPTY-6 | meta-loop draft blank | counted as failure, retried next cycle |
+| T-EMPTY-7 | synthesized methodology unparseable | no container created |
+| T-EMPTY-8 | chat result with neither response nor error | explicit failure-to-answer notice |
+| T-GUARD-1 | `OZONE_MCP_REQUIRE_INTERNAL=1`, direct `curl 127.0.0.1:3215/call` | 401 |
+| T-GUARD-2 | same call via `/mcp/call` | allowed (host sends `x-oz-internal`) |
+| T-GUARD-3 | guard on, no token available | 503 fail-closed |
+| T-TOGGLE-3 | `show_emotional_state=false` / `show_decision_reasoning=false` | orb hidden / thinking log hidden |
+| T-TOGGLE-4 | `ethical_system_enabled=false` | pre_task_gate heuristic does not penalize; reasoning notes it is disabled |
+
+
+### §26f — Failure-pause/resume and span-out rows (2026-11-02)
+| ID | Test | Expected |
+|---|---|---|
+| T-PAUSE-1 | step N's model chain fails | task `paused`, error `paused at step N: …`, step row `failed`, `/orchestrate` status `paused`, walk stopped (no later step ran) |
+| T-PAUSE-2 | failed sub-step / web search with all sub-queries failed | same pause at that step |
+| T-PAUSE-3 | `/task/pause_info` | `paused_for_failure:true`, `paused_at_step:N`, `resumable:true` |
+| T-RESUME-1 | `POST /task/resume_run` | immediately `running`; steps < N NOT re-run (outputs restored); step N retried; completes through result collection / delivery |
+| T-RESUME-2 | resume twice | second refused |
+| T-RESUME-3 | resume with no checkpoint | refused with the `/task/step/rerun` hint |
+| T-RESUME-4 | restart while paused | still `paused`, still resumable |
+| T-RESUME-5 | UI | OrderPanel row Resume, TaskDetailPanel banner, meta + project chat PausedBanner all resume the same task |
+| T-SPAN-1 | step start | step context provenance shows `span-out:K items, T tokens, F fetched`; text contains "[Graph span-out context …]" with `[reached: … hops H]` lines |
+| T-SPAN-2 | relation chain A→B→C (3 hops) | C is reached (old path stopped at depth 2) |
+| T-SPAN-3 | window share full | expansion stops, `budget_filled`, nothing cut mid-text |
+| T-SPAN-4 | runaway guard | `FETCH CAP HIT` is reported, not silent |
+| T-SPAN-5 | AMT re-expansion candidate "(container N)" | prompt carries CONNECTED CONTEXT spanning out from the AMT and container N |
+| T-LINK-1 | `binary_alias("i_loop")` etc. | maps to `reflection` / `self_model` / `experience_playback` / `emotional_response` / `consciousness_dashboard` |

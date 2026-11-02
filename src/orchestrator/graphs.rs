@@ -18,6 +18,11 @@ use super::*;
 const MODALITIES_WITH_LINK_HANDLER: &[&str] = &[
     "text", "image", "audio", "video", "chemistry", "dna", "eeg", "math", "3d",
     "parametric_cad", "kinematics",
+    // 2026-11-02 edit fork 10: shared/link_handler.rs `LinkToModality` added to these 15.
+    // (uidocument is a lib crate with no main.rs — intentionally absent.)
+    "biology", "proteomics", "depth", "electromagnetic", "geospatial", "thermal",
+    "imu", "radar", "sonar", "hyperspectral", "haptic", "sound", "bci", "network",
+    "control",
 ];
 
 impl PromptOrchestrator {
@@ -165,6 +170,11 @@ impl PromptOrchestrator {
                             "confidence": confidence
                         },
                         "project_id": project_id,
+                        // INTENTIONALLY false (2026-11-01): stage-4b graphs are built from
+                        // aggregated prompt-span text of THIS request; their edges come from
+                        // PASS 3 (cross-modal) and the post-walk [13.link] pass. Attached-file
+                        // graphs (STEP 0 in mod.rs) pass true because each is a durable
+                        // per-file container that should link at creation.
                         "link_to_existing": false
                     }
                 })
@@ -196,6 +206,11 @@ impl PromptOrchestrator {
                         "type": "CreateGraph",
                         "analysis_result": analysis.get("analysis").cloned().unwrap_or_default(),
                         "project_id": project_id,
+                        // INTENTIONALLY false (2026-11-01): stage-4b graphs are built from
+                        // aggregated prompt-span text of THIS request; their edges come from
+                        // PASS 3 (cross-modal) and the post-walk [13.link] pass. Attached-file
+                        // graphs (STEP 0 in mod.rs) pass true because each is a durable
+                        // per-file container that should link at creation.
                         "link_to_existing": false
                     }
                 })
@@ -559,7 +574,7 @@ impl PromptOrchestrator {
             let raw = result
                 .get("response")
                 .and_then(|r| r.as_str())
-                .unwrap_or("[]");
+                .unwrap_or(""); // missing => unparseable (warned below), never a valid "[]"
             let json_str = Self::extract_json_from_response(raw, '[', ']');
 
             let parsed: Vec<serde_json::Value> =
@@ -725,37 +740,15 @@ impl PromptOrchestrator {
     }
 
     /// Detect modality string from a file path using extension and path hints.
+    ///
+    /// 2026-11-01: delegates to the ONE shared table
+    /// (assets/pipelines/shared/modality_ext.rs, also included by file_link).
+    /// Path hints are WORD-BOUNDARY token matches now — the old
+    /// `path.contains("sar")` / `contains("imu")` classified any path with
+    /// "research" or "simulation" in it as radar / IMU. Metadata-only buckets
+    /// (data/config/archive/document) answer "unknown": they have no pipeline.
     pub(crate) fn detect_file_modality(&self, file_path: &str) -> String {
-        let path_lower = file_path.to_lowercase();
-        // Path hints (highest priority for ambiguous extensions)
-        if path_lower.contains("radar") || path_lower.contains("sar") {
-            return "radar".to_string();
-        }
-        if path_lower.contains("sonar") || path_lower.contains("bathymet") {
-            return "sonar".to_string();
-        }
-        if path_lower.contains("thermal") || path_lower.contains("infrared") {
-            return "thermal".to_string();
-        }
-        if path_lower.contains("hyperspectral") || path_lower.contains("multispectral") {
-            return "hyperspectral".to_string();
-        }
-        if path_lower.contains("imu") || path_lower.contains("accelerom") {
-            return "imu".to_string();
-        }
-
-        // Extension-based detection — THE canonical table lives in
-        // types::ModalityType (file_extensions + from_extension): one
-        // disagreeing table used to live here (four existed codebase-wide,
-        // .tex was Text here and Math there — unified 2026-10-29). Deferring
-        // also picks up every extension the old table lacked (rtf/adoc/org/
-        // ipynb/smf/… — the old table answered "unknown" for those).
-        let ext = std::path::Path::new(file_path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-
-        crate::types::modality::ModalityType::from_extension(ext)
+        crate::types::modality::ModalityType::from_path(file_path)
             .path_name()
             .to_string()
     }

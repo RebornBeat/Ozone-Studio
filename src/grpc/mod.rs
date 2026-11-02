@@ -242,6 +242,15 @@ pub struct HealthResponse {
     /// loopback-only API discover its peer id and build a real multiaddr
     /// without any log-scraping step.
     pub peer_id: Option<String>,
+    /// Count of operator-approved (paired) peers — trust is distinct from
+    /// connection (2026-11-01 status-bar fix: the bar must not show a bare
+    /// connected-peer count as if it were trust). Additive, serde-default
+    /// on the client side.
+    #[serde(default)]
+    pub paired_count: usize,
+    /// camelCase twin of `paired_count` for JS clients (same value).
+    #[serde(default, rename = "pairedCount")]
+    pub paired_count_camel: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -329,6 +338,13 @@ pub struct OrchestrateRequest {
     /// orchestrator regardless of what a caller sent.
     #[serde(default)]
     pub attached_files: Vec<serde_json::Value>,
+    /// Async submit mode (2026-11-01, orchestrate client contract): when true
+    /// the handler returns IMMEDIATELY with `accepted:true` + a `run_token`
+    /// and the walk runs detached; poll `GET /orchestrate/status?run_token=`
+    /// (or `?task_id=` once known) so no HTTP request stays open for the
+    /// whole walk. Default false = the original blocking behaviour.
+    #[serde(default)]
+    pub submit_only: bool,
 }
 
 fn default_consciousness_enabled() -> bool {
@@ -368,6 +384,53 @@ pub struct OrchestrateResponse {
     /// none. Read from the thinking log.
     #[serde(default)]
     pub refusals: Vec<String>,
+    /// The walk parked at a gate that could not be judged yet (meta /
+    /// consciousness gate awaiting a judgment, or a jurisdiction
+    /// confirmation awaiting a human). NOT a failure: success=false,
+    /// error=None, status="awaiting", `await_id` joins the awaiting item.
+    #[serde(default)]
+    pub awaiting: bool,
+    #[serde(default)]
+    pub await_id: Option<String>,
+    /// "awaiting" when parked; otherwise None (the existing success /
+    /// error pair is unchanged for every other outcome).
+    #[serde(default)]
+    pub status: Option<String>,
+    /// Async submit_only acknowledgement (see OrchestrateRequest).
+    #[serde(default)]
+    pub accepted: bool,
+    #[serde(default)]
+    pub run_token: Option<String>,
+}
+
+/// Find an `AWAITING:<await_id>` marker in a walk outcome string. The gate
+/// stage returns this string instead of continuing when a meta/consciousness
+/// gate (or a jurisdiction confirmation) cannot be judged yet. The id is the
+/// token after the marker up to whitespace / punctuation that cannot be part
+/// of an id.
+fn parse_awaiting(text: &str) -> Option<String> {
+    let idx = text.find("AWAITING:")?;
+    let rest = &text[idx + "AWAITING:".len()..];
+    let id: String = rest
+        .chars()
+        .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
+        .collect();
+    if id.is_empty() {
+        None
+    } else {
+        Some(id)
+    }
+}
+
+/// In-memory registry of async (`submit_only`) runs, keyed by run_token, so a
+/// client can poll before the walk has created its task record. Process-
+/// local by design: the durable record is the task store; this only bridges
+/// the gap between "accepted" and "task_id known".
+fn async_runs() -> &'static std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>> {
+    static RUNS: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, serde_json::Value>>,
+    > = std::sync::OnceLock::new();
+    RUNS.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
 /// Split the thinking log into the attempt trail and the refusals. Both are
@@ -441,6 +504,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     let runtime = state.runtime.read().await;
     let task_mgr = runtime.task_manager.read().await;
     let net_status = runtime.network.read().await.get_status().await;
+    let paired_count = runtime.network.read().await.paired_peer_ids().await.len();
 
     Json(HealthResponse {
         healthy: true,
@@ -450,6 +514,8 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         peer_count: net_status.connected_peers,
         p2p_enabled: net_status.enabled,
         peer_id: net_status.peer_id,
+        paired_count,
+        paired_count_camel: paired_count,
     })
 }
 
@@ -542,6 +608,12 @@ async fn authenticate(
 /// would give that process, without requiring a pairing it cannot perform.
 static INTERNAL_TOKEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
+/// The host-internal token for child processes the host itself spawns
+/// (pipelines) so they can reach strict-session routes such as /mcp/call.
+pub fn internal_token() -> Option<String> {
+    INTERNAL_TOKEN.get().cloned()
+}
+
 fn init_internal_token(data_dir: &str) {
     let path = std::path::Path::new(data_dir).join(".internal_token");
     let existing = std::fs::read_to_string(&path)
@@ -600,6 +672,8 @@ async fn session_gate(
     const PROTECTED: &[&str] = &[
         "/config/set",
         "/mcp/tools",
+        "/mcp/call",
+        "/chat/",
         "/network/",
         "/task/",
         "/context/mirror",
@@ -658,6 +732,172 @@ async fn session_gate(
     next.run(req).await
 }
 
+/// GET /chat/turns?project_id=&workspace_id=&limit= — the persisted chat for one
+/// scope (global = neither id; workspace; project), oldest first, FULL prompt and
+/// FULL response text exactly as stored by `orchestrator::chat_store` (no cut).
+/// Reads the turn content files; the graph containers carry the same ids.
+#[derive(serde::Deserialize)]
+struct ChatTurnsQuery {
+    project_id: Option<u64>,
+    workspace_id: Option<u64>,
+    limit: Option<usize>,
+}
+
+async fn get_chat_turns(
+    axum::extract::Query(q): axum::extract::Query<ChatTurnsQuery>,
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let data_dir = state.runtime.read().await.config.general.data_dir.clone();
+    let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or(data_dir);
+    let dir_name = match (q.project_id, q.workspace_id) {
+        (Some(p), _) => format!("proj-{p}"),
+        (None, Some(w)) => format!("ws-{w}"),
+        _ => "global".to_string(),
+    };
+    let dir = std::path::Path::new(&base).join("chat").join(&dir_name);
+    let mut files: Vec<std::path::PathBuf> = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("json"))
+            .collect(),
+        Err(_) => Vec::new(), // no chat yet for this scope: honest empty
+    };
+    // File names are `<task>-<unix nanos>.json`; order by the timestamp inside.
+    let mut turns: Vec<serde_json::Value> = files
+        .drain(..)
+        .filter_map(|p| std::fs::read_to_string(&p).ok())
+        .filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        .collect();
+    turns.sort_by(|a, b| {
+        a.get("ts").and_then(|t| t.as_str()).unwrap_or("")
+            .cmp(b.get("ts").and_then(|t| t.as_str()).unwrap_or(""))
+    });
+    let total = turns.len();
+    let limit = q.limit.unwrap_or(500).max(1);
+    if turns.len() > limit {
+        turns.drain(0..turns.len() - limit);
+    }
+    Json(serde_json::json!({ "scope": dir_name, "count": total, "returned": turns.len(), "turns": turns }))
+}
+
+/// GET /consciousness/responses?limit= — the structured CONSCIOUSNESS_RESPONSE
+/// records (assistant check-ups, I-Loop reflections), newest last, exactly as
+/// written (typed emotion fields, full content). Missing file = honest empty.
+#[derive(serde::Deserialize)]
+struct ConsciousnessResponsesQuery {
+    limit: Option<usize>,
+}
+
+async fn get_consciousness_responses(
+    axum::extract::Query(q): axum::extract::Query<ConsciousnessResponsesQuery>,
+) -> Json<serde_json::Value> {
+    let path = crate::consciousness::assistant::response_record::record_path();
+    let rows: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+        .map(|t| {
+            t.lines()
+                .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let total = rows.len();
+    let limit = q.limit.unwrap_or(100).max(1);
+    let skip = total.saturating_sub(limit);
+    Json(serde_json::json!({ "count": total, "returned": total - skip, "records": rows.into_iter().skip(skip).collect::<Vec<_>>() }))
+}
+
+/// POST /task/resume_run {task_id} — resume a FAILURE-PAUSED task from exactly the step it
+/// stopped at (completed steps are restored from the run checkpoint, not re-run). Detached
+/// like a normal walk: answers immediately `{success, resumed, task_id, from_step}`; the
+/// UI follows status through `/task/get` / `/order/global` (running -> completed / paused
+/// again). Refuses (honestly) when the task is not failure-paused or has no checkpoint.
+#[derive(Debug, Deserialize)]
+struct ResumeRunRequest {
+    task_id: u64,
+}
+
+async fn resume_paused_run(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ResumeRunRequest>,
+) -> Json<serde_json::Value> {
+    let (from_step, has_checkpoint) = {
+        let runtime = state.runtime.read().await;
+        let from = runtime.task_manager.read().await.paused_step_of(req.task_id).await;
+        let base = std::env::var("OZONE_ZSEI_DATA_DIR")
+            .unwrap_or_else(|_| runtime.config.general.data_dir.clone());
+        let cp = std::path::Path::new(&base).join("runs").join(format!("{}.json", req.task_id));
+        (from, cp.exists())
+    };
+    let Some(from_step) = from_step else {
+        return Json(serde_json::json!({
+            "success": false,
+            "task_id": req.task_id,
+            "error": "task is not paused for a step failure (or does not exist) — nothing to resume"
+        }));
+    };
+    if !has_checkpoint {
+        return Json(serde_json::json!({
+            "success": false,
+            "task_id": req.task_id,
+            "error": "no run checkpoint exists for this task (it was paused before checkpointing, or by an older host) — use /task/step/rerun for the failed step"
+        }));
+    }
+    // Flip paused -> running NOW (before the detached walk starts) so the UI never reads a
+    // stale "paused" while the resume is already under way, and a second Resume click is
+    // refused by the paused_step_of check above.
+    {
+        let runtime = state.runtime.read().await;
+        let flipped = runtime.task_manager.read().await.resume_paused(req.task_id).await;
+        if !flipped {
+            return Json(serde_json::json!({
+                "success": false,
+                "task_id": req.task_id,
+                "error": "task could not be moved from paused to running (already resumed?)"
+            }));
+        }
+    }
+    let runtime_handle = state.runtime.clone();
+    let task_id = req.task_id;
+    tokio::spawn(async move {
+        let runtime = runtime_handle.read().await;
+        match runtime.resume_run(task_id).await {
+            Ok(out) => tracing::info!(task_id, success = out.success, error = ?out.error, "resume_run finished"),
+            Err(e) => tracing::error!(task_id, error = %e, "resume_run failed"),
+        }
+    });
+    Json(serde_json::json!({
+        "success": true,
+        "resumed": true,
+        "task_id": req.task_id,
+        "from_step": from_step,
+        "status": "running"
+    }))
+}
+
+/// POST /task/pause_info {task_id} — whether a task is failure-paused, at which step, with
+/// what error, and whether it can be resumed (checkpoint present). Drives the Resume
+/// button in the Tasks tab, project tabs and meta chat.
+async fn task_pause_info(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ResumeRunRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let tm = runtime.task_manager.read().await;
+    let step = tm.paused_step_of(req.task_id).await;
+    let task = tm.get_task(req.task_id).await;
+    let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.config.general.data_dir.clone());
+    let cp = std::path::Path::new(&base).join("runs").join(format!("{}.json", req.task_id));
+    Json(serde_json::json!({
+        "task_id": req.task_id,
+        "found": task.is_some(),
+        "paused_for_failure": step.is_some(),
+        "paused_at_step": step,
+        "error": task.as_ref().and_then(|t| t.error.clone()),
+        "status": task.as_ref().map(|t| t.status.clone()),
+        "resumable": step.is_some() && cp.exists(),
+        "checkpoint": cp.exists(),
+    }))
+}
+
 /// GET /consciousness/reviews/pending — the operator's visibility half of the
 /// ReviewPending contract (the resolve half is POST /consciousness/reviews/
 /// resolve). "Needs a human" finally has a door: this lists every final S10
@@ -669,7 +909,37 @@ async fn list_pending_reviews_route(
     let data_dir = runtime.config.general.data_dir.clone();
     let rows = crate::orchestrator::decision_review::list_pending_reviews(&data_dir);
     let count = rows.len();
-    Json(serde_json::json!({ "rows": rows, "count": count }))
+    // AWAITING (2026-11-02): parked gate items the meta drain will re-judge.
+    // These need NO human; they are listed so the UI can show "waiting on
+    // meta" separately from `rows` (operator-resolvable reviews).
+    let awaiting = read_awaiting_items(&data_dir);
+    let awaiting_count = awaiting.len();
+    Json(serde_json::json!({
+        "rows": rows,
+        "count": count,
+        "awaiting": awaiting,
+        "awaiting_count": awaiting_count,
+    }))
+}
+
+/// GET /consciousness/state — live consciousness snapshot (see
+/// consciousness::store::state_snapshot) plus the awaiting/pending counts.
+async fn consciousness_state_route(
+    State(state): State<Arc<AppState>>,
+) -> Json<serde_json::Value> {
+    let data_dir = state.runtime.read().await.config.general.data_dir.clone();
+    let mut snap = crate::consciousness::store::state_snapshot();
+    if let Some(o) = snap.as_object_mut() {
+        o.insert(
+            "pending_reviews".to_string(),
+            serde_json::json!(crate::orchestrator::decision_review::list_pending_reviews(&data_dir).len()),
+        );
+        o.insert(
+            "awaiting_items".to_string(),
+            serde_json::json!(read_awaiting_items(&data_dir).len()),
+        );
+    }
+    Json(snap)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -711,6 +981,17 @@ async fn resolve_review_route(
     };
     match resolved {
         Ok(record) => {
+            // Close the durable awaiting item (jurisdiction_confirm) that mirrors this
+            // review, so the Order / pending views stop listing it.
+            for item in crate::orchestrator::awaiting::pending_actions(&data_dir) {
+                if item.review_id.as_deref() == Some(req.review_id.as_str()) {
+                    crate::orchestrator::awaiting::mark_resolved(
+                        &data_dir,
+                        &item.await_id,
+                        &format!("operator: {}", req.decision),
+                    );
+                }
+            }
             // ASSISTANT-PROPOSAL EXECUTION (the acting chain's completion):
             // a proposal is an S10 review row; the operator's "Proceed" IS
             // the approval — execute the proposed action through the same
@@ -786,6 +1067,26 @@ async fn execute_pipeline(
                 req.pipeline_id
             )),
         });
+    }
+
+    // JURISDICTION (2026-11-02 audit): an authenticated external dispatch used to
+    // reach any non-consciousness pipeline (including the raw prompt pipeline 9)
+    // without a single jurisdiction check. Same rule snapshot as the step /
+    // MCP call gates.
+    {
+        let input_text = serde_json::to_string(&req.input).unwrap_or_default();
+        if let Err(reason) = crate::mcp::check_call_gate(
+            "pipeline-execute",
+            &format!("pipeline-{}", req.pipeline_id),
+            &input_text,
+        ) {
+            return Json(PipelineResponse {
+                success: false,
+                task_id: Some(0),
+                output: None,
+                error: Some(format!("blocked by the jurisdiction gate: {}", reason)),
+            });
+        }
     }
 
     let input: crate::types::pipeline::PipelineInput = match serde_json::from_value(req.input) {
@@ -1043,10 +1344,18 @@ async fn get_global_order(
             "paused" => "paused",
             "queued" => "queued",
             "interrupted" => "interrupted",
+            // 2026-11-01: durable parked state (meta/consciousness gate not
+            // yet judged, or a jurisdiction confirmation awaiting a human).
+            "awaiting" => "awaiting",
             "completed" | "failed" | "cancelled" => "done",
             _ => "other",
         }
     }
+
+    // Awaiting items (latest row per await_id) so the order can show kind,
+    // resolver, attempts, next try and last error per parked task.
+    let awaiting_data_dir = runtime.config.general.data_dir.clone();
+    let awaiting_items = read_awaiting_items(&awaiting_data_dir);
 
     let mut groups: std::collections::HashMap<&'static str, Vec<serde_json::Value>> =
         std::collections::HashMap::new();
@@ -1057,12 +1366,18 @@ async fn get_global_order(
         .map(|d| d.as_secs())
         .unwrap_or(0);
     let day = 86_400u64;
+    // UNIFIED BUCKETS (2026-11-01): the order and the assistant now agree.
+    // due_at < now = overdue (no 24 h grace); later today (until the end of
+    // the current UTC day) = today; within 7 days = week; further = upcoming;
+    // no due_at = someday. (UTC day boundary: the host has no user timezone.)
+    let end_of_today = (now / day + 1) * day;
     let due_bucket = |due: Option<u64>| -> &'static str {
         match due {
-            Some(d) if d < now.saturating_sub(day) => "overdue",
-            Some(d) if d <= now + day => "today",
+            Some(d) if d < now => "overdue",
+            Some(d) if d < end_of_today => "today",
             Some(d) if d <= now + 7 * day => "week",
-            _ => "upcoming",
+            Some(_) => "upcoming",
+            None => "someday",
         }
     };
 
@@ -1092,11 +1407,7 @@ async fn get_global_order(
         }
         let due_at = t.due_at;
         if let Some(due) = q.due.as_deref() {
-            let bucket = match due_at {
-                Some(_) => due_bucket(due_at),
-                None => "someday",
-            };
-            if bucket != due {
+            if due_bucket(due_at) != due {
                 continue;
             }
         }
@@ -1134,6 +1445,12 @@ async fn get_global_order(
             "remind_at": t.remind_at,
             "meeting_url": coord("meeting_url"),
             "note_body": coord("note"),
+            "external_ref": t.external_ref.clone(),
+            // Failure-paused tasks carry "paused at step N: <error>" here (the UI shows it
+            // and offers Resume, backed by /task/resume_run).
+            "error": t.error.clone(),
+            "paused_for_failure": t.status == "paused"
+                && t.error.as_deref().map(|e| e.starts_with("paused at step ")).unwrap_or(false),
             "blueprint_id": t.blueprint_id,
             "workspace_id": t.workspace_id,
             "project_id": t.project_id,
@@ -1143,7 +1460,71 @@ async fn get_global_order(
             "steps_total": t.steps.len(),
             "steps_done": done_steps,
             "next_step": next_step,
+            "due_bucket": due_bucket(t.due_at),
+            "checklist": t.checklist.clone(),
+            "recurrence": t.recurrence.clone(),
+            "priority": coord("priority"),
+            "priority_rank": match coord("priority").as_deref() {
+                Some("high") => 2u64,
+                Some("low") => 0u64,
+                _ => 1u64,
+            },
+            "awaiting": if t.status == "awaiting" {
+                // join by inputs.await_id first, else by task_id
+                let want = coord("await_id");
+                awaiting_items
+                    .iter()
+                    .find(|it| match (&want, it.get("await_id").and_then(|a| a.as_str())) {
+                        (Some(w), Some(a)) => w == a,
+                        _ => it.get("task_id").and_then(|x| x.as_u64()) == Some(t.task_id),
+                    })
+                    .map(|it| serde_json::json!({
+                        "await_id": it.get("await_id"),
+                        "kind": it.get("kind"),
+                        "resolver": it.get("resolver"),
+                        "stage": it.get("stage"),
+                        "attempts": it.get("attempts"),
+                        "next_try_ts": it.get("next_try_ts"),
+                        "last_error": it.get("last_error"),
+                        "status": it.get("status"),
+                    }))
+                    .unwrap_or_else(|| serde_json::json!({ "await_id": want, "unlinked": true }))
+            } else {
+                serde_json::Value::Null
+            },
+            "recurring": false,
         });
+
+        // RECURRENCE EXPANSION AT READ (guide §2: "derived at read", never
+        // stored): an item with a recurrence rule and a due_at yields its
+        // NEXT future occurrence as a derived entry (recurring:true,
+        // derived_from = the source task). Nothing is written. Cancelled
+        // items do not recur. Unknown rules expand to nothing.
+        if t.status != "cancelled" {
+            if let (Some(rule), Some(d0)) = (t.recurrence.as_deref(), t.due_at) {
+                if let Some(interval) = parse_recurrence_secs(rule) {
+                    // smallest d0 + k*interval > now with k >= 1
+                    let base = if d0 > now { d0 } else { now };
+                    let k = ((base - d0) / interval) + 1;
+                    let next_due = d0 + k * interval;
+                    if q.due.as_deref().map(|w| due_bucket(Some(next_due)) == w).unwrap_or(true) {
+                        let mut derived = entry.clone();
+                        derived["due_at"] = serde_json::json!(next_due);
+                        derived["due_bucket"] = serde_json::json!(due_bucket(Some(next_due)));
+                        derived["status"] = serde_json::json!("queued");
+                        derived["recurring"] = serde_json::json!(true);
+                        derived["derived_from"] = serde_json::json!(t.task_id);
+                        derived["steps_total"] = serde_json::json!(0);
+                        derived["steps_done"] = serde_json::json!(0);
+                        derived["next_step"] = serde_json::Value::Null;
+                        derived["progress"] = serde_json::json!(0);
+                        derived["awaiting"] = serde_json::Value::Null;
+                        *counts.entry("derived_recurring".to_string()).or_insert(0) += 1;
+                        groups.entry("queued").or_default().push(derived);
+                    }
+                }
+            }
+        }
 
         groups.entry(state_of(&t.status)).or_default().push(entry);
     }
@@ -1172,10 +1553,81 @@ async fn get_global_order(
         "paused": groups.get("paused").cloned().unwrap_or_default(),
         "queued": groups.get("queued").cloned().unwrap_or_default(),
         "interrupted": groups.get("interrupted").cloned().unwrap_or_default(),
+        "awaiting": groups.get("awaiting").cloned().unwrap_or_default(),
         "done": groups.get("done").cloned().unwrap_or_default(),
         "other": groups.get("other").cloned().unwrap_or_default(),
         "counts": counts,
     }))
+}
+
+/// Currently-awaiting items, read through the ONE store
+/// (`orchestrator::awaiting`, `{data_dir}/awaiting_items.jsonl`, latest row per
+/// `await_id`) and projected into the shape the Order / reviews / state routes
+/// expose: await_id, kind, resolver ("meta" for gate kinds, "human" only for
+/// jurisdiction_confirm), stage, attempts, next_try_ts (ms), last_error, status,
+/// task_id (u64 when numeric), subject. Missing file = honest empty list.
+fn read_awaiting_items(data_dir: &str) -> Vec<serde_json::Value> {
+    use crate::orchestrator::awaiting as aw;
+    aw::pending_actions(data_dir)
+        .into_iter()
+        .map(|i| {
+            let resolver = if i.kind == aw::KIND_JURISDICTION_CONFIRM { "human" } else { "meta" };
+            let stage = match i.kind.as_str() {
+                k if k == aw::KIND_CONSCIOUSNESS_GATE => "consciousness_gate",
+                k if k == aw::KIND_META_GATE => "meta_gate",
+                k if k == aw::KIND_JURISDICTION_CONFIRM => "jurisdiction",
+                other => other,
+            };
+            let task_id = i
+                .task_id
+                .as_deref()
+                .and_then(|t| t.parse::<u64>().ok())
+                .map(serde_json::Value::from)
+                .unwrap_or_else(|| serde_json::json!(i.task_id));
+            serde_json::json!({
+                "await_id": i.await_id,
+                "kind": i.kind,
+                "status": i.status,
+                "resolver": resolver,
+                "stage": stage,
+                "attempts": i.attempts,
+                "next_try_ts": i.next_attempt_at_ms,
+                "last_error": i.reason,
+                "task_id": task_id,
+                "review_id": i.review_id,
+                "subject": i.subject,
+                "created_at_ms": i.created_at_ms,
+            })
+        })
+        .collect()
+}
+
+/// Seconds per occurrence for the simple recurrence vocabulary: "daily",
+/// "weekly", "biweekly", "monthly" (30 days — approximate, stated), "yearly"
+/// (365 days), and "every N days|weeks|hours". Anything else = None (no
+/// expansion, never a guess).
+fn parse_recurrence_secs(rule: &str) -> Option<u64> {
+    let r = rule.trim().to_ascii_lowercase();
+    match r.as_str() {
+        "daily" | "day" => return Some(86_400),
+        "weekly" | "week" => return Some(7 * 86_400),
+        "biweekly" => return Some(14 * 86_400),
+        "monthly" | "month" => return Some(30 * 86_400),
+        "yearly" | "annually" | "year" => return Some(365 * 86_400),
+        _ => {}
+    }
+    let rest = r.strip_prefix("every ")?;
+    let mut parts = rest.split_whitespace();
+    let n: u64 = parts.next()?.parse().ok()?;
+    if n == 0 {
+        return None;
+    }
+    match parts.next()? {
+        "day" | "days" => Some(n * 86_400),
+        "week" | "weeks" => Some(n * 7 * 86_400),
+        "hour" | "hours" => Some(n * 3_600),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -1284,6 +1736,18 @@ async fn rerun_step(
     let runtime = state.runtime.read().await;
     let task_mgr = runtime.task_manager.read().await;
 
+    // IDENTITY (2026-11-02): same strict-session precondition as /mcp/call.
+    // A presented token is validated; with OZONE_REQUIRE_SESSION unset this
+    // always allows (documented localhost posture).
+    let rerun_identity_validated = if req.session_token.trim().is_empty() {
+        false
+    } else {
+        let token_bytes = hex::decode(req.session_token.trim()).unwrap_or_default();
+        runtime.auth.read().await.validate_session(&token_bytes).await.is_ok()
+    };
+    let rerun_identity =
+        crate::orchestrator::entry_gate::require_identity(rerun_identity_validated, false);
+
     let task = match task_mgr.get_task(req.task_id).await {
         Some(t) => t,
         None => return err(format!("Task {} not found", req.task_id)),
@@ -1308,7 +1772,13 @@ async fn rerun_step(
 
     let Some(step_json) = steps
         .iter()
-        .find(|s| s.get("step_index").and_then(|i| i.as_u64()) == Some(req.step_index as u64))
+        // COERCION: step_index may be stored as a number or a numeric string.
+        .find(|s| {
+            let v = s.get("step_index");
+            v.and_then(|i| i.as_u64())
+                .or_else(|| v.and_then(|i| i.as_str()).and_then(|x| x.trim().parse::<u64>().ok()))
+                == Some(req.step_index as u64)
+        })
     else {
         return err(format!(
             "Step {} not found in blueprint {}",
@@ -1326,7 +1796,10 @@ async fn rerun_step(
         .unwrap_or("execute");
     let pipeline_id = step_json
         .get("pipeline_id")
-        .and_then(|p| p.as_u64())
+        .and_then(|p| {
+            p.as_u64()
+                .or_else(|| p.as_str().and_then(|x| x.trim().parse::<u64>().ok()))
+        })
         .unwrap_or(9);
 
     let context_text = if req.carry_forward_context {
@@ -1375,9 +1848,16 @@ async fn rerun_step(
     use crate::orchestrator::PipelineExecutor;
     // ENTRY GATE: a rerun is an external dispatch too — trace root (or
     // joined child) + one external-pipeline span row; dispatch unchanged.
-    let result =
-        crate::orchestrator::entry_gate::gated(pipeline_id, adapter.execute(pipeline_id, exec_input))
-            .await;
+    let result = match crate::orchestrator::entry_gate::gated_checked(
+        pipeline_id,
+        rerun_identity,
+        adapter.execute(pipeline_id, exec_input),
+    )
+    .await
+    {
+        Ok(inner) => inner,
+        Err(reason) => Err(reason),
+    };
 
     match result {
         Ok(output) => {
@@ -3077,6 +3557,11 @@ async fn orchestrate(
                     thinking_log: vec![],
                     attempt_trail: vec![],
                     refusals: vec![],
+                    awaiting: false,
+                    await_id: None,
+                    status: None,
+                    accepted: false,
+                    run_token: None,
                 });
             }
         }
@@ -3155,6 +3640,87 @@ async fn orchestrate(
     let user_id = req.user_id;
     let device_id = req.device_id;
     let runtime_handle = state.runtime.clone();
+
+    // ASYNC SUBMIT (2026-11-01 orchestrate client contract): no HTTP request
+    // has to stay open for a 9-13 minute walk. `submit_only:true` acknowledges
+    // immediately; the walk runs detached exactly as below, and the outcome
+    // (task_id, awaiting, error) is recorded under `run_token` for
+    // GET /orchestrate/status. The task record remains the durable truth.
+    if req.submit_only {
+        let run_token = format!(
+            "run-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        if let Ok(mut runs) = async_runs().lock() {
+            runs.insert(run_token.clone(), serde_json::json!({ "state": "running" }));
+        }
+        let token_for_task = run_token.clone();
+        tokio::spawn(async move {
+            let runtime = runtime_handle.read().await;
+            let outcome = runtime.orchestrate(pipeline_input, user_id, device_id).await;
+            let summary = match &outcome {
+                Ok(r) => {
+                    let awaiting_id = r
+                        .error
+                        .as_deref()
+                        .and_then(parse_awaiting)
+                        .or_else(|| r.response_text.as_deref().and_then(parse_awaiting));
+                    if let (Some(aid), Some(tid)) = (&awaiting_id, r.task_id) {
+                        runtime.task_manager.read().await.mark_awaiting(&tid, aid).await;
+                    }
+                    serde_json::json!({
+                        "state": if awaiting_id.is_some() { "awaiting" } else { "finished" },
+                        "task_id": r.task_id,
+                        "blueprint_id": r.blueprint_id,
+                        "success": awaiting_id.is_none() && r.success,
+                        "awaiting": awaiting_id.is_some(),
+                        "await_id": awaiting_id,
+                        "error": if awaiting_id.is_some() { None } else { r.error.clone() },
+                    })
+                }
+                Err(e) => {
+                    let es = e.to_string();
+                    let awaiting_id = parse_awaiting(&es);
+                    serde_json::json!({
+                        "state": if awaiting_id.is_some() { "awaiting" } else { "failed" },
+                        "success": false,
+                        "awaiting": awaiting_id.is_some(),
+                        "await_id": awaiting_id,
+                        "error": if awaiting_id.is_some() { None } else { Some(es) },
+                    })
+                }
+            };
+            if let Ok(mut runs) = async_runs().lock() {
+                runs.insert(token_for_task, summary);
+            }
+        });
+        return Json(OrchestrateResponse {
+            success: true,
+            response: None,
+            task_id: None,
+            blueprint_id: None,
+            stages_completed: vec![],
+            needs_clarification: false,
+            clarification_points: vec![],
+            error: None,
+            execution_time_ms: start.elapsed().as_millis() as u64,
+            model_used: None,
+            total_tokens_used: None,
+            amt_summary: None,
+            thinking_log: vec![],
+            attempt_trail: vec![],
+            refusals: vec![],
+            awaiting: false,
+            await_id: None,
+            status: Some("running".to_string()),
+            accepted: true,
+            run_token: Some(run_token),
+        });
+    }
+
     let walk = tokio::spawn(async move {
         let runtime = runtime_handle.read().await;
         let outcome = runtime.orchestrate(pipeline_input, user_id, device_id).await;
@@ -3185,9 +3751,29 @@ async fn orchestrate(
             // A failed walk still arrives here (success: false, log intact),
             // so the trail is read on both success and failure.
             let (attempt_trail, refusals) = attempt_trail_and_refusals(&result.thinking_log);
+            // A walk parked at a gate that cannot be judged yet returns an
+            // `AWAITING:<await_id>` marker (error or response text). That is
+            // a durable awaiting state, not a failure: the task is parked and
+            // the response says so (success=false, no error, status
+            // "awaiting"). Meta/consciousness gates are drained by the meta
+            // loop; only jurisdiction confirmations ask a human.
+            let awaiting_id = result
+                .error
+                .as_deref()
+                .and_then(parse_awaiting)
+                .or_else(|| result.response_text.as_deref().and_then(parse_awaiting));
+            if let (Some(aid), Some(tid)) = (&awaiting_id, result.task_id) {
+                let runtime = state.runtime.read().await;
+                let task_mgr = runtime.task_manager.read().await;
+                task_mgr.mark_awaiting(&tid, aid).await;
+            }
+            let is_awaiting = awaiting_id.is_some();
+            // FAILURE DOCTRINE: a step failure pauses the task ("PAUSED: task N paused at step K: …");
+            // the response says so and the task is resumable via POST /task/resume_run.
+            let result_error_is_pause = result.error.as_deref().map(|e| e.contains("PAUSED:")).unwrap_or(false);
             Json(OrchestrateResponse {
-                success: result.success,
-                response: result.response_text,
+                success: if is_awaiting { false } else { result.success },
+                response: if is_awaiting { None } else { result.response_text },
                 task_id: result.task_id,
                 blueprint_id: result.blueprint_id,
                 stages_completed: result
@@ -3197,7 +3783,7 @@ async fn orchestrate(
                     .collect(),
                 needs_clarification: result.needs_clarification,
                 clarification_points: result.clarification_points,
-                error: result.error,
+                error: if is_awaiting { None } else { result.error },
                 execution_time_ms,
                 model_used: result.model_used,
                 total_tokens_used: result.total_tokens_used,
@@ -3205,9 +3791,48 @@ async fn orchestrate(
                 thinking_log: result.thinking_log,
                 attempt_trail,
                 refusals,
+                awaiting: is_awaiting,
+                status: if is_awaiting {
+                    Some("awaiting".to_string())
+                } else if result_error_is_pause {
+                    Some("paused".to_string())
+                } else {
+                    None
+                },
+                await_id: awaiting_id,
+                accepted: false,
+                run_token: None,
             })
         }
         Err(e) => {
+            // An Err that carries the awaiting marker (the gate returned the
+            // marker as its error before a task record existed) is still an
+            // awaiting outcome, not a failure.
+            let err_text = e.to_string();
+            if let Some(aid) = parse_awaiting(&err_text) {
+                return Json(OrchestrateResponse {
+                    success: false,
+                    response: None,
+                    task_id: None,
+                    blueprint_id: None,
+                    stages_completed: vec![],
+                    needs_clarification: false,
+                    clarification_points: vec![],
+                    error: None,
+                    execution_time_ms: start.elapsed().as_millis() as u64,
+                    model_used: None,
+                    total_tokens_used: None,
+                    amt_summary: None,
+                    thinking_log: vec![],
+                    attempt_trail: vec![],
+                    refusals: vec![],
+                    awaiting: true,
+                    await_id: Some(aid),
+                    status: Some("awaiting".to_string()),
+                    accepted: false,
+                    run_token: None,
+                });
+            }
             Json(OrchestrateResponse {
                 success: false,
                 response: None,
@@ -3227,6 +3852,11 @@ async fn orchestrate(
                 // read a trail from, so both lists are empty by construction.
                 attempt_trail: vec![],
                 refusals: vec![],
+                awaiting: false,
+                await_id: None,
+                status: None,
+                accepted: false,
+                run_token: None,
             })
         }
     }
@@ -3789,6 +4419,7 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/auth/challenge", post(request_challenge))
         .route("/auth/authenticate", post(authenticate))
         .route("/pipeline/execute", post(execute_pipeline))
+        .route("/consciousness/state", get(consciousness_state_route))
         .route("/consciousness/reviews/pending", get(list_pending_reviews_route))
         .route("/consciousness/reviews/resolve", post(resolve_review_route))
         .route("/pipeline/registry", post(get_pipeline_registry))
@@ -3817,6 +4448,8 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/capture/decision-reviews", get(get_decision_reviews))
         .route("/capture/ingest_image", post(ingest_image))
         .route("/capture/ingest_uidocument", post(ingest_uidocument))
+        .route("/chat/turns", get(get_chat_turns))
+        .route("/consciousness/responses", get(get_consciousness_responses))
         .route("/capture/zero-shot-calls", get(get_zero_shot_calls))
         .route(
             "/capture/pipeline-zero-shot-calls",
@@ -3871,6 +4504,12 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         // TASK UPDATE — coordination-task lifecycle (routed agent marks
         // its own work completed/failed).
         .route("/task/update", post(update_coordination_task))
+        // TASK RESUME — awaiting -> running (meta drain / UI resume).
+        .route("/task/resume", post(resume_awaiting_task))
+        .route("/task/resume_run", post(resume_paused_run))
+        .route("/task/pause_info", post(task_pause_info))
+        // ORCHESTRATE STATUS — poll a submit_only run by run_token.
+        .route("/orchestrate/status", get(orchestrate_status))
         .layer(cors)
         .layer(axum::middleware::from_fn_with_state(state.clone(), session_gate))
         .with_state(state);
@@ -4843,6 +5482,9 @@ async fn mcp_call(
     } else {
         false
     };
+    // STRICT SESSION: enforced by the session_gate middleware ("/mcp/call" is in
+    // PROTECTED) so the host-internal token (x-oz-internal) is honoured too —
+    // a handler-level body-token check would refuse internal callers.
     let call_input_preview = serde_json::to_string(&call.input)
         .map(|s| s.chars().take(300).collect::<String>())
         .unwrap_or_default();
@@ -4872,6 +5514,9 @@ async fn mcp_call(
                 fallback_free_only: runtime.config.models.fallback.free_only,
                 data_dir: runtime.config.general.data_dir.clone(),
             });
+        // Call-index coverage: the MCP-call jurisdiction review is a model call too.
+        let executor_adapter: Arc<dyn crate::orchestrator::PipelineExecutor> =
+            Arc::new(crate::orchestrator::instrumented::InstrumentedExecutor::new(executor_adapter));
         let zsei_adapter = Arc::new(crate::orchestrator::ZseiStoreAdapter {
             zsei: runtime.zsei.clone(),
         });
@@ -5411,10 +6056,18 @@ pub struct CoordinationTaskRequest {
     pub meeting_url: Option<String>,
     #[serde(default)]
     pub note_body: Option<String>,
+    /// Checklist items: strings or `{text, done}` objects.
+    #[serde(default)]
+    pub checklist: Option<Vec<serde_json::Value>>,
     #[serde(default)]
     pub workspace_id: Option<u64>,
     #[serde(default)]
     pub project_id: Option<u64>,
+    /// Stable external identity (e.g. `{"provider":"gcal","external_id":"…"}`).
+    /// Persisted on the task and used for server-side idempotency: a second
+    /// create with an equal `external_ref` returns the existing task.
+    #[serde(default)]
+    pub external_ref: Option<serde_json::Value>,
 }
 
 async fn create_coordination_task(
@@ -5452,7 +6105,38 @@ async fn create_coordination_task(
         inputs.insert("meeting_url".to_string(), serde_json::json!(m));
     }
     if let Some(n) = &req.note_body {
+        // enqueue_task reads "note" (the order view reads "note" too);
+        // "note_body" kept for older readers.
+        inputs.insert("note".to_string(), serde_json::json!(n));
         inputs.insert("note_body".to_string(), serde_json::json!(n));
+    }
+    if let Some(c) = &req.checklist {
+        inputs.insert("checklist".to_string(), serde_json::json!(c));
+    }
+    if let Some(p) = &req.priority {
+        inputs.insert("priority".to_string(), serde_json::json!(p));
+    }
+    if let Some(x) = &req.external_ref {
+        inputs.insert("external_ref".to_string(), x.clone());
+        // Server-side idempotency (connectors used to dedupe only in a local map).
+        let existing = {
+            let runtime = state.runtime.read().await;
+            let task_mgr = runtime.task_manager.read().await;
+            task_mgr
+                .list_tasks(None, None, 100_000, 0)
+                .await
+                .into_iter()
+                .find(|t| t.external_ref.as_ref() == Some(x) && t.status != "cancelled")
+        };
+        if let Some(t) = existing {
+            return Json(serde_json::json!({
+                "success": true,
+                "task_id": t.task_id,
+                "assignee": req.assignee,
+                "status": t.status,
+                "deduped": true,
+            }));
+        }
     }
 
     let enqueue_result = {
@@ -5544,6 +6228,65 @@ async fn update_coordination_task(
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TaskResumeRequest {
+    pub task_id: u64,
+    #[serde(default)]
+    pub agent: Option<String>,
+}
+
+/// POST /task/resume {task_id, agent?} — awaiting -> running only.
+/// Returns {success, task_id, status:"running"} or {success:false, error}.
+async fn resume_awaiting_task(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<TaskResumeRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let ok = runtime.task_manager.read().await.resume_awaiting(&req.task_id).await;
+    if ok {
+        let registry = runtime.pipeline_registry.read().await;
+        registry.activity_hub().record(
+            crate::monitor::ActivityKind::Job,
+            crate::monitor::ActivityLevel::Info,
+            req.agent.as_deref().unwrap_or("operator"),
+            format!("Task {} resumed (awaiting → running)", req.task_id),
+            None,
+        );
+        Json(serde_json::json!({ "success": true, "task_id": req.task_id, "status": "running" }))
+    } else {
+        Json(serde_json::json!({
+            "success": false,
+            "task_id": req.task_id,
+            "error": "task not found or not in the awaiting state",
+        }))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct OrchestrateStatusQuery {
+    pub run_token: String,
+}
+
+/// GET /orchestrate/status?run_token= — the stored record of a submit_only
+/// run: {found, run_token, status, ...OrchestrateResponse fields once done}.
+/// Unknown token = {found:false} (the registry is in-memory; the task record
+/// stays the durable truth after a restart).
+async fn orchestrate_status(
+    axum::extract::Query(q): axum::extract::Query<OrchestrateStatusQuery>,
+) -> Json<serde_json::Value> {
+    let found = async_runs().lock().ok().and_then(|m| m.get(&q.run_token).cloned());
+    match found {
+        Some(mut v) => {
+            if let Some(o) = v.as_object_mut() {
+                o.insert("found".to_string(), serde_json::json!(true));
+                o.insert("run_token".to_string(), serde_json::json!(q.run_token));
+            }
+            Json(v)
+        }
+        None => Json(serde_json::json!({ "found": false, "run_token": q.run_token })),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CoordinationTaskUpdateRequest {
     pub task_id: u64,
     /// completed | failed | queued (requeue)
@@ -5613,5 +6356,35 @@ mod charset_decode_tests {
         let (text, degraded) = decode_html_bytes(&bytes, Some("not-a-real-charset"));
         assert_eq!(text, "plain");
         assert!(!degraded);
+    }
+}
+
+#[cfg(test)]
+mod order_recurrence_tests {
+    use super::parse_recurrence_secs;
+
+    #[test]
+    fn named_rules() {
+        assert_eq!(parse_recurrence_secs("daily"), Some(86_400));
+        assert_eq!(parse_recurrence_secs(" Weekly "), Some(7 * 86_400));
+        assert_eq!(parse_recurrence_secs("biweekly"), Some(14 * 86_400));
+        assert_eq!(parse_recurrence_secs("monthly"), Some(30 * 86_400));
+        assert_eq!(parse_recurrence_secs("yearly"), Some(365 * 86_400));
+    }
+
+    #[test]
+    fn every_n_rules() {
+        assert_eq!(parse_recurrence_secs("every 3 days"), Some(3 * 86_400));
+        assert_eq!(parse_recurrence_secs("every 2 weeks"), Some(14 * 86_400));
+        assert_eq!(parse_recurrence_secs("every 6 hours"), Some(6 * 3_600));
+    }
+
+    #[test]
+    fn unknown_or_zero_is_none_never_a_guess() {
+        assert_eq!(parse_recurrence_secs(""), None);
+        assert_eq!(parse_recurrence_secs("sometimes"), None);
+        assert_eq!(parse_recurrence_secs("every 0 days"), None);
+        assert_eq!(parse_recurrence_secs("every x days"), None);
+        assert_eq!(parse_recurrence_secs("every 2 fortnights"), None);
     }
 }

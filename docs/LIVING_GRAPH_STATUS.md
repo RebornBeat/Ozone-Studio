@@ -179,3 +179,10 @@ No implementation chosen — this needs a real go/no-go and which-direction deci
 **New structural finding, not previously documented anywhere**: of the system's context sources (S1-S12, `CONTEXT_REGISTRY.md`), only S1/S2/S4/S6/S9 are graph-native; S5/S7/S8 are request-scoped state with no durable container; S10 has a real one-directional bridge (via the consciousness review pass); **S11 (per-call zero-shot metrics, including the `amt_container_id`/`blueprint_id`/`project_id` correlation markers added earlier this session) is a confirmed dead-end — real data, written every call, read by nothing.** A fix (forks dispatched) is building the first real consumer. See `GRAPH_RELATIONSHIP_REGISTRY.md` §5.
 
 **Cross-modal linking is confirmed still purely lexical** (3 independently-maintained copies of `link_related_containers`, one per modality, all keyword/topic-overlap-based, no modality-type filter, no semantic understanding) — unchanged by any fix this session. This is the real ceiling on "how related are two containers actually" system-wide, independent of any single modality's node/edge richness improving.
+
+
+## Addendum 2026-11-02 — graph doctrine vs reality (edit wave, uncompiled)
+- **Newly graphed:** the conversation (`ChatSession` per global/workspace/project scope → `ChatTurn` with full prompt + response; response text graphed through the text modality; `RelatedTo` to the run's prompt graphs). Previously transcripts were browser-only.
+- **Newly honest:** containers created with legacy flat JSON (Category auto-create, synthesized Methodology, VoiceIdentity) were silently never stored; `ZseiStoreAdapter` now normalizes them.
+- **Measured local snapshot** (258 modality graph files across 26 modality kinds, 131 AMT trees, 491 re-expansion candidates of which 317 were `failed_structural` echoes): see `SYSTEM_FLOW_AND_GRAPH_STATE_2026-11-02.md` §4.2. `chunk_graphs/`, `file_graphs/`, `cross_modal/` directories are empty by design — those graphs live in the ZSEI index and `graphs/`.
+- **Cross-modal linking:** 15 more modalities gained `LinkToModality` (shared writer, idempotent bidirectional `RelatedTo`); `uidocument` has none (lib crate).

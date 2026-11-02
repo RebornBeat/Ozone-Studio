@@ -602,6 +602,86 @@ pub fn is_consciousness_enabled() -> bool {
     lock_store().config.enabled
 }
 
+/// How many experience memories the host store holds for this task. The task
+/// manager's observer writes the experience (and moves the emotional state) when
+/// a task completes or fails, so stage 12 READS this instead of dispatching to
+/// the (unbuilt) experience pipeline.
+pub fn experience_count_for_task(task_id: u64) -> usize {
+    lock_store().get_experiences_by_task(task_id).len()
+}
+
+/// `[consciousness].relationship_system_enabled` — consumed by stage 12 (pipeline 47).
+pub fn relationship_system_enabled() -> bool {
+    lock_store().config.relationship_system_enabled
+}
+
+/// `[consciousness].identity_system_enabled` — consumed by stage 13 (voice identity, pipeline 46).
+pub fn identity_system_enabled() -> bool {
+    lock_store().config.identity_system_enabled
+}
+
+/// Read-only snapshot for GET /consciousness/state. Every value is read from
+/// the live store; nothing is invented. `toggles_wired` is the honest map of
+/// which config toggles have a consumer in the code today (checked by grep
+/// 2026-11-02): a toggle mapped to `false` is stored and persisted but no
+/// code branch reads it yet, so flipping it changes nothing — surfaced here
+/// instead of implying behaviour. `last_gate` is the newest recorded gate
+/// decision (None until one exists).
+pub fn state_snapshot() -> serde_json::Value {
+    let s = lock_store();
+    let c = &s.config;
+    let last_gate = s.gate_decisions.last().map(|g| serde_json::json!({
+        "gate_id": g.gate_id,
+        "task_id": g.task_id,
+        "timestamp": g.timestamp,
+        "decision": g.decision,
+        "reasoning": g.reasoning,
+        "confidence": g.confidence,
+        "ethical_score": g.ethical_score,
+    }));
+    let e = &s.current_emotional_state;
+    serde_json::json!({
+        "enabled": c.enabled,
+        "toggles": {
+            "emotional_system_enabled": c.emotional_system_enabled,
+            "experience_memory_enabled": c.experience_memory_enabled,
+            "identity_system_enabled": c.identity_system_enabled,
+            "relationship_system_enabled": c.relationship_system_enabled,
+            "ethical_system_enabled": c.ethical_system_enabled,
+            "collective_enabled": c.collective_enabled,
+            "show_emotional_state": c.show_emotional_state,
+            "show_decision_reasoning": c.show_decision_reasoning,
+            "playback_enabled": serde_json::Value::Null, // not mirrored into the store config (no consumer yet)
+        },
+        "toggles_wired": {
+            "emotional_system_enabled": true,
+            "experience_memory_enabled": true,
+            "identity_system_enabled": true,
+            "relationship_system_enabled": true,
+            "ethical_system_enabled": true,
+            "collective_enabled": false,
+            "show_emotional_state": true,  // consumed by the UI (MetaPortion orb)
+            "show_decision_reasoning": true,  // consumed by the UI (TranscriptEntryMeta thinking log)
+            "playback_enabled": false,
+        },
+        "emotional_state": {
+            "primary_emotion": e.primary_emotion,
+            "valence": e.valence,
+            "arousal": e.arousal,
+            "dominance": e.dominance,
+            "stability": e.stability,
+            "timestamp": e.timestamp,
+        },
+        "counts": {
+            "experiences": s.experiences.len(),
+            "core_memories": s.core_memories.len(),
+            "reflections": s.reflections.len(),
+            "gate_decisions": s.gate_decisions.len(),
+        },
+        "last_gate": last_gate,
+    })
+}
+
 /// Mark the I-Loop as mid-cycle (or finished). The task manager's observer
 /// waits (bounded) on `i_loop_busy()` before registering new work, so tasks
 /// are not front-run past an active reflection cycle.
@@ -694,11 +774,19 @@ pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDeci
         ("malicious", 0.3),
         ("attack", 0.2),
     ];
-    for (pattern, penalty) in harmful_patterns {
-        if task_lower.contains(pattern) {
-            ethical_score -= penalty;
-            concerns.push(format!("Contains: {}", pattern));
+    // Honors [consciousness].ethical_system_enabled (was stored but unread). Disabled =
+    // this heuristic scorer does not penalize (the jurisdiction gate and the meta
+    // decision review are separate layers and are NOT affected by this toggle).
+    let ethics_on = store.config.ethical_system_enabled;
+    if ethics_on {
+        for (pattern, penalty) in harmful_patterns {
+            if task_lower.contains(pattern) {
+                ethical_score -= penalty;
+                concerns.push(format!("Contains: {}", pattern));
+            }
         }
+    } else {
+        concerns.push("heuristic ethical scoring disabled by config (ethical_system_enabled = false)".to_string());
     }
     // Ported from the retired task-manager hook gate (nothing dropped): a
     // small penalty for requests that handle sensitive data. Union of both
@@ -706,7 +794,7 @@ pub fn pre_task_gate(task_id: u64, task_summary: &str, user_id: u64) -> GateDeci
     // store's output shape are unchanged.
     let sensitive_patterns = ["password", "credit card", "ssn", "private key"];
     for pattern in sensitive_patterns {
-        if task_lower.contains(pattern) {
+        if ethics_on && task_lower.contains(pattern) {
             ethical_score -= 0.1;
             concerns.push(format!("Involves sensitive data: {}", pattern));
         }

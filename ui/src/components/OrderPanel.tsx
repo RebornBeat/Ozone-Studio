@@ -23,9 +23,12 @@ import {
   OrderItem,
   OrderItemKind,
   AssistantFeed,
+  AwaitingOrderItem,
+  resumeRun,
 } from "../ozoneClient";
+import { AwaitingBadge } from "./AwaitingBadge";
 
-const KIND_ICONS: Record<OrderItemKind, string> = {
+const KIND_ICONS: Record<string, string> = {
   todo: "✓",
   meeting: "📅",
   followup: "↩",
@@ -134,6 +137,12 @@ export const OrderPanel: React.FC = () => {
   const activeItems: OrderItem[] = order
     ? [...order.live, ...order.paused, ...order.queued, ...order.interrupted]
     : [];
+  // Awaiting items (meta/consciousness gate not yet judged, or a jurisdiction
+  // confirmation) are ACTIVE work, never failures. They come from the
+  // 'awaiting' group when the host serves it; their status is normalised.
+  const awaitingItems: AwaitingOrderItem[] = order?.awaiting ?? [];
+  const awaitingIds = new Set(awaitingItems.map((a) => a.task_id));
+  const activeShown = activeItems.filter((it) => !awaitingIds.has(it.task_id));
 
   const buckets: Record<Bucket, OrderItem[]> = {
     overdue: [], today: [], week: [], upcoming: [], someday: [],
@@ -227,22 +236,34 @@ export const OrderPanel: React.FC = () => {
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "4px 0 8px" }}
       >
         <h4 style={{ margin: 0, color: "#aebdce", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.7 }}>
-          Active work ({activeItems.length})
+          Active work ({activeShown.length + awaitingItems.length})
         </h4>
         <button className="oseg" onClick={() => setShowActive((s) => !s)} style={{ cursor: "pointer" }}>
           {showActive ? "hide" : "show"}
         </button>
       </div>
       {showActive && (
-        activeItems.length === 0 ? (
-          <div className="oempty">Nothing live, paused, queued, or interrupted right now.</div>
+        activeShown.length + awaitingItems.length === 0 ? (
+          <div className="oempty">Nothing live, awaiting, paused, queued, or interrupted right now.</div>
         ) : (
           <table className="otable" style={{ marginBottom: 18 }}>
             <thead>
               <tr><th>Kind</th><th>Name</th><th>Status</th><th>Progress</th><th>Due</th></tr>
             </thead>
             <tbody>
-              {activeItems.map((it) => (
+              {awaitingItems.map((a) => (
+                <tr
+                  key={`aw-${a.task_id}`}
+                  onClick={() => navigateTo({ kind: "task", taskId: a.task_id })}
+                  title={a.last_error ? `Last error: ${a.last_error}` : "Open this task"}
+                  style={{ cursor: "pointer" }}
+                >
+                  <td>{a.kind ? (KIND_ICONS[a.kind] ?? "⏳") : "⏳"}</td>
+                  <td style={{ color: "#e8eef6" }}>{a.name ?? `Task #${a.task_id}`}</td>
+                  <td colSpan={3}><AwaitingBadge item={a} /></td>
+                </tr>
+              ))}
+              {activeShown.map((it) => (
                 <tr
                   key={it.task_id}
                   onClick={() => navigateTo({ kind: "task", taskId: it.task_id })}
@@ -251,7 +272,19 @@ export const OrderPanel: React.FC = () => {
                 >
                   <td>{KIND_ICONS[it.kind] ?? "•"}</td>
                   <td style={{ color: "#e8eef6" }}>{it.name}</td>
-                  <td><span className={`ochip ${it.status}`}>{it.status}</span></td>
+                  <td>
+                    <span className={`ochip ${it.status}`}>{it.status}</span>
+                    {it.paused_for_failure && (
+                      <button
+                        className="obtn"
+                        style={{ marginLeft: 6 }}
+                        title={`${it.error ?? "paused by a failed step"} — resume from exactly the failed step`}
+                        onClick={(e) => { e.stopPropagation(); void resumeRun(it.task_id); }}
+                      >
+                        Resume
+                      </button>
+                    )}
+                  </td>
                   <td className="omono">{it.steps_total > 0 ? `${it.steps_done}/${it.steps_total}` : `${Math.round(it.progress * 100)}%`}</td>
                   <td className="omono">{dueLabel(it.due_at)}</td>
                 </tr>

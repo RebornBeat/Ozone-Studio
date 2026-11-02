@@ -95,7 +95,16 @@ function truncate(s: string, max: number): string {
   return s.length > max ? `${s.slice(0, max - 1)}…` : s;
 }
 
-export const OrchestrationStatusPanel: React.FC<{ isRunning: boolean }> = ({ isRunning }) => {
+export interface OrchestrationStatusScope {
+  /** undefined = no filtering; null = only global-chat runs (project_id null); number = only that project. */
+  projectId?: number | null;
+  workspaceId?: number | null;
+}
+
+export const OrchestrationStatusPanel: React.FC<{ isRunning: boolean; scope?: OrchestrationStatusScope }> = ({ isRunning, scope }) => {
+  // Held in a ref so a new scope object each render never re-subscribes the stream.
+  const scopeRef = useRef<OrchestrationStatusScope | undefined>(scope);
+  scopeRef.current = scope;
   const [rows, setRows] = useState<StageRow[]>(freshRows());
   const [recentPipelines, setRecentPipelines] = useState<PipelineProgressFrame[]>([]);
   const [expanded, setExpanded] = useState(false);
@@ -117,13 +126,25 @@ export const OrchestrationStatusPanel: React.FC<{ isRunning: boolean }> = ({ isR
 
     const offStage = client.onOrchestrationStage((frame: OrchestrationStageFrame) => {
       if (frame.user_id !== FILTER_USER_ID || frame.device_id !== FILTER_DEVICE_ID) return;
+      // Scope filter (2026-11-02): two chats running at once must not show each
+      // other's stage frames. Frames carry the triggering request's real scope.
+      const sc = scopeRef.current;
+      if (sc) {
+        if (sc.projectId !== undefined && (frame.project_id ?? null) !== sc.projectId) return;
+        if (sc.workspaceId !== undefined && sc.workspaceId !== null && (frame.workspace_id ?? null) !== sc.workspaceId) return;
+      }
       setRows((prev) => {
         const idx = prev.findIndex((r) => r.stage === frame.stage);
         if (idx === -1) return prev; // a real stage number outside our known list — ignore, don't fabricate a row
         const next = prev.map((r) => ({ ...r }));
-        next[idx].status = frame.success ? "completed" : "failed";
+        // 2026-11-01 doctrine: an awaiting gate is NOT completed/failed — the
+        // walk is parked until meta judges. Keep the stage "current" and
+        // surface the host's own summary (assumed to contain "awaiting").
+        const awaitingGate = /\bawait/i.test(frame.summary ?? "");
+        next[idx].status = awaitingGate ? "current" : frame.success ? "completed" : "failed";
         next[idx].summary = frame.summary;
         next[idx].durationMs = frame.duration_ms;
+        if (awaitingGate) return next;
         // Any stage strictly between the previously-latest completed one and
         // this one that never got its own frame is honestly "skipped" —
         // inferred from the real gap, not a hardcoded skip list.
@@ -194,6 +215,11 @@ export const OrchestrationStatusPanel: React.FC<{ isRunning: boolean }> = ({ isR
         <span aria-live="polite" style={{ color: "var(--color-text)", fontWeight: 600 }}>
           {currentRow ? currentRow.name : "Working…"}
         </span>
+        {currentRow?.summary && /\bawait/i.test(currentRow.summary) && (
+          <span title={currentRow.summary} style={{ color: "#d9b45f" }}>
+            ⏳ awaiting judgment — retrying, not failed
+          </span>
+        )}
         <span style={{ color: "var(--color-text-muted)" }}>
           {completedCount}/{rows.length} stages · {formatElapsed(elapsedMs)}
         </span>

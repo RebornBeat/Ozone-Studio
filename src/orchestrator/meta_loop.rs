@@ -325,6 +325,13 @@ async fn review_methodology_gaps_once(
         };
 
         let response_text = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
+        if response_text.trim().is_empty() {
+            // A blank draft is a FAILED call (retried next cycle) — it used to flow into
+            // extract_json_object -> "{}" and be logged as "draft had no real rules".
+            stats.failures += 1;
+            tracing::warn!(?keywords, "Methodology meta-loop: draft response was blank — failed attempt, will retry next cycle");
+            continue;
+        }
         // BitNet "confetti" (found live 2026-09-22 in decision_review.rs,
         // same vulnerability confirmed here): a response can contain
         // MULTIPLE conflicting JSON candidates (a leading empty `{}`,
@@ -578,4 +585,18 @@ fn extract_json_object(s: &str) -> String {
         }
     }
     "{}".to_string()
+}
+
+/// Awaiting drain (2026-11-01 doctrine): wake every walk parked on a
+/// meta/consciousness gate whose backoff elapsed so it re-asks meta now.
+/// Bounded to 12 items per pass. Walks re-judge themselves (stage 8 loop);
+/// items with no live walk (e.g. after restart) stay `awaiting` and are
+/// surfaced by `awaiting::pending_actions` for the resume driver.
+/// Returns the number of due items woken.
+pub fn drain_awaiting_once(data_dir: &str) -> usize {
+    let due = super::awaiting::due_items(data_dir, 12);
+    if !due.is_empty() {
+        super::awaiting::await_wake().notify_waiters();
+    }
+    due.len()
 }

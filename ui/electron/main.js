@@ -419,7 +419,7 @@ async function ensureSessionToken() {
 // was nowhere near enough and turned genuine in-progress work into a false
 // "Error: timeout" in the chat UI. Slow, known-long-running routes get a
 // generous budget; everything else keeps the original fast timeout.
-const SLOW_ENDPOINT_TIMEOUT_MS = 300000; // 5 min
+const SLOW_ENDPOINT_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — real walks run 544–795 s+ and may await meta judgments; the server walk is detached, so this is only the client wait
 const SLOW_ENDPOINTS = ["/orchestrate", "/task/step/rerun", "/consciousness/review_pass"];
 
 async function backendRequest(method, path, body = null) {
@@ -477,7 +477,7 @@ function rawRequest(method, path, body = null, timeoutMs) {
     req.on("timeout", () => {
       log.error(`[HTTP TIMEOUT] ${method} ${path}`);
       req.destroy();
-      reject(new Error("timeout"));
+      reject(new Error("client-timeout: timeout waiting for host response (the task may still be running server-side)"));
     });
 
     if (body) req.write(JSON.stringify(body));

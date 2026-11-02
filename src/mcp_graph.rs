@@ -163,14 +163,39 @@ fn modality_for(tool: &str) -> Modality {
     // G5 partial (2026-10-31): prefix affinity for the registered families.
     // The designed successor reads the tool's `modality:<name>` capability
     // tag from the registry (D18) — this table is the honest interim.
-    let image = ["visual_", "yolo_", "depth_", "shape_", "pose_", "screenshot_", "ocr_"];
-    let text = ["web_", "search", "text_", "translate_", "summarize_"];
+    // 2026-11-01 (modality unification): more families map onto the container
+    // `Modality` variants that exist (Audio/Video/TimeSeries/Structured/Graph/
+    // External); families with no variant stay Unknown rather than being
+    // mislabeled. Still interim until the D18 capability tag lands.
+    let image = [
+        "visual_", "yolo_", "depth_", "shape_", "pose_", "screenshot_", "ocr_", "image_",
+        "vision_", "camera_", "thermal_", "hyperspectral_", "blender_render",
+    ];
+    let audio = ["audio_", "speech_", "tts_", "stt_", "voice_", "sound_", "whisper_"];
+    let video = ["video_", "ffmpeg_", "recording_", "farm_record"];
+    let timeseries = ["imu_", "eeg_", "bci_", "sensor_", "telemetry_", "haptic_"];
+    let structured = ["sql_", "db_", "csv_", "table_", "sheet_", "data_"];
+    let graphy = ["graph_", "network_", "kinematics_", "topology_"];
+    let external = ["gcal_", "zoom_", "gmail_", "slack_", "calendar_", "drive_"];
+    let text = ["web_", "search", "text_", "translate_", "summarize_", "pdf_", "doc_"];
     let code = ["code_", "git_", "repo_", "ast_"];
     let exec = ["terminal_", "shell_", "process_"];
     let coord = ["context_", "note_", "task_", "file_claim", "handoff"];
     let dom = ["domorpher_", "uidocument_", "page_"];
     let (tag, fallback) = if image.iter().any(|p| tool.starts_with(p)) {
         (Some(Modality::Image), "image")
+    } else if audio.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Audio), "audio")
+    } else if video.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Video), "video")
+    } else if timeseries.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::TimeSeries), "timeseries")
+    } else if structured.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Structured), "structured")
+    } else if graphy.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::Graph), "graph")
+    } else if external.iter().any(|p| tool.starts_with(p)) {
+        (Some(Modality::External), "external")
     } else if text.iter().any(|p| tool.starts_with(p)) {
         (Some(Modality::Text), "text")
     } else if code.iter().any(|p| tool.starts_with(p)) {

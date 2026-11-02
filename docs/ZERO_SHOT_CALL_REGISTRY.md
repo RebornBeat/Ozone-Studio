@@ -740,3 +740,13 @@ Original audit below, kept for history per this doc's additive convention:
 - `src/orchestrator/amt_loop.rs`, `src/orchestrator/meta_loop.rs` — background-loop call sites with cross-pass escalation
 - `src/orchestrator/response.rs` — response-graph rendering
 - `src/orchestrator/jurisdiction.rs` — `resolve_confirmation_reviews`, `categorize_jurisdiction_matches` (§6)
+
+
+## 14. 2026-11-02 addendum — call-route audit and output-cap policy
+
+The 18-row inventory above is per-prompt and its line numbers have drifted. The authoritative *route* inventory (which guardrails each path has) is now `CALL_ROUTE_REGISTRY.md`. New or changed facts:
+
+- **More call sites than the 18:** assistant digest (`assistant.rs`, `assistant_check_up`), I-Loop reflection (`i_loop_reflection`), decision review (pipeline 39 interception, own fallback walk), lane retry (`amt.rs`, `execute(9)`), sub-steps and strength-N votes (`stages.rs`). All go through the `Instrumented(DecisionReview(Registry))` executor on the walk; the background loops now use `Instrumented(Registry)` (fixed — they had been invisible to `call_spans.jsonl`).
+- **Bypass fixed:** pipeline 16 (`zero_shot_simulation`) called OpenRouter directly; now routed through the prompt binary.
+- **Dead path fixed:** 18 modality pipelines never reached the prompt binary (wrong env var name); now `OZONE_PROMPT_PIPELINE_PATH` first.
+- **§9 flat `max_tokens` table is superseded:** the listed values are answer-length hints and are NOT sent to the provider (no response cap — see `CALL_ROUTE_REGISTRY.md` §2). Local runtimes are bounded by half the context window.

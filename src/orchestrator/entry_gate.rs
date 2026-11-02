@@ -34,7 +34,7 @@ use std::time::Instant;
 /// Append one row to `<OZONE_ZSEI_DATA_DIR|zsei_data>/capture/call_spans.jsonl`
 /// — the same sink `instrumented.rs` writes, same best-effort discipline: a
 /// capture failure is logged and swallowed, never propagated into the call.
-fn append_entry_row(row: &serde_json::Value) {
+pub(crate) fn append_entry_row(row: &serde_json::Value) {
     let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
     let dir = format!("{data_dir}/capture");
     if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -75,6 +75,10 @@ where
         "ts_ms": now_millis(),
         "span_kind": "external-pipeline",
         "pipeline_id": pipeline_id,
+        // Verdict recorded on every entry (2026-11-01): `gated` itself never
+        // blocks (session + consciousness-category checks live at the
+        // handlers; use `gated_checked` to put an identity check in front).
+        "gate_verdict": "allowed",
     });
     if let (Some(obj), serde_json::Value::Object(fields)) =
         (row.as_object_mut(), ctx.fields())
@@ -94,6 +98,87 @@ where
     }
     append_entry_row(&row);
     out
+}
+
+/// Record one gate verdict row (allowed / blocked) in the same
+/// `call_spans.jsonl` sink, correlated with the current trace when one is
+/// installed. Shape-only: `subject` is a short label (tool name, pipeline id),
+/// never prompt or response content. Used by the entry paths and by tool
+/// routing so a BLOCK leaves the same kind of evidence an allow does.
+pub fn record_gate_verdict(
+    span_kind: &str,
+    subject: &str,
+    verdict: &str,
+    reason: Option<&str>,
+    extra: Option<serde_json::Value>,
+) {
+    let mut row = serde_json::json!({
+        "ts_ms": now_millis(),
+        "span_kind": span_kind,
+        "subject": subject,
+        "gate_verdict": verdict,
+    });
+    if let Some(obj) = row.as_object_mut() {
+        if let Some(r) = reason {
+            obj.insert("reason".to_string(), serde_json::json!(r));
+        }
+        if let Some(serde_json::Value::Object(ex)) = extra {
+            for (k, v) in ex {
+                obj.insert(k, v);
+            }
+        }
+        if let Some(t) = crate::trace::current_trace() {
+            if let serde_json::Value::Object(fields) = t.fields() {
+                for (k, v) in fields {
+                    obj.insert(k, v);
+                }
+            }
+        }
+    }
+    append_entry_row(&row);
+}
+
+/// `OZONE_REQUIRE_SESSION=1` means unauthenticated callers are refused at
+/// the strict-session gate. Entry paths that carry their own caller identity
+/// (`/mcp/call`, `rerun_step`, ingest routes) call this with what they know:
+/// - `validated`: the caller presented a session token that validated;
+/// - `internal`: the call originates in-process (orchestrator step, loop) —
+///   trusted by construction and never subject to the session requirement.
+/// Returns `Err(reason)` only when the strict flag is on and the caller is
+/// neither validated nor internal. With the flag off it always allows (the
+/// documented localhost posture), so default behaviour is unchanged.
+pub fn require_identity(validated: bool, internal: bool) -> Result<(), String> {
+    let strict = std::env::var("OZONE_REQUIRE_SESSION").as_deref() == Ok("1");
+    if !strict || validated || internal {
+        return Ok(());
+    }
+    Err("this entry requires a validated session (OZONE_REQUIRE_SESSION=1): present a valid session_token".to_string())
+}
+
+/// Like [`gated`], but with an identity precondition in front of the
+/// dispatch. On refusal the dispatch future is NEVER polled, a `blocked`
+/// verdict row is recorded, and the reason is returned; on success it behaves
+/// exactly like `gated` (trace root/child, allowed row). Additive: existing
+/// `gated` callers are untouched.
+pub async fn gated_checked<F, T>(
+    pipeline_id: u64,
+    identity: Result<(), String>,
+    fut: F,
+) -> Result<T, String>
+where
+    F: Future<Output = T>,
+{
+    if let Err(reason) = identity {
+        record_gate_verdict(
+            "external-pipeline",
+            &format!("pipeline:{pipeline_id}"),
+            "blocked",
+            Some(&reason),
+            Some(serde_json::json!({ "pipeline_id": pipeline_id })),
+        );
+        return Err(reason);
+    }
+    Ok(gated(pipeline_id, fut).await)
 }
 
 #[cfg(test)]
@@ -134,5 +219,29 @@ mod tests {
             assert_eq!(inner_id, Some(root_id));
         })
         .await;
+    }
+
+    #[test]
+    fn require_identity_only_blocks_when_strict_and_unvalidated() {
+        // default (flag unset in this test's view): always allowed.
+        std::env::remove_var("OZONE_REQUIRE_SESSION");
+        assert!(require_identity(false, false).is_ok());
+        std::env::set_var("OZONE_REQUIRE_SESSION", "1");
+        assert!(require_identity(false, false).is_err());
+        assert!(require_identity(true, false).is_ok());
+        assert!(require_identity(false, true).is_ok());
+        std::env::remove_var("OZONE_REQUIRE_SESSION");
+    }
+
+    #[tokio::test]
+    async fn gated_checked_never_polls_the_dispatch_on_refusal() {
+        let polled = std::sync::atomic::AtomicBool::new(false);
+        let out = gated_checked(9, Err("no".to_string()), async {
+            polled.store(true, std::sync::atomic::Ordering::SeqCst);
+            1
+        })
+        .await;
+        assert!(out.is_err());
+        assert!(!polled.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

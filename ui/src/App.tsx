@@ -10,6 +10,7 @@ import { useOzoneStore } from "./services/store";
 import { MetaPortion } from "./components/MetaPortion";
 import { ThemeArea } from "./components/ThemeArea";
 import { StatusBar } from "./components/StatusBar";
+import { PendingReviewModal } from "./components/PendingReviewModal";
 import ConnectedAgents from "./components/ConnectedAgents";
 import { SetupWizard } from "./components/SetupWizard";
 import { OZONE_HOST } from "./ozoneClient";
@@ -118,6 +119,7 @@ export interface SystemStats {
   // lands, each one gets wired to its own real value, not a fabricated
   // split of a single number.
   p2pEnabled: boolean;
+  pairedCount?: number;
   peerCount: number;
   totalContributions: number;
   myContributions: number;
@@ -379,6 +381,7 @@ function App() {
         <ThemeArea theme={currentTheme} />
       </div>
 
+      <PendingReviewModal />
       <StatusBar />
     </div>
   );

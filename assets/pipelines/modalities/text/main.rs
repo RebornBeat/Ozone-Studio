@@ -886,6 +886,10 @@ pub enum ExtractionOutcome {
     Exhausted,
     /// A candidate was returned (validation still required).
     Candidate,
+    /// The call errored, or returned a blank / unparseable response. This is NOT
+    /// "nothing left to extract": it must never be counted as exhaustion (a chunk
+    /// whose every call failed used to complete "successfully" with zero sentences).
+    Failed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1310,6 +1314,12 @@ pub enum TextModalityAction {
         /// selective use via ExtractGrammarRelationships).
         #[serde(default)]
         grammar_mode: GrammarExtractionMode,
+        /// 2026-11-01: a path to a pdf/docx/odt/rtf (binary document). When
+        /// set and `text` is empty, real text is extracted (see
+        /// `doc_extract`); extraction failure is an honest error, never
+        /// empty/garbled text analyzed as if it were the document.
+        #[serde(default)]
+        file_path: Option<String>,
     },
 
     /// Create a graph from analysis results
@@ -2339,7 +2349,34 @@ impl TextModalityPipeline {
                 processing_path,
                 executor_model,
                 grammar_mode,
+                file_path,
             } => {
+                // Binary document formats: extract real text first.
+                let text = match (text.trim().is_empty(), file_path.as_deref()) {
+                    (true, Some(fp)) if doc_extract::is_document_path(fp) => {
+                        match doc_extract::extract_text(fp).await {
+                            Ok(t) => t,
+                            Err(e) => {
+                                return TextModalityOutput {
+                                    success: false,
+                                    error: Some(format!("document text extraction failed: {}", e)),
+                                    ..Default::default()
+                                };
+                            }
+                        }
+                    }
+                    (true, Some(fp)) => match std::fs::read_to_string(fp) {
+                        Ok(t) => t,
+                        Err(e) => {
+                            return TextModalityOutput {
+                                success: false,
+                                error: Some(format!("could not read {}: {}", fp, e)),
+                                ..Default::default()
+                            };
+                        }
+                    },
+                    _ => text,
+                };
                 self.analyze_text(
                     &text,
                     max_chunk_tokens,
@@ -2626,7 +2663,11 @@ impl TextModalityPipeline {
         match self.llm_execute(9, input).await {
             Ok(result) => {
                 let tokens = result.get("tokens_used").and_then(|t| t.as_u64()).unwrap_or(0);
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
+                if raw.trim().is_empty() {
+                    // Blank answer = NO vote (None). Never parsed from a fake "{}".
+                    eprintln!("ask_yes_no: blank response — vote not counted");
+                }
                 (k_validation::parse_yes_no(raw), tokens)
             }
             Err(_) => (None, 0),
@@ -2721,10 +2762,19 @@ If {task_word} sentence exists: {{"found": false}}"#,
 
         match self.llm_execute(9, input).await {
             Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
+                if raw.trim().is_empty() {
+                    eprintln!("extract_next_sentence: blank response — FAILED call (not exhaustion)");
+                    return (ExtractionOutcome::Failed, None);
+                }
                 let json_str = Self::extract_json_from_response(raw, '{', '}');
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&json_str).unwrap_or(serde_json::json!({"found": false}));
+                let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        eprintln!("extract_next_sentence: unparseable response ({e}) — FAILED call (not exhaustion)");
+                        return (ExtractionOutcome::Failed, None);
+                    }
+                };
                 if !parsed.get("found").and_then(|f| f.as_bool()).unwrap_or(false) {
                     return (ExtractionOutcome::Exhausted, None);
                 }
@@ -2761,7 +2811,10 @@ If {task_word} sentence exists: {{"found": false}}"#,
                     }),
                 )
             }
-            Err(_) => (ExtractionOutcome::Exhausted, None),
+            Err(e) => {
+                eprintln!("extract_next_sentence: LLM call failed ({e}) — FAILED call (not exhaustion)");
+                (ExtractionOutcome::Failed, None)
+            }
         }
     }
 
@@ -2902,6 +2955,7 @@ Return ONLY valid JSON with a single one-word answer:
         let mut completed_in_order = false;
         let mut consecutive_exhausted = 0u32;
         let mut consecutive_rejections = 0u32;
+        let mut consecutive_failed = 0u32;
 
         loop {
             let (outcome, candidate) = self
@@ -2915,7 +2969,21 @@ Return ONLY valid JSON with a single one-word answer:
                 .await;
 
             let cand = match (outcome, candidate) {
+                (ExtractionOutcome::Failed, _) => {
+                    // Failed calls are retried, then the chunk is reported INCOMPLETE
+                    // (completed_in_order stays false) — never "done".
+                    consecutive_failed += 1;
+                    if consecutive_failed >= 3 {
+                        eprintln!(
+                            "chunk {}: sentence extraction failed {} times in a row — chunk left INCOMPLETE ({} sentences captured)",
+                            chunk_index, consecutive_failed, seen.len()
+                        );
+                        break;
+                    }
+                    continue;
+                }
                 (ExtractionOutcome::Exhausted, _) | (_, None) => {
+                    consecutive_failed = 0;
                     consecutive_exhausted += 1;
                     if consecutive_exhausted < 2 {
                         continue; // one more extraction attempt before confirming
@@ -2949,7 +3017,10 @@ Return ONLY valid JSON with a single one-word answer:
                     consecutive_exhausted = 0;
                     continue;
                 }
-                (_, Some(c)) => c,
+                (_, Some(c)) => {
+                    consecutive_failed = 0;
+                    c
+                }
             };
 
             // Deterministic guard 1: span monotonicity (free — zero LLM calls).
@@ -3438,10 +3509,16 @@ or {{"found": false}} if no paragraph remains after the given position."#,
 
         match self.llm_execute(9, input).await {
             Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
                 let json_str = Self::extract_json_from_response(raw, '{', '}');
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&json_str).unwrap_or(serde_json::json!({"found": false}));
+                let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // Was a silent {"found": false}: a failed call looked like "nothing here".
+                        eprintln!("detection call: {} response — treated as a FAILED call, nothing detected from it ({e})", if raw.trim().is_empty() { "blank" } else { "unparseable" });
+                        return None;
+                    }
+                };
                 if parsed.get("found").and_then(|f| f.as_bool()).unwrap_or(false) {
                     Some(parsed)
                 } else {
@@ -3694,10 +3771,16 @@ or {{"found": false}}"#,
 
         match self.llm_execute(9, input).await {
             Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
                 let json_str = Self::extract_json_from_response(raw, '{', '}');
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&json_str).unwrap_or(serde_json::json!({"found": false}));
+                let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // Was a silent {"found": false}: a failed call looked like "nothing here".
+                        eprintln!("detection call: {} response — treated as a FAILED call, nothing detected from it ({e})", if raw.trim().is_empty() { "blank" } else { "unparseable" });
+                        return None;
+                    }
+                };
                 if parsed.get("found").and_then(|f| f.as_bool()).unwrap_or(false) {
                     Some(parsed)
                 } else {
@@ -3940,9 +4023,14 @@ Return ONLY a valid JSON array:
             attempt += 1;
             let result = self.llm_execute(9, input.clone()).await;
             let raw = match &result {
-                Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("[]").to_string(),
+                Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                 Err(_) => return vec![],
             };
+            if raw.trim().is_empty() {
+                eprintln!("extract_grammar_relationships_from_text: blank response — FAILED call (attempt {}), not 'no relationships'", attempt);
+                if attempt < MAX_ATTEMPTS { continue; }
+                return vec![];
+            }
             let candidates = Self::extract_all_json_candidates(&raw, '[', ']');
             if candidates.len() > 1 {
                 if attempt < MAX_ATTEMPTS {
@@ -3959,7 +4047,10 @@ Return ONLY a valid JSON array:
             break candidates.into_iter().next().unwrap_or_else(|| Self::extract_json_from_response(&raw, '[', ']'));
         };
         serde_json::from_str::<Vec<serde_json::Value>>(&json_str)
-            .unwrap_or_default()
+            .unwrap_or_else(|e| {
+                eprintln!("extract_grammar_relationships_from_text: unparseable relationship array ({e}) — none taken from it");
+                Vec::new()
+            })
             .into_iter()
             .filter_map(|v| {
                 let parsed = (|| {
@@ -5493,10 +5584,16 @@ Return ONLY valid JSON:
 
         match self.llm_execute(9, input).await {
             Ok(result) => {
-                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("[]");
+                let raw = result.get("response").and_then(|r| r.as_str()).unwrap_or("");
                 let json_str = Self::extract_json_from_response(raw, '{', '}');
-                let parsed: serde_json::Value = serde_json::from_str(&json_str)
-                    .unwrap_or(serde_json::json!({"sentences": []}));
+                let parsed: serde_json::Value = match serde_json::from_str(&json_str) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        // Was a silent {"sentences": []} (a failed call read as "no sentences").
+                        eprintln!("sentence split: {} response — FAILED call, no sentences taken from it ({e})", if raw.trim().is_empty() { "blank" } else { "unparseable" });
+                        serde_json::json!({"sentences": []})
+                    }
+                };
                 let mut out = Vec::new();
                 let mut prev_end = 0usize;
                 if let Some(arr) = parsed.get("sentences").and_then(|s| s.as_array()) {
@@ -5578,7 +5675,7 @@ Return ONLY valid JSON:
         };
 
         // ── 1. Sentences 1x1 (positions returned in effective-text coords) ──
-        let (sentence_nodes_raw, _seen, fragment_out, _completed) = self
+        let (sentence_nodes_raw, _seen, fragment_out, sentences_completed) = self
             .extract_sentences_ordered(&effective_text, chunk.index, section_id, None)
             .await;
 
@@ -5612,11 +5709,26 @@ Return ONLY valid JSON:
         Self::tie_modalities_to_parents(&mut modalities, &sentence_nodes, &[]);
 
         // ── 3. Cleaned text (sentence nodes carry the authoritative text) ──
-        let cleaned_text = sentence_nodes
-            .iter()
-            .map(|s| s.content.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
+        // If sentence extraction produced nothing (every call failed / returned blank) the
+        // chunk's REAL text is kept as-is rather than silently becoming empty — content
+        // must never vanish because a helper call failed. Loudly noted either way.
+        if !sentences_completed {
+            eprintln!(
+                "chunk {}: sentence extraction did not complete ({} sentence nodes captured){}",
+                chunk.index,
+                sentence_nodes.len(),
+                if sentence_nodes.is_empty() { " — keeping the raw chunk text as cleaned text" } else { "" }
+            );
+        }
+        let cleaned_text = if sentence_nodes.is_empty() {
+            chunk.text.clone()
+        } else {
+            sentence_nodes
+                .iter()
+                .map(|s| s.content.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
 
         let processed = ProcessedChunk {
             index: chunk.index,
@@ -5744,9 +5856,14 @@ Return ONLY valid JSON:
         calls += task_calls;
         tokens_sum += task_tokens;
         let raw = match &result {
-            Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+            Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("").to_string(),
             Err(_) => break None,
         };
+        if raw.trim().is_empty() {
+            eprintln!("extract_grammar_from_graphs (sentence grammar): blank response — FAILED call (attempt {}), not 'no grammar'", grammar_attempt);
+            if grammar_attempt < MAX_GRAMMAR_ATTEMPTS { continue; }
+            break None;
+        }
         let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
         if candidates.len() > 1 {
             if grammar_attempt < MAX_GRAMMAR_ATTEMPTS {
@@ -6192,9 +6309,14 @@ If nothing relates, return empty arrays."#,
                     cross_sentence_attempt += 1;
                     let result = self.llm_execute(9, input.clone()).await;
                     let raw = match &result {
-                        Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("{}").to_string(),
+                        Ok(r) => r.get("response").and_then(|v| v.as_str()).unwrap_or("").to_string(),
                         Err(_) => break None,
                     };
+                    if raw.trim().is_empty() {
+                        eprintln!("extract_grammar_from_graphs (cross-sentence): blank response — FAILED call (attempt {}), not 'no relations'", cross_sentence_attempt);
+                        if cross_sentence_attempt < MAX_CROSS_SENTENCE_ATTEMPTS { continue; }
+                        break None;
+                    }
                     let candidates = Self::extract_all_json_candidates(&raw, '{', '}');
                     if candidates.len() > 1 {
                         if cross_sentence_attempt < MAX_CROSS_SENTENCE_ATTEMPTS {
@@ -8147,6 +8269,71 @@ fn output_with_context_records<T: serde::Serialize>(output: &T) -> serde_json::V
     value
 }
 
+/// Binary document text (pdf/docx/odt/pptx/xlsx/rtf/legacy doc) is NOT extracted
+/// by this pipeline (2026-11-02 operator directive: extraction is a tool, not a
+/// text-pipeline dependency — same shape as the image modality calling YOLO/OCR
+/// through visual-mcp). This pipeline asks the document MCP (`document_extract`,
+/// tools/document-mcp, :3282) through the host's metered `/mcp/call` and then
+/// does its own chunking/graphing on the returned text. If the tool is not
+/// registered/running, or finds no text layer, the failure is surfaced verbatim —
+/// never empty text, never a guess.
+mod doc_extract {
+    pub fn is_document_path(p: &str) -> bool {
+        let e = std::path::Path::new(p)
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+        matches!(
+            e.as_str(),
+            "pdf" | "docx" | "odt" | "ods" | "odp" | "pptx" | "xlsx" | "rtf" | "doc" | "ppt" | "xls"
+        )
+    }
+
+    pub async fn extract_text(path: &str) -> Result<String, String> {
+        let mut req = super::shared_http_client().post(format!("{}/mcp/call", super::ozone_host()));
+        // Strict-session hosts: the host passes its internal token to spawned pipelines.
+        if let Ok(tok) = std::env::var("OZONE_INTERNAL_TOKEN") {
+            if !tok.is_empty() {
+                req = req.header("x-oz-internal", tok);
+            }
+        }
+        let resp = req
+            .json(&serde_json::json!({
+                "tool": "document_extract",
+                "agent": "pipeline:text",
+                "input": { "path": path },
+                "context": { "source": "text-modality" },
+                "session_token": ""
+            }))
+            .send()
+            .await
+            .map_err(|e| format!("document tool call failed (host unreachable?): {}", e))?;
+        let body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("document tool response parse failed: {}", e))?;
+        if body.get("success").and_then(|s| s.as_bool()) != Some(true) {
+            return Err(body
+                .get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("document_extract failed (is document-mcp registered and running? see tools/document-mcp)")
+                .to_string());
+        }
+        let out = body.get("output");
+        let text = out
+            .and_then(|o| o.get("text").or_else(|| o.get("output").and_then(|x| x.get("text"))))
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            return Err("document_extract returned no text".into());
+        }
+        Ok(text)
+    }
+}
+
 #[tokio::main]
 async fn main() {
     let executor = Arc::new(SubprocessExecutor);
@@ -8240,6 +8427,7 @@ mod tests {
                 processing_path: ProcessingPath::Path1,
                 executor_model: ExecutorModelKind::default(),
                 grammar_mode: GrammarExtractionMode::default(),
+                file_path: None,
             },
         };
 

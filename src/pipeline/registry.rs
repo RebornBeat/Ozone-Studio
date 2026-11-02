@@ -194,9 +194,9 @@ pub fn get_pipeline_info(id: PipelineID) -> Option<&'static PipelineInfo> {
 /// descriptive names (`3d_engine`, `imu`, ...) while the crates are named
 /// `3D`, `IMU`, ... — on Linux (case-sensitive) the exact lookup never found
 /// them, so those pipelines were unreachable by id. The consciousness rows
-/// map only where a crate with the same job exists; ids with no matching
-/// crate (e.g. 44 i_loop, 46 narrative_construction, 53 voice_identity,
-/// 54 meta_portion_consciousness) are deliberately NOT guessed.
+/// map only where a crate with the same job exists (extended 2026-11-02 after checking each
+/// crate's action vocabulary); only 48/49 (ethical_assessment / ethical_simulation)
+/// have no crate and are still unmapped.
 /// The exact registered name is always tried first; this table only adds
 /// candidates, it never replaces one.
 pub fn binary_alias(folder_name: &str) -> Option<&'static str> {
@@ -216,6 +216,27 @@ pub fn binary_alias(folder_name: &str) -> Option<&'static str> {
         "experience_retrieval" => Some("experience_search"),
         "emotional_baseline_update" => Some("emotional_state"),
         "relationship_development" => Some("relationship"),
+        // 2026-11-02 — verified by each crate's own action vocabulary / doc header (the
+        // earlier "deliberately NOT guessed" list): the crates exist and do these jobs.
+        //   emotional_state     : ProcessTrigger            (stage 12 emotion call, id 43)
+        //   relationship        : RecordInteraction         (stage 12, id 47)
+        //   self_model          : GetVoice / narrative      (stage 13 voice identity, ids 45/46/53)
+        //   reflection          : the I-Loop                (id 44)
+        //   experience_memory   : categorization / core memory / retrieval (ids 40-42)
+        //   experience_playback : playback review           (id 50)
+        //   emotional_response  : user feedback integration (id 51)
+        //   consciousness_dashboard : dashboard metrics     (id 54)
+        // NOTE: linking by name only makes the binary FINDABLE; the host store is still the
+        // working implementation and several of these crates' action vocabularies differ from
+        // what the orchestrator sends (see docs/CALL_ROUTE_REGISTRY.md §5).
+        "experience_categorization" => Some("experience_memory"),
+        "narrative_construction" => Some("self_model"),
+        "internal_language" => Some("self_model"),
+        "voice_identity" => Some("self_model"),
+        "i_loop" => Some("reflection"),
+        "playback_review" => Some("experience_playback"),
+        "user_feedback" => Some("emotional_response"),
+        "meta_portion_consciousness" => Some("consciousness_dashboard"),
         _ => None,
     }
 }

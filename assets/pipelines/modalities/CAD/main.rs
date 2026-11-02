@@ -999,18 +999,18 @@ impl PipelineExecutor {
     fn new() -> Self {
         Self {
             zsei_path: env::var("OZONE_ZSEI_PATH").unwrap_or_else(|_| "./zsei_data".into()),
-            prompt_pipeline_path: env::var("OZONE_PROMPT_PIPELINE").unwrap_or_else(|_| "./pipeline_9".into()),
+            prompt_pipeline_path: env::var("OZONE_PROMPT_PIPELINE_PATH").or_else(|_| env::var("OZONE_PROMPT_PIPELINE")).unwrap_or_else(|_| "./pipeline_9".into()),
         }
     }
 
     async fn llm_zero_shot(&self, prompt: &str, max_tokens: usize) -> Result<String, String> {
-        let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_context":"CAD engineering analysis. Return only valid JSON."});
+        let input = serde_json::json!({"action":"Prompt","prompt":prompt,"max_tokens":max_tokens,"temperature":0.05,"system_prompt":"CAD engineering analysis. Return only valid JSON."});
         let result: Result<serde_json::Value, String> = std::process::Command::new(&self.prompt_pipeline_path)
             .arg("--input").arg(input.to_string()).output()
             .map_err(|e| e.to_string())
             .and_then(|out| serde_json::from_slice(&out.stdout).map_err(|e| e.to_string()));
         capture::capture_zero_shot_call("cad", "llm_zero_shot", prompt, &result);
-        result.map(|r| r["response"].as_str().unwrap_or("{}").to_string())
+        result.and_then(|r| r["response"].as_str().filter(|s| !s.trim().is_empty()).map(|s| s.to_string()).ok_or_else(|| "prompt pipeline returned no response (not substituting an empty object)".to_string()))
     }
 
     fn save_graph(&self, g: &CADGraph) -> Result<(), String> {

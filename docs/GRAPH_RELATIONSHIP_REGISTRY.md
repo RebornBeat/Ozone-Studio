@@ -256,3 +256,12 @@ section (real/schema-only status flips to real, with the new constructor's
 file:line) — same discipline as `ZERO_SHOT_EXPANSION_GUIDE.md` §6. No
 exceptions — this doc's entire value is being the place someone checks
 *before* assuming a relationship type is populated.
+
+
+## Addendum 2026-11-02 — chat edges
+| From | Edge | To | Writer |
+|---|---|---|---|
+| `ChatTurn` | `RelatedTo` | each prompt modality graph of the same run | `chat_store::persist_chat_turn` |
+| `ChatTurn` | `RelatedTo` | text graph of the full response | `chat_store` (background) |
+| `ChatSession` | structural parent of | `ChatTurn` | ZSEI `CreateContainer` |
+`ChatSession` is parented to the project / workspace container (root for the global chat). Both types are excluded from AMT re-expansion candidates.

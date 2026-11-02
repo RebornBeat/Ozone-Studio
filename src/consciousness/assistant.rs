@@ -40,6 +40,9 @@ use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, StoreAccess};
 use crate::task::TaskData;
 use std::sync::Arc;
 
+#[path = "response_record.rs"]
+pub mod response_record;
+
 const PROMPT_PIPELINE_ID: u64 = 9;
 
 /// Real safety floor — 1800s (30 min) matches amt_loop/meta_loop/i_loop's
@@ -353,6 +356,170 @@ fn save_last_digest(hash: &str, findings: usize) {
 
 /// One assistant pass: free filter → one batched digest call → one insight
 /// container. Returns what it persisted (0 or 1 container id).
+// ─────────────────────────────────────────────────────────────────────────
+// FOLLOW-UP TASKS (acting half): actionable findings become REAL tasks in
+// the Universal Order, deduped by a stable finding key persisted beside the
+// last-digest file. Pure planner + tiny ledger; no model call.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One follow-up to create.
+#[derive(Debug, Clone)]
+pub struct FollowupPlan {
+    /// Stable key: same condition ⇒ same key across passes/restarts.
+    pub key: String,
+    pub prompt: String,
+    pub due_at: Option<u64>,
+    pub project_id: Option<u64>,
+    pub workspace_id: Option<u64>,
+}
+
+/// A meeting that ended (due/remind in the past, ≤ 24h ago) counts as
+/// "ended without follow-up" when no task already carries its follow-up key.
+const MEETING_ENDED_HORIZON: u64 = DAY;
+
+/// Pure planner. Overdue/today alignment with the Order: "overdue" =
+/// `due_at < now` on an active item, "today" = due within the next 24 h —
+/// the same boundaries `compute_findings` uses, so a follow-up is never
+/// planned for something the feed would not call overdue/due-soon.
+pub fn plan_followups(all: &[TaskData], findings: &[AssistantFinding], now: u64) -> Vec<FollowupPlan> {
+    let mut out: Vec<FollowupPlan> = Vec::new();
+
+    // Slippage cascade → one re-plan task per project (not one per item).
+    for f in findings.iter().filter(|f| f.class == "slippage-cascade") {
+        if let Some(p) = f.project_id {
+            out.push(FollowupPlan {
+                key: format!("cascade:{}", p),
+                prompt: format!("Re-plan project {}: {}", p, f.detail),
+                due_at: Some(now + DAY),
+                project_id: Some(p),
+                workspace_id: f.workspace_id,
+            });
+        }
+    }
+
+    // Urgent overdue (severity 3) not already covered by a cascade.
+    let cascaded: std::collections::HashSet<u64> = findings
+        .iter()
+        .filter(|f| f.class == "slippage-cascade")
+        .filter_map(|f| f.project_id)
+        .collect();
+    for f in findings.iter().filter(|f| f.class == "overdue" && f.severity >= 3) {
+        if f.project_id.map(|p| cascaded.contains(&p)).unwrap_or(false) {
+            continue;
+        }
+        out.push(FollowupPlan {
+            key: format!("overdue:{}", f.task_id),
+            prompt: format!("Resolve overdue item: {}", f.detail),
+            due_at: Some(now + DAY),
+            project_id: f.project_id,
+            workspace_id: f.workspace_id,
+        });
+    }
+
+    // Meetings that ended without a follow-up task.
+    for t in all.iter().filter(|t| t.kind == "meeting") {
+        let at = match t.due_at.or(t.remind_at) {
+            Some(a) => a,
+            None => continue,
+        };
+        if at < now && now - at <= MEETING_ENDED_HORIZON {
+            out.push(FollowupPlan {
+                key: format!("meeting-followup:{}", t.task_id),
+                prompt: format!(
+                    "Follow up on meeting \"{}\" (task {}): capture decisions, actions, owners",
+                    item_name(t),
+                    t.task_id
+                ),
+                due_at: Some(now + DAY),
+                project_id: t.project_id,
+                workspace_id: t.workspace_id,
+            });
+        }
+    }
+    out
+}
+
+fn followup_ledger_path() -> std::path::PathBuf {
+    last_digest_path().with_file_name("assistant_followups.json")
+}
+
+fn load_followup_keys() -> std::collections::HashMap<String, u64> {
+    std::fs::read_to_string(followup_ledger_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn save_followup_keys(m: &std::collections::HashMap<String, u64>) {
+    let path = followup_ledger_path();
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(json) = serde_json::to_string_pretty(m) {
+        let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
+/// Create the planned follow-ups not already in the ledger. Returns the
+/// number created. A failed enqueue is logged and NOT recorded (retried
+/// next pass); a created one is recorded immediately.
+async fn create_followups(
+    tasks: &Arc<tokio::sync::RwLock<crate::task::TaskManager>>,
+    plans: Vec<FollowupPlan>,
+    notes: &mut Vec<String>,
+) -> usize {
+    let mut ledger = load_followup_keys();
+    let mut created = 0usize;
+    for p in plans {
+        if ledger.contains_key(&p.key) {
+            continue;
+        }
+        let mut inputs = std::collections::HashMap::new();
+        inputs.insert("prompt".to_string(), serde_json::json!(p.prompt));
+        inputs.insert("source".to_string(), serde_json::json!("assistant-followup"));
+        inputs.insert("kind".to_string(), serde_json::json!("task"));
+        inputs.insert("finding_key".to_string(), serde_json::json!(p.key));
+        if let Some(d) = p.due_at {
+            inputs.insert("due_at".to_string(), serde_json::json!(d));
+        }
+        inputs.insert(
+            "external_ref".to_string(),
+            serde_json::json!({ "provider": "assistant", "finding_key": p.key }),
+        );
+        let res = {
+            let mut tm = tasks.write().await;
+            tm.enqueue_task(
+                None,
+                inputs,
+                0,
+                0,
+                p.workspace_id,
+                p.project_id,
+                crate::task::TaskPriority::Normal,
+            )
+            .await
+        };
+        match res {
+            Ok(id) => {
+                ledger.insert(p.key.clone(), id);
+                created += 1;
+                tracing::info!(task_id = id, key = %p.key, "assistant: follow-up task created");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, key = %p.key, "assistant: follow-up enqueue failed (will retry next pass)");
+                notes.push(format!("follow-up {} not created: {}", p.key, e));
+            }
+        }
+    }
+    if created > 0 {
+        save_followup_keys(&ledger);
+    }
+    created
+}
+
 async fn run_one_check_up(
     executor: &Arc<dyn PipelineExecutor>,
     store: &Arc<dyn StoreAccess>,
@@ -389,6 +556,20 @@ async fn run_one_check_up(
         let added = crate::consciousness::proposals::record_pending(drafts, &mut stats.notes);
         if added > 0 {
             tracing::info!(added, "assistant: new pending proposals recorded (awaiting operator resolve)");
+        }
+    }
+
+    // FOLLOW-UP TASKS: actionable findings become real Order tasks, once
+    // per stable finding key (ledger survives restarts). Runs BEFORE the
+    // change-detection skip so a failed enqueue is retried even when the
+    // paid digest is skipped.
+    {
+        let plans = plan_followups(&all, &findings, now);
+        if !plans.is_empty() {
+            let made = create_followups(tasks, plans, &mut stats.notes).await;
+            if made > 0 {
+                stats.notes.push(format!("{} follow-up task(s) created", made));
+            }
         }
     }
 
@@ -520,6 +701,7 @@ async fn run_one_check_up(
         }
     };
 
+    let digest_prose = digest.clone();
     let mut content = digest;
     content.push_str("\n\nFindings (machine-computed from the task order):\n");
     content.push_str(&findings_block);
@@ -562,6 +744,22 @@ async fn run_one_check_up(
     {
         Some(id) => {
             tracing::info!(container_id = id, findings = findings.len(), "assistant: check-up insight persisted");
+            // Structured CONSCIOUSNESS_RESPONSE record (typed fields, not a
+            // regex-able trailer). Failure is loud but non-fatal.
+            if let Err(e) = response_record::append(&response_record::ResponseRecord {
+                source: "assistant-check-up",
+                channel: "text",
+                content: &digest_prose,
+                emotion: &emotion.primary_emotion,
+                valence: emotion.valence,
+                arousal: emotion.arousal,
+                dominance: emotion.dominance,
+                container_id: Some(id),
+                findings: findings.len(),
+                trace_id: crate::trace::current_trace().map(|t| t.trace_id.to_string()),
+            }) {
+                tracing::warn!(error = %e, "assistant: CONSCIOUSNESS_RESPONSE record write failed");
+            }
             // Remember the set this paid digest covered — only when the model
             // call itself succeeded, so a transient failure is retried.
             if digest_ok {

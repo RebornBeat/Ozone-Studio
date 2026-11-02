@@ -163,3 +163,10 @@ How it relates to this registry:
   (idempotency); `farm_command` is a Command-Center write — confirm the whitelist is intended; proposals must not be created
   from page/app text (untrusted); the `/consciousness/reviews/resolve` route's session requirement.
 I did not edit or review the code line by line; this is a design note, not a verdict.
+
+
+## Addendum 2026-11-02 — actors, gates, awaiting
+- Registered ripple actors: `SecurityFinding`, `CoordinationFinding`, `TaskFailed`, `CodeStaleness`, `McpFailure` (findings → AMT candidates; wake the loop). Sensor tick (15 min) feeds them one read-only posture tool through `call_global`, which is **now jurisdiction-gated** (`mcp::set_call_gate`).
+- New acting factor: the **awaiting driver** (15 s tick) — wakes walks parked on a meta/consciousness gate and applies resume requests; no model call, no human.
+- Assistant follow-ups (urgent overdue, slippage cascade, just-ended meeting) are real tasks, deduped by stable key; approved proposals execute as agent `assistant-proposal (operator-approved)` through `call_global`.
+- All routes and their guardrails: `CALL_ROUTE_REGISTRY.md`.

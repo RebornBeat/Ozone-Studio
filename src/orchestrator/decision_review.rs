@@ -157,6 +157,42 @@ fn merge_judgments(judgments: &[ChunkJudgment]) -> (String, Option<f32>, String)
     )
 }
 
+fn chunk_cache_path(data_dir: &str) -> String {
+    format!("{}/decision_review_chunks.jsonl", data_dir.trim_end_matches('/'))
+}
+
+/// A previously JUDGED chunk (Proceed/Decline with the model's own values).
+fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>, String)> {
+    let text = std::fs::read_to_string(chunk_cache_path(data_dir)).ok()?;
+    let mut found = None;
+    for line in text.lines() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+            if v.get("key").and_then(|k| k.as_str()) == Some(key) {
+                found = Some((
+                    v.get("decision").and_then(|d| d.as_str()).unwrap_or("").to_string(),
+                    v.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32),
+                    v.get("reasoning").and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                ));
+            }
+        }
+    }
+    found.filter(|f| !f.0.is_empty())
+}
+
+fn save_chunk_judgment(data_dir: &str, key: &str, j: &(String, Option<f32>, String)) {
+    use std::io::Write;
+    let row = serde_json::json!({"key": key, "decision": j.0, "confidence": j.1, "reasoning": j.2});
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(chunk_cache_path(data_dir)) {
+        let _ = writeln!(f, "{}", row);
+    }
+}
+
+/// Drop cached chunk judgments for a review (operator/meta asked for a full
+/// re-judge). Per-chunk re-judge of only the unjudged ones is the default.
+pub fn clear_chunk_cache(data_dir: &str) {
+    let _ = std::fs::remove_file(chunk_cache_path(data_dir));
+}
+
 fn resolutions_path(data_dir: &str) -> String {
     format!("{}/model_calls/decision_review_resolutions.jsonl", data_dir)
 }
@@ -371,6 +407,13 @@ impl DecisionReviewExecutor {
         let mut total_tokens = 0u64;
 
         for (chunk_idx, chunk) in chunks.iter().enumerate() {
+            // Judged chunks are preserved across awaits: a re-run only
+            // re-asks the chunks that were never judged (429/empty/etc.).
+            let chunk_key = compute_review_id(&format!("{}#{}", review_id, chunk_idx), chunk);
+            if let Some(cached) = load_chunk_judgment(&self.data_dir, &chunk_key) {
+                judgments.push(Some(cached));
+                continue;
+            }
             let prompt = format!(
                 r#"You are a safety and alignment review gate. Evaluate this portion of a task under review.
 
@@ -487,6 +530,9 @@ Return ONLY valid JSON:
                         response,
                     );
                 }
+            }
+            if let Some(j) = &chunk_decision {
+                save_chunk_judgment(&self.data_dir, &chunk_key, j);
             }
             judgments.push(chunk_decision);
         }

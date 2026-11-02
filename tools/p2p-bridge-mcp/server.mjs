@@ -243,7 +243,9 @@ function bridgeStatus() {
   return { success: true, bridges: list, allowed_hosts: ALLOWED_HOSTS, locked: ALLOWED_HOSTS.length === 0 };
 }
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   if (req.method === "GET" && (req.url ?? "").startsWith("/status")) {
     reply(res, 200, {
       tool: "p2p-bridge-mcp",

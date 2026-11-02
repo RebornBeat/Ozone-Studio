@@ -214,6 +214,27 @@ async fn run_one_reflection(
             handled_lines.join("\n- ")
         )
     };
+    // SPAN-OUT (2026-11-02): ground the reflection in what is CONNECTED to the signalled
+    // containers along the captured relationships (same algorithm as step startup), sized to a
+    // share of the reflecting model's window.
+    let span_block = {
+        let seeds: Vec<crate::orchestrator::span_out::SpanSeed> = stats
+            .candidate_container_ids
+            .iter()
+            .map(|id| crate::orchestrator::span_out::SpanSeed::new(*id, 1.0, "signalled container"))
+            .collect();
+        if seeds.is_empty() {
+            String::new()
+        } else {
+            let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+            let spanned = crate::orchestrator::span_out::span_out(store, &data_dir, seeds, (budget / 3) as u32).await;
+            if spanned.text.trim().is_empty() {
+                String::new()
+            } else {
+                format!("\n\nWHAT IS CONNECTED TO THOSE SIGNALS (spanned out along the captured relationships):\n{}", spanned.text)
+            }
+        }
+    };
     use crate::context_budget::{assemble, ContextSection};
     let assembled = assemble(
         vec![
@@ -224,6 +245,7 @@ async fn run_one_reflection(
             ),
             ContextSection::new("unhandled-signals", 3, unhandled_block),
             ContextSection::new("handled-outcomes", 5, handled_block),
+            ContextSection::new("span-out-connected", 6, span_block),
             ContextSection::new(
                 "scaffold-tail",
                 0,
@@ -344,7 +366,29 @@ async fn run_one_reflection(
         *last = Some(fingerprint);
     }
     stats.successes += 1;
-    persist_reflection(store, &reflection, &stats.candidate_container_ids).await
+    let persisted = persist_reflection(store, &reflection, &stats.candidate_container_ids).await;
+    if persisted.is_ok() {
+        // Structured CONSCIOUSNESS_RESPONSE record for the I-Loop too (typed
+        // fields; every value real or absent). Loud but non-fatal.
+        let emotion = crate::consciousness::store::get_current_emotional_state();
+        if let Err(e) = crate::consciousness::assistant::response_record::append(
+            &crate::consciousness::assistant::response_record::ResponseRecord {
+                source: "i-loop-reflection",
+                channel: "text",
+                content: &reflection,
+                emotion: &emotion.primary_emotion,
+                valence: emotion.valence,
+                arousal: emotion.arousal,
+                dominance: emotion.dominance,
+                container_id: None,
+                findings: stats.candidate_container_ids.len(),
+                trace_id: crate::trace::current_trace().map(|t| t.trace_id.to_string()),
+            },
+        ) {
+            tracing::warn!(error = %e, "I-Loop: CONSCIOUSNESS_RESPONSE record write failed");
+        }
+    }
+    persisted
 }
 
 /// Same tolerant-brace-scan idiom `amt_loop.rs`'s `extract_all_json_objects`

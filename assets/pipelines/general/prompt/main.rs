@@ -382,6 +382,186 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
 }
 
 /// Call Anthropic API (Claude)
+
+// ============================================================================
+// CROSS-PROCESS OPENROUTER PER-MINUTE LIMITER (2026-11-01)
+// ============================================================================
+// The free pool is limited per MINUTE account-wide (`free-models-per-min`),
+// and every model call in the system ends in a process running THIS binary:
+// the host walk spawns it, and modality binaries spawn it as a nested child.
+// A per-process limiter would not see the other processes, so the bucket is a
+// sliding-window file under a directory every process agrees on
+// (OZONE_LIMITER_DIR, set by the host executor; else OZONE_ZSEI_DATA_DIR/
+// model_calls; else ./zsei_data/model_calls). Mutual exclusion is a lock file
+// created with O_EXCL (std only; a lock older than 10 s is treated as stale).
+// Acquire WAITS for a slot instead of failing; it is bounded by an overall
+// deadline (OZONE_LIMITER_DEADLINE_SECS, default 150) after which the call
+// proceeds and the provider/host 429 handling decides — a waiting call is
+// never silently dropped. A 429 pushes the whole bucket forward
+// (`blocked_until_ms`) from Retry-After / X-RateLimit-Reset, so the other
+// processes stop sending too. OZONE_OPENROUTER_RPM (default 20, 0 = off).
+
+fn limiter_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn limiter_dir() -> std::path::PathBuf {
+    if let Ok(d) = std::env::var("OZONE_LIMITER_DIR") {
+        if !d.is_empty() {
+            return std::path::PathBuf::from(d);
+        }
+    }
+    let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    std::path::Path::new(&base).join("model_calls")
+}
+
+/// Only OpenRouter's free pool is rate limited per minute. Paid/direct
+/// providers and local models are untouched.
+fn is_limited_endpoint(endpoint: &str, model: &str) -> bool {
+    endpoint.contains("openrouter.ai") && (model.ends_with(":free") || model.starts_with("openrouter/"))
+}
+
+struct LimiterLock(std::path::PathBuf);
+impl Drop for LimiterLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+async fn limiter_lock(dir: &std::path::Path) -> Option<LimiterLock> {
+    let path = dir.join("openrouter_bucket.lock");
+    for _ in 0..400 {
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(_) => return Some(LimiterLock(path)),
+            Err(_) => {
+                if let Ok(md) = std::fs::metadata(&path) {
+                    if let Ok(m) = md.modified() {
+                        if m.elapsed().map(|e| e.as_secs() > 10).unwrap_or(false) {
+                            let _ = std::fs::remove_file(&path);
+                            continue;
+                        }
+                    }
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            }
+        }
+    }
+    None
+}
+
+fn limiter_load(dir: &std::path::Path) -> (Vec<u64>, u64) {
+    let raw = std::fs::read_to_string(dir.join("openrouter_bucket.json")).unwrap_or_default();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap_or(serde_json::Value::Null);
+    let stamps = v["stamps"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|x| x.as_u64()).collect())
+        .unwrap_or_default();
+    (stamps, v["blocked_until_ms"].as_u64().unwrap_or(0))
+}
+
+fn limiter_save(dir: &std::path::Path, stamps: &[u64], blocked_until_ms: u64) {
+    let body = serde_json::json!({ "stamps": stamps, "blocked_until_ms": blocked_until_ms }).to_string();
+    let tmp = dir.join(format!("openrouter_bucket.json.tmp{}", std::process::id()));
+    if std::fs::write(&tmp, body).is_ok() {
+        let _ = std::fs::rename(&tmp, dir.join("openrouter_bucket.json"));
+    }
+}
+
+/// Wait for a free slot in the shared per-minute window. Returns the
+/// milliseconds waited. Never fails: lock trouble or the deadline lets the
+/// call proceed (logged), because the host's 429 handling is the backstop.
+async fn openrouter_limiter_acquire() -> u64 {
+    let rpm: usize = std::env::var("OZONE_OPENROUTER_RPM")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(20);
+    if rpm == 0 {
+        return 0;
+    }
+    let deadline_ms: u64 = std::env::var("OZONE_LIMITER_DEADLINE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(150)
+        * 1000;
+    let dir = limiter_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let started = limiter_now_ms();
+    loop {
+        let wait_ms;
+        {
+            let lock = limiter_lock(&dir).await;
+            if lock.is_none() {
+                eprintln!("prompt pipeline: rate limiter lock unavailable — proceeding without the shared bucket");
+                return limiter_now_ms().saturating_sub(started);
+            }
+            let (mut stamps, blocked_until) = limiter_load(&dir);
+            let now = limiter_now_ms();
+            stamps.retain(|t| now.saturating_sub(*t) < 60_000);
+            let blocked = blocked_until.saturating_sub(now);
+            if blocked == 0 && stamps.len() < rpm {
+                stamps.push(now);
+                limiter_save(&dir, &stamps, blocked_until);
+                return now.saturating_sub(started);
+            }
+            wait_ms = if blocked > 0 {
+                blocked
+            } else {
+                stamps.iter().min().map(|o| (o + 60_000).saturating_sub(now)).unwrap_or(500)
+            };
+            limiter_save(&dir, &stamps, blocked_until);
+        }
+        let elapsed = limiter_now_ms().saturating_sub(started);
+        if elapsed + wait_ms > deadline_ms {
+            eprintln!(
+                "prompt pipeline: rate limiter deadline reached after {} ms — proceeding; the host 429 handling decides",
+                elapsed
+            );
+            return elapsed;
+        }
+        eprintln!(
+            "prompt pipeline: OpenRouter per-minute window full ({} rpm) — waiting {} ms for a slot",
+            rpm, wait_ms
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(wait_ms.min(5000) + 20)).await;
+    }
+}
+
+/// A 429 pushes the shared bucket forward so the other processes stop too.
+async fn openrouter_limiter_penalize(delay_ms: u64) {
+    let dir = limiter_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Some(_lock) = limiter_lock(&dir).await {
+        let (stamps, blocked_until) = limiter_load(&dir);
+        let until = (limiter_now_ms() + delay_ms).max(blocked_until);
+        limiter_save(&dir, &stamps, until);
+    }
+}
+
+/// Delay in ms from the provider's own headers: `retry-after` (seconds) or
+/// `x-ratelimit-reset` (OpenRouter sends a ms epoch; seconds epoch and a
+/// relative seconds value are also decoded). None when neither is present.
+fn retry_delay_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    let now = limiter_now_ms();
+    let get = |k: &str| headers.get(k).and_then(|v| v.to_str().ok()).and_then(|v| v.trim().parse::<f64>().ok());
+    if let Some(s) = get("retry-after") {
+        return Some((s * 1000.0) as u64);
+    }
+    if let Some(r) = get("x-ratelimit-reset") {
+        let r = r as u64;
+        return Some(if r > 1_000_000_000_000 {
+            r.saturating_sub(now)
+        } else if r > 1_000_000_000 {
+            (r * 1000).saturating_sub(now)
+        } else {
+            r * 1000
+        });
+    }
+    None
+}
+
 /// Error text for a non-success HTTP status, shaped "HTTP <code>: <message>".
 /// The message is the provider's error.message when it has one, else the raw
 /// body. Cut to 300 characters with an explicit marker, so the host reads the
@@ -541,6 +721,24 @@ async fn call_anthropic_api(
     })
 }
 
+/// Provider-side output cap for chat-completions calls: **none**.
+/// A generated response is data — it is stored, graphed and reasoned over — and a
+/// cap silently corrupts it (cut JSON, cut sentences, and on reasoning models an
+/// empty answer because hidden thinking spent the whole budget). The caller's
+/// `max_tokens` is therefore treated as an ANSWER-LENGTH HINT only (the prompt
+/// itself already asks for brief/structured output) and is NOT sent. The provider
+/// bounds output by the remaining context window; runaway generation is bounded
+/// by the host watchdog, not by truncating the answer.
+/// Opt-in escape hatch for an operator who really wants a hard provider cap:
+/// `OZONE_API_FORCE_MAX_TOKENS=1` sends the caller's value unchanged.
+fn effective_api_cap(input: &PromptInput) -> Option<u32> {
+    if std::env::var("OZONE_API_FORCE_MAX_TOKENS").as_deref() == Ok("1") {
+        input.max_tokens
+    } else {
+        None
+    }
+}
+
 /// Call OpenAI-compatible API
 async fn call_openai_api(
     endpoint: &str,
@@ -573,14 +771,22 @@ async fn call_openai_api(
         "messages": messages,
     });
     
-    if let Some(max_tokens) = input.max_tokens {
-        body["max_tokens"] = serde_json::json!(max_tokens);
+    if let Some(eff) = effective_api_cap(input) {
+        body["max_tokens"] = serde_json::json!(eff);
     }
     
     if let Some(temp) = input.temperature {
         body["temperature"] = serde_json::json!(temp);
     }
     
+    let limited = is_limited_endpoint(endpoint, model);
+    if limited {
+        let waited = openrouter_limiter_acquire().await;
+        if waited > 0 {
+            eprintln!("prompt pipeline: waited {} ms for an OpenRouter per-minute slot (model={})", waited, model);
+        }
+    }
+
     let response = client
         .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -598,8 +804,20 @@ async fn call_openai_api(
     
     if !response.status().is_success() {
         let status = response.status();
+        let delay = retry_delay_ms(response.headers());
         let error_text = response.text().await.unwrap_or_default();
-        return Err(http_error_text(status, &error_text));
+        let mut text = http_error_text(status, &error_text);
+        if status.as_u16() == 429 {
+            // Push the shared bucket forward so every process backs off, and
+            // tell the host how long (machine-readable suffix, parsed by the
+            // walk's cooldown). No header => a conservative 15 s default.
+            let d = delay.unwrap_or(15_000).min(120_000);
+            if limited {
+                openrouter_limiter_penalize(d).await;
+            }
+            text.push_str(&format!(" [retry_after_ms={}]", d));
+        }
+        return Err(text);
     }
     
     let result: serde_json::Value = response.json().await
@@ -640,7 +858,7 @@ async fn call_openai_api(
     let has_reasoning = reasoning_field.is_some();
     let completion_tokens = result["usage"]["completion_tokens"].as_u64();
     let reasoning_tokens = result["usage"]["completion_tokens_details"]["reasoning_tokens"].as_u64();
-    let max_tokens_sent = input.max_tokens;
+    let max_tokens_sent = effective_api_cap(input);
 
     // Report the real model that actually served this call, not just the
     // requested identifier — this matters specifically for "auto" routing
@@ -723,11 +941,10 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
     // this model's actual context window can reasonably support, regardless
     // of what the caller asked for (which may reflect a totally different,
     // larger model this step originally targeted before falling back here).
-    let max_tokens = input
-        .max_tokens
-        .unwrap_or(1024)
-        .min((config.context_length / 2) as u32)
-        .to_string();
+    // LOCAL RUNTIME: -n must be a number and the context window is a hard physical
+    // limit, so generation is bounded by half the window (the other half holds the
+    // prompt) — NOT by the caller's answer-length hint, which would cut real output.
+    let max_tokens = ((config.context_length / 2).max(256) as u32).to_string();
 
     // Same anti-repetition fix as execute_bitnet (see its comment) — applies
     // equally to any local llama.cpp-served GGUF model.
@@ -1005,11 +1222,8 @@ async fn execute_bitnet_server(
     }
 
     let effective_ctx = config.context_length.min(8192);
-    let max_tokens = input
-        .max_tokens
-        .unwrap_or(512)
-        .min((effective_ctx / 2) as u32)
-        .to_string();
+    // Window-derived physical limit (half the context), not the caller's hint.
+    let max_tokens = ((effective_ctx / 2).max(256) as u32).to_string();
     let temp = input.temperature.unwrap_or(0.7).to_string();
     let prompt = build_prompt(&input);
 
@@ -1086,11 +1300,8 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     // context window (the other half reserved for the prompt itself,
     // which -c must also hold) regardless of what the caller asked for.
     let effective_ctx = config.context_length.min(8192);
-    let max_tokens = input
-        .max_tokens
-        .unwrap_or(512)
-        .min((effective_ctx / 2) as u32)
-        .to_string();
+    // Window-derived physical limit (half the context), not the caller's hint.
+    let max_tokens = ((effective_ctx / 2).max(256) as u32).to_string();
     let temp = input.temperature.unwrap_or(0.7).to_string();
     let ctx = effective_ctx.to_string();
 

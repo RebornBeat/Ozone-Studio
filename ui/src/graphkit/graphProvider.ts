@@ -23,7 +23,7 @@ import {
   getContainerContent,
   type ContainerJson,
 } from "../graphViewData";
-import { modalityFromObjectStorePath } from "../graphRenderers/defaults";
+import { MODALITY_COLOR, modalityFromObjectStorePath } from "../graphRenderers/defaults";
 import type {
   ContainerRelation,
   GraphViewEdge,
@@ -108,7 +108,21 @@ async function fetchProjectSubstrate(projectId: number, signal: { cancelled: boo
       const path = c.local_state.storage.object_store_path ?? null;
       // Single-source discriminator (graphRenderers/defaults) — all 27
       // modalities, auto-extending; null = counted, not dropped.
-      const modality = modalityFromObjectStorePath(path);
+      // Path prefix first; when it names no known modality, fall back to the
+      // container's own first-class metadata.modality (case-insensitive match
+      // against the known key set) before counting it unknown. 2026-11-01.
+      let modality = modalityFromObjectStorePath(path);
+      if (modality === null) {
+        const metaMod = String(
+          (c.local_state.metadata as { modality?: string }).modality ?? "",
+        ).toLowerCase();
+        if (metaMod && metaMod !== "unknown") {
+          const hit = (Object.keys(MODALITY_COLOR) as Modality[]).find(
+            (k) => k.toLowerCase() === metaMod,
+          );
+          if (hit) modality = hit;
+        }
+      }
       modalities.set(id, modality);
       containerRelations[id] = c.local_state.context.relationships ?? [];
       if (modality === null) {

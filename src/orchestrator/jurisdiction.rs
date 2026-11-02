@@ -460,6 +460,7 @@ impl PromptOrchestrator {
             "jurisdiction-intake",
         )
         .await;
+        record_confirmation_awaiting(&self.data_dir, &result, state.task_id);
 
         let blocked = result.blocked;
         state.jurisdiction_gate_result = Some(result.clone());
@@ -552,6 +553,7 @@ impl PromptOrchestrator {
                 "jurisdiction-plan",
             )
             .await;
+            record_confirmation_awaiting(&self.data_dir, &result, state.task_id);
         }
 
         let blocked = result.blocked;
@@ -589,6 +591,24 @@ impl PromptOrchestrator {
         }
 
         Ok(())
+    }
+}
+
+/// Record every unresolved jurisdiction confirmation review as a durable awaiting
+/// item (kind `jurisdiction_confirm`, resolver = human via the operator modal).
+/// Idempotent per review id; this is what the Order / pending-reviews views list
+/// next to the meta-resolved gate items. The request itself is already HELD by
+/// the gate (never passes); this only makes the hold visible and durable.
+pub(crate) fn record_confirmation_awaiting(data_dir: &str, result: &JurisdictionGateResult, task_id: Option<u64>) {
+    for review_id in &result.pending_reviews {
+        let _ = crate::orchestrator::awaiting::open(
+            data_dir,
+            crate::orchestrator::awaiting::KIND_JURISDICTION_CONFIRM,
+            review_id,
+            task_id.map(|t| t.to_string()).as_deref(),
+            Some(review_id),
+            "jurisdiction RequireConfirmation review unresolved — operator confirmation required",
+        );
     }
 }
 
@@ -711,6 +731,34 @@ pub(crate) fn rule_match_term(rule: &JurisdictionRule, haystack: &str) -> Option
     None
 }
 
+/// Pure per-step re-check built from the loaded rules: Err(reason) when the
+/// step text matches a Block-action rule. RequireConfirmation/Warn/Log are
+/// handled by the intake and 8b passes, not per step.
+pub fn step_gate_check(rules: &[JurisdictionRule], step_text: &str) -> Result<(), String> {
+    let haystack = step_text.to_lowercase();
+    for rule in rules {
+        if matches!(rule.action, RuleAction::Block) {
+            if let Some(term) = rule_match_term(rule, &haystack) {
+                return Err(format!(
+                    "step blocked by jurisdiction rule (matched \"{}\"): {} [{}]",
+                    term, rule.condition, rule.source
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Build the `fn(&str)->Result<(),String>` step gate from loaded Block rules.
+pub fn build_step_gate(rules: Vec<JurisdictionRule>) -> crate::orchestrator::tool_routing::StepGate {
+    std::sync::Arc::new(move |text: &str| step_gate_check(&rules, text))
+}
+
+/// Install the per-step gate process-wide (call at boot / after rule sync).
+pub fn install_step_gate(rules: Vec<JurisdictionRule>) {
+    crate::orchestrator::tool_routing::set_step_gate(Some(build_step_gate(rules)));
+}
+
 pub(crate) fn categorize_jurisdiction_matches(
     rules: &[JurisdictionRule],
     haystack: &str,
@@ -814,11 +862,15 @@ pub(crate) async fn resolve_confirmation_reviews(
         let review = match executor.execute(39, input).await {
             Ok(v) => v,
             Err(e) => {
-                // A failed review is NOT a fabricated approval — honest
-                // failure state, recorded and treated as non-blocking
-                // (fails open, matching this gate's existing behavior for a
-                // region whose search hasn't populated content yet) but
-                // visible, not silently swallowed.
+                // A failed review is NOT a fabricated approval and NOT a
+                // pass: RequireConfirmation is HELD (2026-11-01 doctrine —
+                // never fail open). The held review id is surfaced so the
+                // operator modal can resolve it, then the request resubmits.
+                result.pending_reviews.push(crate::orchestrator::decision_review::compute_review_id(
+                    review_kind,
+                    &format!("{} | {}", rule.condition, prompt),
+                ));
+                result.blocked = true;
                 result.confirmations.push((
                     rule.clone(),
                     GateResult {
@@ -848,6 +900,14 @@ pub(crate) async fn resolve_confirmation_reviews(
             .unwrap_or("No reasoning provided")
             .to_string();
         if decision == "Decline" {
+            result.blocked = true;
+        }
+        if decision == "ReviewPending" || decision == "ReviewFailed" {
+            // Unjudged confirmation: HOLD, never pass.
+            result.pending_reviews.push(crate::orchestrator::decision_review::compute_review_id(
+                review_kind,
+                &format!("{} | {}", rule.condition, prompt),
+            ));
             result.blocked = true;
         }
         result.confirmations.push((rule.clone(), GateResult { decision, confidence, reasoning }));
@@ -1188,8 +1248,21 @@ mod graph_tests {
             // needs the same explicit round with the user, not just a
             // resemblance to this one.
             let is_auto_populated = path.file_name().and_then(|f| f.to_str()) != Some("global.json");
+            // OPERATOR ELEVATIONS (commit 98193ca, "per operator green light"): exactly these
+            // rules were deliberately raised from Log to RequireConfirmation. The exemption is
+            // per (file, condition) — a new non-Log rule anywhere else still fails this test.
+            const OPERATOR_ELEVATIONS: [(&str, &str); 3] = [
+                ("do.json", "personal data"),
+                ("eu.json", "personal data"),
+                ("eu.json", "data breach"),
+            ];
+            let file_name = path.file_name().and_then(|f| f.to_str()).unwrap_or("");
             for rule in &parsed.rules {
-                if is_auto_populated {
+                let elevated = rule.action == RuleAction::RequireConfirmation
+                    && OPERATOR_ELEVATIONS
+                        .iter()
+                        .any(|(f, c)| *f == file_name && *c == rule.condition);
+                if is_auto_populated && !elevated {
                     assert_eq!(
                         rule.action,
                         RuleAction::Log,
@@ -1501,18 +1574,17 @@ mod graph_tests {
         assert_eq!(result.confirmations[0].1.decision, "Proceed");
     }
 
-    // A failed review is an honest failure state, not a fabricated
-    // approval — recorded and visible (ReviewFailed), but fails open
-    // (non-blocking) rather than either silently approving or silently
-    // blocking every request whenever the review pipeline is unreachable.
+    // A failed review is an honest failure state, never an approval:
+    // recorded (ReviewFailed) AND held (blocked + pending review id).
     #[tokio::test]
-    async fn failed_review_fails_open_but_is_recorded_honestly() {
+    async fn failed_review_is_held_and_recorded_honestly() {
         let executor: std::sync::Arc<dyn super::PipelineExecutor> = std::sync::Arc::new(FailingExecutor);
         let matches = vec![rule("child", RuleAction::RequireConfirmation, "CRC Article 3")];
         let mut result = super::JurisdictionGateResult::default();
         super::resolve_confirmation_reviews(&executor, &matches, "test prompt", 0, 1, &mut result, "", "jurisdiction-test")
             .await;
-        assert!(!result.blocked);
+        assert!(result.blocked, "a failed review must HOLD, not fail open");
+        assert_eq!(result.pending_reviews.len(), 1);
         assert_eq!(result.confirmations[0].1.decision, "ReviewFailed");
         assert!(result.confirmations[0].1.reasoning.contains("pipeline unreachable"));
     }

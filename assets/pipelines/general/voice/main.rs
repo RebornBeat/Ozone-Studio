@@ -240,19 +240,26 @@ pub async fn execute(input: VoiceInput) -> Result<VoiceOutput, String> {
             }
             
             // Generate TTS audio (local Piper or API)
-            let audio = generate_tts(&text, voice.as_deref(), speed).await;
-            
+            // Honest result: success only when an engine really produced
+            // audio. The text transcript is returned either way so the UI
+            // can still show it, but a failure is loud (`success:false` +
+            // the engines tried) — never a placeholder payload.
+            let (audio, err) = match generate_tts(&text, voice.as_deref(), speed).await {
+                Ok(a) => (Some(a), None),
+                Err(e) => (None, Some(e)),
+            };
+
             Ok(VoiceOutput {
-                success: true,
+                success: audio.is_some(),
                 transcription: Some(text), // Text transcript always available
                 confidence: None,
                 is_final: true,
-                audio_base64: Some(audio),
+                audio_base64: audio,
                 voices: None,
                 settings: None,
                 transcripts: None,
                 archived: None,
-                error: None,
+                error: err,
             })
         }
         VoiceInput::StopSpeaking => {
@@ -568,9 +575,139 @@ async fn transcribe_file_with_api(file_path: &str) -> Result<String, String> {
     transcribe_with_api(&b64, ext).await
 }
 
-async fn generate_tts(text: &str, voice: Option<&str>, speed: Option<f32>) -> String {
-    // Generate TTS audio using local Piper or API
-    "base64_audio_data".to_string()
+/// Is `bin` runnable? Real probe (spawn `--version`/`--help`), never a guess.
+fn tts_bin_available(bin: &str, probe_arg: &str) -> bool {
+    Command::new(bin)
+        .arg(probe_arg)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn tts_temp_wav() -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!("ozone_tts_{}_{}.wav", std::process::id(), nanos))
+}
+
+/// Run `cmd` feeding `text` on stdin; Ok when the process exits 0.
+fn tts_run_with_stdin(mut cmd: Command, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    let mut child = cmd
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("spawn failed: {}", e))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("stdin write failed: {}", e))?;
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("wait failed: {}", e))?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "exit {:?}: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ))
+    }
+}
+
+/// REAL text-to-speech. Detection order: piper (needs a voice model via
+/// OZONE_VOICE_PIPER_MODEL or the requested `voice` as a model path) →
+/// espeak-ng → festival (text2wave). Returns base64 WAV bytes actually
+/// produced by the engine, or an Err naming every engine tried and why it
+/// was skipped. NEVER a placeholder string: the caller turns Err into
+/// `success:false` so the UI shows the failure instead of playing noise.
+async fn generate_tts(text: &str, voice: Option<&str>, speed: Option<f32>) -> Result<String, String> {
+    if text.trim().is_empty() {
+        return Err("tts: empty text".to_string());
+    }
+    let speed = speed.filter(|s| *s > 0.0).unwrap_or(1.0);
+    let wav = tts_temp_wav();
+    let mut tried: Vec<String> = Vec::new();
+
+    // 1) piper
+    let piper_bin = voice_env("OZONE_VOICE_PIPER_PATH").unwrap_or_else(|| "piper".to_string());
+    let piper_model = voice_env("OZONE_VOICE_PIPER_MODEL").or_else(|| {
+        voice
+            .filter(|v| v.ends_with(".onnx") && Path::new(v).exists())
+            .map(String::from)
+    });
+    if !tts_bin_available(&piper_bin, "--help") {
+        tried.push(format!("piper: binary '{}' not found", piper_bin));
+    } else if let Some(model) = piper_model {
+        let mut cmd = Command::new(&piper_bin);
+        cmd.arg("--model")
+            .arg(&model)
+            .arg("--output_file")
+            .arg(&wav)
+            .arg("--length_scale")
+            .arg(format!("{:.3}", 1.0 / speed));
+        match tts_run_with_stdin(cmd, text) {
+            Ok(()) if wav.exists() => {
+                return read_wav_b64(&wav, "piper");
+            }
+            Ok(()) => tried.push("piper: exited 0 but wrote no file".to_string()),
+            Err(e) => tried.push(format!("piper: {}", e)),
+        }
+    } else {
+        tried.push("piper: installed but no voice model (set OZONE_VOICE_PIPER_MODEL)".to_string());
+    }
+
+    // 2) espeak-ng
+    if tts_bin_available("espeak-ng", "--version") {
+        let wpm = (175.0 * speed).round().clamp(80.0, 450.0) as u32;
+        let mut cmd = Command::new("espeak-ng");
+        cmd.arg("--stdin").arg("-s").arg(wpm.to_string());
+        if let Some(v) = voice.filter(|v| !v.ends_with(".onnx") && !v.trim().is_empty()) {
+            cmd.arg("-v").arg(v);
+        }
+        cmd.arg("-w").arg(&wav);
+        match tts_run_with_stdin(cmd, text) {
+            Ok(()) if wav.exists() => return read_wav_b64(&wav, "espeak-ng"),
+            Ok(()) => tried.push("espeak-ng: exited 0 but wrote no file".to_string()),
+            Err(e) => tried.push(format!("espeak-ng: {}", e)),
+        }
+    } else {
+        tried.push("espeak-ng: not found".to_string());
+    }
+
+    // 3) festival (text2wave)
+    if tts_bin_available("text2wave", "-h") {
+        let mut cmd = Command::new("text2wave");
+        cmd.arg("-o").arg(&wav);
+        match tts_run_with_stdin(cmd, text) {
+            Ok(()) if wav.exists() => return read_wav_b64(&wav, "festival"),
+            Ok(()) => tried.push("festival: exited 0 but wrote no file".to_string()),
+            Err(e) => tried.push(format!("festival: {}", e)),
+        }
+    } else {
+        tried.push("festival: text2wave not found".to_string());
+    }
+
+    let _ = std::fs::remove_file(&wav);
+    Err(format!("no TTS engine produced audio — {}", tried.join("; ")))
+}
+
+fn read_wav_b64(wav: &Path, engine: &str) -> Result<String, String> {
+    use base64::Engine;
+    let bytes = std::fs::read(wav).map_err(|e| format!("{}: read output failed: {}", engine, e));
+    let _ = std::fs::remove_file(wav);
+    let bytes = bytes?;
+    if bytes.len() < 64 {
+        return Err(format!("{}: output too small ({} bytes) to be audio", engine, bytes.len()));
+    }
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 /// Executor contract: `--input` carries the full PipelineInput JSON

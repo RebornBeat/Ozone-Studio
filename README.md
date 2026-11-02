@@ -4,7 +4,35 @@
 
 ---
 
-## System Status (2026-11-01 — read this first)
+## System Status (2026-11-02 — read this first)
+
+**This arc is an edit wave with NO build and NO test run yet** (the host is down; the single build + test pass is operator-gated). Everything below is in the tree and parse-checked only — treat "compile-clean" as unproven until that pass. `CHECKLIST.md` is the status record; `docs/SYSTEM_FLOW_AND_GRAPH_STATE_2026-11-02.md` is the top-down flow, gating, action and graph-state capture.
+
+**Doctrine fixes**
+- **Consciousness / meta gates are decided only by meta.** If meta cannot judge (rate limit, empty reply, confetti, all models failed) the walk **awaits** in a durable, resumable state (`awaiting_items.jsonl`, task state `awaiting`, UI badge) and re-judges only the unjudged chunks — never fail-open, never a human. Humans decide only jurisdiction `RequireConfirmation` (a real modal).
+- **There is no response cap.** A generated response is data (stored, graphed, reasoned over); no `max_tokens` is sent to the provider (caller values are answer-length hints; local runtimes use half their context window as a physical limit). `OZONE_API_FORCE_MAX_TOKENS=1` is the operator escape hatch.
+- **Chat is a scoped graph entity.** Every turn is persisted as a `ChatTurn` (full prompt + full response) under a per-scope `ChatSession` (global/meta, workspace, project), the response is graphed through the text modality, and the UI restores a chat from `GET /chat/turns`. The next prompt in the same chat sees the recent turns as labelled history.
+
+**Failure and context doctrine (2026-11-02, `docs/SPAN_OUT_AND_RESUME_2026-11-02.md`)**
+- **No auto-continue past a failure:** a failed step PAUSES the task with its error; it resumes from exactly that step (completed steps restored from a per-run checkpoint) via the Tasks tab, project tabs, meta chat, or `POST /task/resume_run`.
+- **Context spans out, it is not assigned:** each step startup and each AMT re-expansion fans out from what the run already captured along the captured relationships, ranked and bounded by the model window — not by fixed container/hop counts. Compaction only handles overflow.
+
+**Guardrail hardening (`docs/CALL_ROUTE_REGISTRY.md` lists every route × guardrail)**
+- `call_global` (tool routing, sensor tick, approved proposals) and `/pipeline/execute` now pass the same jurisdiction snapshot as the walk; `/mcp/call` is session-gated by the middleware (internal token honoured); the per-step tool gate is installed at boot; the background loops are call-indexed; `zero_shot_simulation` no longer talks to a provider directly; 18 modality pipelines can finally reach the prompt binary; `terminal-mcp` keys privileged roles on the validated identity (`agent_trust`).
+- A silent data-loss class is fixed: containers created with legacy flat JSON (auto-created categories, synthesized methodologies, voice identity) were never actually stored.
+
+**Capabilities added**
+- **Document MCP** (`tools/document-mcp`, :3282): PDF/Office text extraction is a tool the text modality calls (poppler / unzip / LibreOffice; OCR only if installed) — not a pipeline dependency. Register with `node tools/register-browser-tools.mjs document`.
+- One shared extension→modality table; `LinkToModality` in 15 more modality pipelines; project chat shares MetaPortion's thinking / progress / coordination indicators through one chat engine; the bottom bar owns P2P, depth and I-Loop state with honest "—" for anything not tracked.
+- Cross-process OpenRouter limiter, moderation models excluded from the fallback pool, ledger rows written atomically, AMT re-expansion echo filter, jurisdiction content sync, assistant follow-up tasks, idempotent gcal/zoom order sync, honest TTS (loud failure when no engine).
+
+- **An empty or missing model response is a failed call, never a silent `{}`** — blueprint / simulation fail the stage, AMT and loop sites record the failure, the text modality no longer treats failed extraction as exhaustion (`docs/CALL_ROUTE_REGISTRY.md` §4). Every MCP server loads a shared loopback guard that refuses calls not routed through the host on strict hosts.
+
+**Still open (full list at the end of `CHECKLIST.md`)**: everything above is uncompiled and untested (one gated build + test pass); the relationship pipeline (47) and the other consciousness pipelines have no built binary and a registry-name/asset-folder mismatch (the host-native store does the work); `collective_enabled` and `playback_enabled` have no consumer yet; recent chat history is bounded only by the step-compaction pass; a walk is not resumable across a restart (boot marks its awaiting task interrupted and cancels the gate item — resubmit).
+
+---
+
+## System Status (2026-11-01 — previous arc)
 
 **New this arc — the UiDocument modality (pipeline 127), LIVE on EU:**
 - **Rule-driven analysis of interface-element trees**: html (74 rules), css (11 + cascade), dom-live (the in-page JS observer + MutationObserver deltas), svg (exact vector geometry — moved OUT of Image), android-xml + a11y-json (honest "not implemented"). Rules are DATA (one pack per flavor: when/emit/confidence/source/rationale).
@@ -28,7 +56,7 @@
 
 **Meta work runs on OpenRouter** (free pool leading, BitNet backstop — switched 2026-10-26, reversible in config.toml). **EU instance deployed** (2026-10-26 binary + pipelines + switches via systemd drop-in). **Walk launches are memory-gated** (MemAvailable floor — the silent-death guard).
 
-**Documentation map**: `docs/STATE_CAPTURE.md` (authoritative state), `CHECKLIST.md` (living status record), `docs/GRAPH_NATIVE_UIUX_GUIDE.md` (the UI doctrine + GraphKit), `docs/P2P_AND_SHARED_MCP_COMMUNICATION_GUIDE.md` (the three communication subsystems), `docs/UNIVERSAL_ORDER_GUIDE.md` (ordering), `docs/TOP_DOWN_REVIEW_GUIDE.md` + `docs/CONTEXT_REGISTRY.md` (context doctrine).
+**Documentation map**: `docs/SYSTEM_FLOW_AND_GRAPH_STATE_2026-11-02.md` (top-down flow, gating, action, graph state), `docs/CALL_ROUTE_REGISTRY.md` (every call route × guardrail, output policy, chat scoping), `docs/REVIEW_E2E_STATE_2026-11-01.md` (review + edit TODO), `docs/STATE_CAPTURE.md` (authoritative state), `CHECKLIST.md` (living status record), `docs/GRAPH_NATIVE_UIUX_GUIDE.md` (the UI doctrine + GraphKit), `docs/P2P_AND_SHARED_MCP_COMMUNICATION_GUIDE.md` (the three communication subsystems), `docs/UNIVERSAL_ORDER_GUIDE.md` (ordering), `docs/TOP_DOWN_REVIEW_GUIDE.md` + `docs/CONTEXT_REGISTRY.md` (context doctrine).
 
 ---
 
@@ -646,6 +674,12 @@ The system recognizes that:
 
 ## Documentation
 
+- **Edit manifest (every path touched in the 2026-11-01/02 wave)**: `docs/EDIT_MANIFEST_2026-11-02.md`
+- **Span-out, graph create/expand/use, failure-pause/resume, consciousness pipeline links (2026-11-02)**: `docs/SPAN_OUT_AND_RESUME_2026-11-02.md`
+- **System flow, gating, action and graph state (2026-11-02)**: `docs/SYSTEM_FLOW_AND_GRAPH_STATE_2026-11-02.md` — request → stages 0–13 → action → ripple, with measured local graph state
+- **Call Route Registry**: `docs/CALL_ROUTE_REGISTRY.md` — every way a model/pipeline/tool is called, the guardrail layers on each, the no-response-cap policy, scoped chat persistence
+- **Registries**: `docs/ZERO_SHOT_CALL_REGISTRY.md` (prompts) · `docs/CONTEXT_REGISTRY.md` (context carriers + capture map) · `docs/GRAPH_RELATIONSHIP_REGISTRY.md` (edges) · `docs/TOOLS_REGISTRY.md` (MCP fleet incl. document-mcp) · `docs/ACTING_FACTORS_REGISTRY.md` · `docs/STATIC_LOGIC_REGISTRY.md` · `docs/DESIGNED_NOT_BUILT_REGISTRY.md` · `docs/BUILDER_REGISTRY.md`
+- **Review + edit TODO (2026-11-01)**: `docs/REVIEW_E2E_STATE_2026-11-01.md` · **Test guide**: `docs/MASTER_TEST_GUIDE.md` (§26 index, §26a–c new rows)
 - **Master Alignment Report**: `MASTER_ALIGNMENT_REPORT.md` (repo root)
 - **Full Specification**: `OZONE_STUDIO_SPECIFICATION.md` (repo root)
 - **AMT (Abstract Meaning Tree)**: `docs/AMT.md`

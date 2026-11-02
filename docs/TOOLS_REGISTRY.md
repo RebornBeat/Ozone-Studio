@@ -113,3 +113,47 @@ are configured; no script/vault/proxy-credential tools by design. Proven against
 **Persistence verified**: restored across restarts from mcp_tool_registry.json (3x observed: 70/73/75/84→102 growth path all clean).
 
 **Registration contract recap** (full rules in NEW_MCP_GUIDE §6): security model first, locked-by-default, refusal path tested, platform+version tags, /mcp/tools registration, /mcp/call only, ripple+S13 verified, launch story documented, contract container if doctrine.
+
+
+---
+
+## Corrections and full port table (2026-11-02, from each server's source default)
+
+The "LIVE FLEET CAPTURE" table above is a 2026-09-29 snapshot: its header has five columns but the rows have four (the `server_version` column is missing from the rows, so read each row as Family | Tools | Port | Notes), and it omits every server added since. Ports below are the defaults in each `tools/*/server.mjs` (all bind 127.0.0.1; each is overridable by its `OZONE_*_PORT` env var):
+
+| Server | Default port | Env var |
+|---|---|---|
+| terminal-mcp | 3215 | OZONE_TERMINAL_PORT |
+| visual-mcp | 3220 | OZONE_VISUAL_PORT |
+| web-mcp | 3225 | OZONE_WEB_PORT |
+| code-mcp | 3230 | OZONE_CODE_PORT |
+| git-mcp | 3235 | OZONE_GIT_PORT |
+| security-mcp | 3240 | OZONE_SECURITY_PORT |
+| gcal-mcp | 3241 | OZONE_GCAL_PORT |
+| cerebrix-mcp | 3245 | OZONE_CEREBRIX_PORT |
+| threed-mcp | 3250 | OZONE_THREED_PORT |
+| connectome-mcp | 3255 | OZONE_CONNECTOME_PORT (circuit service 3256: OZONE_CIRCUIT_SERVICE_PORT) |
+| re-mcp | 3260 | OZONE_RE_PORT |
+| zoom-mcp | 3265 | OZONE_ZOOM_PORT |
+| dna-mcp | 3271 | OZONE_DNA_PORT |
+| chemistry-mcp | 3272 | OZONE_CHEM_PORT |
+| proteomics-mcp | 3273 | OZONE_PROTEOMICS_PORT |
+| geospatial-mcp | 3274 | OZONE_GEOSPATIAL_PORT |
+| mesh-mcp | 3276 | OZONE_MESH_PORT |
+| android-mcp | 3277 | OZONE_ANDROID_PORT |
+| p2p-bridge-mcp | 3278 | OZONE_P2P_BRIDGE_PORT |
+| code-graph-mcp | 3279 | OZONE_CODE_GRAPH_PORT |
+| document-mcp | 3282 | OZONE_DOCUMENT_PORT |
+| browser-mcp | 3280 | OZONE_BROWSER_PORT |
+| browser-farm-mcp | 3281 | OZONE_FARM_PORT |
+| bridges (engines) | 3210 (MCP surface :3100/mcp for foundation tools) | — |
+
+Notes: zoom-mcp (3265) was missing from the fleet table; like gcal it is LOCKED until OAuth credentials exist. The 102-tool / 15-family count is the 2026-09-29 capture and is stale — query `GET /mcp/tools` for the live number. gcal/zoom order sync is now idempotent (UNIVERSAL_ORDER_GUIDE corrections). Ports 3290/3292 in selftests are test-only.
+
+
+### Document (4 tools) — `tools/document-mcp/` (:3282, added 2026-11-02)
+`document_info` (format/size/PDF pages+metadata), `document_extract` (real text from pdf/docx/odt/pptx/xlsx/rtf; legacy doc/ppt/xls via LibreOffice; scanned PDFs need tesseract else honest error), `document_images` (PDF embedded-image list), `document_formats` (which backends are installed). The text modality (pipeline 100) calls `document_extract` through `/mcp/call`. Registered by `node tools/register-browser-tools.mjs document` (operator-run data mutation).
+
+
+### Gate coverage note (2026-11-02)
+Every MCP server binds 127.0.0.1 and trusts the host's `/mcp/call` for G1 (session/internal token), G5 (jurisdiction) and G10 (usage ledger); in-process callers (`call_global`) now pass the same jurisdiction snapshot via `mcp::set_call_gate`. A tool port called directly on loopback skips all of that — `terminal-mcp` has `OZONE_TERMINAL_TOKEN`; the others have no equivalent yet (see `CALL_ROUTE_REGISTRY.md` §3). Role-gated tools must key on the envelope's `agent_trust` (`validated` | `declared`); `terminal-mcp` now does.

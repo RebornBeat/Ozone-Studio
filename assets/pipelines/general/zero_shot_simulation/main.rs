@@ -116,34 +116,53 @@ async fn call_prompt_pipeline(prompt: &str, system: &str) -> Result<String, Stri
         return Err(format!("refused: model '{model}' is not a free OpenRouter model; {POLICY}"));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("client build failed: {e}"))?;
-
-    // OpenAI-compatible chat completions: the system prompt is a message.
-    let body = serde_json::json!({
-        "model": model,
+    // ROUTED THROUGH THE PROMPT PIPELINE BINARY (2026-11-02 audit): this fn used to
+    // POST to OpenRouter directly — no cross-process per-minute limiter, no
+    // empty-response/reasoning diagnostics, no shared 4096 output floor. The
+    // policy checks above still run first; the actual call now goes through the
+    // same binary every other internal LLM call uses (OZONE_PROMPT_PIPELINE_PATH).
+    let path = match env::var("OZONE_PROMPT_PIPELINE_PATH") {
+        Ok(p) if !p.is_empty() && std::path::Path::new(&p).exists() => p,
+        _ => {
+            return Err(
+                "OZONE_PROMPT_PIPELINE_PATH not set or binary missing — internal LLM call unavailable (no direct provider bypass)".to_string(),
+            )
+        }
+    };
+    let input_json = serde_json::json!({
+        "prompt": prompt,
+        "system_prompt": system,
         "max_tokens": 1500,
-        "messages": [
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ]
-    });
-
-    let response = client
-        .post(&endpoint)
-        .bearer_auth(&api_key)
-        .header("content-type", "application/json")
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("API error: {}", e))?;
-
-    let result: serde_json::Value = response.json().await
-        .map_err(|e| format!("Parse error: {}", e))?;
-
-    result["choices"][0]["message"]["content"]
+    })
+    .to_string();
+    let execution_id = format!(
+        "zss-internal-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let output = tokio::task::spawn_blocking(move || {
+        std::process::Command::new(&path)
+            .arg("--input")
+            .arg(&input_json)
+            .arg("--execution-id")
+            .arg(&execution_id)
+            .output()
+    })
+    .await
+    .map_err(|e| format!("prompt pipeline task join failed: {e}"))?
+    .map_err(|e| format!("failed to spawn prompt pipeline: {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "prompt pipeline failed (exit {:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let result: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Parse error: {e}"))?;
+    result["response"]
         .as_str()
         .filter(|s| !s.trim().is_empty())
         .map(|s| s.to_string())

@@ -1494,7 +1494,7 @@ Return ONLY valid JSON with a single one-word answer:
                         let response = result
                             .get("response")
                             .and_then(|r| r.as_str())
-                            .unwrap_or("{}");
+                            .unwrap_or(""); // missing response => parse failure below (recorded), never a valid "{}"
                         let json_str = Self::extract_json_from_response(response, '{', '}');
                         let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
                             Ok(v) => v,
@@ -1733,10 +1733,25 @@ Return ONLY valid JSON with a single one-word answer:
                     let response = result
                         .get("response")
                         .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
+                        .unwrap_or("");
                     let json_str = Self::extract_json_from_response(response, '{', '}');
-                    let parsed = serde_json::from_str::<serde_json::Value>(json_str.trim())
-                        .unwrap_or_else(|_| serde_json::json!({"details": [], "new_branches": []}));
+                    let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            // Was a silent default of zero details/branches.
+                            record_intent_event(
+                                state,
+                                "detail_parse_failed",
+                                serde_json::json!({
+                                    "response_chars": response.chars().count(),
+                                    "blank_response": response.trim().is_empty(),
+                                    "error": e.to_string(),
+                                }),
+                            );
+                            tracing::warn!(site = "amt_detail_extraction", blank = response.trim().is_empty(), error = %e, "AMT detail extraction unparseable — recorded, nothing invented");
+                            serde_json::json!({"details": [], "new_branches": []})
+                        }
+                    };
 
                     // Process new details
                     if let Some(details) = parsed.get("details").and_then(|d| d.as_array()) {
@@ -2176,9 +2191,23 @@ Return ONLY valid JSON with a single one-word answer:
                 let response = result
                     .get("response")
                     .and_then(|r| r.as_str())
-                    .unwrap_or("{}");
+                    .unwrap_or("");
                 let json_str = Self::extract_json_from_response(response, '{', '}');
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(json_str.trim()) {
+                let crossref_parsed = serde_json::from_str::<serde_json::Value>(json_str.trim());
+                if let Err(e) = &crossref_parsed {
+                    // Was a silent skip (an unparseable verdict looked like "not related").
+                    record_intent_event(
+                        state,
+                        "crossref_parse_failed",
+                        serde_json::json!({
+                            "response_chars": response.chars().count(),
+                            "blank_response": response.trim().is_empty(),
+                            "error": e.to_string(),
+                        }),
+                    );
+                    tracing::warn!(site = "amt_cross_ref", blank = response.trim().is_empty(), error = %e, "cross-reference verdict unparseable — recorded, relationship NOT assumed absent");
+                }
+                if let Ok(parsed) = crossref_parsed {
                     if parsed
                         .get("related")
                         .and_then(|r| r.as_bool())
@@ -3087,7 +3116,7 @@ Return ONLY valid JSON with a single one-word answer:
             }
             crate::orchestrator::PromptOrchestrator::capture_loop_model_call(call_site, prompt, &result);
             let Ok(result) = result else { continue; };
-            let response = result.get("response").and_then(|r| r.as_str()).unwrap_or("{}");
+            let response = result.get("response").and_then(|r| r.as_str()).unwrap_or(""); // missing => parse failure (recorded), never "{}"
             let json_str = Self::extract_json_from_response(response, '{', '}');
             let parsed = match serde_json::from_str::<serde_json::Value>(json_str.trim()) {
                 Ok(v) => v,
@@ -3807,13 +3836,27 @@ Return ONLY valid JSON with a single one-word answer:
         let required_domains: Vec<String> = match self.metered_execute_resilient(state, input, "methodology_domain_id").await {
             Ok(result) => {
                 self.record_thinking(state, "Build AMT — required domains", &result);
-                let raw = result
-                    .get("response")
-                    .and_then(|r| r.as_str())
-                    .unwrap_or("[]");
+                // A blank or unparseable answer is a FAILED call, not "no domains needed"
+                // (only an explicit `[]` means that). Recorded, then the pass ends.
+                let Some(raw) = Self::response_text(&result) else {
+                    record_intent_event(state, "domain_id_empty_response", serde_json::json!({}));
+                    tracing::warn!(stage = "5.xref", "[5.xref.1] domain-id returned no response text — NOT treated as 'no domains needed'");
+                    return findings;
+                };
                 let start = raw.find('[').unwrap_or(0);
                 let end = raw.rfind(']').map(|i| i + 1).unwrap_or(raw.len());
-                serde_json::from_str::<Vec<String>>(&raw[start..end]).unwrap_or_default()
+                match serde_json::from_str::<Vec<String>>(&raw[start..end]) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        record_intent_event(
+                            state,
+                            "domain_id_parse_failed",
+                            serde_json::json!({ "response_chars": raw.chars().count(), "error": e.to_string() }),
+                        );
+                        tracing::warn!(stage = "5.xref", error = %e, "[5.xref.1] domain-id answer unparseable — NOT treated as 'no domains needed'");
+                        return findings;
+                    }
+                }
             }
             Err(_) => return findings,
         };
@@ -3858,10 +3901,11 @@ Return ONLY valid JSON with a single one-word answer:
                 match self.metered_execute_resilient(state, synth_input, "methodology_synthesis").await {
                     Ok(synth_result) => {
                     self.record_thinking(state, "Methodology Synthesis", &synth_result);
-                    let raw = synth_result
-                        .get("response")
-                        .and_then(|r| r.as_str())
-                        .unwrap_or("{}");
+                    let Some(raw) = Self::response_text(&synth_result) else {
+                        record_intent_event(state, "methodology_synthesis_empty_response", serde_json::json!({ "domain": domain }));
+                        tracing::warn!(stage = "5.xref", domain = %domain, "[5.xref.2] synthesis returned no response text — no methodology created (nothing invented)");
+                        continue;
+                    };
                     // Was raw.find('{')/.rfind('}') directly on the whole
                     // response — first-to-last-brace across ANY prose,
                     // trailing hallucinated text, or a confetti-style
@@ -3877,6 +3921,19 @@ Return ONLY valid JSON with a single one-word answer:
                     // confetti class — flagged separately, see report).
                     let json_str = Self::extract_json_from_response(raw, '{', '}');
 
+                    // An unparseable draft must not become a methodology with a null body.
+                    let draft_body: serde_json::Value = match serde_json::from_str(json_str) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            record_intent_event(
+                                state,
+                                "methodology_synthesis_parse_failed",
+                                serde_json::json!({ "domain": domain, "error": e.to_string() }),
+                            );
+                            tracing::warn!(stage = "5.xref", domain = %domain, error = %e, "[5.xref.2] synthesized draft unparseable — no methodology created");
+                            continue;
+                        }
+                    };
                     let methodology_container = serde_json::json!({
                         "container_type": "Methodology",
                         "metadata": {
@@ -3888,8 +3945,7 @@ Return ONLY valid JSON with a single one-word answer:
                             "keywords": [domain.to_lowercase()],
                             "topics": [domain.to_lowercase()]
                         },
-                        "storage": serde_json::from_str::<serde_json::Value>(json_str)
-                            .unwrap_or_default()
+                        "storage": draft_body
                     });
 
                     if let Ok(new_id) = self.store.create_container(0, methodology_container).await {

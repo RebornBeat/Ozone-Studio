@@ -12,11 +12,13 @@ import {
   AlertOctagon,
   Check,
   Clock,
+  Hourglass,
   Loader2,
   Pause,
   ShieldX,
   Unlink,
   Link2,
+  User,
   X,
 } from "lucide-react";
 import { MODALITY_COLOR } from "../graphRenderers/defaults";
@@ -75,6 +77,10 @@ export const TaskStateIcon: React.FC<{ status: string; size?: number }> = ({ sta
     return wrap(<Clock size={size} />, C_MUTED, "Queued");
   if (s === "paused")
     return wrap(<Pause size={size} />, "#d9b45f", "Paused");
+  if (s === "awaiting" || s === "awaiting_meta")
+    return wrap(<Hourglass size={size} />, "#d9b45f", "Awaiting — waiting on a consciousness/meta judgment; retrying (the walk does not continue until it is judged)");
+  if (s === "awaiting_human")
+    return wrap(<User size={size} />, "#d9b45f", "Awaiting — waiting on your confirmation (jurisdiction review)");
   if (s === "interrupted")
     return wrap(<AlertOctagon size={size} />, "#ff9d5f", "Interrupted — the backend restarted or crashed before finishing; it will not complete on its own");
   return wrap(<Clock size={size} />, C_MUTED, status);

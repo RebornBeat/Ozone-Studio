@@ -64,8 +64,15 @@ const ALLOW = (process.env.OZONE_TERMINAL_ALLOW ?? "")
   .map((s) => s.trim())
   .filter(Boolean);
 
-function allowlistFor(agent) {
-  if (agent && Array.isArray(ROLES[agent])) return ROLES[agent];
+// ROLE TRUST (2026-11-02): the host stamps each envelope with agent_trust —
+// "validated" (agent backed by a real session) or "declared" (the caller's own
+// claim). A NAMED role tier is privileged and applies only to a validated agent;
+// a declared agent gets the "*" tier (or the legacy global list). Opt back into
+// the old declared-name behaviour with OZONE_TERMINAL_TRUST_DECLARED=1.
+const TRUST_DECLARED = process.env.OZONE_TERMINAL_TRUST_DECLARED === "1";
+function allowlistFor(agent, trust) {
+  const named = TRUST_DECLARED || trust === "validated";
+  if (named && agent && Array.isArray(ROLES[agent])) return ROLES[agent];
   if (Array.isArray(ROLES["*"])) return ROLES["*"];
   return ALLOW; // legacy global fallback; empty = locked
 }
@@ -82,9 +89,9 @@ const PLATFORM = `${process.platform}/${process.arch}`; // e.g. linux/x64
 const FORBIDDEN = /[;|&`$><\n\r\0]/;
 const startedAt = Date.now();
 
-function exec_allowed(command, agent) {
-  const allow = allowlistFor(agent);
-  if (!allow.length) return { ok: false, reason: `no allowlist for agent '${agent ?? "?"}' — terminal_exec is locked for this role` };
+function exec_allowed(command, agent, trust) {
+  const allow = allowlistFor(agent, trust);
+  if (!allow.length) return { ok: false, reason: `no allowlist for agent '${agent ?? "?"}' (trust: ${trust || "declared"}) — terminal_exec is locked for this role` };
   if (!command || typeof command !== "string") return { ok: false, reason: "missing command" };
   if (FORBIDDEN.test(command)) return { ok: false, reason: "shell operators (; | & ` $ < > and newlines) are rejected — one command per call" };
   const first = command.trim().split(/\s+/)[0];
@@ -157,7 +164,9 @@ function reply(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
+import { guardOk } from "../shared/guard.mjs";
 const server = createServer((req, res) => {
+  if (!guardOk(req, res)) return; // loopback guard (tools/shared/guard.mjs)
   if (req.method === "GET" && (req.url ?? "").startsWith("/status")) {
     reply(res, 200, {
       tool: "terminal-mcp",
@@ -212,7 +221,7 @@ const server = createServer((req, res) => {
       reply(res, 200, { success: false, error: `unknown terminal tool '${tool}' (terminal_exec | terminal_status)` });
       return;
     }
-    const gate = exec_allowed(String(input.command ?? ""), String(body?.agent ?? ""));
+    const gate = exec_allowed(String(input.command ?? ""), String(body?.agent ?? ""), String(body?.agent_trust ?? "declared"));
     if (!gate.ok) {
       reply(res, 200, { success: false, error: gate.reason });
       return;

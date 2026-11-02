@@ -200,6 +200,35 @@ pub async fn process_graph_event(
     if evt.event == "deleted" {
         return Ok(None); // deletions don't deepen branches
     }
+    // ECHO FILTER (2026-11-01; 317 of 491 candidates ended failed_structural
+    // and the I-Loop itself diagnosed the "repetitive overlapping signals"):
+    // never turn the loop's OWN writes — or writes of container types AMT
+    // cannot deepen — back into re-expansion work. amt_loop emits
+    // `AMTExpansion`/source "amt-expansion" after a deepen; task and
+    // coordination bookkeeping and candidate-less internals are not content
+    // an AMT branch can grow from.
+    const NON_DEEPENABLE: [&str; 8] = [
+        "ChatSession",
+        "ChatTurn",
+        "AMTExpansion",
+        "Task",
+        "CoordinationEvent",
+        "McpResult",
+        "McpEntity",
+        "Insight",
+    ];
+    if evt.source == "amt-expansion"
+        || evt.source == "amt-loop"
+        || NON_DEEPENABLE.contains(&evt.container_type.as_str())
+    {
+        tracing::debug!(
+            container_id = evt.container_id,
+            container_type = %evt.container_type,
+            source = %evt.source,
+            "AMT ripple sync: event skipped (self-caused or not deepenable) — no candidate recorded"
+        );
+        return Ok(None);
+    }
     let proj_id = extract_proj_id(&evt.scope_keywords);
     let touches_file = evt.scope_keywords.iter().any(|k| k.starts_with("file:"));
     if proj_id.is_none() && !touches_file {
@@ -317,19 +346,44 @@ async fn review_amt_candidates_once(
     const MAX_CANDIDATES_PER_PASS: usize = 12;
     let mut attempted_this_pass = 0usize;
     let mut left_for_next_pass = 0usize;
+    // FAILURE ISOLATION (starvation fix, 2026-11-01): one bad container (40560
+    // took 43 of 45 retry lines) must not eat the pass's slots. After
+    // CONTAINER_FAILS_PER_PASS failures on the same container in one pass the
+    // rest of that container's candidates wait for the next pass (counted and
+    // logged — deferred, never dropped), and a candidate that has failed
+    // PARK_AFTER_ATTEMPTS times is parked with an exponentially growing
+    // `parked_until` so it stops being retried every pass while staying
+    // queued and visible (`parked_reason`).
+    const CONTAINER_FAILS_PER_PASS: u32 = 2;
+    const PARK_AFTER_ATTEMPTS: u64 = 3;
+    let mut fails_this_pass: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+    let mut parked_skipped = 0usize;
+    let mut isolated_skipped = 0usize;
+    let pass_now = now_secs();
 
     for candidate in candidates.iter_mut() {
         if candidate.get("handled").and_then(|v| v.as_bool()) == Some(true) {
             continue;
+        }
+        let Some(container_id) = candidate.get("container_id").and_then(|v| v.as_u64()) else {
+            continue;
+        };
+        if let Some(until) = candidate.get("parked_until").and_then(|v| v.as_u64()) {
+            if until > pass_now {
+                parked_skipped += 1;
+                continue; // parked with backoff: still queued, still visible
+            }
+        }
+        if fails_this_pass.get(&container_id).copied().unwrap_or(0) >= CONTAINER_FAILS_PER_PASS {
+            isolated_skipped += 1;
+            left_for_next_pass += 1;
+            continue; // this container already failed enough this pass
         }
         if attempted_this_pass >= MAX_CANDIDATES_PER_PASS {
             left_for_next_pass += 1;
             continue;
         }
         attempted_this_pass += 1;
-        let Some(container_id) = candidate.get("container_id").and_then(|v| v.as_u64()) else {
-            continue;
-        };
         let attempts_before = candidate.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
 
         // §9 CANDIDATE → TASK REGISTRATION (universal native task ordering,
@@ -465,6 +519,7 @@ async fn review_amt_candidates_once(
                     "failed_after_max_attempts"
                 };
                 if permanent || attempts >= MAX_REEXPAND_ATTEMPTS {
+                    *fails_this_pass.entry(container_id).or_insert(0) += 1;
                     tracing::warn!(
                         container_id,
                         attempts,
@@ -475,12 +530,32 @@ async fn review_amt_candidates_once(
                     candidate["handled"] = serde_json::json!(true);
                     candidate["outcome"] = serde_json::json!(outcome);
                 } else {
-                    tracing::warn!(container_id, attempts, error = %e, "AMT re-expansion attempt failed — will retry next pass");
+                    *fails_this_pass.entry(container_id).or_insert(0) += 1;
+                    if attempts >= PARK_AFTER_ATTEMPTS {
+                        // exponential backoff: 30 min * 2^(attempts-3), capped at 6 h
+                        let backoff = (1800u64 << (attempts - PARK_AFTER_ATTEMPTS).min(4)).min(21_600);
+                        candidate["parked_until"] = serde_json::json!(pass_now + backoff);
+                        candidate["parked_reason"] = serde_json::json!(format!(
+                            "{} consecutive failures; last error: {}",
+                            attempts,
+                            e.chars().take(200).collect::<String>()
+                        ));
+                        tracing::warn!(container_id, attempts, backoff_secs = backoff, error = %e, "AMT re-expansion attempt failed — candidate PARKED with backoff (stays queued and visible)");
+                    } else {
+                        tracing::warn!(container_id, attempts, error = %e, "AMT re-expansion attempt failed — will retry next pass");
+                    }
                 }
             }
         }
     }
 
+    if parked_skipped > 0 || isolated_skipped > 0 {
+        tracing::info!(
+            parked_skipped,
+            isolated_skipped,
+            "AMT re-expansion pass: candidates deferred by failure isolation (parked with backoff, or their container already failed this pass) — nothing dropped"
+        );
+    }
     if left_for_next_pass > 0 {
         tracing::info!(
             attempted = attempted_this_pass,
@@ -641,6 +716,43 @@ async fn try_reexpand_one(
         Some(text) => format!("\n\nRELATED BRANCHES ALREADY IN THIS TREE (for context — stay consistent with these, don't duplicate them):\n- {}", text),
         None => String::new(),
     };
+    // SPAN-OUT (2026-11-02): ground the deepening in what is CONNECTED to this AMT and to
+    // the event that queued it, along the captured relationships, within a window share of
+    // the model that will answer (no fixed container/hop counts).
+    let related_block = {
+        let mut seeds: Vec<crate::orchestrator::span_out::SpanSeed> =
+            vec![crate::orchestrator::span_out::SpanSeed::new(container_id, 1.0, "AMT being deepened")];
+        if let Some(detail) = trigger_detail {
+            // graph-ripple / finding details name their container: "(container 12345)".
+            if let Some(pos) = detail.find("container ") {
+                let digits: String = detail[pos + "container ".len()..]
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect();
+                if let Ok(id) = digits.parse::<u64>() {
+                    seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, 1.0, "triggering container"));
+                }
+            }
+        }
+        let window = meta_fallback
+            .order
+            .iter()
+            .filter_map(|id| available_models.iter().find(|m| &m.identifier == id))
+            .map(|m| m.context_length as u32)
+            .min()
+            .unwrap_or(8192);
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let spanned = crate::orchestrator::span_out::span_out(store, &data_dir, seeds, (window / 8).max(1024)).await;
+        if spanned.text.trim().is_empty() {
+            related_block
+        } else {
+            tracing::info!(container_id, items = spanned.items.len(), tokens = spanned.tokens, "AMT re-expansion: span-out context attached");
+            format!(
+                "{related_block}\n\nCONNECTED CONTEXT (spans out from this AMT and from the event that queued this pass, along the captured relationships — ground the details in it, do not restate it):\n{}",
+                spanned.text
+            )
+        }
+    };
     let signals_block = if container_keywords.is_empty() && container_topics.is_empty() {
         String::new()
     } else {
@@ -750,10 +862,14 @@ If nothing substantive can be added, return: {{"details": []}}"#,
             candidates.len()
         ));
     }
-    let json_str = candidates
-        .into_iter()
-        .next()
-        .unwrap_or_else(|| "{}".to_string());
+    // No JSON object at all is a FAILED attempt (prose refusal, truncation, noise) — it
+    // was a silent "{}" that parsed fine and read as "nothing to add".
+    let json_str = candidates.into_iter().next().ok_or_else(|| {
+        format!(
+            "response contained no JSON object ({} chars) — failed attempt, not 'nothing to add'",
+            response.chars().count()
+        )
+    })?;
     let parsed: serde_json::Value = serde_json::from_str(json_str.trim())
         .map_err(|e| format!("draft response wasn't valid JSON: {}", e))?;
 
@@ -1037,6 +1153,22 @@ mod tests {
             trace_id: None,
             span_id: None,
         }
+    }
+
+    // ECHO FILTER (2026-11-01): the loop's own writes and non-deepenable
+    // container types never become candidates, even when project-scoped.
+    #[tokio::test]
+    async fn self_caused_and_non_deepenable_events_create_no_candidate() {
+        let path = temp_path("echo");
+        let (store, _) = store_for_review();
+        let mut own = scoped_event(Some(7), false, "updated");
+        own.source = "amt-expansion".into();
+        own.container_type = "AMTExpansion".into();
+        assert_eq!(process_graph_event(&*store, &path, &own).await.unwrap(), None);
+        let mut task = scoped_event(Some(7), false, "created");
+        task.container_type = "Task".into();
+        assert_eq!(process_graph_event(&*store, &path, &task).await.unwrap(), None);
+        assert!(crate::orchestrator::amt_candidates::unhandled_at(&path).is_empty());
     }
 
     // T-S1: a project-scoped graph write converts into a re-expansion

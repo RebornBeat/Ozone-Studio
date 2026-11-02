@@ -120,7 +120,8 @@ rendering). The new thing is the architecture around them.
   ( ConsciousnessStore::get_current_emotional_state: primary_emotion,
   valence, arousal, dominance, stability, triggers) + response_type +
   channel into its persisted insight; I-Loop reflections carry the same.
-- **Next**: dedicated consciousness-response records (not just insight
+- **Landed (2026-11-02, unbuilt)**: structured `CONSCIOUSNESS_RESPONSE` records (`src/consciousness/response_record.rs`, JSONL) written by the assistant check-up; real `generate_tts` (piper → espeak-ng → festival, else loud `success:false`); shared `useVoiceIO` hook.
+- **Next (remaining)**: dedicated consciousness-response records (not just insight
   containers) with modality + emotion + graph-context refs; chat-side
   differentiation display; voice context history.
 - **Then**: the AVB pipeline — text → phonetic/prosodic plan →
@@ -141,3 +142,12 @@ rendering). The new thing is the architecture around them.
   consumer can filter consciousness responses out of chat history reliably.
 - The orchestrator response NEVER gains a consciousness record; the
   consciousness response NEVER masquerades as a task answer.
+
+
+## 8. Corrections (2026-11-02)
+
+- **TTS honesty**: `generate_tts` used to return the literal `"base64_audio_data"` with `success:true` — a fabricated success. It now runs a real engine in order **piper** (needs `OZONE_VOICE_PIPER_MODEL` or an `.onnx` voice path; `OZONE_VOICE_PIPER_PATH` optional) → **espeak-ng** → **festival** (`text2wave`), returns base64 WAV bytes the engine actually wrote, and otherwise returns `success:false` with the engines tried and why each was skipped. The text transcript is returned either way. No engine is installed on the dev box today, so Speak currently fails loudly there.
+- **Speed**: piper `--length_scale = 1/speed`; espeak-ng `-s` words per minute = 175 × speed; festival ignores speed.
+- **GetVoices** still returns a static two-entry list, not an engine probe (follow-up).
+- **UI**: capture/playback logic is extracted to `ui/src/hooks/useVoiceIO.ts` (MetaPortion not yet switched over; project chat can adopt it). It surfaces `voiceError` for failed STT/TTS.
+- **Record shape** written today: `{type:"CONSCIOUSNESS_RESPONSE", schema, at, source, channel, emotion{primary,valence,arousal,dominance}, content, container_id, findings, trace_id}`. The richer design fields (`audio_ref`, `voice_identity_id`, `voice_policy`, `graph_context`, `self_heard`) are not written yet and are deliberately absent rather than faked.

@@ -288,3 +288,6 @@ production contract is `docs/DEPLOY_WITH_OZONE_GUIDE.md`'s tarball layout: every
 install root. Standing rule for every new path in code: relative to CWD (= install root under
 systemd), and the DEPLOY guide's layout is the test. Captured in CHECKLIST 2026-10-30; the next
 build pass should sweep for remaining CARGO_MANIFEST_DIR runtime uses.
+
+
+> **Correction 2026-11-02 (operator directive):** PDF/Office text extraction is NOT built into the text pipeline (no `pdf-extract`/`zip` crate dependency). It is a tool — `tools/document-mcp` (:3282: `document_extract`, `document_info`, `document_images`, `document_formats`; poppler `pdftotext`, `unzip`+XML, LibreOffice for legacy `.doc`, tesseract OCR only if installed) — that the text pipeline calls through `/mcp/call`, the same way the image modality uses visual-mcp's YOLO/OCR/depth. Register with `node tools/register-browser-tools.mjs document`.

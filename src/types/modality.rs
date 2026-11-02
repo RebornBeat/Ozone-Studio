@@ -5,6 +5,13 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The shared extension->modality table (also included by file_link via
+/// #[path]). Pure std; see the file's header for every collision decision.
+#[allow(dead_code)]
+pub mod modality_ext {
+    include!("../../assets/pipelines/shared/modality_ext.rs");
+}
+
 /// All supported modality types.
 ///
 /// The discriminant intentionally matches the pipeline ID where applicable
@@ -199,7 +206,7 @@ impl ModalityType {
                 &["graphml", "gexf", "dot", "gml", "net", "pajek", "cyjs"]
             }
             ModalityType::ActiveRadar => {
-                &["iq", "bin", "cphd", "sicd", "nitf", "ntf", "rs2", "tiff"]
+                &["iq", "cphd", "sicd", "nitf", "ntf", "rs2", "tiff"] // "bin" dropped 2026-11-01: a bare .bin is not evidence of radar
             }
             ModalityType::ActiveSonar => &["xtf", "jsf", "s7k", "gsf", "all", "wcd", "xse", "xtf"],
             ModalityType::Hyperspectral => &[
@@ -215,13 +222,26 @@ impl ModalityType {
     }
 
     /// Detect modality from file extension (case-insensitive, no leading dot needed).
+    ///
+    /// 2026-11-01: the ONE shared table (assets/pipelines/shared/modality_ext.rs)
+    /// is consulted first — the same file file_link includes, so the host and
+    /// file_link can no longer disagree. Metadata-only buckets (data / config /
+    /// archive / document) have no modality pipeline and answer Unknown here.
+    /// The per-modality `file_extensions()` lists below are only a fallback for
+    /// extensions the shared table does not mention.
     pub fn from_extension(ext: &str) -> Self {
         let ext_lower = ext.to_lowercase();
         let ext_str = ext_lower.trim_start_matches('.');
 
-        // Ambiguous extensions: check most-specific modalities first
-        // (.tif can be Thermal or Geospatial — Geospatial wins for generic tif;
-        //  thermal files typically come with path hints handled at routing layer)
+        if let Some(key) = modality_ext::modality_for_extension(ext_str) {
+            return if modality_ext::is_metadata_only_bucket(key) {
+                ModalityType::Unknown
+            } else {
+                Self::from_path_name(key)
+            };
+        }
+
+        // Fallback: extensions the shared table does not know.
         for modality in Self::all() {
             if modality.file_extensions().contains(&ext_str) {
                 return *modality;
@@ -231,13 +251,18 @@ impl ModalityType {
         ModalityType::Unknown
     }
 
-    /// Detect modality from file path (uses extension).
+    /// Detect modality from a file path: word-boundary path hints, the shared
+    /// extension table, and the sdf rule (see modality_ext::resolve_modality).
     pub fn from_path(path: &str) -> Self {
-        std::path::Path::new(path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(Self::from_extension)
-            .unwrap_or(ModalityType::Unknown)
+        match modality_ext::resolve_modality(path) {
+            Some(key) if modality_ext::is_metadata_only_bucket(key) => ModalityType::Unknown,
+            Some(key) => Self::from_path_name(key),
+            None => std::path::Path::new(path)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(Self::from_extension)
+                .unwrap_or(ModalityType::Unknown),
+        }
     }
 
     /// All non-Unknown modality types in pipeline order.

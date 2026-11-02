@@ -267,5 +267,24 @@ consciousness review pass reads S10's decision_review.jsonl + the task
 store + a traversal from the project AMT, and emits insight containers:
 context gaps found (call sites whose capture lines show missing context
 markers), model-coherence observations (same context, different models,
-divergent decisions), and pending-review follow-ups (ReviewPending items
-aging without human resolution). Each insight cites its evidence lines.
+divergent decisions), and awaiting-item follow-ups (items parked on a meta/consciousness gate that keep failing to be judged — meta-only, never a human; 2026-11-02 doctrine). Each insight cites its evidence lines.
+
+
+## 8. Context-capture map by call route (2026-11-02 audit; routes in `CALL_ROUTE_REGISTRY.md`)
+
+| Route | What context is captured | Where | Joined by |
+|---|---|---|---|
+| Walk model calls (R1) | prompt shape, serving model, tokens, outcome, cap sent, call site | model ledger, `model_calls/zero_shot_calls.jsonl`, S10–S13 stores | `trace_id` / `span_id` |
+| Any executor call (R1–R3) | pipeline, outcome, latency, in/out bytes (no text) | `capture/call_spans.jsonl` | trace ids |
+| Loop calls (R3) | full prompt + result via `capture_loop_model_call` (`amt_reexpansion`, `meta_loop_draft`, `i_loop_reflection`, `assistant_check_up`) | ContextRecord (S11) | call-site label + trace |
+| Decision reviews | every pass, per-chunk judged cache, merge result | `model_calls/decision_review.jsonl` | review id |
+| Awaiting items | kind, subject, attempts, next try, last error, task id | `awaiting_items.jsonl` (latest row per `await_id`) | `await_id` ↔ task |
+| MCP calls (R6/R7) | agent, tool, validated vs declared identity, usage | usage ledger, activity hub, gate-verdict rows | trace |
+| Modality-internal LLM (R4) | per-pipeline `capture_zero_shot_call` | pipeline-local capture | pipeline id |
+| AMT re-expansion deepen | content-file rewrite + `AMTExpansion` graph event (source `amt-expansion`, echo-filtered by the ripple sync) | graph event hub + container content | container id |
+
+Known context-flow gaps: modality-internal LLM calls are not joined to the run's trace unless the spawning executor stamps `OZONE_TRACE_ID` (it does for builtin spawns; nested prompt-binary spawns inherit the environment).
+
+
+## 9. Chat containers (2026-11-02)
+The conversation itself is now graph context. Per scope (global / workspace / project) there is one `ChatSession`; each turn is a `ChatTurn` child holding the full prompt and full response (content file), linked `RelatedTo` to the run's prompt graphs and to a text graph of the response. Retrieval: `GET /chat/turns`. Design and scoping table: `CALL_ROUTE_REGISTRY.md` §2.1. Not yet fed back as walk context automatically (a later turn can reach earlier ones through the graph edges / keywords `chatsession:*`, but the orchestrator does not yet inject recent turns into the next prompt — recorded as an open item).

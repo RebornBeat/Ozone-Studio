@@ -324,10 +324,33 @@ export interface OrderItem {
   workspace_id: number | null;
   project_id: number | null;
   created_at: number;
+  /** Failure-pause (host never continues past a failed step): error text and flag. */
+  error?: string | null;
+  paused_for_failure?: boolean;
+}
+
+/** An item the system is waiting on (docs/REVIEW_E2E_STATE_2026-11-01.md §10).
+ * Shape ASSUMED from the review doc; every field except the task fields is
+ * optional so an older/partial host answer still renders honestly.
+ * resolver "meta" = consciousness/meta re-judges it itself (no human);
+ * resolver "human" = a jurisdiction confirmation only the operator resolves. */
+export interface AwaitingOrderItem extends Partial<Omit<OrderItem, "kind">> {
+  task_id: number;
+  await_id?: string;
+  kind?: string; // consciousness_gate | meta_gate | jurisdiction_confirm
+  resolver?: "meta" | "human" | string;
+  attempts?: number;
+  next_try_ts?: number | null; // unix ms or secs, see formatTs
+  last_error?: string | null;
+  unjudged_chunks?: number[];
+  judged?: Record<string, string>;
+  review_id?: string | null;
 }
 
 export type GlobalOrder = Record<OrderState, OrderItem[]> & {
   counts: Record<string, number>;
+  /** Present once the host serves the 'awaiting' group (fork 4). */
+  awaiting?: AwaitingOrderItem[];
 };
 
 export function fetchGlobalOrder(params?: {
@@ -398,4 +421,107 @@ export interface AssistantFeed {
 export function fetchAssistantFeed(scope?: string): Promise<AssistantFeed> {
   const qs = scope ? `?scope=${encodeURIComponent(scope)}` : "";
   return bridgeOrHttp("assistantFeed", `/assistant/feed${qs}`);
+}
+
+
+// ── Awaiting items, pending reviews, consciousness state (2026-11-01) ──────
+// Backend shapes below are ASSUMED from docs/REVIEW_E2E_STATE_2026-11-01.md
+// §10/§17 and are all tolerant: a missing route rejects, callers degrade to
+// honest absence. Nothing here is invented client-side.
+
+/** The awaiting group of GET /order/global (empty array when the host does
+ * not serve it yet). */
+export async function fetchAwaiting(): Promise<AwaitingOrderItem[]> {
+  const order = await fetchGlobalOrder();
+  return Array.isArray(order.awaiting) ? order.awaiting : [];
+}
+
+/** POST /task/resume {task_id} — ask the host to re-enter the walk for an
+ * awaiting task (meta drain does this itself; this is the manual door). */
+export function resumeTask(taskId: number): Promise<{ success?: boolean; error?: string }> {
+  return postHttp("/task/resume", { task_id: taskId, session_token: "" });
+}
+
+/** POST /task/resume_run {task_id} — resume a FAILURE-PAUSED task from exactly the step it
+ * stopped at (the host never continues past a failed step; completed steps are restored,
+ * not re-run). Answers immediately; follow status through the task record. */
+export function resumeRun(taskId: number): Promise<{ success?: boolean; resumed?: boolean; from_step?: number; error?: string }> {
+  return postHttp("/task/resume_run", { task_id: taskId });
+}
+
+/** POST /task/pause_info {task_id} — is the task failure-paused, at which step, with what
+ * error, and is it resumable (checkpoint present)? */
+export interface PauseInfo {
+  task_id: number;
+  found: boolean;
+  paused_for_failure: boolean;
+  paused_at_step: number | null;
+  error: string | null;
+  status: string | null;
+  resumable: boolean;
+  checkpoint: boolean;
+}
+export function fetchPauseInfo(taskId: number): Promise<PauseInfo> {
+  return postHttp("/task/pause_info", { task_id: taskId });
+}
+
+/** Parse a failure-pause notice ("PAUSED: task N paused at step K: …" from /orchestrate, or
+ * the task record's "paused at step K: …" error). null when it is not one. */
+export function parsePause(text: unknown, taskIdHint?: number | null): { taskId: number | null; step: number; error: string } | null {
+  const t = String(text ?? "");
+  const m = t.match(/(?:PAUSED:\s*task\s*(\d+)\s*)?paused at step\s*(\d+)\s*:\s*([\s\S]*)/i);
+  if (!m) return null;
+  const taskId = m[1] ? Number(m[1]) : (taskIdHint ?? null);
+  return { taskId, step: Number(m[2]), error: m[3].replace(/\s*It was not continued[\s\S]*$/, "").trim() };
+}
+
+export interface PendingReviewRow {
+  review_id?: string;
+  id?: string;
+  ts?: string;
+  decision?: string;
+  review_kind?: string;
+  resolver?: string;
+  model_used?: string;
+  task_summary_preview?: string;
+  reasoning_preview?: string;
+  raw_response_preview?: string;
+}
+
+/** GET /consciousness/reviews/pending. */
+export function fetchPendingReviews(): Promise<{ count?: number; rows?: PendingReviewRow[] }> {
+  return hostGet("/consciousness/reviews/pending");
+}
+
+/** POST /consciousness/reviews/resolve — the operator's disposition of a
+ * human-actionable review (jurisdiction confirmations, assistant proposals). */
+export function resolveReview(
+  reviewId: string,
+  decision: "Proceed" | "Decline",
+  note?: string,
+): Promise<{ success?: boolean; error?: string; [k: string]: unknown }> {
+  return postHttp("/consciousness/reviews/resolve", {
+    review_id: reviewId,
+    decision,
+    note,
+    session_token: "",
+  });
+}
+
+export interface ConsciousnessStateInfo {
+  enabled?: boolean;
+  emotion?: { primary_emotion?: string; valence?: number; arousal?: number; dominance?: number } | null;
+  i_loop?: { running?: boolean; last_reflection_ts?: number | null; interval_secs?: number | null } | null;
+  [k: string]: unknown;
+}
+
+/** GET /consciousness/state — real store-backed values only. */
+export function fetchConsciousnessState(): Promise<ConsciousnessStateInfo> {
+  return hostGet("/consciousness/state");
+}
+
+/** GET /network/paired-peers → count (0 when the route is gated/absent). */
+export async function fetchPairedPeerCount(): Promise<number> {
+  const r: any = await hostGet("/network/paired-peers");
+  return Array.isArray(r?.paired_peers) ? r.paired_peers.length : 0;
 }

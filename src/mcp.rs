@@ -130,9 +130,61 @@ pub async fn registry_entries() -> Option<Vec<McpTool>> {
 
 /// Issue the standardized abstract call through the process-global handles.
 /// Same metering, gating, and rippling as the HTTP path.
+/// Process-global jurisdiction gate for IN-PROCESS tool calls (2026-11-02 audit).
+/// The HTTP `/mcp/call` handler runs the full jurisdiction gate before `invoke`,
+/// but `call_global` callers (tool routing, the sensor tick, approved assistant
+/// proposals) went straight to the registry and bypassed it. Installed at boot
+/// (and refreshed on rule reload) from the same rule snapshot as the per-step
+/// gate; `None` = not installed (logged once, call proceeds — same posture as
+/// the step gate, never silently claiming a check ran).
+type CallGate = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
+static CALL_GATE: OnceLock<std::sync::RwLock<Option<CallGate>>> = OnceLock::new();
+
+pub fn set_call_gate(gate: Option<CallGate>) {
+    let cell = CALL_GATE.get_or_init(|| std::sync::RwLock::new(None));
+    if let Ok(mut g) = cell.write() {
+        *g = gate;
+    }
+}
+
+fn installed_call_gate() -> Option<CallGate> {
+    CALL_GATE.get()?.read().ok()?.clone()
+}
+
+/// Check `text` against the installed jurisdiction call gate, recording the
+/// verdict. `Ok` when allowed or when no gate is installed yet (warned once).
+/// Shared by `call_global` (in-process tool calls) and the external
+/// `/pipeline/execute` route, so neither path can skip jurisdiction.
+pub fn check_call_gate(span_kind: &str, subject: &str, text: &str) -> Result<(), String> {
+    match installed_call_gate() {
+        Some(gate) => {
+            let hay: String = format!("{} {}", subject, text.chars().take(4000).collect::<String>());
+            if let Err(reason) = gate(&hay) {
+                crate::orchestrator::entry_gate::record_gate_verdict(span_kind, subject, "blocked", Some(&reason), None);
+                return Err(reason);
+            }
+            Ok(())
+        }
+        None => {
+            static WARNED: OnceLock<()> = OnceLock::new();
+            if WARNED.set(()).is_ok() {
+                tracing::warn!("no jurisdiction call gate installed yet — in-process/external calls rely on upstream gates only");
+            }
+            Ok(())
+        }
+    }
+}
+
 pub async fn call_global(call: McpCall) -> McpResult {
-    // Never panic when the handles are not installed (a loop or stage may run
-    // before server startup finished): return an honest failed result.
+    let input_text = serde_json::to_string(&call.input).unwrap_or_default();
+    if let Err(reason) = check_call_gate("mcp-global", &call.tool, &input_text) {
+        return McpResult {
+            success: false,
+            output: None,
+            error: Some(format!("blocked by the jurisdiction gate: {}", reason)),
+            usage: serde_json::json!({ "agent": call.agent, "tool": call.tool, "allowed": false, "gate": "jurisdiction" }),
+        };
+    }
     let Some((registry, usage)) = GLOBAL_MCP.get() else {
         return McpResult {
             success: false,
@@ -146,7 +198,11 @@ pub async fn call_global(call: McpCall) -> McpResult {
 
 /// Validated caller identity forwarded to tool servers (see
 /// `McpRegistry::invoke_with_identity`). The default is "unvalidated", the
-/// documented localhost posture.
+/// documented localhost posture. Role allowlists downstream MUST use
+/// `validated`/`session_user_id` (surfaced as `agent_trust` +
+/// `session_user_id` in the envelope and `identity_validated` in the result
+/// usage) and fall back to the declared `agent` string ONLY when
+/// `validated` is false — in which case the result says so.
 #[derive(Debug, Clone, Default)]
 pub struct McpCallerIdentity {
     pub validated: bool,
@@ -475,12 +531,20 @@ impl McpRegistry {
         // (a caller can rotate names). Validated identity travels separately
         // in `identity` and is forwarded to the tool in the envelope.
         let (allowed, total_today, limit) = usage.record(&call.agent, &call.tool).await;
+        // Role authorization trust (2026-11-01): the ledger and the tool
+        // envelope both say whether `agent` is BACKED by a validated session
+        // or merely DECLARED by the caller. Tool servers that gate by role
+        // (terminal allowlists) must treat `agent_trust: "declared"` as an
+        // unverified claim and key privileged roles on `"validated"` only.
+        let agent_trust = if identity.validated { "validated" } else { "declared" };
         let usage_json = serde_json::json!({
             "agent": call.agent,
             "tool": call.tool,
             "total_today": total_today,
             "daily_limit": limit,
             "allowed": allowed,
+            "identity_validated": identity.validated,
+            "agent_trust": agent_trust,
         });
 
         if !allowed {
@@ -516,11 +580,23 @@ impl McpRegistry {
                     "context": call.context,
                     "identity_validated": identity.validated,
                     "session_user_id": identity.session_user_id,
+                    // Role lookups in a tool server must key on this, not on
+                    // `agent` alone: "validated" = backed by a real session
+                    // (and `session_user_id`); "declared" = the caller's own
+                    // claim, the documented localhost posture.
+                    "agent_declared": call.agent,
+                    "agent_trust": agent_trust,
                     "trace": crate::trace::current_fields(),
                 });
                 let client = reqwest::Client::new();
-                let resp = client
-                    .post(&tool.endpoint)
+                // Host-internal token so MCP servers can refuse calls that did not come
+                // through the host (tools/shared/guard.mjs; enforced on strict hosts or with
+                // OZONE_MCP_REQUIRE_INTERNAL=1).
+                let mut req_builder = client.post(&tool.endpoint);
+                if let Some(tok) = crate::grpc::internal_token() {
+                    req_builder = req_builder.header("x-oz-internal", tok);
+                }
+                let resp = req_builder
                     .json(&envelope)
                     .timeout(std::time::Duration::from_secs(30))
                     .send()

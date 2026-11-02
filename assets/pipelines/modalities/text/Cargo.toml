@@ -18,6 +18,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
 tracing = "0.1"
+# Document extraction (pdf/docx/odt/...) is NOT a dependency of this pipeline: it calls the
+# document MCP (tools/document-mcp) through /mcp/call — see doc_extract in main.rs.
 
 # Own workspace root: independent unit — builds anywhere, connects over the wire.
 [workspace]
