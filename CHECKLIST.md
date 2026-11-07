@@ -7362,3 +7362,12 @@ updated, `preset_strength(name)` added to the contract (name → vote count, Non
 `configured_strength()` still reads the env with the never-0 floor. Select: `validation_preset =
 "light-2"` in config.toml, or OZONE_VALIDATION_STRENGTH=2 on a pipeline. All UNCOMPILED pending the
 EU build gate.
+
+## 2026-11-01 (zc, II) — the UI dist REBUILT with everything + vis.html restored
+The UI dist was STALE relative to CC's Chat Store (138 files of UI work — the localStorage chat
+persistence, ThinkingRow + CoordinationStrip + OrchestrationPanels in BOTH chat surfaces, voice IO,
+consciousness toggles) + my edits (declared_charset display, the matcher test). Rebuilt (vite, 18s) —
+the operator's app picks everything up on reload/restart. vis.html (the google.com graph
+visualization — 101 nodes, 12 depth levels, the 429 rule-hit bars, the embedded farm screenshot)
+restored into the fresh dist and served at localhost:8901/vis.html. ui/dist is gitignored by design
+(the Electron app loads the built dist from the checkout).
