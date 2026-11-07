@@ -7342,3 +7342,10 @@ zcode was down during CC's Nov 1-7 run. Caught up via git + CHECKLIST + EDIT_CAP
 - **The next EU pass** (operator go): a FRESH full sync (CC's Nov 2-7 work is local-only — the EU
   build tree predates it), then Gate 0-style compile + the L29-L31 tests + the scorecard re-run (the
   keyword hygiene should move the 7% walk-completion funnel), then deploy.
+
+## 2026-11-01 (zc) — declared_charset LIVE ON EU (D28 delivery complete)
+The uidocument binary rebuilt + redeployed on EU with the declared_charset recording: an ingest with
+<meta charset="shift_jis"> returned **declared_charset: "shift_jis"** — the declared-vs-used encoding
+visibility is live in production. 7 nodes for the test fragment. The D28 delivery chain is complete:
+BOM/charset-aware reads (host route + engine FilePath), bytes_b64+charset on the route, declared
+charset on the output.

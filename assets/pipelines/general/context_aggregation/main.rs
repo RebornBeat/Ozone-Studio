@@ -155,8 +155,18 @@ fn ozone_host() -> String {
     env::var("OZONE_HOST").unwrap_or_else(|_| "http://127.0.0.1:50051".to_string())
 }
 
+/// ONE shared HTTP client (connection pool) for every host call — a fresh `Client::new()` per query opened a new connection each time,
+/// which dominated a step with hundreds of seeds (live walk 1152: context assembly outlived the 300 s watchdog).
+fn http_client() -> &'static reqwest::Client {
+    static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    C.get_or_init(reqwest::Client::new)
+}
+
+/// Host-protection bound on SIMULTANEOUS host calls (not a bound on how many are made — every seed/container is still processed).
+const HOST_CALL_CONCURRENCY: usize = 16;
+
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
-    let client = reqwest::Client::new();
+    let client = http_client();
     let resp = client
         .post(format!("{}/zsei/query", ozone_host()))
         .json(&serde_json::json!({"query": query, "session_token": ""}))
@@ -241,44 +251,59 @@ fn traversal_max_results(token_budget: u32) -> u32 {
 
 async fn traverse_from_seeds(seed_ids: &[u64], token_budget: u32) -> Vec<u64> {
     let max_results = traversal_max_results(token_budget);
-    let mut discovered: Vec<u64> = Vec::new();
-    for &seed_id in seed_ids.iter() {
-        let request = serde_json::json!({
-            "Traverse": {
-                "start_container": seed_id,
-                "mode": "Structural",
-                "filters": [],
-                "max_depth": TRAVERSAL_MAX_DEPTH,
-                "max_results": max_results,
-                "budget": {
-                    "max_hops": TRAVERSAL_MAX_DEPTH,
-                    "max_containers": max_results,
-                    "max_latency_ms": 2000
-                },
-                "use_ml": false,
-                "include_methodologies": false,
-                "include_external_refs": false,
-                "keyword_filter": null,
-                "topic_filter": null
-            }
-        });
-        let result = match zsei_query(request).await {
-            Ok(r) => r,
-            Err(_) => continue, // one seed's traversal failing shouldn't drop the others
-        };
-        // zsei_query returns the raw ZSEIQueryResult enum's wire shape —
-        // {"TraversalResult": {containers: [...], ...}} — same
-        // enum-tag-then-fields pattern fetch_container's "Container" and
-        // search_containers_by_keywords' "Containers" already unwrap below.
-        let containers = result
-            .get("TraversalResult")
-            .and_then(|t| t.get("containers"))
-            .and_then(|c| c.as_array());
-        if let Some(containers) = containers {
-            for id in containers.iter().filter_map(|v| v.as_u64()) {
-                if id != seed_id && !discovered.contains(&id) {
-                    discovered.push(id);
+    // Every seed is traversed (no cap), CONCURRENTLY (≤ HOST_CALL_CONCURRENCY in flight); results are merged in SEED ORDER so the output
+    // is identical to the old sequential walk, only faster.
+    let sem = std::sync::Arc::new(tokio::sync::Semaphore::new(HOST_CALL_CONCURRENCY));
+    let mut set: tokio::task::JoinSet<(usize, Vec<u64>)> = tokio::task::JoinSet::new();
+    for (idx, &seed_id) in seed_ids.iter().enumerate() {
+        let sem = sem.clone();
+        set.spawn(async move {
+            let _permit = sem.acquire_owned().await;
+            let request = serde_json::json!({
+                "Traverse": {
+                    "start_container": seed_id,
+                    "mode": "Structural",
+                    "filters": [],
+                    "max_depth": TRAVERSAL_MAX_DEPTH,
+                    "max_results": max_results,
+                    "budget": {
+                        "max_hops": TRAVERSAL_MAX_DEPTH,
+                        "max_containers": max_results,
+                        "max_latency_ms": 2000
+                    },
+                    "use_ml": false,
+                    "include_methodologies": false,
+                    "include_external_refs": false,
+                    "keyword_filter": null,
+                    "topic_filter": null
                 }
+            });
+            // one seed's traversal failing shouldn't drop the others
+            let ids: Vec<u64> = match zsei_query(request).await {
+                // zsei_query returns the raw ZSEIQueryResult enum's wire shape — {"TraversalResult": {containers: [...], ...}}
+                Ok(r) => r
+                    .get("TraversalResult")
+                    .and_then(|t| t.get("containers"))
+                    .and_then(|c| c.as_array())
+                    .map(|a| a.iter().filter_map(|v| v.as_u64()).filter(|id| *id != seed_id).collect())
+                    .unwrap_or_default(),
+                Err(_) => Vec::new(),
+            };
+            (idx, ids)
+        });
+    }
+    let mut per_seed: Vec<Vec<u64>> = vec![Vec::new(); seed_ids.len()];
+    while let Some(done) = set.join_next().await {
+        if let Ok((idx, ids)) = done {
+            per_seed[idx] = ids;
+        }
+    }
+    let mut seen: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut discovered: Vec<u64> = Vec::new();
+    for ids in per_seed {
+        for id in ids {
+            if seen.insert(id) {
+                discovered.push(id);
             }
         }
     }
@@ -512,13 +537,25 @@ fn build_consciousness_context(data: &serde_json::Value) -> Option<Consciousness
 async fn resolve_containers(ids: &[u64], token_budget: Option<u32>) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     let mut est_tokens: u64 = 0;
-    for &id in ids.iter() {
-        if let Some(c) = fetch_container(id).await {
+    // Fetched in ORDER-PRESERVING concurrent waves; the token-budget stop is applied sequentially over each wave's results, so what is
+    // kept is identical to the old one-at-a-time loop (a wave may fetch a few containers past the stop; they are discarded).
+    for wave in ids.chunks(HOST_CALL_CONCURRENCY) {
+        let mut set: tokio::task::JoinSet<(usize, Option<serde_json::Value>)> = tokio::task::JoinSet::new();
+        for (k, &id) in wave.iter().enumerate() {
+            set.spawn(async move { (k, fetch_container(id).await) });
+        }
+        let mut got: Vec<Option<serde_json::Value>> = vec![None; wave.len()];
+        while let Some(done) = set.join_next().await {
+            if let Ok((k, c)) = done {
+                got[k] = c;
+            }
+        }
+        for c in got.into_iter().flatten() {
             est_tokens += (c.to_string().len() as u64) / 4;
             out.push(c);
             if let Some(b) = token_budget {
                 if est_tokens >= (b as u64).saturating_mul(2) {
-                    break;
+                    return out;
                 }
             }
         }
