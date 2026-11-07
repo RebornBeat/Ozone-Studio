@@ -48,6 +48,11 @@ pub struct RunCheckpoint {
     pub file_graphs: HashMap<String, u64>,
     pub chunk_graph_ids: Vec<u64>,
     pub applicable_tools: Vec<serde_json::Value>,
+    /// per-rule provider bindings + missing capabilities (2026-11-04) — a resumed run keeps the same manifest; older checkpoints default to empty
+    #[serde(default)]
+    pub tool_manifest: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub missing_capabilities: Vec<serde_json::Value>,
     pub attached_file_contents: HashMap<String, String>,
     pub tokens_used_so_far: u32,
     pub completed_steps: Vec<CheckpointStep>,
@@ -94,6 +99,8 @@ impl PromptOrchestrator {
             file_graphs: state.file_graphs.clone(),
             chunk_graph_ids: state.chunk_graph_ids.clone(),
             applicable_tools: state.applicable_tools.clone(),
+            tool_manifest: state.tool_manifest.clone(),
+            missing_capabilities: state.missing_capabilities.clone(),
             attached_file_contents: state.attached_file_contents.clone(),
             tokens_used_so_far: state.tokens_used_so_far,
             completed_steps: state
@@ -159,6 +166,57 @@ impl PromptOrchestrator {
         }
     }
 
+    /// Failures that are DECISIONS (a jurisdiction block, a declined gate, an operator hold, a
+    /// clarification request, an awaiting/pause marker already in place) are not "failed runs" and
+    /// must not be turned into a resumable pause.
+    pub(crate) fn is_pausable_failure(error: &str) -> bool {
+        const DECISIONS: [&str; 8] = [
+            "blocked by jurisdiction",
+            "Consciousness gate declined",
+            "held for human review",
+            "AWAITING:",
+            "PAUSED:",
+            "Prompt cannot be empty",
+            "declined",
+            "clarification",
+        ];
+        !DECISIONS.iter().any(|d| error.contains(d))
+    }
+
+    /// FAILURE DOCTRINE for failures BEFORE task creation (stages 2-8: the model chain exhausted,
+    /// a store error, ...). There is no task yet, so one is created now, paused with the error, and
+    /// checkpointed with the original request; resuming it re-runs the walk from the start (nothing
+    /// is lost: the prompt, scope and model config are the checkpoint). Returns the walk's error text.
+    pub(crate) async fn pause_pre_task(&self, state: &mut OrchestrationState, error: &str) -> String {
+        let mut inputs = std::collections::HashMap::new();
+        inputs.insert("prompt".to_string(), serde_json::json!(state.request.prompt));
+        inputs.insert("source".to_string(), serde_json::json!("orchestrator-pre-task-pause"));
+        let created = self
+            .task_manager
+            .read()
+            .await
+            .enqueue_task(
+                None,
+                inputs,
+                state.request.user_id,
+                state.request.device_id,
+                state.request.workspace_id,
+                state.request.project_id,
+                TaskPriority::Normal,
+            )
+            .await;
+        let Ok(task_id) = created else {
+            return error.to_string(); // cannot record a task: report the plain failure
+        };
+        state.task_id = Some(task_id);
+        self.write_checkpoint(state, Some((0, error)));
+        self.task_manager.read().await.pause_for_error(task_id, 0, error).await;
+        tracing::warn!(task_id, error, "walk failed before task creation — recorded as a PAUSED task (resume re-runs the walk from the start)");
+        format!(
+            "PAUSED: task {task_id} paused at step 0: {error}. The run failed before any step executed; nothing was continued. Resume it (Tasks tab / project tab / meta chat / POST /task/resume_run) to re-run from the start."
+        )
+    }
+
     /// Resume a failure-paused task from the step it stopped at. Completed steps are
     /// restored from the checkpoint and not re-run.
     pub async fn resume_run(&self, task_id: u64) -> OrchestrationResponse {
@@ -194,6 +252,27 @@ impl PromptOrchestrator {
             }
         };
 
+        if cp.blueprint_steps.is_empty() {
+            // Paused BEFORE any step existed (pre-task failure): resume = re-run the saved request.
+            tracing::info!(task_id, "resuming a pre-task pause: re-running the saved request from the start");
+            let _ = self.task_manager.read().await.resume_paused(task_id).await;
+            let response = self.orchestrate(cp.request.clone()).await;
+            let outputs = serde_json::json!({
+                "response": response.response,
+                "resumed_as_task": response.task_id,
+                "success": response.success,
+                "error": response.error,
+            });
+            let tm = self.task_manager.read().await;
+            if response.success {
+                let _ = tm.complete_task(task_id, Some(outputs), response.total_tokens_used.unwrap_or(0)).await;
+            } else if let Some(e) = response.error.as_deref().filter(|e| !e.contains("PAUSED:")) {
+                let _ = tm.fail_task(task_id, format!("resumed run failed: {e}")).await;
+            } else {
+                let _ = tm.complete_task(task_id, Some(outputs), 0).await;
+            }
+            return response;
+        }
         let mut state = self.init_state(cp.request.clone(), trace_id).await;
         state.task_id = Some(cp.task_id);
         state.cleaned_prompt = cp.cleaned_prompt.clone();
@@ -208,6 +287,8 @@ impl PromptOrchestrator {
         state.file_graphs = cp.file_graphs.clone();
         state.chunk_graph_ids = cp.chunk_graph_ids.clone();
         state.applicable_tools = cp.applicable_tools.clone();
+        state.tool_manifest = cp.tool_manifest.clone();
+        state.missing_capabilities = cp.missing_capabilities.clone();
         state.attached_file_contents = cp.attached_file_contents.clone();
         state.tokens_used_so_far = cp.tokens_used_so_far;
         for st in &cp.completed_steps {

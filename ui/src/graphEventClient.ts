@@ -85,6 +85,27 @@ export interface PipelineProgressFrame {
 
 export type PipelineProgressListener = (frame: PipelineProgressFrame) => void;
 
+// ── liveness (src/grpc/mod.rs, every 3 s) — how long ago ANY model call last made progress (the prompt binary's liveness stamp) and the
+// remaining daily free quota. The honest "it is working" signal for long stages (Stage 2 can run for many minutes). ──
+export interface LivenessFrame {
+  action: "liveness";
+  last_model_activity_ms_ago: number | null;
+  free_quota_remaining: number | null;
+  /** Unified live feed: the most recent model call the host saw (null before the first call after boot). */
+  last_model_call?: { model: string; call_site: string; latency_ms: number; success: boolean; ago_ms: number } | null;
+  /** …and the most recent stage event (stage number, name, its summary). */
+  last_stage?: { stage: number; name: string; success: boolean; summary: string; ago_ms: number } | null;
+  timestamp: number;
+}
+
+export type LivenessListener = (frame: LivenessFrame) => void;
+
+function isLivenessFrame(value: unknown): value is LivenessFrame {
+  if (typeof value !== "object" || value === null) return false;
+  const v = value as Record<string, unknown>;
+  return v.action === "liveness" && typeof v.timestamp === "number";
+}
+
 function isPipelineProgressFrame(value: unknown): value is PipelineProgressFrame {
   if (typeof value !== "object" || value === null) return false;
   const v = value as Record<string, unknown>;
@@ -306,6 +327,7 @@ export class GraphEventClient {
   private socket: WebSocket | null = null;
   private readonly eventListeners = new Set<EventSubscription>();
   private readonly pipelineProgressListeners = new Set<PipelineProgressListener>();
+  private readonly livenessListeners = new Set<LivenessListener>();
   private readonly orchestrationStageListeners = new Set<OrchestrationStageListener>();
   private readonly nodeEventListeners = new Set<NodeEventListener>();
   private readonly statusListeners = new Set<GraphSocketStatusListener>();
@@ -375,6 +397,13 @@ export class GraphEventClient {
    * invocation) — unfiltered; there are usually few enough concurrent
    * executions that a consumer filtering by pipeline_name/execution_id
    * itself is simpler than adding another server-side scope convention. */
+  onLiveness(listener: LivenessListener): () => void {
+    this.livenessListeners.add(listener);
+    return () => {
+      this.livenessListeners.delete(listener);
+    };
+  }
+
   onPipelineProgress(listener: PipelineProgressListener): () => void {
     this.pipelineProgressListeners.add(listener);
     return () => {
@@ -493,6 +522,10 @@ export class GraphEventClient {
     }
     if (isPipelineProgressFrame(parsed)) {
       for (const fn of this.pipelineProgressListeners) fn(parsed);
+      return;
+    }
+    if (isLivenessFrame(parsed)) {
+      for (const fn of this.livenessListeners) fn(parsed);
       return;
     }
     if (isOrchestrationStageFrame(parsed)) {

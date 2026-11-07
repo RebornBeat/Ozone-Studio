@@ -180,6 +180,10 @@ These hold across every contract above:
    that measured them, or *derived from verification* (a node is `verified`
    iff it carries source provenance). Absence is `None`/`false`/`0.0` — never
    an invented default like `0.8`.
+5a. **No self-reported confidence (operator doctrine, restated 2026-11-04).** A model-reported `confidence`/`importance`/score is false confidence; it is not captured,
+   not thresholded and not used to weight graph edges. Judgments are binary (yes/no) and are validated by the strength-N confirmation loop (`k_validation`); a
+   relationship is present or absent. Only a score *measured by a non-model source* (a parser, a sensor, a database) may be stored — and then as that source's
+   measurement, with its provenance.
 2. **Policies are named, not scattered.** Loop exhaustion (2 strikes), pairwise
    windows (8), pair caps (50), convergence bounds (2 passes), validation
    strength (5) — all live as named presets in the registry. Bodies reference

@@ -170,7 +170,7 @@ fn load_chunk_judgment(data_dir: &str, key: &str) -> Option<(String, Option<f32>
             if v.get("key").and_then(|k| k.as_str()) == Some(key) {
                 found = Some((
                     v.get("decision").and_then(|d| d.as_str()).unwrap_or("").to_string(),
-                    v.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32),
+                    None, // confidence retired (cached rows from before 2026-11-04 may carry one; it is ignored)
                     v.get("reasoning").and_then(|r| r.as_str()).unwrap_or("").to_string(),
                 ));
             }
@@ -430,7 +430,7 @@ genuinely too unintelligible to judge; a NoJudgment is recorded as unjudged
 and sends the whole review to a human, it is never counted as approval.
 
 Return ONLY valid JSON:
-{{"decision": "Proceed" or "Decline" or "NoJudgment", "confidence": 0.0-1.0, "reasoning": "..."}}"#,
+{{"decision": "Proceed" or "Decline" or "NoJudgment", "reasoning": "..."}}"#,
                 chunk_idx + 1, total_chunks, chunk
             );
             let model_input = serde_json::json!({
@@ -504,7 +504,9 @@ Return ONLY valid JSON:
                 if reasoning.is_empty() || reasoning == "..." || reasoning == "…" {
                     continue;
                 }
-                let confidence = parsed.get("confidence").and_then(|c| c.as_f64()).map(|c| c as f32);
+                // CONFIDENCE RETIRED (operator doctrine 2026-11-04: a model's self-reported confidence is false confidence — the verdict is yes/no and
+                // the strength-N loop + any-Decline-wins merge are the validation). Never requested, never read: always None.
+                let confidence: Option<f32> = None;
                 chunk_decision = Some((normalized, confidence, reasoning));
                 break;
             }

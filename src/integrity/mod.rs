@@ -295,7 +295,13 @@ impl IntegrityMonitor {
             warnings.push(format!("{} active tasks may be affected", dependent_tasks.len()));
         }
         
-        let data_loss_risk = if estimated_data_loss > 0 { 0.5 } else { 0.0 };
+        // DERIVED, never invented (doctrine audit H3, 2026-11-04: was a literal 0.5 whenever any loss was estimated): the share of the affected
+        // containers that carry data loss — a measured ratio, 0.0 when nothing is affected.
+        let data_loss_risk = if affected_containers.is_empty() {
+            0.0
+        } else {
+            (estimated_data_loss as f32 / affected_containers.len() as f32).min(1.0)
+        };
         let recommendation = if warnings.is_empty() {
             "Safe to proceed with rollback".to_string()
         } else {

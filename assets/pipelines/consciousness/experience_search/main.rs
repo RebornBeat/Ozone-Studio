@@ -358,12 +358,13 @@ pub async fn execute(input: SearchInput) -> Result<SearchOutput, String> {
                 .flat_map(|e| e.lessons.clone())
                 .collect();
             
+            let lessons_count = lessons.len();
             Ok(SearchOutput {
                 success: true,
                 results: None,
                 experience: None,
                 lessons: Some(lessons),
-                total_count: Some(lessons.len()),
+                total_count: Some(lessons_count),
                 error: None,
             })
         }
@@ -375,7 +376,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     let input: SearchInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
@@ -386,5 +387,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
         Err(e) => { eprintln!("{}", e); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

@@ -166,11 +166,8 @@ const ContainerRelationBody: React.FC<{ edge: GraphViewEdge; rel: ContainerRelat
       )}
 
       <SectionTitle>Recorded on the relation</SectionTitle>
-      {typeof rel.confidence === "number" ? (
-        <Row label="Confidence">{rel.confidence.toFixed(2)}</Row>
-      ) : (
-        <Empty>No confidence recorded on this relation.</Empty>
-      )}
+      {/* confidence retired (operator doctrine 2026-11-04, docs/CONTRACTS.md §5a): a relation is PRESENT — no score is displayed */}
+      <Row label="Relation">present</Row>
       {isPresent(rel.discovered_via) ? (
         <Row label="Discovered via">{formatScalar(rel.discovered_via)}</Row>
       ) : (
@@ -274,7 +271,7 @@ const InGraphBody: React.FC<{ edge: GraphViewEdge }> = ({ edge }) => {
         </div>
       )}
 
-      <SectionTitle>Weight / confidence</SectionTitle>
+      <SectionTitle>Weight</SectionTitle>
       {weight !== null ? (
         <>
           <Row label="Weight">{weight}</Row>
@@ -283,7 +280,6 @@ const InGraphBody: React.FC<{ edge: GraphViewEdge }> = ({ edge }) => {
       ) : (
         <Empty>No weight recorded on this edge.</Empty>
       )}
-      {typeof edge.confidence === "number" && <Row label="Confidence">{edge.confidence.toFixed(2)}</Row>}
 
       <SectionTitle>Provenance</SectionTitle>
       {provenanceRows.length > 0 ? provenanceRows : <Empty>No provenance recorded on this edge</Empty>}

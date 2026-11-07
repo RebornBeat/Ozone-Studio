@@ -161,7 +161,7 @@ const Annotations: React.FC<{ label: string; items: unknown[] }> = ({ label, ite
           {known ? (
             <>
               <b>{formatScalar(a.annotation_type)}</b>: {formatScalar(a.value)}
-              {typeof a.confidence === "number" && ` (${a.confidence.toFixed(2)})`}
+              {/* confidence retired (operator doctrine 2026-11-04): an annotation is present or absent — no score is displayed */}
               {typeof a.source === "string" && <span style={{ color: C_MUTED }}> — {a.source}</span>}
             </>
           ) : (
@@ -209,7 +209,8 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
       <Row label="Type">{node.nodeType}</Row>
       <Row label="Label">{node.label}</Row>
       {typeof raw.node_id === "number" && <Row label="Node id">{raw.node_id}</Row>}
-      {typeof node.confidence === "number" && <Row label="Confidence">{node.confidence.toFixed(2)}</Row>}
+      {/* confidence retired (operator doctrine 2026-11-04): nodes are shown as VERIFIED / not verified (yes/no), never as a score */}
+      {typeof (raw as any).verified === "boolean" && <Row label="Verified">{(raw as any).verified ? "yes" : "no"}</Row>}
       <ContainerLink label="Source container" containerId={node.sourceContainerId} />
 
       {node.contentPreview && (
@@ -349,7 +350,6 @@ const NodeBody: React.FC<{ node: GraphViewNode; relations: ContainerRelation[] |
               </button>
             </div>
             <div style={{ color: C_MUTED, fontSize: 11 }}>
-              {typeof r.confidence === "number" && `confidence ${r.confidence.toFixed(2)} · `}
               via {r.discovered_via}
               {typeof r.graph_hops === "number" && ` · ${r.graph_hops} hop${r.graph_hops === 1 ? "" : "s"}`}
             </div>

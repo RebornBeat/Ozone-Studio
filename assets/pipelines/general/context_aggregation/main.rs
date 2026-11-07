@@ -227,31 +227,32 @@ async fn search_containers_by_keywords(keywords: &[&str], container_type: Option
 // genuinely related one that the flat keyword search alone would have
 // missed.
 //
-// Deliberately bounded — this runs on every step of every live request,
-// not a one-off background job (unlike jurisdiction's occasional gate
-// check). Small max_depth/max_results per seed, and only the first
-// MAX_TRAVERSAL_SEEDS keyword hits are ever traversed at all, so a step
-// with many keyword matches can't fan out into an expensive traversal
-// storm — resolve_containers' own MAX_RESOLVED_CONTAINERS cap (8) bounds
-// the final result regardless, but bounding the traversal REQUEST itself
-// (not just its output) keeps the host-side work itself cheap too.
-const MAX_TRAVERSAL_SEEDS: usize = 4;
+// Host-work bound (class D, reported): each traversal REQUEST keeps a small depth/result limit and a 2 s latency budget so the host's work per seed stays
+// cheap; the NUMBER of seeds and resolved containers is no longer capped (2026-11-04 doctrine audit #8) — the token budget decides what is kept.
+// (MAX_TRAVERSAL_SEEDS removed 2026-11-04, doctrine audit #8: EVERY keyword hit seeds a traversal; per-seed depth/results below bound each traversal REQUEST on the host)
 const TRAVERSAL_MAX_DEPTH: u16 = 2;
-const TRAVERSAL_MAX_RESULTS: u32 = 10;
+/// Per-seed traversal results are sized by the READING model's budget, not a constant (operator 2026-11-06: model-agnostic, no fixed
+/// limits): a container is worth at least ~50 tokens of context, so a budget of B tokens can use up to B/50 of them per seed; the
+/// token budget still decides what is finally kept. Floor 10 so a tiny budget behaves exactly as before; the 2 s latency budget on
+/// each request remains the host-work guard.
+fn traversal_max_results(token_budget: u32) -> u32 {
+    (token_budget / 50).max(10)
+}
 
-async fn traverse_from_seeds(seed_ids: &[u64]) -> Vec<u64> {
+async fn traverse_from_seeds(seed_ids: &[u64], token_budget: u32) -> Vec<u64> {
+    let max_results = traversal_max_results(token_budget);
     let mut discovered: Vec<u64> = Vec::new();
-    for &seed_id in seed_ids.iter().take(MAX_TRAVERSAL_SEEDS) {
+    for &seed_id in seed_ids.iter() {
         let request = serde_json::json!({
             "Traverse": {
                 "start_container": seed_id,
                 "mode": "Structural",
                 "filters": [],
                 "max_depth": TRAVERSAL_MAX_DEPTH,
-                "max_results": TRAVERSAL_MAX_RESULTS,
+                "max_results": max_results,
                 "budget": {
                     "max_hops": TRAVERSAL_MAX_DEPTH,
-                    "max_containers": TRAVERSAL_MAX_RESULTS,
+                    "max_containers": max_results,
                     "max_latency_ms": 2000
                 },
                 "use_ml": false,
@@ -506,13 +507,20 @@ fn build_consciousness_context(data: &serde_json::Value) -> Option<Consciousness
 /// Resolve keyword-search hits into full container content, capped so one
 /// step's context fetch can't fan out into an unbounded number of HTTP
 /// round trips.
-const MAX_RESOLVED_CONTAINERS: usize = 8;
-
-async fn resolve_containers(ids: &[u64]) -> Vec<serde_json::Value> {
+// (MAX_RESOLVED_CONTAINERS=8 removed 2026-11-04, doctrine audit #8.) Containers are resolved in relevance order until the CALLER'S TOKEN BUDGET is
+// covered twice over (build_context_from_containers then trims to the budget and reports `truncated`); `None` resolves every id.
+async fn resolve_containers(ids: &[u64], token_budget: Option<u32>) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
-    for &id in ids.iter().take(MAX_RESOLVED_CONTAINERS) {
+    let mut est_tokens: u64 = 0;
+    for &id in ids.iter() {
         if let Some(c) = fetch_container(id).await {
+            est_tokens += (c.to_string().len() as u64) / 4;
             out.push(c);
+            if let Some(b) = token_budget {
+                if est_tokens >= (b as u64).saturating_mul(2) {
+                    break;
+                }
+            }
         }
     }
     out
@@ -526,6 +534,7 @@ async fn resolve_containers(ids: &[u64]) -> Vec<serde_json::Value> {
 async fn build_coordination_layer(
     workspace_id: Option<u64>,
     project_id: Option<u64>,
+    token_budget: u32,
 ) -> Option<String> {
     // Seed searches per scope bucket, unioned.
     let mut ids: Vec<u64> = Vec::new();
@@ -554,7 +563,7 @@ async fn build_coordination_layer(
     }
 
     let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
-    let containers = resolve_containers(&ids).await;
+    let containers = resolve_containers(&ids, None).await;
     let mut rows: Vec<(u64, String)> = Vec::new();
     for c in &containers {
         let meta = c.get("local_state").and_then(|l| l.get("metadata"));
@@ -592,7 +601,7 @@ async fn build_coordination_layer(
             if let Ok(raw) = std::fs::read_to_string(&full) {
                 if let Ok(j) = serde_json::from_str::<serde_json::Value>(&raw) {
                     if let Some(b) = j.get("body").and_then(|b| b.as_str()) {
-                        body = b.chars().take(240).collect();
+                        body = b.to_string(); // whole note (audit #9)
                     }
                 }
             }
@@ -615,10 +624,11 @@ async fn build_coordination_layer(
         return None;
     }
 
-    const MAX_CHARS: usize = 1600;
+    // Budgeted by the CALLER'S token budget (≈ 4 chars per token; floor 400 chars), not the old fixed 1,600 bytes (doctrine audit #9)
+    let max_chars: usize = (token_budget as usize).saturating_mul(4).max(400); // tokens -> chars (~4 chars/token), as the comment above says
     let mut layer = String::from("[Coordination context — agent notes/decisions, newest first]\n");
     for (_, line) in rows {
-        if layer.len() + line.len() + 1 > MAX_CHARS {
+        if layer.len() + line.len() + 1 > max_chars {
             break;
         }
         layer.push_str(&line);
@@ -647,7 +657,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
         ContextAggInput::ForQuery { query, token_budget, container_ids, project_id } => {
             let mut all_containers: Vec<serde_json::Value> = Vec::new();
             if let Some(ids) = container_ids {
-                all_containers.extend(resolve_containers(&ids).await);
+                all_containers.extend(resolve_containers(&ids, Some(token_budget)).await);
             }
             if let Some(pid) = project_id {
                 if let Some(project) = fetch_project_context(pid).await {
@@ -673,7 +683,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
         }
 
         ContextAggInput::Custom { container_ids, token_budget, .. } => {
-            let all_containers = resolve_containers(&container_ids).await;
+            let all_containers = resolve_containers(&container_ids, Some(token_budget)).await;
             let (context_text, sources, truncated) = build_context_from_containers(&all_containers, token_budget);
             Ok(ContextAggOutput { success: true, context: Some(AggregatedContext { context_text: context_text.clone(), token_count: estimate_tokens(&context_text), sources, truncated, coverage_score: 0.9, consciousness_context: None, coordination_context: None }), error: None })
         }
@@ -717,11 +727,8 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             // branch-specific terms survive the 12-keyword cap even when the
             // query itself is long.
             let mut keyword_list: Vec<&str> = priority_order.iter().map(|s| s.as_str()).collect();
-            keyword_list.truncate(12);
+            // ALL keywords (no 12-keyword cap — doctrine audit #32)
             for w in query.split_whitespace() {
-                if keyword_list.len() >= 12 {
-                    break;
-                }
                 if !keyword_list.contains(&w) {
                     keyword_list.push(w);
                 }
@@ -747,7 +754,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             // starts FROM real matches, it doesn't substitute for finding
             // them. Infrastructure-type filtering below applies uniformly
             // to the merged set regardless of which path found a given id.
-            let traversed_ids = traverse_from_seeds(&seed_ids).await;
+            let traversed_ids = traverse_from_seeds(&seed_ids, token_budget).await;
             let mut ids = seed_ids;
             for id in traversed_ids {
                 if !ids.contains(&id) {
@@ -758,14 +765,14 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             // request's own attachments — include them in the final
             // resolved set directly, not just as traversal starting
             // points, so they're guaranteed present even if traversal's
-            // own caps (MAX_TRAVERSAL_SEEDS, depth/result limits) would
+            // own depth/result limits would
             // otherwise have dropped one.
             for id in &known_seed_ids {
                 if !ids.contains(id) {
                     ids.push(*id);
                 }
             }
-            let containers = resolve_containers(&ids).await;
+            let containers = resolve_containers(&ids, Some(token_budget)).await;
 
             // …merged with the SESSION graph reconstruction, session first.
             let mut context_text = String::new();
@@ -829,7 +836,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
             // /SharedContext graph: global events + this workspace's (+ this
             // project's). Own layer, newest first, capped hard.
             let coordination_context = if include_coordination {
-                build_coordination_layer(workspace_id, project_id).await
+                build_coordination_layer(workspace_id, project_id, token_budget).await
             } else {
                 None
             };
@@ -871,7 +878,7 @@ pub async fn execute(input: ContextAggInput) -> Result<ContextAggOutput, String>
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
-    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); } }
+    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); } }
     // The host passes the full PipelineInput envelope {data, context} — every
     // real invocation from the orchestrator is wrapped this way (see
     // RegistryExecutorAdapter::execute / invoke_pipeline). Unwrap `data` when
@@ -891,5 +898,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
         Err(e) => { println!("{}", serde_json::json!({"success": false, "error": e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

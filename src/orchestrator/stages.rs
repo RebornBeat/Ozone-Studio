@@ -5,6 +5,214 @@
 use super::*;
 
 impl PromptOrchestrator {
+    /// PROVIDER-STEP RECONCILIATION (2026-11-04; tool_binding.rs; docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §3.3,
+    /// operator: "provider is just a step type"). Run on EVERY blueprint (freshly designed or reused) after its steps exist:
+    ///   1. model-proposed PROVIDER steps are validated against the registry's providers — an unknown provider is NOT executed:
+    ///      the step falls back to an ordinary model step (pipeline 9) and the missing capability is recorded;
+    ///   2. the methodologies' DECLARED per-rule providers are authoritative: each available one becomes a provider STEP inserted
+    ///      immediately BEFORE the step that carries the rule (the step citing the rule, else a step of that methodology, else the
+    ///      step whose text best overlaps the rule); that step `depends_on` it, so the provider's result reaches it as a
+    ///      previous-step output; `rule_refs` records which rule made the step;
+    ///   3. steps are renumbered contiguously and every `depends_on` is remapped;
+    ///   4. everything required but unavailable (declared bindings with no provider, blueprint-reported `missing_capabilities`,
+    ///      unknown providers named by the model) is recorded DURABLY (capability_gaps.json + ripple + methodology gap) instead
+    ///      of only being logged. Returns the de-duplicated missing capability names.
+    pub(crate) async fn reconcile_tool_bindings(
+        state: &mut OrchestrationState,
+        blueprint_label: &str,
+        reported_missing: &[String],
+    ) -> Vec<String> {
+        use super::tool_binding::{providers_of, record_capability_gaps, GapInput, RegistryRow};
+        let registry_entries = crate::mcp::registry_entries().await.unwrap_or_default();
+        let rows: Vec<RegistryRow> = registry_entries.iter().map(|t| (t.name.clone(), t.capabilities.clone(), t.endpoint.clone())).collect();
+        let providers = providers_of(&rows);
+        let mut gap_inputs: Vec<GapInput> = Vec::new();
+        let mut all_missing: Vec<String> = reported_missing.to_vec();
+
+        // 1. validate model-proposed provider steps
+        for step in state.blueprint_steps.iter_mut() {
+            if !step.is_provider_step() {
+                continue;
+            }
+            let wanted = step.provider.clone().unwrap_or_default();
+            match providers.keys().find(|k| k.eq_ignore_ascii_case(&wanted)).cloned() {
+                Some(id) => {
+                    // a pinned tool must belong to the provider, else it is chosen at call time
+                    if let Some(t) = step.tool.clone() {
+                        if !providers.get(&id).map(|ts| ts.contains(&t)).unwrap_or(false) {
+                            step.tool = None;
+                        }
+                    }
+                    step.provider = Some(id);
+                    step.pipeline_id = 0;
+                }
+                None => {
+                    all_missing.push(wanted.clone());
+                    gap_inputs.push(GapInput {
+                        kind: "provider".to_string(),
+                        name: wanted,
+                        source: "blueprint".to_string(),
+                        detail: format!(
+                            "blueprint \"{}\" step {} named a provider that is not registered — the step runs as an ordinary model step",
+                            blueprint_label, step.step_index
+                        ),
+                    });
+                    step.step_type = "pipeline".to_string();
+                    step.provider = None;
+                    step.tool = None;
+                    step.args = serde_json::Value::Null;
+                    step.pipeline_id = 9;
+                }
+            }
+        }
+
+        // 2. declared bindings are authoritative → provider steps inserted before their carrier
+        let words = |t: &str| -> std::collections::HashSet<String> {
+            t.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 3).map(|w| w.to_lowercase()).collect()
+        };
+        let manifest = state.tool_manifest.clone();
+        let mut inserts: Vec<(usize, BlueprintStep)> = Vec::new(); // (carrier position in the CURRENT vector, new provider step)
+        for m in &manifest {
+            let status = m["status"].as_str().unwrap_or("");
+            let rule_ref = m["rule_ref"].as_str().unwrap_or("").to_string();
+            let name = m["name"].as_str().unwrap_or("").to_string();
+            if status == "missing" {
+                if !m["optional"].as_bool().unwrap_or(false) {
+                    all_missing.push(name.clone());
+                }
+                continue; // already recorded as a gap at Stage 3
+            }
+            if status != "registered" && status != "degraded" {
+                continue;
+            }
+            let Some(provider) = m["provider"].as_str().map(String::from) else { continue };
+            // a provider step for this provider already exists (model-made): adopt the rule instead of duplicating
+            if let Some(st) = state.blueprint_steps.iter_mut().find(|st| st.is_provider_step() && st.provider.as_deref() == Some(provider.as_str())) {
+                if !st.rule_refs.contains(&rule_ref) {
+                    st.rule_refs.push(rule_ref.clone());
+                }
+                continue;
+            }
+            // one provider step per (carrier, provider) — further rules of the same carrier just add their ref
+            let mid = m["methodology_id"].as_u64().unwrap_or(0);
+            let rule_words = words(m["rule_text"].as_str().unwrap_or(""));
+            let carrier = state
+                .blueprint_steps
+                .iter()
+                .position(|st| !st.is_provider_step() && st.rule_refs.iter().any(|r| *r == rule_ref))
+                .or_else(|| state.blueprint_steps.iter().position(|st| !st.is_provider_step() && st.methodology_ids.contains(&mid)))
+                .or_else(|| {
+                    state
+                        .blueprint_steps
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, st)| !st.is_provider_step())
+                        .map(|(i, st)| (i, words(&st.description).intersection(&rule_words).count()))
+                        .filter(|(_, n)| *n > 0)
+                        .max_by_key(|(_, n)| *n)
+                        .map(|(i, _)| i)
+                });
+            let Some(pos) = carrier else {
+                tracing::warn!(rule_ref = %rule_ref, provider = %provider, "declared provider binding has no blueprint step to carry it — kept in the manifest only");
+                continue;
+            };
+            if let Some((_, ins)) = inserts.iter_mut().find(|(p, st)| *p == pos && st.provider.as_deref() == Some(provider.as_str())) {
+                if !ins.rule_refs.contains(&rule_ref) {
+                    ins.rule_refs.push(rule_ref.clone());
+                }
+                continue;
+            }
+            let carrying = &state.blueprint_steps[pos];
+            inserts.push((
+                pos,
+                BlueprintStep {
+                    step_index: 0, // renumbered below
+                    action: "call_provider".to_string(),
+                    description: format!(
+                        "Call provider {} for rule {} ({}){} — for: {}",
+                        provider,
+                        rule_ref,
+                        m["rule_text"].as_str().unwrap_or(""),
+                        m["purpose"].as_str().map(|p| format!(": {p}")).unwrap_or_default(),
+                        carrying.description
+                    ),
+                    pipeline_id: 0,
+                    context_requirements: carrying.context_requirements.clone(),
+                    loop_config: None,
+                    sub_steps: Vec::new(),
+                    depends_on: carrying.depends_on.clone(), // OLD index space, remapped below
+                    wait_for_graph_update: false,
+                    max_retries: 1,
+                    timeout_ms: None,
+                    model_override: None,
+                    source_chunk_indices: carrying.source_chunk_indices.clone(),
+                    methodology_ids: carrying.methodology_ids.clone(),
+                    rule_refs: vec![rule_ref.clone()],
+                    step_type: "provider".to_string(),
+                    provider: Some(provider),
+                    tool: None,
+                    args: serde_json::Value::Null,
+                    optional: m["optional"].as_bool().unwrap_or(false),
+                },
+            ));
+        }
+
+        // 3. rebuild the step list: provider steps directly before their carriers; renumber; remap depends_on
+        if !inserts.is_empty() {
+            let old = std::mem::take(&mut state.blueprint_steps);
+            // entries: (step, old step_index if an original step, carrier original position if an inserted provider step)
+            let mut entries: Vec<(BlueprintStep, Option<u32>, Option<usize>)> = Vec::new();
+            let mut orig_entry_pos: std::collections::HashMap<usize, usize> = Default::default();
+            for (pos, st) in old.into_iter().enumerate() {
+                for (_, ins) in inserts.iter().filter(|(p, _)| *p == pos) {
+                    entries.push((ins.clone(), None, Some(pos)));
+                }
+                orig_entry_pos.insert(pos, entries.len());
+                let oi = st.step_index;
+                entries.push((st, Some(oi), None));
+            }
+            let old_to_new: std::collections::HashMap<u32, u32> =
+                entries.iter().enumerate().filter_map(|(i, (_, oi, _))| oi.map(|o| (o, i as u32))).collect();
+            let provider_entries: Vec<(usize, usize)> = entries
+                .iter()
+                .enumerate()
+                .filter_map(|(i, (_, _, carrier))| carrier.map(|c| (c, i)))
+                .collect(); // (carrier original pos, provider step entry idx)
+            for (i, (st, _, _)) in entries.iter_mut().enumerate() {
+                st.step_index = i as u32;
+                st.depends_on = st.depends_on.iter().filter_map(|d| old_to_new.get(d).copied()).collect();
+            }
+            for (carrier_pos, prov_idx) in provider_entries {
+                if let Some(&ci) = orig_entry_pos.get(&carrier_pos) {
+                    let pidx = prov_idx as u32;
+                    if !entries[ci].0.depends_on.contains(&pidx) {
+                        entries[ci].0.depends_on.push(pidx);
+                    }
+                }
+            }
+            state.blueprint_steps = entries.into_iter().map(|(st, _, _)| st).collect();
+        }
+
+        // 4. blueprint-reported missing capabilities
+        for c in reported_missing {
+            gap_inputs.push(GapInput {
+                kind: "capability".to_string(),
+                name: c.clone(),
+                source: "blueprint".to_string(),
+                detail: format!("blueprint \"{}\" reported it as a missing capability", blueprint_label),
+            });
+        }
+        record_capability_gaps(&gap_inputs);
+        all_missing.sort();
+        all_missing.dedup();
+        for n in &all_missing {
+            if !state.missing_capabilities.iter().any(|m| m["name"].as_str() == Some(n.as_str())) {
+                state.missing_capabilities.push(serde_json::json!({ "kind": "capability", "name": n, "source": "blueprint", "status": "missing" }));
+            }
+        }
+        all_missing
+    }
+
 
     pub(crate) async fn execute_stages(&self, state: &mut OrchestrationState) -> Result<(), String> {
         // STAGE 1: Input Capture (already done — prompt is in request)
@@ -82,10 +290,62 @@ impl PromptOrchestrator {
         tracing::info!(stage = 6, "Stage 6 (Blueprint Assignment) starting — applicable tools carried: {}", state.applicable_tools.len());
         self.stage_3_blueprint_assignment(state).await?;
 
+        // CAPABILITY CLOSURE (operator 2026-11-06: "we are supposed to be acting on them right then and there … we create them on the spot …
+        // we increase feasibility"). A blueprint that reports missing capabilities is no longer recorded-and-carried-on: each gap is JUDGED
+        // (does the request really require it?) and every REAL need is closed on the spot by drafting a methodology for it, after which the
+        // plan is rebuilt from the richer methodology set. Bounded by PROGRESS, not a count: another round runs only if the last one
+        // created something AND the number of capabilities still judged necessary went down.
+        {
+            let mut last_needed = usize::MAX;
+            loop {
+                let (created, needed) = self.close_capability_gaps(state).await;
+                if created == 0 || needed >= last_needed {
+                    break;
+                }
+                last_needed = needed;
+                tracing::info!(stage = 6, created, needed, "capability closure: methodologies created on the spot — re-planning from the richer set");
+                state.replan = true;
+                let replanned = self.stage_3_blueprint_assignment(state).await;
+                state.replan = false;
+                replanned?;
+            }
+        }
+
         // STAGE 7: Zero-Shot Simulation (with AMT traversal)
         tracing::info!(stage = 7, "Stage 7 (Zero-Shot Simulation) starting — this calls the configured model backend and may take a while (e.g. BitNet loading its model fresh per call)");
         tracing::info!(stage = 7, "[7.0] simulation context: methodologies in scope = {}, applicable tools = {}", state.methodologies.len(), state.applicable_tools.len());
         self.stage_4_zero_shot_simulation(state).await?;
+
+        // POST-SIMULATION FEASIBILITY RE-PLAN (E15, 2026-11-07; operator: "we increase feasibility"). A simulation that reports LOW
+        // feasibility is no longer carried straight into execution: capability gaps the simulation itself raised are closed on the spot
+        // (judge → draft → methodology), the plan is rebuilt from the richer set and simulated again. Bounded by PROGRESS, not a count:
+        // another round only runs while feasibility improved over the round before and is still low (low < medium < high).
+        {
+            let rank = |f: &str| match f.trim().to_lowercase().as_str() { "high" => 2i32, "medium" => 1, _ => 0 };
+            let mut prev = state.simulation_result.as_ref().map(|r| rank(&r.overall_feasibility)).unwrap_or(2);
+            while prev == 0 {
+                let (created, needed) = self.close_capability_gaps(state).await;
+                // the re-plan itself is the action when no new capability could be created: it re-designs the plan with the
+                // simulation's risks now in the request context; only ONE such blind re-design is allowed (marker), later rounds need a
+                // capability created.
+                if created == 0 {
+                    if !state.closure_attempted.insert("__feasibility_replan__".to_string()) {
+                        break;
+                    }
+                }
+                tracing::info!(stage = 7, created, needed, "feasibility LOW — re-planning and re-simulating");
+                state.replan = true;
+                let replanned = self.stage_3_blueprint_assignment(state).await;
+                state.replan = false;
+                replanned?;
+                self.stage_4_zero_shot_simulation(state).await?;
+                let now = state.simulation_result.as_ref().map(|r| rank(&r.overall_feasibility)).unwrap_or(2);
+                if now <= prev {
+                    break;
+                }
+                prev = now;
+            }
+        }
 
         // STAGE 8: Consciousness Decision Gate
         if state.request.consciousness_enabled {
@@ -100,6 +360,7 @@ impl PromptOrchestrator {
         // judges the RESOLVED PLAN and belongs alongside the consciousness
         // gate, post-simulation, pre-execution).
         tracing::info!(stage = 14, "Stage 8b (Jurisdiction Full Gate, stage key 14) starting");
+        self.emit_marker(state, "[8b]", "");
         self.stage_jurisdiction_full_gate(state).await?;
 
         // STAGES 9-10: Task Creation + Step Execution
@@ -120,6 +381,7 @@ impl PromptOrchestrator {
 
         // STAGE 13: Response Delivery
         tracing::info!(stage = 13, "Stage 13 (Response Delivery) starting");
+        self.emit_marker(state, "[13.0]", "");
         tracing::info!(stage = 13, "[13.0] delivery context: blueprint steps executed = {}, gate decision = {:?}", state.blueprint_steps.len(), state.gate_result.as_ref().map(|g| &g.decision));
         // EDGE SUPPLY (2026-10-13): wire RelatedTo edges between the
         // containers this walk created BEFORE delivering — the next walk's
@@ -392,8 +654,7 @@ impl PromptOrchestrator {
             .split(|c: char| !c.is_alphanumeric())
             .filter(|w| w.len() > 3)
             .map(|w| w.to_lowercase())
-            .take(8)
-            .collect();
+            .collect(); // ALL keywords (no-cap doctrine, audit #15)
         if keywords.is_empty() {
             return String::new();
         }
@@ -406,7 +667,7 @@ impl PromptOrchestrator {
             return String::new();
         }
         let mut sections = Vec::new();
-        for bp_id in found.iter().take(3) {
+        for bp_id in found.iter() { // every matching prior blueprint (audit #15); the assembled step context is window-compacted downstream
             if let Ok(Some(container)) = self.store.get_container(*bp_id).await {
                 let name = container
                     .get("local_state")
@@ -428,7 +689,6 @@ impl PromptOrchestrator {
                     .and_then(|st| st.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .take(8)
                             .filter_map(|st| st.get("description").and_then(|d| d.as_str()))
                             .map(|d| format!("    · {}", d))
                             .collect::<Vec<_>>()
@@ -512,21 +772,184 @@ impl PromptOrchestrator {
         super::amt::render_within_window(state, "file_relationships", 8, text)
     }
 
+    /// RULE-CONDITION GATE (E14, 2026-11-07; operator: a provider step must not be attached to a plan whose request the rule does
+    /// not apply to — task 1148 step 0 called threed-mcp for a text request and failed). BEFORE `reconcile_tool_bindings` turns a
+    /// declared per-rule provider into a provider STEP, each declared rule is judged once per walk: "does this rule's condition clearly
+    /// NOT apply to this request?". Dropping a step is the assured action, so it needs `configured_strength()` consecutive YES
+    /// (the first NO keeps the provider step and ends the vote — one call for the common applicable case). A dropped binding is marked
+    /// `applicability: "not_applicable"` / `status: "not_applicable"` on the manifest row (the row stays visible, only no step is made);
+    /// an applicable one is marked `applicability: "applies"` so a re-plan does not vote again. No model call is removed anywhere.
+    pub(crate) async fn gate_rule_applicability(&self, state: &mut OrchestrationState) -> usize {
+        let request = state.request.prompt.clone();
+        let mut dropped = 0usize;
+        let n = state.tool_manifest.len();
+        for i in 0..n {
+            let (status, judged, rule_text, rule_ref, name) = {
+                let m = &state.tool_manifest[i];
+                (
+                    m["status"].as_str().unwrap_or("").to_string(),
+                    m.get("applicability").is_some(),
+                    m["rule_text"].as_str().unwrap_or("").trim().to_string(),
+                    m["rule_ref"].as_str().unwrap_or("").to_string(),
+                    m["name"].as_str().unwrap_or("").to_string(),
+                )
+            };
+            if judged || rule_text.is_empty() || (status != "registered" && status != "degraded") {
+                continue;
+            }
+            let prompt = format!(
+                "REQUEST (the user's request, whole):\n{request}\n\nA methodology RULE (its condition/outcome) that would call the provider \"{name}\":\n{rule_text}\n\nQUESTION: Does this rule clearly NOT apply to the request above — i.e. the situation the rule describes is not what this request asks for, so calling \"{name}\" would be irrelevant to it? Answer YES only if the rule is clearly irrelevant. Answer NO if the rule applies or you are unsure."
+            );
+            let not_applicable = self.confirm_yes_no_orch(state, prompt, crate::shared_contracts::k_validation::configured_strength()).await;
+            if let Some(o) = state.tool_manifest[i].as_object_mut() {
+                if not_applicable {
+                    o.insert("applicability".to_string(), serde_json::json!("not_applicable"));
+                    o.insert("status".to_string(), serde_json::json!("not_applicable"));
+                } else {
+                    o.insert("applicability".to_string(), serde_json::json!("applies"));
+                }
+            }
+            if not_applicable {
+                dropped += 1;
+                tracing::info!(rule_ref = %rule_ref, provider = %name, "rule-condition gate: rule judged NOT applicable — no provider step attached");
+            }
+        }
+        dropped
+    }
+
+    /// CAPABILITY CLOSURE, step 1 + 2 (see the call site in the walk). Returns `(methodologies_created, gaps_judged_necessary)`.
+    /// 1. JUDGE every still-unjudged missing capability: "can the request be fully and correctly completed WITHOUT it?" — strength-5
+    ///    consecutive YES (the assured action is DROPPING a requirement, so that is what needs the unanimity). Dropped gaps are marked
+    ///    `not_needed` in capability_gaps.json (reason kept) and leave `state.missing_capabilities`, so the simulation no longer plans
+    ///    around tools the request never needed (the live walk invented a "representative_user_validation_panel" for a 2-sentence answer).
+    /// 2. For every gap still judged NECESSARY: draft a methodology that achieves it on the spot (`draft_methodology_for_capability`).
+    pub(crate) async fn close_capability_gaps(&self, state: &mut OrchestrationState) -> (usize, usize) {
+        let pending: Vec<String> = state
+            .missing_capabilities
+            .iter()
+            .filter(|m| m["status"].as_str().unwrap_or("missing") == "missing")
+            .filter_map(|m| m["name"].as_str().map(|n| n.to_string()))
+            .filter(|n| !state.closure_attempted.contains(&n.to_lowercase()))
+            .collect();
+        if pending.is_empty() {
+            return (0, 0);
+        }
+        let request = state.request.prompt.clone();
+        let plan = state
+            .blueprint_steps
+            .iter()
+            .map(|st| format!("{}. {} — {}", st.step_index, st.action, st.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut needed: Vec<String> = Vec::new();
+        for name in pending {
+            state.closure_attempted.insert(name.to_lowercase());
+            let prompt = format!(
+                "REQUEST (the user's request, whole):\n{request}\n\nTHE PLAN'S STEPS:\n{plan}\n\nCAPABILITY the plan reports as MISSING: \"{name}\"\n\nQUESTION: Can the request above be fully and correctly completed WITHOUT this capability? Answer YES if it is not genuinely necessary — i.e. it only adds thoroughness, process, validation or polish beyond what the request actually asks. Answer NO only if the request cannot be completed correctly without it."
+            );
+            let droppable = self.confirm_yes_no_orch(state, prompt, crate::shared_contracts::k_validation::configured_strength()).await;
+            if droppable {
+                state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
+                super::tool_binding::set_gap_status(&name, "not_needed", "judged not required to fulfil the request (strength-5 yes/no)", "capability-closure");
+                tracing::info!(capability = %name, "capability closure: judged NOT required — dropped from the plan's missing list");
+            } else {
+                needed.push(name);
+            }
+        }
+        let mut created = 0usize;
+        let needed_count = needed.len();
+        for name in needed {
+            match self.draft_methodology_for_capability(state, &name).await {
+                Some(id) => {
+                    state.methodologies.push(id);
+                    created += 1;
+                    state.missing_capabilities.retain(|m| m["name"].as_str().map(|n| !n.eq_ignore_ascii_case(&name)).unwrap_or(true));
+                    super::tool_binding::set_gap_status(&name, "methodology_drafted", &format!("methodology {id} created on the spot"), "capability-closure");
+                    tracing::info!(capability = %name, methodology_id = id, "capability closure: methodology created on the spot");
+                }
+                None => {
+                    super::tool_binding::set_gap_status(&name, "wanted", "judged necessary; a methodology could not be drafted this walk", "capability-closure");
+                    tracing::warn!(capability = %name, "capability closure: judged necessary but no methodology could be drafted");
+                }
+            }
+        }
+        (created, needed_count)
+    }
+
+    /// Draft ONE real methodology that achieves `capability` for this request using the registered providers/tools and ordinary model
+    /// reasoning (placeholders rejected), and persist it through pipeline 12 `Create` (decision rules carry their `requires` providers, so a
+    /// provider that truly does not exist is still recorded as wanted). Returns the new methodology id.
+    async fn draft_methodology_for_capability(&self, state: &mut OrchestrationState, capability: &str) -> Option<u64> {
+        let tool_lines = state
+            .applicable_tools
+            .iter()
+            .filter_map(|t| {
+                let name = t.get("name").and_then(|n| n.as_str())?;
+                let caps = t.get("capabilities").map(|c| c.to_string()).unwrap_or_default();
+                Some(format!("- {name} {caps}"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let prompt = format!(
+            "{}\n\nA plan for the request below needs the capability \"{capability}\", which is not installed.\n\nREQUEST (whole):\n{}\n\nREGISTERED PROVIDERS / TOOLS:\n{tool_lines}\n\nDraft ONE real methodology: concrete, actionable guidance for achieving this capability for requests like this one using ONLY the registered providers/tools above and ordinary model reasoning. A decision rule that needs a provider must declare it under \"requires\" (kind \"provider\", name, purpose). If it truly cannot be achieved without installing something not listed, include a rule whose requires names that provider.\n\nReturn ONLY valid JSON: {{\"name\": \"...\", \"description\": \"...\", \"principles\": [{{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}}], \"heuristics\": [{{\"condition\": \"...\", \"action\": \"...\"}}], \"decision_rules\": [{{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": []}}], \"keywords\": [\"...\"], \"topics\": [\"...\"]}}",
+            crate::orchestrator::run_spans::now_line(),
+            state.request.prompt
+        );
+        let input = serde_json::json!({
+            "prompt": prompt, "max_tokens": 800, "temperature": 0.3,
+            "system_prompt": "Draft real, practical methodologies only. Return only valid JSON."
+        });
+        let result = self.metered_execute_resilient(state, input, "capability_closure_draft").await.ok()?;
+        let text = self.extract_output_text(&result);
+        let parsed: serde_json::Value = serde_json::from_str(Self::extract_json_object_shared(&text).trim()).ok()?;
+        let real = |v: &serde_json::Value, fields: &[&str]| {
+            fields.iter().any(|f| v.get(f).and_then(|x| x.as_str()).map(|s| !s.trim().is_empty() && s.trim() != "..." && s.trim() != "…").unwrap_or(false))
+        };
+        let has_rules = parsed.get("decision_rules").and_then(|d| d.as_array()).map(|a| a.iter().any(|e| real(e, &["condition", "outcome"]))).unwrap_or(false);
+        let has_heuristics = parsed.get("heuristics").and_then(|h| h.as_array()).map(|a| a.iter().any(|e| real(e, &["condition", "action"]))).unwrap_or(false);
+        if !has_rules && !has_heuristics {
+            return None; // a placeholder shell is not a methodology
+        }
+        let mut keywords: Vec<String> = parsed.get("keywords").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
+        keywords.push("capability".to_string());
+        keywords.extend(capability.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 2).map(|w| w.to_lowercase()));
+        keywords.sort();
+        keywords.dedup();
+        let create = serde_json::json!({
+            "action": "Create",
+            "name": parsed.get("name").and_then(|n| n.as_str()).unwrap_or(capability),
+            "description": parsed.get("description").and_then(|d| d.as_str()).unwrap_or(""),
+            "category_id": 0,
+            "principles": parsed.get("principles").cloned().unwrap_or(serde_json::json!([])),
+            "heuristics": parsed.get("heuristics").cloned().unwrap_or(serde_json::json!([])),
+            "decision_rules": parsed.get("decision_rules").cloned().unwrap_or(serde_json::json!([])),
+            "keywords": keywords,
+            "topics": parsed.get("topics").cloned().unwrap_or(serde_json::json!([])),
+        });
+        self.executor.execute(12, create).await.ok()?.get("methodology_id").and_then(|m| m.as_u64())
+    }
+
     async fn stage_3_blueprint_assignment(
         &self,
         state: &mut OrchestrationState,
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
+        let tools_note = format!("{} applicable tool(s)/MCP(s) carried into the blueprint", state.applicable_tools.len());
+        self.emit_marker(state, "[6.tools]", &tools_note);
 
-        // Search for blueprint with 100% match
-        let blueprint_ids = self
-            .store
-            .search_by_keywords(
-                &state.keywords.iter().take(15).cloned().collect::<Vec<_>>(),
-                Some("Blueprint"),
-            )
-            .await
-            .unwrap_or_default();
+        // Search for blueprint with 100% match — skipped when the capability-closure step is RE-PLANNING with newly created methodologies
+        // (a stored blueprint that matches the keywords is exactly the plan that reported the gaps).
+        let blueprint_ids = if state.replan {
+            Vec::new()
+        } else {
+            self.store
+                .search_by_keywords(
+                    &state.keywords.iter().cloned().collect::<Vec<_>>(), // ALL keywords (audit #15)
+                    Some("Blueprint"),
+                )
+                .await
+                .unwrap_or_default()
+        };
 
         let mut best_match: Option<(u64, f32)> = None;
 
@@ -595,6 +1018,10 @@ impl PromptOrchestrator {
                     state.blueprint_id = Some(bp_id);
                     let n = loaded_steps.len();
                     state.blueprint_steps = loaded_steps;
+                    // a reused plan is held to the SAME binding rules as a new one: this run's declared per-rule tools are
+                    // attached, stale/unknown tool calls dropped, missing capabilities captured (tool_binding.rs)
+                    let _ = self.gate_rule_applicability(state).await;
+                    let _ = Self::reconcile_tool_bindings(state, &format!("blueprint {}", bp_id), &[]).await;
                     self.record_stage_timed(
                         state,
                         6,
@@ -703,6 +1130,8 @@ impl PromptOrchestrator {
         // blueprint can route steps to tools/MCPs when the goal matches.
         let capabilities =
             Self::capability_summary_for_need(state, &state.request.prompt);
+        // RULE → REQUIRED CAPABILITIES: what the gathered methodologies' rules DECLARE they need (Stage 3 manifest).
+        let tool_manifest_block = super::tool_binding::manifest_block(&state.tool_manifest);
         // The request text, and every branch's text (intents with their branches
         // under them). The blueprint previously saw only the root label and
         // "name: N children", so branch text never reached it. The branch block
@@ -734,6 +1163,11 @@ these by capability name when the step's goal matches; route to pipeline 9
 otherwise):
 {capabilities}
 
+RULE → REQUIRED PROVIDERS (declared by the applicable methodologies' rules — AUTHORITATIVE. A PROVIDER is an MCP
+server; the host turns every available one into a PROVIDER STEP that runs before the step carrying the rule. A provider
+marked "missing" is NOT installed: do not invent one — list it in missing_capabilities):
+{tool_manifest_block}
+
 AVAILABLE PIPELINES:
 {}
 
@@ -757,7 +1191,15 @@ If two branches are genuinely independent (parallel) asks, create a SEPARATE
 step for each rather than merging them into one step that only answers part
 of the request. Only merge branches into a single step when one pipeline call
 can genuinely and completely satisfy all of them together.
-If no existing pipeline can handle a requirement, add it to missing_capabilities.
+If no existing pipeline or REGISTERED CAPABILITY can handle a requirement, add it to missing_capabilities — a missing
+capability is captured and turned into a methodology + a tool request; never paper over it with an unrelated tool.
+STEP TYPES: every step is "pipeline" (default — runs the listed pipeline_id) or "provider" — a step that calls an MCP
+PROVIDER: {{"step_type": "provider", "provider": "<provider id from the list above>", "tool": null, "args": null,
+"rule_refs": ["m<id>:r<n>"], "pipeline_id": 0, ...}}. Which of the provider's tools runs is decided at call time from the
+step text unless you pin "tool"; "args" are structured arguments only when the request fixes them (e.g. {{"time": "10:10"}}).
+Use ONLY provider ids from the list above or REGISTERED CAPABILITIES — an unknown provider is dropped to an ordinary
+model step and recorded as missing.
+rule_refs: the "m<id>:r<n>" refs of the methodology rules this step carries out ([] if none).
 Only set model_override when a step genuinely benefits from a different model
 than the default (e.g. a cheap/fast model for a small classification step) —
 omit it entirely otherwise.
@@ -777,7 +1219,9 @@ steps this AMT's branch count above actually requires, not necessarily two):
             "depends_on": [],
             "wait_for_graph_update": false,
             "max_retries": 1,
-            "model_override": null
+            "model_override": null,
+            "rule_refs": [],
+            "step_type": "pipeline"
         }},
         {{
             "step_index": 1,
@@ -788,7 +1232,9 @@ steps this AMT's branch count above actually requires, not necessarily two):
             "depends_on": [],
             "wait_for_graph_update": false,
             "max_retries": 1,
-            "model_override": null
+            "model_override": null,
+            "rule_refs": [],
+            "step_type": "pipeline"
         }}
     ],
     "missing_capabilities": ["capability1", "capability2"]
@@ -857,7 +1303,8 @@ steps this AMT's branch count above actually requires, not necessarily two):
             .unwrap_or_default();
 
         if !missing_capabilities.is_empty() {
-            // Log missing capabilities - could trigger pipeline creation in future
+            // Captured durably below (reconcile_tool_bindings → capability_gaps.json + meta ripple + methodology gap);
+            // this line is only the immediate log.
             tracing::warn!(
                 "Blueprint has missing capabilities: {:?}",
                 missing_capabilities
@@ -923,6 +1370,12 @@ steps this AMT's branch count above actually requires, not necessarily two):
                     model_override: None,
                     source_chunk_indices: Vec::new(),
                     methodology_ids: Vec::new(),
+                    rule_refs: Vec::new(),
+                    step_type: "pipeline".to_string(),
+                    provider: None,
+                    tool: None,
+                    args: serde_json::Value::Null,
+                    optional: false,
                 }]
             });
 
@@ -963,6 +1416,9 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // other non-9 pipelines legitimately callable from a step). If that
         // happens, 12 and 14 specifically must stay excluded.
         //
+        // PROVIDER STEPS (2026-11-04) are exempt from this coercion: `step_type == "provider"` steps run an MCP provider,
+        // not a pipeline (pipeline_id 0), see execute_provider_step.
+        //
         // Pipeline 56 (WebSearch) is the first deliberate exception in the
         // OTHER direction: execute_step special-cases pipeline_id 56 with
         // its own input shape (see execute_web_search_step) instead of the
@@ -983,7 +1439,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 );
                 step.pipeline_id = 9;
             }
-            if step.pipeline_id != 9 && step.pipeline_id != 56 {
+            if !step.is_provider_step() && step.pipeline_id != 9 && step.pipeline_id != 56 {
                 tracing::warn!(
                     "Blueprint step {} named pipeline_id {} — the generic step-execution \
                      input only matches pipeline 9's contract, coercing to 9",
@@ -1061,7 +1517,6 @@ steps this AMT's branch count above actually requires, not necessarily two):
                 .split_whitespace()
                 .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase())
                 .filter(|w| w.len() > 3)
-                .take(8)
                 .collect()
         };
         let overlaps = |branch_content: &str, step_description: &str| -> bool {
@@ -1171,6 +1626,12 @@ steps this AMT's branch count above actually requires, not necessarily two):
                         collect_methodology_ids(branch, &mut ids);
                         ids
                     },
+                    rule_refs: Vec::new(),
+                    step_type: "pipeline".to_string(),
+                    provider: None,
+                    tool: None,
+                    args: serde_json::Value::Null,
+                    optional: false,
                 });
                 next_step_index += 1;
             }
@@ -1237,6 +1698,12 @@ steps this AMT's branch count above actually requires, not necessarily two):
                         model_override: None,
                         source_chunk_indices: node.source_chunk_indices.clone(),
                         methodology_ids,
+                        rule_refs: Vec::new(),
+                        step_type: "pipeline".to_string(),
+                        provider: None,
+                        tool: None,
+                        args: serde_json::Value::Null,
+                        optional: false,
                     });
                     super::amt::record_intent_event(
                         state,
@@ -1256,12 +1723,17 @@ steps this AMT's branch count above actually requires, not necessarily two):
         // ({container_type, metadata, context, storage:{steps}}) could not
         // deserialize into Container (no global_state/local_state), so
         // create_container always failed and the failure was swallowed.
+        // PROVIDER STEPS (tool_binding.rs): validate model provider steps, insert the methodologies' declared per-rule providers as
+        // provider steps before their carriers (authoritative), and CAPTURE every missing capability durably — not just log it.
+        let _ = self.gate_rule_applicability(state).await;
+        let all_missing = Self::reconcile_tool_bindings(state, &name, &missing_capabilities).await;
         let blueprint_body = serde_json::json!({
             "name": name,
             "description": description,
             "created_by": "orchestrator",
             "steps": state.blueprint_steps,
-            "missing_capabilities": missing_capabilities,
+            "missing_capabilities": all_missing,
+            "tool_manifest": state.tool_manifest,
             "methodology_ids": state.methodologies,
         });
         match self
@@ -1285,7 +1757,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
             &format!(
                 "Created new blueprint with {} steps (missing: {})",
                 state.blueprint_steps.len(),
-                missing_capabilities.len()
+                all_missing.len()
             ),
             stage_start.elapsed().as_millis() as u64,
         );
@@ -1298,6 +1770,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
         state: &mut OrchestrationState,
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
+        self.emit_marker(state, "[7.0]", "");
 
         let amt = match &state.amt {
             Some(a) => a,
@@ -1421,7 +1894,7 @@ steps this AMT's branch count above actually requires, not necessarily two):
             let hits = self
                 .store
                 .search_by_keywords(
-                    &state.keywords.iter().take(8).cloned().collect::<Vec<_>>(),
+                    &state.keywords.iter().cloned().collect::<Vec<_>>(), // ALL keywords (audit #15)
                     None,
                 )
                 .await
@@ -1453,6 +1926,57 @@ steps this AMT's branch count above actually requires, not necessarily two):
 
         let capabilities =
             Self::capability_summary_for_need(state, &state.request.prompt);
+        // PROVIDER STEP CHECKS (2026-11-04) — HOST-COMPUTED, not model-guessed: for every provider step the registry says whether
+        // its provider is present, degraded (health ledger) or missing. The old prompt asked the model to "flag any step whose goal
+        // matches a registered capability" with NO slot to put the flag in; availability is now a fact the host establishes, the
+        // model only judges the plan. A missing REQUIRED provider is captured as a missing capability (durable + ripple +
+        // methodology gap) and the step will fail honestly at execution (pause, resumable after the capability is installed).
+        let (provider_checks, provider_checks_block) = {
+            use super::tool_binding::{degraded, providers_of, record_capability_gaps, GapInput, RegistryRow};
+            let entries = crate::mcp::registry_entries().await.unwrap_or_default();
+            let rows: Vec<RegistryRow> = entries.iter().map(|t| (t.name.clone(), t.capabilities.clone(), t.endpoint.clone())).collect();
+            let providers = providers_of(&rows);
+            let mut checks: Vec<serde_json::Value> = Vec::new();
+            let mut gap_inputs: Vec<GapInput> = Vec::new();
+            for st in state.blueprint_steps.iter().filter(|s| s.is_provider_step()) {
+                let wanted = st.provider.clone().unwrap_or_default();
+                let found = providers.keys().find(|k| k.eq_ignore_ascii_case(&wanted)).cloned();
+                let status = match &found {
+                    None => "missing",
+                    Some(k) if degraded(k) => "degraded",
+                    Some(_) => "ready",
+                };
+                if status == "missing" && !st.optional {
+                    gap_inputs.push(GapInput {
+                        kind: "provider".to_string(),
+                        name: wanted.clone(),
+                        source: "simulation".to_string(),
+                        detail: format!("provider step {} cannot run — provider not registered", st.step_index),
+                    });
+                }
+                checks.push(serde_json::json!({
+                    "step": st.step_index, "provider": wanted, "status": status, "optional": st.optional,
+                    "tools": found.as_ref().and_then(|k| providers.get(k)).cloned().unwrap_or_default(),
+                    "rule_refs": st.rule_refs,
+                }));
+            }
+            record_capability_gaps(&gap_inputs);
+            for g in &gap_inputs {
+                if !state.missing_capabilities.iter().any(|m| m["name"].as_str() == Some(g.name.as_str())) {
+                    state.missing_capabilities.push(serde_json::json!({ "kind": g.kind, "name": g.name, "source": "simulation", "status": "missing" }));
+                }
+            }
+            let block = if checks.is_empty() {
+                "(no provider steps in this blueprint)".to_string()
+            } else {
+                checks
+                    .iter()
+                    .map(|c| format!("  - step {}: provider {} — {}{}", c["step"], c["provider"].as_str().unwrap_or(""), c["status"].as_str().unwrap_or(""), if c["optional"].as_bool().unwrap_or(false) { " (optional)" } else { "" }))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            (checks, block)
+        };
         let simulate_prompt = format!(
             r#"Simulate executing this plan and predict outcomes.
 
@@ -1477,9 +2001,12 @@ FULL AMT STRUCTURE (all levels):
 BLUEPRINT STEPS (pipeline IDs show which capability each step routes to):
 {}
 
-REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call — flag any step
-whose goal matches a registered capability instead of a pipeline):
+REGISTERED CAPABILITIES (tools/MCPs callable via /mcp/call):
 {capabilities}
+
+PROVIDER STEP AVAILABILITY (computed by the host from the registry and the health ledger — facts, not predictions; a
+step marked "missing" cannot run until its provider is installed, and that is already recorded as a missing capability):
+{provider_checks_block}
 
 For each step, predict:
 1. What information will be needed
@@ -1528,9 +2055,14 @@ Return JSON:
                     } else {
                         format!(" [needs: {}]", s.context_requirements.join(", "))
                     };
+                    let route = if s.is_provider_step() {
+                        format!("provider {}", s.provider.as_deref().unwrap_or("?"))
+                    } else {
+                        format!("pipeline {}", s.pipeline_id)
+                    };
                     format!(
-                        "Step {}: {} - {} (pipeline {}){}",
-                        s.step_index, s.action, s.description, s.pipeline_id, ctx_req
+                        "Step {}: {} - {} ({}){}",
+                        s.step_index, s.action, s.description, route, ctx_req
                     )
                 })
                 .collect::<Vec<_>>()
@@ -1689,6 +2221,14 @@ Return JSON:
             overall_feasibility: feasibility.to_string(),
             step_predictions,
         });
+        if !provider_checks.is_empty() {
+            // the host-computed checks are part of the simulation record (Raw Thoughts), not only a log line
+            self.record_thinking(
+                state,
+                "Simulation — provider step checks",
+                &serde_json::json!({ "response": provider_checks_block, "tool_checks": provider_checks }),
+            );
+        }
 
         self.record_stage_timed(
             state,
@@ -1711,6 +2251,7 @@ Return JSON:
         state: &mut OrchestrationState,
     ) -> Result<(), String> {
         let stage_start = std::time::Instant::now();
+        self.emit_marker(state, "[8.1]", "");
 
         // Call decision_gate pipeline (#39) — now carrying the FULL
         // TRAVERSED PICTURE (TOP_DOWN_REVIEW_GUIDE §3.2, CONTEXT_REGISTRY
@@ -1829,6 +2370,7 @@ Return JSON:
         // is detached, so waiting does not hold a client connection.
         let mut await_id: Option<String> = None;
         let result = loop {
+            self.emit_marker(state, "[8.2]", "");
             let attempt = self.executor.execute(39, input.clone()).await;
             tracing::info!(stage = 8, "[8.3] gate execute returned");
             let (judged, why) = match &attempt {
@@ -1859,7 +2401,7 @@ Return JSON:
             let item = match &await_id {
                 Some(id) => super::awaiting::record_attempt(&self.data_dir, id, &why),
                 None => {
-                    let subject: String = state.cleaned_prompt.chars().take(200).collect();
+                    let subject: String = state.cleaned_prompt.clone(); // whole (no-cap doctrine)
                     let it = super::awaiting::open(
                         &self.data_dir,
                         super::awaiting::KIND_CONSCIOUSNESS_GATE,
@@ -1934,6 +2476,7 @@ Return JSON:
         let confidence_txt = confidence
             .map(|c| format!(" ({:.0}%)", c * 100.0))
             .unwrap_or_default();
+        self.emit_marker(state, "[8.3]", &format!("decision: {}", decision));
         self.record_stage_timed(
             state,
             8,
@@ -2239,6 +2782,96 @@ Return JSON:
         Ok(())
     }
 
+    /// PROVIDER STEP (2026-11-04; `step_type == "provider"` — operator: "provider is just a step type", a different step type
+    /// beside pipeline steps). Calls the step's PROVIDER (an MCP server) through the gated, metered, jurisdiction-checked MCP path
+    /// (tool_routing::call_provider_for_step): which of the provider's tools runs is decided at call time from the step's own
+    /// text (or the pinned `tool`); the step text goes WHOLE unless the step carries structured `args`. Every produced
+    /// container records where it was called from (provider, tool, site, task, step, rule — mcp.rs post-call hook →
+    /// mcp_graph::CalledFrom). Output `{response, success, provider, tools, rule_refs}` flows to the carrying step as a
+    /// previous-step output. A required provider that cannot be attempted or fails PAUSES the walk (failure doctrine, resumable);
+    /// an OPTIONAL provider step that fails is recorded and skipped (never fabricated).
+    async fn execute_provider_step(
+        &self,
+        state: &mut OrchestrationState,
+        step: &BlueprintStep,
+    ) -> Result<serde_json::Value, String> {
+        let provider = step
+            .provider
+            .clone()
+            .ok_or_else(|| format!("provider step {} names no provider", step.step_index))?;
+        let mut attempt = super::tool_routing::call_provider_for_step(
+            &step.description,
+            &provider,
+            step.tool.as_deref(),
+            &step.args,
+            &step.rule_refs,
+            step.step_index,
+            state.task_id,
+        )
+        .await;
+        // TOOL CHOICE BY INTELLIGENCE (E17, 2026-11-07): when word-overlap cannot pick among a multi-tool provider's tools
+        // ("none matches this step's text" — task 1148 step 0), ask the model WHICH tool fits instead of failing the step; only an
+        // answer naming one of the provider's real tools is used (NONE or anything else keeps the honest failure).
+        if let Err(e) = &attempt {
+            if step.tool.is_none() && e.contains("none matches this step's text") {
+                let entries = crate::mcp::registry_entries().await.unwrap_or_default();
+                let tools: Vec<(String, String)> = entries
+                    .iter()
+                    .filter(|t| crate::mcp_supervisor::provider_for_endpoint(&t.endpoint).eq_ignore_ascii_case(&provider))
+                    .map(|t| (t.name.clone(), t.capabilities.join(" ")))
+                    .collect();
+                let list = tools.iter().map(|(n, c)| format!("- {n}: {c}")).collect::<Vec<_>>().join("\n");
+                let prompt = format!(
+                    "STEP TO CARRY OUT:\n{}\n\nTHE PROVIDER \"{provider}\" OFFERS THESE TOOLS:\n{list}\n\nWhich ONE tool best carries out this step? Reply with ONLY the exact tool name from the list, or NONE if no tool fits the step.",
+                    step.description
+                );
+                let input = serde_json::json!({
+                    "prompt": prompt, "max_tokens": 40, "temperature": 0.0,
+                    "system_prompt": "Reply with a single tool name from the list, or NONE. No other text."
+                });
+                if let Ok(res) = self.metered_execute_resilient(state, input, "provider_tool_choice").await {
+                    let reply = self.extract_output_text(&res);
+                    let picked = tools.iter().find(|(n, _)| reply.trim().trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-').eq_ignore_ascii_case(n)).map(|(n, _)| n.clone());
+                    if let Some(tool) = picked {
+                        tracing::info!(step = step.step_index, provider = %provider, tool = %tool, "provider tool chosen by the model (word overlap matched nothing)");
+                        attempt = super::tool_routing::call_provider_for_step(
+                            &step.description, &provider, Some(&tool), &step.args, &step.rule_refs, step.step_index, state.task_id,
+                        )
+                        .await;
+                    }
+                }
+            }
+        }
+        let outcomes = match attempt {
+            Ok(o) => o,
+            Err(e) if step.optional => {
+                return Ok(serde_json::json!({
+                    "response": format!("[optional provider {provider} was not used: {e}]"),
+                    "success": true, "skipped": true, "provider": provider, "rule_refs": step.rule_refs,
+                }));
+            }
+            Err(e) => return Err(format!("provider step {} ({}) could not run: {}", step.step_index, provider, e)),
+        };
+        let any_ok = outcomes.iter().any(|o| o.success);
+        if !any_ok {
+            let why = outcomes.iter().map(|o| format!("{}: {}", o.tool, o.error.clone().unwrap_or_else(|| "failed".into()))).collect::<Vec<_>>().join("; ");
+            if step.optional {
+                return Ok(serde_json::json!({
+                    "response": format!("[optional provider {provider} failed: {why}]"),
+                    "success": true, "skipped": true, "provider": provider, "rule_refs": step.rule_refs,
+                }));
+            }
+            return Err(format!("provider step {} ({}) failed: {}", step.step_index, provider, why));
+        }
+        Ok(serde_json::json!({
+            "response": outcomes.iter().map(|o| o.text.clone()).collect::<Vec<_>>().join("\n"),
+            "success": true,
+            "provider": provider,
+            "tools": outcomes.iter().map(|o| o.tool.clone()).collect::<Vec<_>>(),
+            "rule_refs": step.rule_refs,
+        }))
+    }
+
     /// Real web search for one blueprint step, with AMT-style decomposition
     /// for genuinely multi-part queries. Query decomposition is an LLM
     /// judgment call (same family as build_amt_layer_by_layer's intent
@@ -2347,6 +2980,8 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         step: &BlueprintStep,
         previous_outputs: &[String],
     ) -> Result<StepResult, String> {
+        let step_note = format!("step {} (pipeline {})", step.step_index, step.pipeline_id);
+        self.emit_marker(state, "[10.step]", &step_note);
         let mut total_iterations = 0;
         let mut sub_step_results = Vec::new();
         let mut final_output = serde_json::json!({});
@@ -2666,6 +3301,18 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
             // doc comment for why decomposition lives here, not in the
             // pipeline itself).
             tracing::info!(stage = 10, "[10.i{}] step {} (pipeline {}) iteration begin", iteration, step.step_index, step.pipeline_id);
+            if step.is_provider_step() {
+                tracing::info!(stage = 10, "[10.p{}] provider step begin ({})", step.step_index, step.provider.as_deref().unwrap_or("?"));
+                final_output = self.execute_provider_step(state, step).await?;
+                tracing::info!(stage = 10, "[10.p{}] provider step done", step.step_index);
+                self.record_thinking(
+                    state,
+                    &format!("Step Execution (step {})", step.step_index),
+                    &final_output,
+                );
+                total_iterations = iteration + 1;
+                break;
+            }
             if step.pipeline_id == 56 {
                 tracing::info!(stage = 10, "[10.w{}] web-search step begin", step.step_index);
                 final_output = self.execute_web_search_step(state, step).await?;
@@ -2723,10 +3370,15 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 &step.description,
                 &state.applicable_tools,
                 state.task_id,
+                &step.methodology_ids,
             )
             .await
             {
-                Some(block) => format!("{step_prompt}\n{block}"),
+                // no fixed cut (no-cap doctrine): the block is fitted to the step model's window; any trim is recorded
+                Some(block) => {
+                    let block = super::amt::render_within_window(state, "tool_results", 6, block);
+                    format!("{step_prompt}\n{block}")
+                }
                 None => step_prompt,
             };
             let mut exec_input = serde_json::json!({
@@ -2908,7 +3560,7 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
         // actually matched real methodology content (never fabricated
         // against nothing). One cheap LLM judgment, recorded via the normal
         // thinking-log path, never blocking/retrying the step.
-        let compliance_check = if step.methodology_ids.is_empty() {
+        let compliance_check = if step.methodology_ids.is_empty() || step.is_provider_step() {
             None
         } else {
             let mut rules_text_parts = Vec::new();
@@ -3009,6 +3661,20 @@ Return ONLY valid JSON: {{"sub_queries": ["query 1", "query 2"]}}"#,
                 outcome
             }
         };
+
+        // NO FAKE SUCCESS (2026-11-04, found by the clock E2E): a model that "uses a tool" by writing
+        // `<tool_call>…` markup into its answer has executed NOTHING — the host never executes model-written
+        // tool markup (tools run only through host tool routing). Task 994 "completed" with a narrated plan and
+        // no clock files. Such a step is a failure to PAUSE (resumable), never a success.
+        {
+            let text = self.extract_output_text(&final_output);
+            if let Some(marker) = unexecuted_tool_markup(&text) {
+                return Err(format!(
+                    "step {} produced tool-call markup ({}) that nothing executes — the model described tool use instead of the host routing it (tools run only via host tool routing: OZONE_TOOL_ROUTING=1 and a registered tool for this step). The step output was NOT accepted.",
+                    step.step_index, marker
+                ));
+            }
+        }
 
         // Fire OnStepComplete hook — living system integration
         self.on_step_complete(
@@ -3450,5 +4116,26 @@ mod amt_relation_tests {
         };
 
         assert_eq!(related_chunk_indices(&deep_branch, &root), vec![99]);
+    }
+}
+
+/// Model-written tool-call markup that the host never executes. Returns the matched marker.
+/// Deliberately requires an explicit tag form (a prose mention of the words "tool call" never matches).
+pub(crate) fn unexecuted_tool_markup(text: &str) -> Option<&'static str> {
+    const MARKERS: [&str; 6] = [
+        "<tool_call>", "</tool_call>", "<function_calls>", "<invoke name=", "<param_key>", "<|tool_call",
+    ];
+    MARKERS.iter().copied().find(|m| text.contains(m))
+}
+
+#[cfg(test)]
+mod tool_markup_tests {
+    use super::unexecuted_tool_markup;
+    #[test]
+    fn detects_model_written_tool_markup_but_not_prose() {
+        assert_eq!(unexecuted_tool_markup("I'll check.<tool_call>bash<param_key>command</param_key></tool_call>"), Some("<tool_call>"));
+        assert_eq!(unexecuted_tool_markup("x <invoke name=\"bash\"> y"), Some("<invoke name="));
+        assert!(unexecuted_tool_markup("The tool call finished and the function call returned 3.").is_none());
+        assert!(unexecuted_tool_markup("").is_none());
     }
 }

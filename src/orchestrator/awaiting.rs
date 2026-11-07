@@ -147,8 +147,9 @@ pub fn open(
         status: STATUS_AWAITING.to_string(),
         task_id: task_id.map(|s| s.to_string()),
         review_id: review_id.map(|s| s.to_string()),
-        subject: subject.chars().take(400).collect(),
-        reason: reason.chars().take(800).collect(),
+        // NO CAP (2026-11-04 doctrine audit): the operator-visible subject/reason are stored whole
+        subject: subject.to_string(),
+        reason: reason.to_string(),
         created_at_ms: now,
         updated_at_ms: now,
         attempts: 0,
@@ -165,7 +166,7 @@ pub fn record_attempt(data_dir: &str, await_id: &str, reason: &str) -> Option<Aw
     item.attempts += 1;
     item.updated_at_ms = now_ms();
     item.next_attempt_at_ms = item.updated_at_ms + backoff_secs(item.attempts) * 1000;
-    item.reason = reason.chars().take(800).collect();
+    item.reason = reason.to_string();
     append_row(data_dir, &item).ok()?;
     Some(item)
 }
@@ -174,7 +175,7 @@ pub fn record_attempt(data_dir: &str, await_id: &str, reason: &str) -> Option<Aw
 pub fn mark_resolved(data_dir: &str, await_id: &str, resolution: &str) -> Option<AwaitingItem> {
     let mut item = get(data_dir, await_id)?;
     item.status = STATUS_RESOLVED.to_string();
-    item.resolution = Some(resolution.chars().take(800).collect());
+    item.resolution = Some(resolution.to_string());
     item.resume_requested = true;
     item.updated_at_ms = now_ms();
     append_row(data_dir, &item).ok()?;
@@ -184,7 +185,7 @@ pub fn mark_resolved(data_dir: &str, await_id: &str, resolution: &str) -> Option
 pub fn mark_cancelled(data_dir: &str, await_id: &str, why: &str) -> Option<AwaitingItem> {
     let mut item = get(data_dir, await_id)?;
     item.status = STATUS_CANCELLED.to_string();
-    item.resolution = Some(why.chars().take(800).collect());
+    item.resolution = Some(why.to_string());
     item.updated_at_ms = now_ms();
     append_row(data_dir, &item).ok()?;
     Some(item)

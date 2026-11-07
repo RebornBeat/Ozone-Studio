@@ -525,3 +525,80 @@ export async function fetchPairedPeerCount(): Promise<number> {
   const r: any = await hostGet("/network/paired-peers");
   return Array.isArray(r?.paired_peers) ? r.paired_peers.length : 0;
 }
+
+// ── Marketplace (GET /marketplace/overview) ──────────────────────────────────────────────
+
+export interface MarketplaceToolRequirement { kind: string; name: string; purpose?: string | null; optional?: boolean }
+export interface MarketplaceRule {
+  index: number;
+  condition: string;
+  action: string;
+  priority: number;
+  requires: MarketplaceToolRequirement[];
+  /** "declared" = the methodology itself binds tools to this rule; "none" = nothing declared (inferred_tools are keyword guesses). */
+  binding: "declared" | "none";
+  /** keyword-overlap guesses (PROVIDER ids) for a rule that declares none — never presented as a binding */
+  inferred_providers: string[];
+}
+export interface MarketplaceMethodology {
+  id: number | null;
+  name: string;
+  file: string;
+  source: "runtime" | "created";
+  categories: string[];
+  rule_count: number;
+  rules_with_declared_tools: number;
+  rules: MarketplaceRule[];
+}
+export interface MarketplaceBlueprint {
+  id: number | null;
+  name: string;
+  step_count: number;
+  pipelines: number[];
+  methodology_ids: number[];
+  declares_tool_calls: boolean;
+}
+export interface MarketplaceProvider {
+  /** the MCP server id (supervisor port table dir), e.g. `threed-mcp` — the unit installed / trusted / started / shared */
+  provider: string;
+  endpoints: string[];
+  endpoint: string;
+  tools: string[];
+  tool_count: number;
+  running: boolean;
+  auto_start: boolean;
+  device_requirement: string | null;
+  credential_requirement: string | null;
+  capabilities: string[];
+  source: "local";
+  installed_from: string | null;
+}
+export interface MarketplaceWanted {
+  kind: string;
+  name: string;
+  status: "wanted" | "satisfied";
+  count: number;
+  first_seen: number;
+  last_seen: number;
+  details: { source: string; detail: string; at: number }[];
+}
+export interface MarketplaceProviderHealth { calls: number; failures: number; degraded: boolean; last_error: string | null }
+export interface MarketplaceBindingProposal { methodology_id: number; provider?: string; tool: string; successes: number; status: string; example_step: string; last_seen: number }
+
+export interface MarketplaceOverview {
+  success: boolean;
+  generated_at: number;
+  tools: { count: number; providers: MarketplaceProvider[] };
+  /** required-but-unavailable capabilities (methodology binding / blueprint / simulation) — to be built or downloaded after review */
+  wanted: MarketplaceWanted[];
+  provider_health: Record<string, MarketplaceProviderHealth>;
+  binding_proposals: MarketplaceBindingProposal[];
+  peers: { paired: string[]; catalog_exchange: "not_implemented" | "active"; note: string };
+  methodologies: MarketplaceMethodology[];
+  blueprints: MarketplaceBlueprint[];
+  policy: { auto_broadcast_sync: boolean; downloads_require_review: boolean; executables_require_human_approval: boolean; installed_from_peer: unknown[] };
+}
+
+export function fetchMarketplaceOverview(): Promise<MarketplaceOverview> {
+  return hostGet<MarketplaceOverview>("/marketplace/overview");
+}

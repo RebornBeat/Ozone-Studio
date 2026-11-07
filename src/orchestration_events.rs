@@ -266,6 +266,11 @@ pub fn emit(
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    let trace_id = crate::trace::current_trace().map(|t| t.trace_id);
+    append_walk_metric(&trace_id, project_id, workspace_id, stage, stage_name, success, summary, duration_ms);
+    if let Ok(mut l) = LAST_STAGE.lock() {
+        *l = Some((stage, stage_name.to_string(), success, summary.to_string(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)));
+    }
     OrchestrationEventHub::global().publish(OrchestrationStageEvent {
         user_id,
         device_id,
@@ -277,6 +282,44 @@ pub fn emit(
         summary: summary.to_string(),
         duration_ms,
         timestamp,
-        trace_id: crate::trace::current_trace().map(|t| t.trace_id),
+        trace_id,
     });
+}
+
+/// DURABLE PER-STAGE WALK METRICS (operator 2026-11-07: track progression toward a full walk, per stage, with findings): every stage event is
+/// also appended — one JSON line, ONE write — to `<data_dir>/walk_metrics.jsonl` with its `trace_id`, so a walk's stages can be attributed
+/// even when several walks run at once (the host log carries no walk id and interleaves). `tools/walk-scorecard/scorecard.mjs` reads this
+/// file to compute each walk's completion % and the per-stage health table. Best-effort: never affects the walk.
+/// The most recent stage event this process emitted: (stage, name, success, summary, ts_ms) — read by the `liveness` frame so the
+/// UI shows the CURRENT stage and its latest summary beside the model activity (one unified live feed).
+static LAST_STAGE: std::sync::Mutex<Option<(u8, String, bool, String, u64)>> = std::sync::Mutex::new(None);
+pub fn last_stage() -> Option<(u8, String, bool, String, u64)> {
+    LAST_STAGE.lock().ok().and_then(|l| l.clone())
+}
+
+fn append_walk_metric(
+    trace_id: &Option<String>,
+    project_id: Option<u64>,
+    workspace_id: Option<u64>,
+    stage: u8,
+    stage_name: &str,
+    success: bool,
+    summary: &str,
+    duration_ms: u64,
+) {
+    use std::io::Write;
+    let ts_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let row = serde_json::json!({
+        "ts_ms": ts_ms, "trace_id": trace_id, "project_id": project_id, "workspace_id": workspace_id,
+        "stage": stage, "stage_name": stage_name, "success": success, "duration_ms": duration_ms, "summary": summary,
+    });
+    let dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let mut line = row.to_string();
+    line.push('\n');
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{dir}/walk_metrics.jsonl")) {
+        let _ = f.write_all(line.as_bytes());
+    }
 }

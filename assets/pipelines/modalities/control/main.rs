@@ -2184,7 +2184,7 @@ async fn persist_control_graph(graph: &mut ControlGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("control".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Control graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -2267,6 +2267,10 @@ pub async fn execute(input: ControlModalityAction) -> Result<ControlModalityOutp
             }
         }
         ControlModalityAction::Analyze { data, analyze_stability, analyze_performance, analyze_robustness, identify_system } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ControlModalityOutput { success: false, error: Some("control analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a control analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let source_description = match &data {
                 ControlDataSource::MatlabFile { file_path, .. }        => format!("MATLAB: {}", file_path),
@@ -2991,6 +2995,9 @@ Return ONLY valid JSON: {{"is_stable": true, "stability_type": "AsymptoticallySt
         }
 
         ControlModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ControlModalityOutput { success: false, error: Some("control export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let ext = match &format {
                 ControlExportFormat::MATLAB_M         => "m",
                 ControlExportFormat::Python_Control   => "py",
@@ -3414,7 +3421,7 @@ fn main() {
     let mut input_json = String::new();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; } else { i += 1; }
+        if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); i += 2; } else { i += 1; }
     }
     if input_json.is_empty() {
         eprintln!("Usage: control_systems --input '<json>'");
@@ -3580,5 +3587,18 @@ mod math_tests {
         assert!(close(k, 1.0, 1e-3));
         assert!(l > 0.3 && l < 1.2, "L {}", l);
         assert!(t > 1.0 && t < 4.0, "T {}", t);
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

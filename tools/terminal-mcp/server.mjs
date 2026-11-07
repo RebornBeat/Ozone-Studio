@@ -146,8 +146,9 @@ function run_command(command, cwd, timeoutSecs) {
     let stdout = "";
     let stderr = "";
     const cap = 100 * 1024;
-    child.stdout.on("data", (d) => { if (stdout.length < cap) stdout += d; });
-    child.stderr.on("data", (d) => { if (stderr.length < cap) stderr += d; });
+    let stdoutBytes = 0, stderrBytes = 0; // totals so a cut is NEVER silent (doctrine audit #12)
+    child.stdout.on("data", (d) => { stdoutBytes += d.length; if (stdout.length < cap) stdout += d; });
+    child.stderr.on("data", (d) => { stderrBytes += d.length; if (stderr.length < cap) stderr += d; });
     child.on("error", (err) => resolve({ success: false, error: err.message }));
     child.on("close", (code, signal) => resolve({
       success: code === 0,
@@ -155,6 +156,8 @@ function run_command(command, cwd, timeoutSecs) {
       killed_by_timeout: signal === "SIGTERM",
       stdout: stdout.slice(0, cap),
       stderr: stderr.slice(0, cap),
+      stdout_truncated: stdoutBytes > cap, stdout_total_bytes: stdoutBytes,
+      stderr_truncated: stderrBytes > cap, stderr_total_bytes: stderrBytes,
     }));
   });
 }
@@ -189,7 +192,7 @@ const server = createServer((req, res) => {
   }
   const chunks = [];
   let size = 0;
-  req.on("data", (c) => { size += c.length; if (size > 1024 * 1024) req.destroy(); else chunks.push(c); });
+  req.on("data", (c) => { size += c.length; if (size > (Number(process.env.OZONE_MCP_MAX_BODY_BYTES) || 512 * 1024 * 1024)) { if (!res.headersSent) { res.writeHead(413, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ success: false, error: `request body is over the transport guard (OZONE_MCP_MAX_BODY_BYTES, default 512 MiB) — NOT processed (nothing was cut); this is a host-memory guard, not a model limit — chunk the call` }), () => req.destroy()); } } else chunks.push(c); });
   req.on("end", async () => {
     let tool = "";
     let input = {};

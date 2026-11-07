@@ -17,7 +17,8 @@ use serde_json::Value;
 use crate::geom::Geom;
 
 /// Per-node own-text bound (chars).
-pub const MAX_TEXT: usize = 4000;
+// per-node text is kept WHOLE (doctrine audit #22, 2026-11-04; was a silent 4,000-char cut). Whole-input size is still guarded and REPORTED in `notes`.
+pub const MAX_TEXT: usize = usize::MAX;
 /// Script/style raw text kept per node (chars); full length and a hash are kept separately.
 pub const MAX_RAW: usize = 8192;
 /// Hard cap on DOM nodes the rule engine will look at.

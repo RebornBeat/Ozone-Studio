@@ -7540,3 +7540,18 @@ button.gnw-ind-chip:hover, .gnw-ind-chip.on { background: rgba(79,195,247,.1); b
   }
   .dashboard-tabs { position: relative; z-index: 1; height: 49px; box-sizing: border-box; }
 }
+
+/* REDUCED MOTION (2026-11-07; REVIEW_UI_PROGRESS §reduced-motion = 0 before this): decorative pulses/glows/entrances stop and
+   transitions are instant; liveness stays readable through the text (ThinkingRow shows last model activity), and the spinner is
+   kept but slowed because it is the only "work is still happening" signal. */
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-iteration-count: 1 !important;
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+    [class*="spinner"], [class*="spin"] {
+        animation: spin 2.5s linear infinite !important;
+    }
+}

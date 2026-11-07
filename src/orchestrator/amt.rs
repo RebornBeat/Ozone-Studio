@@ -867,7 +867,7 @@ Return ONLY valid JSON with a single one-word answer:
                     shared = shared.join(", "),
                 );
 
-                if self.confirm_yes_no_orch(state, prompt, 5).await {
+                if self.confirm_yes_no_orch(state, prompt, crate::shared_contracts::k_validation::configured_strength()).await {
                     let b_take = merged_pools.remove(i + 1);
                     merged_pools[i].extend(b_take);
                     continue;
@@ -2555,7 +2555,9 @@ Return ONLY valid JSON with a single one-word answer:
     /// fabricating rule content — most of the 15 bootstrap methodologies are
     /// still in that state; only a few have real content written so far.
     pub(crate) fn load_methodology_rules_text(container: &serde_json::Value) -> Option<String> {
-        Self::load_methodology_rules_limited(container, 5, 3)
+        // NO-CAP (audit #4, 2026-11-04): this used to load only 5 rules + 3 heuristics; callers fit the text to the reading model's window
+        // (render_within_window) like `_full`, so the limited variant is now the same thing.
+        Self::load_methodology_rules_limited(container, usize::MAX, usize::MAX)
     }
 
     /// Every decision rule and heuristic, no per-methodology count cap. The
@@ -2631,6 +2633,21 @@ Return ONLY valid JSON with a single one-word answer:
     /// swallowed — this is an observability signal, not something that may
     /// ever affect the orchestration response itself.
     pub(crate) fn record_methodology_gap(keywords: &[String], topics: &[String]) {
+        Self::record_methodology_gap_ex(keywords, topics, "new", None, "", "");
+    }
+
+    /// Gap with a KIND: `"new"` (a methodology that does not exist and is needed) or `"modify"` (an existing methodology, by
+    /// `target_id`, that needs additions in light of this request). `reason` is the review's insight; `request` the request text
+    /// WHOLE. Kinds other than a bare zero-match gap come from the sufficiency review (meta_loop) and skip the "already covered"
+    /// shortcut — they were raised KNOWING what exists. No size cap on the log (no-cap doctrine): handled entries stay as history.
+    pub(crate) fn record_methodology_gap_ex(
+        keywords: &[String],
+        topics: &[String],
+        kind: &str,
+        target_id: Option<u64>,
+        reason: &str,
+        request: &str,
+    ) {
         let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
         let path = format!("{}/methodology_gaps.json", data_dir);
 
@@ -2656,7 +2673,10 @@ Return ONLY valid JSON with a single one-word answer:
             }
             let overlap = existing.iter().filter(|k| sorted_keywords.contains(k)).count();
             let smaller = existing.len().min(sorted_keywords.len());
-            smaller > 0 && overlap * 2 >= smaller
+            let same_kind = g.get("kind").and_then(|k| k.as_str()).unwrap_or("new") == kind
+                && g.get("target_id").and_then(|t| t.as_u64()) == target_id;
+            let still_open = !g.get("handled").and_then(|h| h.as_bool()).unwrap_or(false);
+            same_kind && still_open && smaller > 0 && overlap * 2 >= smaller
         });
 
         if already_recorded {
@@ -2668,18 +2688,56 @@ Return ONLY valid JSON with a single one-word answer:
             "keywords": sorted_keywords,
             "topics": topics,
             "handled": false,
+            "kind": kind,
+            "target_id": target_id,
+            "reason": reason,
+            "request": request,
         }));
 
-        // Cap total log size — a true last-resort bound on disk usage for
-        // an observability log, not a limit on methodology count itself.
-        const MAX_GAP_LOG_ENTRIES: usize = 500;
-        if gaps.len() > MAX_GAP_LOG_ENTRIES {
-            let drop = gaps.len() - MAX_GAP_LOG_ENTRIES;
-            gaps.drain(0..drop);
-        }
-
         if let Ok(json) = serde_json::to_string_pretty(&gaps) {
-            let _ = std::fs::write(&path, json);
+            if std::fs::write(&path, json).is_ok() {
+                // META RIPPLE (2026-11-04): a NEW methodology gap is the meta-loop's real trigger —
+                // tell the ripple instead of waiting for a timer.
+                crate::orchestrator::ripple_class::emit_methodology_gap();
+            }
+        }
+    }
+
+    /// Queue EVERY real request for the methodology SUFFICIENCY review (meta_loop) — whether Stage 3 found methodologies or not.
+    /// The review (a zero-shot, yes/no judgement over the request WHOLE and the gathered methodologies) decides: is a NEW methodology
+    /// needed, does an EXISTING one need modification in light of this request? Same pattern as missing capabilities: identified
+    /// and captured, never skipped because "something matched". Durable (`methodology_reviews.json`), no cap, deduped only by the
+    /// exact same request + same gathered set while still unreviewed.
+    pub(crate) fn record_methodology_review(request: &str, keywords: &[String], topics: &[String], gathered_ids: &[u64]) {
+        if request.trim().is_empty() {
+            return;
+        }
+        let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+        let path = format!("{}/methodology_reviews.json", data_dir);
+        let mut reviews: Vec<serde_json::Value> = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        let dup = reviews.iter().any(|r| {
+            !r.get("handled").and_then(|h| h.as_bool()).unwrap_or(false)
+                && r.get("request").and_then(|q| q.as_str()) == Some(request)
+        });
+        if dup {
+            return;
+        }
+        reviews.push(serde_json::json!({
+            "recorded_at": chrono::Utc::now().timestamp(),
+            "request": request,
+            "keywords": keywords,
+            "topics": topics,
+            "gathered_ids": gathered_ids,
+            "handled": false,
+            "attempts": 0,
+        }));
+        if let Ok(json) = serde_json::to_string_pretty(&reviews) {
+            if std::fs::write(&path, json).is_ok() {
+                crate::orchestrator::ripple_class::emit_methodology_gap();
+            }
         }
     }
 
@@ -3251,8 +3309,7 @@ Return ONLY valid JSON with a single one-word answer:
 
         let search_keywords: Vec<String> = layer_input.keywords.iter()
             .chain(layer_input.topics.iter())
-            .take(12)
-            .cloned()
+            .cloned() // ALL keywords/topics (no-cap doctrine, audit #25)
             .collect();
         // Retain for [13.link]'s edge-supply pass (see the field doc): the
         // stage-13 pairing should use the SAME refined vocabulary enrich
@@ -3350,7 +3407,7 @@ Return ONLY valid JSON with a single one-word answer:
         if state.blueprint_id.is_none() {
             let found_blueprints = self.store
                 .search_by_keywords(
-                    &layer_input.keywords.iter().take(8).cloned().collect::<Vec<_>>(),
+                    &layer_input.keywords.iter().cloned().collect::<Vec<_>>(), // ALL keywords (audit #25)
                     Some("Blueprint"),
                 )
                 .await
@@ -3368,7 +3425,7 @@ Return ONLY valid JSON with a single one-word answer:
             // design, walk B asked about the same topic and got nothing).
             // Load the matched blueprints and extract their step content into
             // the knowledge so the model sees what was already designed.
-            for bp_id in knowledge.related_blueprint_ids.iter().take(3) {
+            for bp_id in knowledge.related_blueprint_ids.iter() { // every related blueprint (audit #25)
                 if let Ok(Some(bp_container)) = self.store.get_container(*bp_id).await {
                     let bp_name = bp_container
                         .get("local_state")
@@ -3441,7 +3498,7 @@ Return ONLY valid JSON with a single one-word answer:
         {
             Ok(hits) => {
                 let before = seed_ids.len();
-                for id in hits.into_iter().take(6) {
+                for id in hits.into_iter() { // every hit (audit #25)
                     if !seed_ids.contains(&id) {
                         seed_ids.push(id);
                     }
@@ -3461,7 +3518,7 @@ Return ONLY valid JSON with a single one-word answer:
         let mut hops_run = 0usize;
         let mut hop_candidates = 0usize;
         let mut neighbors_injected = 0usize;
-        for seed_id in seed_ids.iter().take(12) {
+        for seed_id in seed_ids.iter() { // every seed (audit #25)
             hops_run += 1;
             let Ok(tr) = self
                 .store
@@ -3898,6 +3955,7 @@ Return ONLY valid JSON with a single one-word answer:
                 });
 
                 tracing::info!(stage = "5.xref", "[5.xref.2] synthesis call starting for gap (watchdog-bounded)");
+                self.emit_marker(state, "[5.xref.2]", &format!("domain: {}", domain));
                 match self.metered_execute_resilient(state, synth_input, "methodology_synthesis").await {
                     Ok(synth_result) => {
                     self.record_thinking(state, "Methodology Synthesis", &synth_result);
@@ -3948,6 +4006,7 @@ Return ONLY valid JSON with a single one-word answer:
                         "storage": draft_body
                     });
 
+                    self.emit_marker(state, "[5.xref.3]", &format!("persisting: {}", domain));
                     if let Ok(new_id) = self.store.create_container(0, methodology_container).await {
                         state.methodologies.push(new_id);
                         findings.push(MethodologyFinding::Created(new_id));
@@ -4142,6 +4201,11 @@ mod tests {
             attached_file_contents: HashMap::new(),
             classified_file_graphs: Vec::new(),
             chunk_graph_ids: Vec::new(),
+            cross_modal_linked: std::collections::HashSet::new(),
+            closure_attempted: std::collections::HashSet::new(),
+            keywords_extracted: 0,
+            floor_used: false,
+            replan: false,
             modality_graphs: HashMap::new(),
             graph_states: HashMap::new(),
             root_modality_list: RootModalityList::default(),
@@ -4182,6 +4246,8 @@ mod tests {
             voice_identity: None,
             capability_summary: None,
             applicable_tools: Vec::new(),
+            tool_manifest: Vec::new(),
+            missing_capabilities: Vec::new(),
             available_pipelines: Vec::new(),
         }
     }

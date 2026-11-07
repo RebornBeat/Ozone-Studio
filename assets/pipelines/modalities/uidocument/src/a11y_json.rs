@@ -40,7 +40,7 @@ const A11Y_PACK: &str = include_str!("../rules/a11y.json");
 const MAX_AX_NODES: usize = html::MAX_DOM_NODES;
 const MAX_DEPTH: usize = 256;
 const MAX_JSON_BYTES: usize = html::MAX_HTML_BYTES;
-const MAX_TEXT: usize = 4000;
+const MAX_TEXT: usize = usize::MAX; // whole (audit #22)
 const GEOMETRY_REASON_AX: &str = "the accessibility tree carries no bounds for this node";
 
 /// Property keys read from the nested (Playwright-style) form.

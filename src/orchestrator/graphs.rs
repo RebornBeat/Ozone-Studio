@@ -159,7 +159,7 @@ impl PromptOrchestrator {
                     .as_ref()
                     .and_then(|p| p.get("confidence"))
                     .and_then(|c| c.as_f64())
-                    .unwrap_or(0.5) as f32;
+                    .unwrap_or(0.0) as f32; // absence is 0.0, never an invented 0.5 (docs/CONTRACTS.md §5.1)
                 serde_json::json!({
                     "action": {
                         "type": "CreateGraph",
@@ -374,6 +374,10 @@ impl PromptOrchestrator {
         // Phase A: Text → all other modalities
         if let Some(text_gid) = text_graph_id {
             for (target_modality, target_gid) in all_graphs.iter().filter(|(k, _)| k != "text") {
+                // attempt each pair once per walk (see OrchestrationState::cross_modal_linked)
+                if !state.cross_modal_linked.insert((text_gid, *target_gid, 0)) {
+                    continue;
+                }
                 let text_pipeline = self.modality_name_to_pipeline_id("text");
                 let link_input = serde_json::json!({
                     "action": {
@@ -401,6 +405,9 @@ impl PromptOrchestrator {
                 for (source_modality, source_gid) in all_graphs.iter().filter(|(k, _)| {
                     k != "text" && MODALITIES_WITH_LINK_HANDLER.contains(&k.as_str())
                 }) {
+                    if !state.cross_modal_linked.insert((*source_gid, text_gid, 1)) {
+                        continue;
+                    }
                     let source_pipeline = self.modality_name_to_pipeline_id(source_modality);
                     let link_input = serde_json::json!({
                         "action": {
@@ -436,6 +443,9 @@ impl PromptOrchestrator {
                         continue;
                     }
 
+                    if !state.cross_modal_linked.insert((*a_gid, *b_gid, 2)) {
+                        continue;
+                    }
                     let a_pipeline = self.modality_name_to_pipeline_id(a_mod);
                     let link_input = serde_json::json!({
                         "action": {
@@ -477,15 +487,13 @@ impl PromptOrchestrator {
             state
                 .keywords
                 .iter()
-                .take(15)
-                .cloned()
+                .cloned() // ALL keywords (no-cap doctrine, audit #17)
                 .collect::<Vec<_>>()
                 .join(", "),
             state
                 .topics
                 .iter()
-                .take(8)
-                .cloned()
+                .cloned() // ALL topics (audit #17)
                 .collect::<Vec<_>>()
                 .join(", "),
             state
@@ -839,14 +847,13 @@ impl PromptOrchestrator {
                 .filter(|w| w.len() > 3)
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
-                .take(12)
-                .collect()
+                .collect() // ALL prompt terms (audit #17)
         };
         if !prompt_terms.is_empty() {
             match self.store.search_by_keywords(&prompt_terms, None).await {
                 Ok(hits) => {
                     let before = ids.len();
-                    for id in hits.into_iter().take(6) {
+                    for id in hits.into_iter() { // every hit (audit #17)
                         if !ids.contains(&id) {
                             ids.push(id);
                         }
@@ -955,7 +962,7 @@ impl PromptOrchestrator {
                         arr.push(serde_json::json!({
                             "target_id": dst,
                             "relation_type": "RelatedTo",
-                            "confidence": 0.5,
+                            "confidence": 1.0, // present (confidence retired: relationships are present or absent; was the 0.5 "convention")
                             "discovered_via": "Traversal",
                             "shared_terms": shared,
                         }));

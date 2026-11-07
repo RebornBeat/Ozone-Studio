@@ -1081,16 +1081,33 @@ impl PipelineExecutor {
                 self.infer_semantic_relationships_validated(nodes).await.0
             }
 
-            async fn infer_semantic_relationships_validated(
+            async fn infer_semantic_relationships_validated(&self, nodes: &[HyperspectralGraphNode]) -> (Vec<(u64, u64, HyperspectralEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(
                 &self,
                 nodes: &[HyperspectralGraphNode],
             ) -> (Vec<(u64, u64, HyperspectralEdgeType, String)>, semantic_relations::Validated) {
                 if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
 
-                let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+                let node_list: Vec<serde_json::Value> = nodes.iter().map(|n| serde_json::json!({
                     "node_id": n.node_id,
                     "type": format!("{:?}", n.node_type),
-                    "content": n.content.chars().take(80).collect::<String>(),
+                    "content": n.content.to_string(),
                     "material": n.material_name,
                     "chemical": n.chemical_formula,
                     "wavelength_nm": n.dominant_wavelength_nm,
@@ -1386,7 +1403,7 @@ impl PipelineExecutor {
                     .collect();
                 k.sort(); k.dedup();
                 if k.is_empty() { k.push("hyperspectral".to_string()); }
-                k.truncate(12);
+                // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
                 k
             };
             let name = format!("Hyperspectral graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1596,7 +1613,7 @@ impl PipelineExecutor {
                 edge_id += 1;
 
                 // Absorption feature sub-nodes (up to 5 per signature)
-                for feat in sig.absorption_features.iter().take(5) {
+                for feat in sig.absorption_features.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                     let fid = node_id + 1;
                     nodes.push(HyperspectralGraphNode {
                         node_id: fid,
@@ -1697,7 +1714,7 @@ impl PipelineExecutor {
                 edge_id += 1;
 
                 // Signature → chemical (IndicatesChemicalComposition)
-                for (_, sig_nid) in sig_node_ids.iter().take(10) {
+                for (_, sig_nid) in sig_node_ids.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                     edges.push(HyperspectralGraphEdge {
                         edge_id, from_node: *sig_nid, to_node: cid,
                         edge_type: HyperspectralEdgeType::IndicatesChemicalComposition, weight: 0.8,
@@ -1820,7 +1837,7 @@ impl PipelineExecutor {
             }
 
             // ── ANOMALY NODES ──
-            for anomaly in analysis.anomaly_pixels.iter().take(50) {
+            for anomaly in analysis.anomaly_pixels.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                 let aid = node_id;
                 nodes.push(HyperspectralGraphNode {
                     node_id: aid,
@@ -2007,6 +2024,10 @@ impl PipelineExecutor {
                 HyperspectralModalityAction::Analyze {
                     data, extract_materials, extract_chemistry, extract_biology, extract_anomalies, unmix_pixels
                 } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(HyperspectralModalityOutput { success: false, error: Some("hyperspectral analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a hyperspectral analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
                     let analysis_id = executor.generate_id();
                     let source_description = match &data {
                         HyperspectralDataSource::HyperspectralFile { file_path, sensor, band_count, wavelength_range_nm, spatial_resolution_m, .. } =>
@@ -2394,6 +2415,9 @@ impl PipelineExecutor {
                 }
 
                 HyperspectralModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(HyperspectralModalityOutput { success: false, error: Some("hyperspectral export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
                     let export_path = format!("/tmp/hsi_export_{}_{:?}.dat", graph_id, format);
                     Ok(HyperspectralModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
                 }
@@ -2472,7 +2496,7 @@ impl PipelineExecutor {
             let mut input_json = String::new();
             let mut i = 1;
             while i < args.len() {
-                if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; }
+                if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); i += 2; }
                 else { i += 1; }
             }
             if input_json.is_empty() {
@@ -2524,3 +2548,16 @@ impl PipelineExecutor {
                 }
             }
         }
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
+    }
+}

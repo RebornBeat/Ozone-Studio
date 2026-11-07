@@ -651,15 +651,12 @@ impl QueryProcessor {
         let mut seen: std::collections::HashSet<ContainerID> = direct.iter().copied().collect();
         let mut hop_ids: Vec<ContainerID> = Vec::new();
         let mut neighbors_injected = 0usize;
-        for seed_id in direct.iter().take(12) {
-            if neighbors_injected >= 12 {
-                break;
-            }
+        // EVERY directly matched methodology seeds a hop (no-cap doctrine, audit #29: was the first 12 seeds / 12 injected neighbours)
+        for seed_id in direct.iter() {
             let request = crate::types::zsei::TraversalRequest {
                 start_container: *seed_id,
                 mode: crate::types::zsei::TraversalMode::Structural,
                 max_depth: 1,
-                max_results: 6,
                 include_external_refs: false,
                 ..Default::default()
             };
@@ -667,7 +664,7 @@ impl QueryProcessor {
                 continue;
             };
             for nid in result.containers {
-                if neighbors_injected >= 12 || !seen.insert(nid) {
+                if !seen.insert(nid) {
                     continue;
                 }
                 let Ok(Some(container)) = storage.load(nid) else {

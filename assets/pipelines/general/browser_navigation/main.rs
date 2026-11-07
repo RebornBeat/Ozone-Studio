@@ -264,9 +264,9 @@ const puppeteer = require('puppeteer');
             const extracted = await page.evaluate(() => {{
                 document.querySelectorAll('script, style, noscript').forEach(el => el.remove());
                 return {{
-                    content: document.body.innerText.slice(0, 100000),
-                    links: Array.from(document.querySelectorAll('a[href]')).slice(0, 100).map(a => ({{ text: a.innerText.trim().slice(0, 100), href: a.href, isExternal: !a.href.startsWith(window.location.origin) }})),
-                    images: Array.from(document.querySelectorAll('img[src]')).slice(0, 50).map(img => ({{ alt: img.alt || '', src: img.src }})),
+                    content: document.body.innerText, // WHOLE page text (doctrine audit #21: was cut at 100,000 chars)
+                    links: Array.from(document.querySelectorAll('a[href]')).map(a => ({{ text: a.innerText.trim(), href: a.href, isExternal: !a.href.startsWith(window.location.origin) }})),
+                    images: Array.from(document.querySelectorAll('img[src]')).map(img => ({{ alt: img.alt || '', src: img.src }})),
                 }};
             }});
             content = extracted.content; links = extracted.links; images = extracted.images;
@@ -989,7 +989,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     
@@ -1005,5 +1005,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

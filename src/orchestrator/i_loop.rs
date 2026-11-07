@@ -17,12 +17,12 @@
 //! cycle); the dedicated pipeline crate remains a real, separate future
 //! upgrade if ever wanted.
 //!
-//! Budget safety (the guide's own central finding): `config.toml`'s
-//! documented `i_loop_interval_ms` defaults to 60000 (60s) — taken
-//! literally, that's 1,440 real LLM calls/day on its own, more than the
-//! entire ~1,000/day budget. This loop honors the configured interval but
-//! clamps it to a real safe floor (`MIN_INTERVAL_SECS`) rather than ever
-//! running the documented default literally.
+//! TRIGGER (EVENT-DRIVEN since 2026-11-04 — supersedes the interval-clamp design below): the loop wakes on a META RIPPLE
+//! (`orchestrator/ripple_class.rs`) with a startup catch-up and a 6 h liveness heartbeat. Budget safety — the guide's central
+//! finding (a literal 60 s interval is 1,440 calls/day, more than the ~1,000/day budget) — is now kept by a MINIMUM GAP
+//! between paid passes (default 10 min; bursts of events coalesce into ONE pass) plus change detection (an unchanged signal
+//! set is skipped for free). `i_loop_interval_ms` is retained in config but is no longer a schedule. Every signal handed to the
+//! model is DATED with its age, and the prompt states the current time.
 
 use crate::config::{AvailableModel, ModelFallbackConfig};
 use crate::orchestrator::{ModelConfigOverride, PipelineExecutor, StoreAccess};
@@ -62,6 +62,7 @@ const HANDLED_OUTCOMES_OFFERED: usize = 500;
 /// Real safety floor — 1800s (30 min) matches `amt_loop`/`meta_loop`'s own
 /// proven interval exactly, never the documented-but-budget-incompatible
 /// 60s default.
+#[allow(dead_code)]
 const MIN_INTERVAL_SECS: u64 = 1800;
 
 pub async fn run_i_loop(
@@ -76,23 +77,27 @@ pub async fn run_i_loop(
         tracing::info!("I-Loop disabled (ConsciousnessConfig.enabled = false)");
         return;
     }
-    let configured_secs = configured_interval_ms / 1000;
-    let interval_secs = configured_secs.max(MIN_INTERVAL_SECS);
-    if configured_secs < MIN_INTERVAL_SECS {
-        tracing::warn!(
-            configured_secs,
-            clamped_to = interval_secs,
-            "I-Loop: configured i_loop_interval_ms is below the real budget-safety floor — clamped"
-        );
-    }
-    tracing::info!(interval_secs, "I-Loop starting");
+    // EVENT-DRIVEN (2026-11-04, operator ruling: meta loops are not time based): the loop wakes on a META
+    // RIPPLE (src/orchestrator/ripple_class.rs), with a minimum gap between paid passes and a long
+    // liveness heartbeat. `i_loop_interval_ms` is retained in config for compatibility but is no longer a schedule.
+    let heartbeat = crate::orchestrator::ripple_class::heartbeat_secs();
+    let min_gap = crate::orchestrator::ripple_class::min_gap_secs();
+    tracing::info!(
+        heartbeat_secs = heartbeat,
+        min_gap_secs = min_gap,
+        configured_interval_ms,
+        "I-Loop starting (event-driven: meta ripple + startup catch-up + heartbeat)"
+    );
+    let gate = crate::orchestrator::ripple_class::i_loop_gate();
 
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+        let trigger = gate.wait_next(heartbeat, min_gap).await;
+        tracing::info!(?trigger, "I-Loop: woken");
         tracing::info!("I-Loop: starting reflection pass");
         // TRACE ROOT (trace spine): one root per pass; every executor call
         // inside the pass (and every capture row it writes) carries it.
         let ctx = crate::trace::TraceCtx::new_root("loop-pass");
+        let _own_pass = crate::orchestrator::ripple_class::pass_guard(&ctx.trace_id);
         let mut stats = PassStats::default();
         let outcome = crate::trace::with_trace(
             ctx.clone(),
@@ -108,6 +113,7 @@ pub async fn run_i_loop(
         } else {
             tracing::debug!("I-Loop: idle pass — no span recorded (nothing consumed, no call made)");
         }
+        gate.pass_finished();
     }
 }
 
@@ -117,7 +123,7 @@ pub async fn run_i_loop(
 /// tick the unhandled list was almost always empty (always "idle" on EU).
 /// What happened to those signals is exactly what a reflection should see.
 /// Read-only: nothing is marked handled here — that stays `amt_loop`'s.
-fn recent_handled_outcomes() -> Vec<String> {
+fn recent_handled_outcomes() -> Vec<(String, String)> {
     crate::orchestrator::amt_candidates::load_all()
         .into_iter()
         .rev()
@@ -129,9 +135,21 @@ fn recent_handled_outcomes() -> Vec<String> {
                 .get("outcome")
                 .and_then(|o| o.as_str())
                 .unwrap_or("handled");
-            Some(format!("[{}] {}", outcome, source))
+            let ts = candidate_ts(&c);
+            // (stable key for change detection — absolute, never relative; text shown to the model — dated + aged)
+            Some((
+                format!("[{}] ({}) {}", outcome, ts, source),
+                format!("[{}] ({}) {}", outcome, run_spans::when(ts), source),
+            ))
         })
         .collect()
+}
+
+/// When a candidate was recorded (unix seconds; 0 = undated). Stored as a number or a numeric string.
+fn candidate_ts(c: &serde_json::Value) -> i64 {
+    c.get("recorded_at")
+        .and_then(|t| t.as_i64().or_else(|| t.as_str().and_then(|s| s.parse().ok())))
+        .unwrap_or(0)
 }
 
 async fn run_one_reflection(
@@ -156,9 +174,13 @@ async fn run_one_reflection(
             stats.candidate_container_ids.push(id);
         }
     }
-    let unhandled_lines: Vec<String> = unhandled_all
+    let unhandled_lines: Vec<(String, String)> = unhandled_all
         .iter()
-        .filter_map(|c| c.get("source").and_then(|s| s.as_str()).map(String::from))
+        .filter_map(|c| {
+            let src = c.get("source").and_then(|s| s.as_str())?;
+            let ts = candidate_ts(c);
+            Some((format!("({}) {}", ts, src), format!("({}) {}", run_spans::when(ts), src)))
+        })
         .collect();
     let handled_lines = recent_handled_outcomes();
     stats.candidates_consumed = (unhandled_lines.len() + handled_lines.len()) as u64;
@@ -174,7 +196,12 @@ async fn run_one_reflection(
     // CHANGE DETECTION: the same signal set as the last paid reflection would
     // yield the same reflection again — skip, loudly, until it changes.
     let fingerprint = blake3::hash(
-        format!("{}\n--\n{}", unhandled_lines.join("\n"), handled_lines.join("\n")).as_bytes(),
+        format!(
+            "{}\n--\n{}",
+            unhandled_lines.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join("\n"),
+            handled_lines.iter().map(|l| l.0.as_str()).collect::<Vec<_>>().join("\n")
+        )
+        .as_bytes(),
     )
     .to_hex()
     .to_string();
@@ -204,14 +231,14 @@ async fn run_one_reflection(
     let unhandled_block = if unhandled_lines.is_empty() {
         "(no unhandled signals this tick — see the recently handled outcomes below)".to_string()
     } else {
-        unhandled_lines.join("\n- ")
+        unhandled_lines.iter().map(|l| l.1.as_str()).collect::<Vec<_>>().join("\n- ")
     };
     let handled_block = if handled_lines.is_empty() {
         String::new()
     } else {
         format!(
-            "\n\nRECENTLY HANDLED BY THE ACTING LOOP (what happened to earlier signals, newest first):\n- {}",
-            handled_lines.join("\n- ")
+            "\n\nHANDLED BY THE ACTING LOOP — every handled signal on record, newest first, each with WHEN it was recorded and how long ago (older entries are HISTORY: judge what is happening NOW from the recent dates, and name the date range when you cite a pattern):\n- {}",
+            handled_lines.iter().map(|l| l.1.as_str()).collect::<Vec<_>>().join("\n- ")
         )
     };
     // SPAN-OUT (2026-11-02): ground the reflection in what is CONNECTED to the signalled
@@ -241,7 +268,7 @@ async fn run_one_reflection(
             ContextSection::new(
                 "scaffold-head",
                 0,
-                "This is a periodic self-reflection cycle, not a response to a user request.\n\nRECENT SIGNALS THE SYSTEM HAS NOTICED:\n- ",
+                format!("{}\n\nThis is a periodic self-reflection cycle, not a response to a user request.\n\nSIGNALS THE SYSTEM HAS NOTICED THAT ARE NOT YET HANDLED (each with when it was recorded):\n- ", run_spans::now_line()),
             ),
             ContextSection::new("unhandled-signals", 3, unhandled_block),
             ContextSection::new("handled-outcomes", 5, handled_block),

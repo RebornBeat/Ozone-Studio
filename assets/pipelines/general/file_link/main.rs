@@ -748,7 +748,7 @@ fn detect_modality(path: &str) -> String {
             "dna" => "DNA",
             "eeg" => "EEG",
             "3d" => "3D",
-            "cad" => "CAD",
+            "cad" | "parametric_cad" => "CAD", // the shared table keys CAD files as parametric_cad (E2E M-a.step)
             "kinematics" => "Kinematics",
             "control_systems" | "control" => "Control",
             "data" => "Data",

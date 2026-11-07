@@ -2093,7 +2093,7 @@ async fn persist_audio_graph(graph: &mut AudioGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("audio".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!(
@@ -2798,7 +2798,7 @@ async fn main() {
     let mut input_json = String::new();
     let mut ai = 1usize;
     while ai < args.len() {
-        if args[ai] == "--input" && ai + 1 < args.len() { input_json = args[ai + 1].clone(); ai += 2; } else { ai += 1; }
+        if args[ai] == "--input" && ai + 1 < args.len() { input_json = ozone_input_arg(&args[ai + 1]); ai += 2; } else { ai += 1; }
     }
     if input_json.is_empty() {
         use std::io::Read;
@@ -3093,5 +3093,18 @@ mod tests {
         assert!(!tr1.overlaps(&tr3));
         assert!(tr1.contains(2.5));
         assert!(!tr1.contains(6.0));
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

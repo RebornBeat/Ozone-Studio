@@ -64,8 +64,10 @@ function applyResultToEntry(
 }
 
 const RECOVERY_POLL_INTERVAL_MS = 5000;
-// Awaiting items can legitimately wait a long time for a meta judgment, so the
-// ceiling is generous; hitting it says so honestly and the task keeps going.
+// Awaiting items can legitimately wait a long time for a meta judgment. The ceiling is a SLIDING stall limit, not a wall-clock cap
+// (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"): every poll that gets the task record back
+// (host alive, task known and not terminal) restarts it, so it only expires after this long WITHOUT a successful status answer.
+// Hitting it still says so honestly and the task keeps going server-side.
 const RECOVERY_POLL_CEILING_MS = 60 * 60 * 1000;
 const DISCOVERY_RETRY_MS = 60 * 1000;
 const DISCOVERY_INTERVAL_MS = 900;
@@ -235,11 +237,12 @@ export function useChatSession({
 
   /** Poll the real task record until terminal. Awaiting statuses keep polling. */
   const recoverTaskResult = useCallback(async (taskId: number, placeholderId: number, key: string) => {
-    const deadline = Date.now() + RECOVERY_POLL_CEILING_MS;
+    let deadline = Date.now() + RECOVERY_POLL_CEILING_MS;
     while (Date.now() < deadline) {
       try {
         const task = await (window as any).ozone?.task?.status?.(taskId);
         if (task) {
+          deadline = Date.now() + RECOVERY_POLL_CEILING_MS; // the host answered for this task: the wait is not over
           const steps = task.steps ?? [];
           if (steps.length > 0) {
             setStepInfo({
@@ -279,7 +282,7 @@ export function useChatSession({
       entry.id === placeholderId
         ? {
             ...entry,
-            content: `Still running after ${Math.round(RECOVERY_POLL_CEILING_MS / 60000)} minutes (task ${taskId}) — no result yet. It may still finish; check the Tasks view.`,
+            content: `No status answer from the host for ${Math.round(RECOVERY_POLL_CEILING_MS / 60000)} minutes (task ${taskId}) — no result yet. It may still finish; check the Tasks view.`,
           }
         : entry
     ));

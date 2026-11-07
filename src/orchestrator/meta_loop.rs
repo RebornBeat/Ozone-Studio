@@ -5,6 +5,11 @@
 //! matched zero methodologies) and, for a gap not already covered by
 //! something created since, drafts and persists a real new methodology.
 //!
+//! TRIGGER (EVENT-DRIVEN since 2026-11-04): wakes on a META RIPPLE — chiefly `MethodologyGap` (a request matched no methodology)
+//! and `CapabilityGap` (a required provider is missing: the loop drafts a methodology around the missing capability) — with a
+//! minimum gap between passes (default 10 min), a startup catch-up and a 6 h liveness heartbeat (`ripple_class.rs`). The
+//! `RefinementConfig.interval_secs` it was built around is retained for compatibility but is no longer a schedule.
+//!
 //! Lives here (not on TaskManager, where the pre-existing but never-started
 //! `start_refinement_daemon` lives) because drafting a genuine methodology
 //! requires a real LLM call, and TaskManager only has ZSEI access — no
@@ -32,10 +37,7 @@ const PROMPT_PIPELINE_ID: u64 = 9;
 const METHODOLOGY_CREATE_PIPELINE_ID: u64 = 12;
 
 /// Start the meta-loop. Returns immediately if disabled; otherwise runs
-/// forever on `config.interval_secs`, matching start_refinement_daemon's own
-/// cadence convention (that daemon sleeps in 60s increments and only acts
-/// once the full interval has elapsed — this loop sleeps the full interval
-/// directly since it has no other per-minute work to interleave with).
+/// forever, waking on meta ripples (see the module doc) — NOT on `config.interval_secs`.
 pub async fn run_methodology_meta_loop(
     executor: Arc<dyn PipelineExecutor>,
     store: Arc<dyn StoreAccess>,
@@ -48,22 +50,41 @@ pub async fn run_methodology_meta_loop(
         return;
     }
 
+    // EVENT-DRIVEN (2026-11-04): wakes on a META RIPPLE — chiefly the MethodologyGap signal
+    // `record_methodology_gap` emits — with a minimum gap between passes and a long heartbeat.
+    // `config.interval_secs` is retained for compatibility but is no longer a schedule.
+    let heartbeat = crate::orchestrator::ripple_class::heartbeat_secs();
+    let min_gap = crate::orchestrator::ripple_class::min_gap_secs();
     tracing::info!(
-        interval_secs = config.interval_secs,
-        "Methodology meta-loop starting"
+        heartbeat_secs = heartbeat,
+        min_gap_secs = min_gap,
+        configured_interval_secs = config.interval_secs,
+        "Methodology meta-loop starting (event-driven: meta ripple + startup catch-up + heartbeat)"
     );
+    let gate = crate::orchestrator::ripple_class::meta_loop_gate();
 
     loop {
-        tokio::time::sleep(std::time::Duration::from_secs(config.interval_secs)).await;
+        let trigger = gate.wait_next(heartbeat, min_gap).await;
+        tracing::info!(?trigger, "Methodology meta-loop: woken");
 
         tracing::info!("Methodology meta-loop: starting review pass");
         // TRACE ROOT (trace spine): one root per pass; every executor call
         // inside the pass (and every capture row it writes) carries it.
         let ctx = crate::trace::TraceCtx::new_root("loop-pass");
+        let _own_pass = crate::orchestrator::ripple_class::pass_guard(&ctx.trace_id);
         let mut stats = PassStats::default();
         let outcome = crate::trace::with_trace(
             ctx.clone(),
-            review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats),
+            async {
+                // 1) SUFFICIENCY REVIEW of queued requests → raises "new"/"modify" gaps; 2) act on every open gap.
+                if let Err(e) = review_methodology_requests_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await {
+                    tracing::warn!(error = %e, "Methodology meta-loop: sufficiency review failed");
+                    stats.notes.push(format!("sufficiency review failed: {}", e));
+                }
+                // 1b) QUALITY AUDIT (E18): thin methodologies raise `modify` gaps that the drafting pass below acts on.
+                audit_methodology_quality_once(&store, &mut stats).await;
+                review_methodology_gaps_once(&executor, &store, &available_models, &meta_fallback, &mut stats).await
+            },
         )
         .await;
         if let Err(e) = outcome {
@@ -76,7 +97,390 @@ pub async fn run_methodology_meta_loop(
             tracing::debug!("Methodology meta-loop: idle pass — no span recorded (no gaps consumed, no call made)");
         }
         tracing::info!("Methodology meta-loop: review pass complete");
+        gate.pass_finished();
     }
+}
+
+/// The window of the model that will READ a detached meta call: the first usable entry of the meta fallback chain (its configured
+/// `context_length`, e.g. 32,000 for the `openrouter/free` router), else the host default. Windowing follows the READING model, not the
+/// largest configured number — a prompt sized for 128k would overflow a 32k member the router picks.
+fn reader_window(available_models: &[AvailableModel], meta_fallback: &ModelFallbackConfig) -> (usize, &'static str) {
+    meta_fallback
+        .order
+        .iter()
+        .filter_map(|id| available_models.iter().find(|m| &m.identifier == id))
+        .find(|m| !meta_fallback.free_only || m.is_free)
+        .map(|m| run_spans::profile_window(m.context_length))
+        .unwrap_or_else(run_spans::default_model_window)
+}
+
+/// A methodology's current content, WHOLE: (name, keywords, content-file JSON text). Read from the container + its content file.
+async fn methodology_whole(store: &Arc<dyn StoreAccess>, id: u64) -> Option<(String, Vec<String>, String)> {
+    let c = store.get_container(id).await.ok().flatten()?;
+    let name = c.pointer("/local_state/metadata/name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let kws: Vec<String> = c
+        .pointer("/local_state/context/keywords")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default();
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let body = c
+        .pointer("/local_state/storage/object_store_path")
+        .and_then(|v| v.as_str())
+        .and_then(|rel| std::fs::read_to_string(format!("{}/{}", data_dir, rel)).ok())
+        .unwrap_or_default();
+    Some((name, kws, body))
+}
+
+/// METHODOLOGY QUALITY AUDIT (E18, 2026-11-07). Deterministic, no model call: a methodology with fewer than 3 usable keywords (after
+/// `request_terms` hygiene) feeds the Stage 3 floor and keyword search badly; one with no decision rule or heuristic carrying real text
+/// cannot steer a plan. Each such methodology raises ONE `modify` gap (target = its id, reason starts "quality audit") — the existing
+/// modify pass drafts the additions (nothing existing is dropped). Idempotent: a methodology that already has a quality-audit gap
+/// (open or handled) is not raised again, so a methodology the modify pass could not improve does not loop.
+async fn audit_methodology_quality_once(store: &Arc<dyn StoreAccess>, stats: &mut PassStats) {
+    let Ok(Some(root)) = store.get_container(2).await else { return };
+    let Some(children) = root
+        .pointer("/global_state/child_ids")
+        .and_then(|c| serde_json::from_value::<Vec<u64>>(c.clone()).ok())
+    else {
+        return;
+    };
+    let existing: Vec<serde_json::Value> = std::fs::read_to_string(gaps_log_path())
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let audited = |id: u64| {
+        existing.iter().any(|g| {
+            g.get("target_id").and_then(|t| t.as_u64()) == Some(id)
+                && g.get("reason").and_then(|r| r.as_str()).map(|r| r.starts_with("quality audit")).unwrap_or(false)
+        })
+    };
+    let real = |v: Option<&serde_json::Value>, fields: &[&str]| -> bool {
+        v.and_then(|a| a.as_array()).map(|a| {
+            a.iter().any(|e| fields.iter().any(|f| e.get(f).and_then(|x| x.as_str()).map(|s| { let t = s.trim(); !t.is_empty() && t != "..." && t != "…" }).unwrap_or(false)))
+        }).unwrap_or(false)
+    };
+    let mut raised = 0usize;
+    for id in children {
+        if audited(id) {
+            continue;
+        }
+        let Some((name, kws, body)) = methodology_whole(store, id).await else { continue };
+        if name.starts_with("[retired]") || name.to_lowercase().contains("retired") {
+            continue;
+        }
+        let mut problems: Vec<&str> = Vec::new();
+        if crate::orchestrator::request_terms::sanitize_keywords("", kws.clone()).len() < 3 {
+            problems.push("fewer than 3 usable keywords");
+        }
+        let parsed: Option<serde_json::Value> = serde_json::from_str(&body).ok();
+        let has_rule = parsed
+            .as_ref()
+            .map(|b| real(b.get("decision_rules"), &["outcome", "condition"]) || real(b.get("heuristics"), &["action", "condition"]))
+            .unwrap_or(false);
+        if parsed.is_some() && !has_rule {
+            problems.push("no decision rule or heuristic with real text");
+        }
+        if problems.is_empty() {
+            continue;
+        }
+        let reason = format!("quality audit: {}", problems.join("; "));
+        let request = format!("Quality audit of methodology \"{}\": {}. Add real keywords and concrete decision rules without removing anything existing.", name, problems.join("; "));
+        crate::orchestrator::PromptOrchestrator::record_methodology_gap_ex(&kws, &[], "modify", Some(id), &reason, &request);
+        raised += 1;
+    }
+    if raised > 0 {
+        tracing::info!(raised, "Methodology quality audit: thin methodologies raised modify gaps");
+        stats.notes.push(format!("quality audit raised {} modify gap(s)", raised));
+    }
+}
+
+/// METHODOLOGY SUFFICIENCY REVIEW (operator 2026-11-05: "we should never skip due to no methodology ... even if we find some we
+/// still identify if we need new ones or to modify the ones we have ... like we do missing capabilities"). For every queued
+/// request (Stage 3 queues ALL of them in `methodology_reviews.json`): one zero-shot, YES/NO-style judgement over the request
+/// WHOLE and the gathered methodologies WHOLE — is a NEW methodology needed (yes/no + why), does any EXISTING one need
+/// modification (which, why)? Verdicts become gaps (`kind` new/modify) that the drafting pass below acts on. No confidence number
+/// is asked for. Failures retry next pass; a review is never silently dropped.
+async fn review_methodology_requests_once(
+    executor: &Arc<dyn PipelineExecutor>,
+    store: &Arc<dyn StoreAccess>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
+    stats: &mut PassStats,
+) -> Result<(), String> {
+    let data_dir = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let path = format!("{}/methodology_reviews.json", data_dir);
+    let mut reviews: Vec<serde_json::Value> = match std::fs::read_to_string(&path) {
+        Ok(s) => serde_json::from_str(&s).map_err(|e| format!("parse {}: {}", path, e))?,
+        Err(_) => return Ok(()),
+    };
+    let mut changed = false;
+    for rv in reviews.iter_mut() {
+        if rv.get("handled").and_then(|h| h.as_bool()).unwrap_or(false) {
+            continue;
+        }
+        let attempts = rv.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
+        if attempts >= 10 {
+            rv["handled"] = serde_json::json!(true);
+            rv["outcome"] = serde_json::json!("failed_after_max_attempts");
+            changed = true;
+            continue;
+        }
+        rv["attempts"] = serde_json::json!(attempts + 1);
+        changed = true;
+        let request = rv.get("request").and_then(|q| q.as_str()).unwrap_or("").to_string();
+        let keywords: Vec<String> = rv.get("keywords").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
+        let topics: Vec<String> = rv.get("topics").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
+        let ids: Vec<u64> = rv.get("gathered_ids").and_then(|k| serde_json::from_value(k.clone()).ok()).unwrap_or_default();
+
+        let (window, window_source) = reader_window(available_models, meta_fallback);
+        let want_output = 1200usize;
+        let budget = run_spans::input_budget_tokens(window, want_output);
+        let head = format!(
+            "{}\n\nA real request was received. Decide whether the methodologies the system gathered for it are SUFFICIENT.\n\nREQUEST (whole):\n",
+            crate::orchestrator::run_spans::now_line()
+        );
+        let gathered_hdr = "\n\nGATHERED METHODOLOGIES (id, name, content whole):\n";
+        let tail_text = "\nAnswer with ONE JSON object, no prose:\n{\"new_needed\": true|false, \"new_reason\": \"why a NEW methodology is needed (or empty)\", \"new_keywords\": [\"keywords the new methodology should be found by\"], \"modify\": [{\"id\": <a gathered methodology id>, \"reason\": \"what must be ADDED to or CHANGED in it, in light of this request\"}]}\nnew_needed is true ONLY if the request needs guidance no gathered methodology provides. List a methodology under modify ONLY if it is relevant but is missing something this request reveals. If everything is sufficient: {\"new_needed\": false, \"new_reason\": \"\", \"new_keywords\": [], \"modify\": []}. Do not rate your certainty.";
+        // CHUNK, never cut: the gathered methodologies are packed WHOLE into window-sized groups (greedy, in gather order); each group is
+        // one call. A single methodology larger than a window cannot be split further and is the only thing `assemble` may still trim
+        // (recorded). Verdicts merge: modify = union; new_needed only if EVERY group says nothing in it provides the guidance.
+        let mut blocks: Vec<(u64, String)> = Vec::new();
+        for id in &ids {
+            if let Some((name, kws, body)) = methodology_whole(store, *id).await {
+                blocks.push((*id, format!("--- METHODOLOGY {id}: {name}\nkeywords: {}\n{body}\n", kws.join(", "))));
+            }
+        }
+        let known_ids: Vec<u64> = blocks.iter().map(|b| b.0).collect();
+        let fixed_tokens = crate::context_budget::estimate_tokens(&head)
+            + crate::context_budget::estimate_tokens(&request)
+            + crate::context_budget::estimate_tokens(gathered_hdr)
+            + crate::context_budget::estimate_tokens(&tail_text)
+            + 200; // part-note reserve
+        let room = budget.saturating_sub(fixed_tokens).max(1);
+        let mut groups: Vec<Vec<(u64, String)>> = Vec::new();
+        let (mut cur, mut cur_t): (Vec<(u64, String)>, usize) = (Vec::new(), 0);
+        for b in blocks {
+            let t = crate::context_budget::estimate_tokens(&b.1);
+            if !cur.is_empty() && cur_t + t > room {
+                groups.push(std::mem::take(&mut cur));
+                cur_t = 0;
+            }
+            cur_t += t;
+            cur.push(b);
+        }
+        if !cur.is_empty() {
+            groups.push(cur);
+        }
+        if groups.is_empty() {
+            groups.push(Vec::new()); // nothing gathered: one call, "(none were gathered)"
+        }
+        let n_groups = groups.len();
+        let mut verdicts: Vec<serde_json::Value> = Vec::new();
+        let mut call_failed = false;
+        for (gi, group) in groups.iter().enumerate() {
+            let part_note = if n_groups > 1 {
+                format!("\n(PART {} of {} of the gathered methodologies. Judge ONLY the methodologies shown here: list under modify only ids shown here; new_needed is true only if NONE of the methodologies shown here provides the guidance — the other parts are judged separately.)\n", gi + 1, n_groups)
+            } else {
+                String::new()
+            };
+            let mut sections = vec![
+                crate::context_budget::ContextSection::new("scaffold-head", 0, head.clone()),
+                crate::context_budget::ContextSection::new("request", 1, request.clone()),
+                crate::context_budget::ContextSection::new("scaffold-gathered", 0, format!("{gathered_hdr}{part_note}")),
+            ];
+            for (_, blk) in group {
+                sections.push(crate::context_budget::ContextSection::new("methodology", 3, blk.clone()));
+            }
+            if group.is_empty() {
+                sections.push(crate::context_budget::ContextSection::new("none", 0, "(none were gathered)\n"));
+            }
+            sections.push(crate::context_budget::ContextSection::new("scaffold-tail", 0, tail_text));
+            let assembled = crate::context_budget::assemble(sections, budget);
+            run_spans::record_view_trims("meta_loop_methodology_review", "", window, window_source, want_output, &assembled);
+            let prompt = assembled.text;
+            let input = serde_json::json!({
+                "prompt": prompt, "max_tokens": want_output, "temperature": 0.1,
+                "system_prompt": "You judge whether the system's methodologies suffice for a request. Return only valid JSON."
+            });
+            stats.calls_made += 1;
+            let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+            crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_methodology_review", &prompt, &res);
+            let text = match res {
+                Ok(v) => v.get("response").and_then(|r| r.as_str()).unwrap_or("").to_string(),
+                Err(e) => {
+                    tracing::warn!(error = %e, part = gi + 1, "Methodology review: model call failed — whole review retried next pass");
+                    call_failed = true;
+                    break;
+                }
+            };
+            let cands = extract_all_json_objects(&text);
+            if text.trim().is_empty() || cands.len() > 1 {
+                call_failed = true;
+                break;
+            }
+            match serde_json::from_str::<serde_json::Value>(cands.into_iter().next().unwrap_or_default().trim()) {
+                Ok(v) => verdicts.push(v),
+                Err(_) => {
+                    call_failed = true;
+                    break;
+                }
+            }
+        }
+        if call_failed || verdicts.is_empty() {
+            stats.failures += 1;
+            continue; // attempts already counted; retried next pass
+        }
+        // merge the per-group verdicts into one
+        let all_new = verdicts.iter().all(|v| v.get("new_needed").and_then(|b| b.as_bool()).unwrap_or(false));
+        let first_new = verdicts.iter().find(|v| v.get("new_needed").and_then(|b| b.as_bool()).unwrap_or(false));
+        let mut modify_all: Vec<serde_json::Value> = Vec::new();
+        for v in &verdicts {
+            if let Some(a) = v.get("modify").and_then(|m| m.as_array()) {
+                modify_all.extend(a.iter().cloned());
+            }
+        }
+        let verdict = serde_json::json!({
+            "new_needed": all_new,
+            "new_reason": first_new.and_then(|v| v.get("new_reason")).cloned().unwrap_or(serde_json::json!("")),
+            "new_keywords": first_new.and_then(|v| v.get("new_keywords")).cloned().unwrap_or(serde_json::json!([])),
+            "modify": modify_all,
+        });
+        let mut raised = 0usize;
+        if verdict.get("new_needed").and_then(|b| b.as_bool()).unwrap_or(false) {
+            let reason = verdict.get("new_reason").and_then(|r| r.as_str()).unwrap_or("").to_string();
+            let kws: Vec<String> = verdict
+                .get("new_keywords")
+                .and_then(|k| serde_json::from_value(k.clone()).ok())
+                .filter(|k: &Vec<String>| !k.is_empty())
+                .unwrap_or_else(|| keywords.clone());
+            if !kws.is_empty() {
+                crate::orchestrator::PromptOrchestrator::record_methodology_gap_ex(&kws, &topics, "new", None, if reason.is_empty() { "new methodology needed for this request" } else { &reason }, &request);
+                raised += 1;
+            }
+        }
+        if let Some(arr) = verdict.get("modify").and_then(|m| m.as_array()) {
+            for m in arr {
+                let Some(id) = m.get("id").and_then(|i| i.as_u64()) else { continue };
+                if !known_ids.contains(&id) {
+                    continue; // only methodologies that were actually gathered can be modified
+                }
+                let reason = m.get("reason").and_then(|r| r.as_str()).unwrap_or("").to_string();
+                if reason.trim().is_empty() {
+                    continue;
+                }
+                let mut kws = keywords.clone();
+                kws.push(format!("modify:{id}"));
+                crate::orchestrator::PromptOrchestrator::record_methodology_gap_ex(&kws, &topics, "modify", Some(id), &reason, &request);
+                raised += 1;
+            }
+        }
+        rv["handled"] = serde_json::json!(true);
+        rv["outcome"] = serde_json::json!(if raised > 0 { "gaps_raised" } else { "sufficient" });
+        rv["raised"] = serde_json::json!(raised);
+        stats.successes += 1;
+        changed = true;
+        tracing::info!(raised, "Methodology review: request judged ({})", if raised > 0 { "new/modify gaps raised" } else { "sufficient" });
+    }
+    if changed {
+        let json = serde_json::to_string_pretty(&reviews).map_err(|e| e.to_string())?;
+        std::fs::write(&path, json).map_err(|e| format!("write {}: {}", path, e))?;
+    }
+    Ok(())
+}
+
+/// Act on a `modify` gap: draft the ADDITIONS to an existing methodology (nothing existing is dropped) and apply them through
+/// pipeline 12 `Update` (real read-merge-write, versioned).
+async fn modify_methodology_for_gap(
+    executor: &Arc<dyn PipelineExecutor>,
+    store: &Arc<dyn StoreAccess>,
+    available_models: &[AvailableModel],
+    meta_fallback: &ModelFallbackConfig,
+    gap: &mut serde_json::Value,
+    stats: &mut PassStats,
+) -> bool {
+    let target = gap.get("target_id").and_then(|t| t.as_u64()).unwrap_or(0);
+    let reason = gap.get("reason").and_then(|r| r.as_str()).unwrap_or("").to_string();
+    let request = gap.get("request").and_then(|r| r.as_str()).unwrap_or("").to_string();
+    let attempts = gap.get("attempts").and_then(|a| a.as_u64()).unwrap_or(0);
+    if attempts >= 10 {
+        gap["handled"] = serde_json::json!(true);
+        gap["outcome"] = serde_json::json!("failed_after_max_attempts");
+        return true;
+    }
+    gap["attempts"] = serde_json::json!(attempts + 1);
+    let Some((name, kws, body)) = methodology_whole(store, target).await else {
+        gap["handled"] = serde_json::json!(true);
+        gap["outcome"] = serde_json::json!("target_missing");
+        return true;
+    };
+    let (window, window_source) = reader_window(available_models, meta_fallback);
+    let want_output = 1200usize;
+    let budget = run_spans::input_budget_tokens(window, want_output);
+    let assembled = crate::context_budget::assemble(
+        vec![
+            crate::context_budget::ContextSection::new("head", 0, format!("{}\n\nAn existing methodology needs ADDITIONS.\n\nREQUEST (whole):\n", crate::orchestrator::run_spans::now_line())),
+            crate::context_budget::ContextSection::new("request", 1, request),
+            crate::context_budget::ContextSection::new("why", 0, format!("\n\nWHAT IS MISSING: {reason}\n\nEXISTING METHODOLOGY {target}: {name}\nkeywords: {}\n", kws.join(", "))),
+            crate::context_budget::ContextSection::new("body", 3, body),
+            crate::context_budget::ContextSection::new(
+                "tail",
+                0,
+                "\n\nReturn ONE JSON object with ONLY the additions (existing content is kept as is): {\"skip\": false, \"add_principles\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": 5}], \"add_heuristics\": [{\"condition\": \"...\", \"action\": \"...\"}], \"add_decision_rules\": [{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": [{\"kind\": \"provider\", \"name\": \"<mcp provider id>\", \"purpose\": \"...\"}]}], \"add_keywords\": [\"...\"]}. Add only real, specific content. If nothing should be added: {\"skip\": true}.",
+            ),
+        ],
+        budget,
+    );
+    run_spans::record_view_trims("meta_loop_methodology_modify", "", window, window_source, want_output, &assembled);
+    let prompt = assembled.text;
+    let input = serde_json::json!({"prompt": prompt, "max_tokens": want_output, "temperature": 0.2,
+        "system_prompt": "Extend methodologies with real, specific additions only. Return only valid JSON."});
+    stats.calls_made += 1;
+    let res = executor.execute(PROMPT_PIPELINE_ID, input).await;
+    crate::orchestrator::PromptOrchestrator::capture_loop_model_call("meta_loop_methodology_modify", &prompt, &res);
+    let text = match res {
+        Ok(v) => v.get("response").and_then(|r| r.as_str()).unwrap_or("").to_string(),
+        Err(_) => {
+            stats.failures += 1;
+            return true;
+        }
+    };
+    let cands = extract_all_json_objects(&text);
+    if text.trim().is_empty() || cands.len() > 1 {
+        stats.failures += 1;
+        return true;
+    }
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cands.into_iter().next().unwrap_or_default().trim()) else {
+        stats.failures += 1;
+        return true;
+    };
+    if parsed.get("skip").and_then(|s| s.as_bool()).unwrap_or(false) {
+        gap["handled"] = serde_json::json!(true);
+        gap["outcome"] = serde_json::json!("model_judged_nothing_to_add");
+        return true;
+    }
+    let mut upd = serde_json::json!({"action": "Update", "methodology_id": target});
+    for k in ["add_principles", "add_heuristics", "add_decision_rules", "add_keywords"] {
+        if let Some(v) = parsed.get(k).filter(|v| v.as_array().map(|a| !a.is_empty()).unwrap_or(false)) {
+            upd[k] = v.clone();
+        }
+    }
+    if upd.as_object().map(|o| o.len()).unwrap_or(0) <= 2 {
+        stats.failures += 1;
+        return true; // nothing real drafted — retried next pass
+    }
+    match executor.execute(METHODOLOGY_CREATE_PIPELINE_ID, upd).await {
+        Ok(_) => {
+            tracing::info!(methodology_id = target, "Methodology meta-loop: existing methodology extended (versioned read-merge-write)");
+            gap["handled"] = serde_json::json!(true);
+            gap["outcome"] = serde_json::json!("methodology_updated");
+            stats.successes += 1;
+        }
+        Err(e) => {
+            stats.failures += 1;
+            tracing::warn!(error = %e, "Methodology meta-loop: Update call failed, will retry next cycle");
+        }
+    }
+    true
 }
 
 fn gaps_log_path() -> String {
@@ -134,6 +538,17 @@ async fn review_methodology_gaps_once(
             continue;
         }
 
+        // A gap raised by the sufficiency review KNEW what already exists: `modify` extends a named methodology; `new` skips the
+        // "already covered by keyword match" shortcut below (the review judged the matches insufficient).
+        let gap_kind = gap.get("kind").and_then(|k| k.as_str()).unwrap_or("new").to_string();
+        let raised_by_review = !gap.get("reason").and_then(|r| r.as_str()).unwrap_or("").is_empty();
+        if gap_kind == "modify" {
+            if modify_methodology_for_gap(executor, store, available_models, meta_fallback, gap, stats).await {
+                any_change = true;
+            }
+            continue;
+        }
+
         // Cross-reference for duplication: has this gap already been
         // covered since it was recorded (by this loop on a prior cycle, or
         // by anything else)?
@@ -167,7 +582,7 @@ async fn review_methodology_gaps_once(
             }
             existing = live;
         }
-        if !existing.is_empty() {
+        if !existing.is_empty() && !raised_by_review {
             tracing::info!(
                 ?keywords,
                 covered_by = ?existing,
@@ -256,15 +671,28 @@ async fn review_methodology_gaps_once(
                 crate::context_budget::ContextSection::new(
                     "scaffold-head",
                     0,
-                    "A real user request's keyword signal repeatedly matched no existing methodology:\n\nKEYWORDS: ",
+                    format!("{}\n\nA real user request's keyword signal repeatedly matched no existing methodology:\n\nKEYWORDS: ", crate::orchestrator::run_spans::now_line()),
                 ),
                 crate::context_budget::ContextSection::new("keywords", 2, keywords.join(", ")),
                 crate::context_budget::ContextSection::new("scaffold-mid", 0, "\nTOPICS: "),
                 crate::context_budget::ContextSection::new("topics", 4, topics.join(", ")),
                 crate::context_budget::ContextSection::new(
+                    "review-context",
+                    1,
+                    if raised_by_review {
+                        format!(
+                            "\n\nA sufficiency review judged the existing methodologies INSUFFICIENT for this request:\nWHY A NEW METHODOLOGY IS NEEDED: {}\nREQUEST (whole): {}\n",
+                            gap.get("reason").and_then(|r| r.as_str()).unwrap_or(""),
+                            gap.get("request").and_then(|r| r.as_str()).unwrap_or("")
+                        )
+                    } else {
+                        String::new()
+                    },
+                ),
+                crate::context_budget::ContextSection::new(
                     "scaffold-tail",
                     0,
-                    "\n\nIf — and only if — this is a genuinely coherent, real, methodology-worthy\npattern (specific enough to give concrete, actionable guidance, not vague or\noverly broad), draft ONE real methodology for it. Every decision rule must be\na concrete \"if X then do Y\" a person or system could actually follow — not a\nrestatement of the keywords. Return ONLY valid JSON:\n{\n    \"name\": \"short methodology name\",\n    \"description\": \"one sentence description\",\n    \"keywords\": [\"...\", \"...\"],\n    \"topics\": [\"...\", \"...\"],\n    \"principles\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": 1}],\n    \"heuristics\": [{\"condition\": \"...\", \"action\": \"...\", \"confidence\": 0.8}],\n    \"decision_rules\": [{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\"}]\n}\nIf this keyword set is too vague, too broad, or not actually a coherent\nmethodology-worthy pattern, return exactly: {\"skip\": true}",
+                    "\n\nIf — and only if — this is a genuinely coherent, real, methodology-worthy\npattern (specific enough to give concrete, actionable guidance, not vague or\noverly broad), draft ONE real methodology for it. Every decision rule must be\na concrete \"if X then do Y\" a person or system could actually follow — not a\nrestatement of the keywords. Return ONLY valid JSON:\n{\n    \"name\": \"short methodology name\",\n    \"description\": \"one sentence description\",\n    \"keywords\": [\"...\", \"...\"],\n    \"topics\": [\"...\", \"...\"],\n    \"principles\": [{\"name\": \"...\", \"description\": \"...\", \"priority\": 1}],\n    \"heuristics\": [{\"condition\": \"...\", \"action\": \"...\"}],\n    \"decision_rules\": [{\"name\": \"...\", \"condition\": \"...\", \"outcome\": \"...\", \"requires\": [{\"kind\": \"provider\", \"name\": \"<MCP provider id this rule needs, e.g. threed-mcp>\", \"purpose\": \"why\", \"optional\": false}]}]\n}\n`requires` lists the MCP PROVIDERS a rule needs in order to be carried out (omit or leave [] when the rule needs none). If the keywords name a MISSING CAPABILITY (they start with \"capability\"), draft the methodology around how that capability should be provided and declare it in `requires`; never invent a provider id you were not given.\nIf this keyword set is too vague, too broad, or not actually a coherent\nmethodology-worthy pattern, return exactly: {\"skip\": true}",
                 ),
             ],
             budget,

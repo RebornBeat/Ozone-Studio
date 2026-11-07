@@ -128,14 +128,14 @@ impl RelationshipStore {
         // Update familiarity
         relationship.familiarity = (relationship.familiarity + 0.01).min(1.0);
         
-        // Check for stage transition
-        self.check_stage_transition(user_id);
-        
         // Keep last 100 interactions
         relationship.interaction_history.push(summary);
         if relationship.interaction_history.len() > 100 {
             relationship.interaction_history.remove(0);
         }
+        
+        // Check for stage transition (after the last use of `relationship`: it borrows self)
+        self.check_stage_transition(user_id);
         
         self.save_to_disk();
     }
@@ -555,11 +555,12 @@ pub async fn execute(input: RelationshipInput) -> Result<RelationshipOutput, Str
             let mut store = RELATIONSHIP_STORE.lock().unwrap();
             let relationship = store.get_or_create(user_id);
             relationship.communication_preferences = preferences;
+            let relationship_snapshot = relationship.clone();
             store.save_to_disk();
             
             Ok(RelationshipOutput {
                 success: true,
-                relationship: Some(relationship.clone()),
+                relationship: Some(relationship_snapshot),
                 relationships: None,
                 health: None,
                 summary: None,
@@ -572,13 +573,14 @@ pub async fn execute(input: RelationshipInput) -> Result<RelationshipOutput, Str
             let health = store.relationships.get(&user_id)
                 .map(|r| r.health.clone());
             
+            let health_found = health.is_some();
             Ok(RelationshipOutput {
-                success: health.is_some(),
+                success: health_found,
                 relationship: None,
                 relationships: None,
                 health,
                 summary: None,
-                error: if health.is_none() { Some("Relationship not found".to_string()) } else { None },
+                error: if !health_found { Some("Relationship not found".to_string()) } else { None },
             })
         }
         
@@ -612,11 +614,12 @@ pub async fn execute(input: RelationshipInput) -> Result<RelationshipOutput, Str
             let mut store = RELATIONSHIP_STORE.lock().unwrap();
             let relationship = store.get_or_create(user_id);
             relationship.health.unresolved_issues.push(issue);
+            let relationship_snapshot = relationship.clone();
             store.save_to_disk();
             
             Ok(RelationshipOutput {
                 success: true,
-                relationship: Some(relationship.clone()),
+                relationship: Some(relationship_snapshot),
                 relationships: None,
                 health: None,
                 summary: None,
@@ -676,13 +679,14 @@ pub async fn execute(input: RelationshipInput) -> Result<RelationshipOutput, Str
                 last_interaction: r.last_interaction,
             });
             
+            let summary_found = summary.is_some();
             Ok(RelationshipOutput {
-                success: summary.is_some(),
+                success: summary_found,
                 relationship: None,
                 relationships: None,
                 health: None,
                 summary,
-                error: if summary.is_none() { Some("Relationship not found".to_string()) } else { None },
+                error: if !summary_found { Some("Relationship not found".to_string()) } else { None },
             })
         }
     }
@@ -693,7 +697,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     
@@ -709,5 +713,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

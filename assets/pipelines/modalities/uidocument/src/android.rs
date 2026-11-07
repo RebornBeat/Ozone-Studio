@@ -43,7 +43,7 @@ const MAX_ATTRS_PER_ELEMENT: usize = 64;
 /// Bound for short attribute strings (class, package, resource-id...).
 const MAX_SHORT: usize = 200;
 /// Bound for text-like attribute strings.
-const MAX_TEXT: usize = 4000;
+const MAX_TEXT: usize = usize::MAX; // whole (audit #22)
 const GEOMETRY_REASON_ANDROID: &str = "node has no valid bounds in the dump (missing, malformed or inverted)";
 
 fn clip(s: &str, n: usize) -> String {

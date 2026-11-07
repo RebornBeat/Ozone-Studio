@@ -140,22 +140,32 @@ impl super::PipelineExecutor for RegistryExecutorAdapter {
                 let registry = self.registry.read().await;
                 registry.execute(pipeline_id, pipeline_input, None).await
             };
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(watchdog_secs),
-                exec_fut,
-            )
-            .await
-            {
-                Ok(r) => r.map_err(|e| e.to_string())?,
-                Err(_) => {
-                    tracing::error!(
-                        pipeline_id,
-                        secs = watchdog_secs,
-                        "WATCHDOG: pipeline invocation exceeded its budget — failing loudly                          (hung call abandoned; note the underlying subprocess, if any, may outlive                          this future and need reaping)"
-                    );
-                    return Err(format!(
-                        "watchdog timeout after {watchdog_secs}s — pipeline {pipeline_id} invocation hung"
-                    ));
+            // PROGRESS-AWARE WATCHDOG (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"): the budget
+            // is a STALL budget, not a wall-clock cap. Past `watchdog_secs` the invocation is kept while a model call made progress in
+            // the last 300 s (the prompt binary stamps liveness while streaming); it is abandoned when it stalls, or at a very large
+            // hard ceiling (OZONE_WATCHDOG_HARD_SECS, default 14400). A pipeline that does no model calls gets the old behaviour.
+            let hard: u64 = std::env::var("OZONE_WATCHDOG_HARD_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(14400);
+            let started = std::time::Instant::now();
+            tokio::pin!(exec_fut);
+            loop {
+                tokio::select! {
+                    r = &mut exec_fut => break r.map_err(|e| e.to_string())?,
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {
+                        let elapsed = started.elapsed().as_secs();
+                        if elapsed >= watchdog_secs {
+                            let working = crate::model_ledger::model_activity_within(300);
+                            if !working || elapsed >= hard {
+                                tracing::error!(
+                                    pipeline_id,
+                                    secs = elapsed,
+                                    "WATCHDOG: pipeline invocation stalled (no model-call progress for 300s) or hit the hard ceiling — failing loudly (hung call abandoned; note the underlying subprocess, if any, may outlive this future)"
+                                );
+                                return Err(format!(
+                                    "watchdog timeout after {elapsed}s — pipeline {pipeline_id} invocation made no progress"
+                                ));
+                            }
+                        }
+                    }
                 }
             }
         };

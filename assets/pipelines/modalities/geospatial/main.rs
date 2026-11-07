@@ -1295,7 +1295,7 @@ async fn persist_geo_graph(graph: &mut GeoGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("geospatial".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Geospatial graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1780,6 +1780,10 @@ pub async fn execute(input: GeoModalityAction) -> Result<GeoModalityOutput, Stri
             }
         }
         GeoModalityAction::Analyze { data, extract_features, build_topology, compute_terrain, extract_routes } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(GeoModalityOutput { success: false, error: Some("geospatial analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a geospatial analysis provider (geospatial-mcp) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let source_description = match &data {
                 GeoDataSource::GeoJSON { file_path } => format!("GeoJSON: {}", file_path),
@@ -2044,6 +2048,9 @@ Return ONLY valid JSON:
         }
 
         GeoModalityAction::TransformCoordinates { points, from_crs, to_crs } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB — docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): this arm used to return invented numbers/records for CRS transformation (coordinates were left unchanged and only RELABELLED with the new CRS — wrong data presented as transformed; no PROJ binding exists). It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(GeoModalityOutput { success: false, error: Some("CRS transformation (coordinates were left unchanged and only RELABELLED with the new CRS — wrong data presented as transformed; no PROJ binding exists) is not implemented: nothing was computed (the previous output was fabricated: literal metrics / unchanged data presented as a result)".to_string()), ..Default::default() }); }
             // In production: use PROJ library bindings. Here: identity transform with metadata
             let transformed = points.into_iter().map(|mut p| {
                 p.crs = Some(to_crs.clone());
@@ -2233,6 +2240,9 @@ Return ONLY valid JSON:
         }
 
         GeoModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(GeoModalityOutput { success: false, error: Some("geospatial export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let ext = match &format {
                 GeoExportFormat::GeoJSON => "geojson", GeoExportFormat::Shapefile => "shp",
                 GeoExportFormat::KML => "kml", GeoExportFormat::KMZ => "kmz",
@@ -2347,7 +2357,7 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
             i += 2;
         } else {
             i += 1;
@@ -2403,5 +2413,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

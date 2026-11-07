@@ -290,7 +290,7 @@ pub async fn execute(input: BlueprintCreateInput) -> Result<BlueprintCreateOutpu
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
-    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); } }
+    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); } }
     // The host passes the full PipelineInput envelope {data, context} — every
     // real invocation from the orchestrator is wrapped this way. Unwrap
     // `data` when present; a bare BlueprintCreateInput (direct CLI use) also
@@ -306,5 +306,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
         Err(e) => { println!("{}", serde_json::json!({"success": false, "error": e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

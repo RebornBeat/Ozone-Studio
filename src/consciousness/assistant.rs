@@ -20,13 +20,12 @@
 //! call per pass. On LLM failure the raw findings persist anyway — loud
 //! degradation, never fabricated polish.
 //!
-//! Interval: same clamp idiom as `i_loop.rs` — the configured interval is
-//! honored but never below MIN_INTERVAL_SECS (1800s), because the
-//! documented-minute-level defaults are budget-incompatible. Event wake:
-//! `notify_wake()` is called from the single task-ripple site
-//! (`src/task/mod.rs emit_task_ripple`) so a task completing or slipping
-//! wakes the pass early — the interval is the fallback, not the gate
-//! (amt_loop's exact convention).
+//! TRIGGER (EVENT-DRIVEN since 2026-11-04 — supersedes the old 1800 s interval clamp): the loop wakes on a META RIPPLE
+//! (`orchestrator/ripple_class.rs`; `notify_wake()` is called from the single task-ripple site `src/task/mod.rs
+//! emit_task_ripple` and by the meta ripple dispatcher), with a minimum gap between paid passes (default 5 min), a startup
+//! catch-up, a 6 h liveness heartbeat, and — because "due soon / overdue" has no write to ripple on — a sleep until the
+//! NEXT REAL DEADLINE (`due_at`/`remind_at`) in the order. `assistant_interval_ms` is retained in config but is no longer a
+//! schedule. Change detection still skips an unchanged findings set (no paid call).
 //!
 //! Output: ONE "assistant-check-up" insight container per firing pass via
 //! the SAME `persist_insight` path the review pass uses (content via
@@ -47,12 +46,14 @@ const PROMPT_PIPELINE_ID: u64 = 9;
 
 /// Real safety floor — 1800s (30 min) matches amt_loop/meta_loop/i_loop's
 /// proven interval exactly. Never below, whatever config says.
+#[allow(dead_code)]
 const MIN_INTERVAL_SECS: u64 = 1800;
 
 /// Wake signal — poked by emit_task_ripple so real task events wake the
 /// pass instantly; the interval is the fallback (amt_loop's convention).
 static ASSISTANT_WAKE: std::sync::OnceLock<tokio::sync::Notify> = std::sync::OnceLock::new();
 
+#[allow(dead_code)]
 fn wake() -> &'static tokio::sync::Notify {
     ASSISTANT_WAKE.get_or_init(tokio::sync::Notify::new)
 }
@@ -60,7 +61,7 @@ fn wake() -> &'static tokio::sync::Notify {
 /// Wake the assistant check-up loop immediately — called from
 /// emit_task_ripple (the one real task-lifecycle ripple site).
 pub fn notify_wake() {
-    wake().notify_one();
+    crate::orchestrator::ripple_class::assistant_gate().wake();
 }
 
 const DAY: u64 = 86_400;
@@ -615,7 +616,7 @@ async fn run_one_check_up(
         let a = crate::context_budget::assemble(
             vec![
                 crate::context_budget::ContextSection::new("scaffold-head", 0, format!(
-                    "This is the personal assistant's periodic check-up, not a response to a user request.\n\nREAL FINDINGS from the operator's task order (all machine-computed, none guessed):\n"
+                    "{}\n\nThis is the personal assistant's periodic check-up, not a response to a user request.\n\nREAL FINDINGS from the operator's task order (all machine-computed, none guessed):\n", run_spans::now_line()
                 )),
                 crate::context_budget::ContextSection::new("findings", 5, findings_block.clone()),
                 crate::context_budget::ContextSection::new("scaffold-tail", 0, "\n\nIn 3-5 sentences, write the operator a brief, honest check-up note: what needs attention first and why, anything these findings suggest about the day, no filler, no manufactured urgency beyond what the findings themselves carry.\n\nReturn ONLY valid JSON:\n{{\"digest\": \"your 3-5 sentence check-up note\"}}".replace("{{", "{").replace("}}", "}")),
@@ -838,27 +839,33 @@ pub async fn run_assistant_loop(
         tracing::info!("Assistant loop disabled (ConsciousnessConfig.enabled = false) — /assistant/feed stays available as a derived read");
         return;
     }
-    let configured_secs = configured_interval_ms / 1000;
-    let interval_secs = configured_secs.max(MIN_INTERVAL_SECS);
-    if configured_secs < MIN_INTERVAL_SECS {
-        tracing::warn!(
-            configured_secs,
-            clamped_to = interval_secs,
-            "assistant: configured assistant_interval_ms is below the real budget-safety floor — clamped"
-        );
-    }
-    tracing::info!(interval_secs, "Assistant check-up loop starting");
-    let mut ticker = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
+    // EVENT-DRIVEN (2026-11-04): wakes on a META RIPPLE (a task transition rides it), with a minimum gap,
+    // a startup catch-up, and — because "due soon / overdue" is a real time event with no write to ripple on —
+    // a sleep until the NEXT REAL DEADLINE in the order (due_at / remind_at), capped by the long heartbeat.
+    // `assistant_interval_ms` is retained for compatibility but is no longer a schedule.
+    let heartbeat = crate::orchestrator::ripple_class::heartbeat_secs();
+    let min_gap = crate::orchestrator::ripple_class::assistant_min_gap_secs();
+    tracing::info!(
+        heartbeat_secs = heartbeat,
+        min_gap_secs = min_gap,
+        configured_interval_ms,
+        "Assistant check-up loop starting (event-driven: meta ripple + next-deadline + startup catch-up + heartbeat)"
+    );
+    let gate = crate::orchestrator::ripple_class::assistant_gate();
     let mut last_fire: Option<u64> = None;
     loop {
-        tokio::select! {
-            _ = ticker.tick() => {}
-            _ = wake().notified() => {}
-        }
+        // sleep no longer than the next real deadline (+5 s so the item is genuinely due when we look)
+        let wait = match next_deadline(&tasks).await {
+            Some(d) if d > now_secs() => (d - now_secs() + 5).min(heartbeat),
+            _ => heartbeat,
+        };
+        let trigger = gate.wait_next(wait, min_gap).await;
+        tracing::info!(?trigger, "assistant: woken");
         // TRACE ROOT (trace spine): one root per pass; the digest call and
         // its capture rows carry it. run_one_check_up traces its own outcomes
         // (persisted id, empty pass, digest failure).
         let ctx = crate::trace::TraceCtx::new_root("loop-pass");
+        let _own_pass = crate::orchestrator::ripple_class::pass_guard(&ctx.trace_id);
         let mut stats = PassStats::default();
         let persisted = crate::trace::with_trace(
             ctx.clone(),
@@ -881,7 +888,20 @@ pub async fn run_assistant_loop(
         } else {
             tracing::debug!("assistant: idle pass — no span recorded (no findings, or unchanged since the last digest)");
         }
+        gate.pass_finished();
     }
+}
+
+/// The next real deadline in the order: the soonest future `due_at` / `remind_at` among open tasks.
+async fn next_deadline(tasks: &Arc<tokio::sync::RwLock<crate::task::TaskManager>>) -> Option<u64> {
+    let now = now_secs();
+    let all = tasks.read().await.list_tasks(None, None, 10_000, 0).await;
+    all.iter()
+        .filter(|t| !matches!(t.status.as_str(), "completed" | "done" | "cancelled" | "failed"))
+        .flat_map(|t| [t.due_at, t.remind_at])
+        .flatten()
+        .filter(|d| *d > now)
+        .min()
 }
 
 fn now_secs() -> u64 {

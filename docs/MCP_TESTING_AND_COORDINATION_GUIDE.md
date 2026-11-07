@@ -23,7 +23,7 @@
 | security-mcp | `tools/security-mcp/` | :3240 | 8 | Yes — live this session (CLI, `/mcp/call` gated stack proven) |
 | gcal-mcp | `tools/gcal-mcp/` | :3241 (own default) | 7 | **Batch 1 — FIXED & VERIFIED**, was broken (see §2) |
 | cerebrix-mcp | `tools/cerebrix-mcp/` | :3245 | 3 (eeg_window, karaone_trial, karaone_stats) | **Batch 2 — PASS**, no bugs (see §2c) |
-| threed-mcp | `tools/threed-mcp/` | :3250 | 1 (eeg_cap_costume_generate — documented headless-hang limitation) | **PASS** (retest, see §2d) — hang limitation reproduced exactly as documented, internal 20s timeout guard confirmed working |
+| threed-mcp | `tools/threed-mcp/` | :3250 | 3 (eeg_cap_costume_generate — the rat 3D ASSET, NOT an EEG tool, historical name, documented headless-hang limitation; clock_generate — Blender → GLB/STL/PNG; cad_clock_generate — CadQuery → STEP/STL; added 2026-11-04) | **PASS** (retest, see §2d) — hang limitation reproduced exactly as documented, internal 20s timeout guard confirmed working |
 | connectome-mcp (+ circuit_service.py :3256) | `tools/connectome-mcp/` | :3255 | 3 (fly_*) | **Batch 2 — PASS, 1 real bug found** (see §2c) |
 | re-mcp | `tools/re-mcp/` | :3260 | 3 | Yes — built and proven this session |
 | ozone-shared-context | `tools/ozone-shared-context/` | stdio, not HTTP | 16 (the coordination surface this whole session runs on) | Continuously, all session |

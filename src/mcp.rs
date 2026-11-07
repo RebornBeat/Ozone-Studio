@@ -158,7 +158,9 @@ fn installed_call_gate() -> Option<CallGate> {
 pub fn check_call_gate(span_kind: &str, subject: &str, text: &str) -> Result<(), String> {
     match installed_call_gate() {
         Some(gate) => {
-            let hay: String = format!("{} {}", subject, text.chars().take(4000).collect::<String>());
+            // WHOLE text (no-cap doctrine, 2026-11-04): this used to inspect only the first 4,000 characters, so a Block phrase
+            // later in a large call/pipeline input was never checked — a gate must see everything it gates.
+            let hay: String = format!("{} {}", subject, text);
             if let Err(reason) = gate(&hay) {
                 crate::orchestrator::entry_gate::record_gate_verdict(span_kind, subject, "blocked", Some(&reason), None);
                 return Err(reason);
@@ -173,6 +175,22 @@ pub fn check_call_gate(span_kind: &str, subject: &str, text: &str) -> Result<(),
             Ok(())
         }
     }
+}
+
+/// POST-CALL HOOK (2026-11-04): `/mcp/call` persists a tool's `graph` block as containers and writes the S13 `tool_calls.jsonl` capture row;
+/// the orchestrator's in-process path (`call_global`) did neither, so provider steps' results never reached the graph and their calls left no
+/// capture row. The host installs ONE hook at boot (`install_post_call_hook`, lib.rs) that does both with `called_from` provenance. It runs for
+/// EVERY call (success or failure) and receives (tool, agent, call context, success, error, output).
+pub type PostCallHook = std::sync::Arc<
+    dyn Fn(String, String, Option<serde_json::Value>, bool, Option<String>, Option<serde_json::Value>) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+static POST_CALL_HOOK: std::sync::OnceLock<PostCallHook> = std::sync::OnceLock::new();
+
+/// Install the post-call hook (first install wins).
+pub fn install_post_call_hook(hook: PostCallHook) {
+    let _ = POST_CALL_HOOK.set(hook);
 }
 
 pub async fn call_global(call: McpCall) -> McpResult {
@@ -193,7 +211,12 @@ pub async fn call_global(call: McpCall) -> McpResult {
             usage: serde_json::json!({ "agent": call.agent, "tool": call.tool, "allowed": false }),
         };
     };
-    registry.invoke(call, usage, None).await
+    let (hook_tool, hook_agent, hook_ctx) = (call.tool.clone(), call.agent.clone(), call.context.clone());
+    let result = registry.invoke(call, usage, None).await;
+    if let Some(hook) = POST_CALL_HOOK.get() {
+        hook(hook_tool, hook_agent, hook_ctx, result.success, result.error.clone(), result.output.clone()).await;
+    }
+    result
 }
 
 /// Validated caller identity forwarded to tool servers (see

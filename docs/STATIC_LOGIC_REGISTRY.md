@@ -221,3 +221,11 @@ confirmed contention bug; keep-warm remains available for operators who
 want it (the reach-only code path exists) but nothing defaults it on and
 nothing will. Local-model cold-spawn cost (~25-40s) is accepted as the
 price of the optional configuration.
+
+
+## Update 2026-11-04 — step types
+`execute_step` now dispatches on the STEP TYPE first: `provider` (MCP provider step, `execute_provider_step`) → `pipeline_id == 56` (web search, `execute_web_search_step`) → generic pipeline-9 step. Provider steps are exempt from the pipeline-id coercion (pipeline_id 0); the pipeline-56 exception is unchanged.
+
+
+## Update 2026-11-07 (uncompiled) — deterministic request hygiene
+`request_terms.rs`: stopword list (static), `sanitize_keywords` (≥3 usable terms guaranteed, >4-word items expanded), `floor_selection` (relevant → "base orchestration" → all). Deterministic, no model call; runs BEFORE Stage 3 search. Intent: static hygiene precedes any zero-shot judgement; the model-based relevance filter is backlog E13 (ZERO_SHOT_EXPANSION_GUIDE). Walk completion metric (13 core stages) is a static definition in `scorecard.mjs`/`WALK_COMPLETION_GUIDE.md`.

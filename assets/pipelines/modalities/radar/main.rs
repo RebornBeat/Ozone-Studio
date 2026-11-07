@@ -1136,7 +1136,24 @@ Return ONLY valid JSON array:
         self.infer_semantic_relationships_validated(nodes).await.0
     }
 
-    async fn infer_semantic_relationships_validated(
+    async fn infer_semantic_relationships_validated(&self, nodes: &[RadarGraphNode]) -> (Vec<(u64, u64, RadarEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(
         &self,
         nodes: &[RadarGraphNode],
     ) -> (Vec<(u64, u64, RadarEdgeType, String)>, semantic_relations::Validated) {
@@ -1146,12 +1163,11 @@ Return ONLY valid JSON array:
 
         let node_summaries: Vec<serde_json::Value> = nodes
             .iter()
-            .take(30)
             .map(|n| {
                 serde_json::json!({
                     "node_id": n.node_id,
                     "type": format!("{:?}", n.node_type),
-                    "content": n.content.chars().take(80).collect::<String>(),
+                    "content": n.content.to_string(),
                     "range_m": n.range_m,
                     "velocity_ms": n.radial_velocity_ms,
                 })
@@ -1385,7 +1401,7 @@ async fn persist_radar_graph(graph: &mut RadarGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("radar".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Radar graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -2137,6 +2153,11 @@ async fn analyze_radar_data(
     extract_sar: bool,
     extract_polarimetry: bool,
 ) -> RadarModalityOutput {
+    // HONESTY (audit X3): used to return a description-only analysis with `success: true`; an analysis that did not run FAILS.
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return RadarModalityOutput { success: false, error: Some("radar analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a radar analysis provider (MCP) to enable it".to_string()), ..Default::default() };
+    }
     let analysis_id = executor.generate_id();
 
     // Describe the data source for LLM context
@@ -2674,6 +2695,9 @@ pub async fn execute(input: RadarModalityAction) -> Result<RadarModalityOutput, 
         }
 
         RadarModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(RadarModalityOutput { success: false, error: Some("radar export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let graph = executor.load_graph(graph_id)?;
             let export_path = format!("/tmp/radar_export_{}_{:?}.dat", graph_id, format);
             // NOT IMPLEMENTED: no file is written.
@@ -2756,7 +2780,7 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
             i += 2;
         } else {
             i += 1;
@@ -2821,5 +2845,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

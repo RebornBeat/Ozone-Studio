@@ -1049,6 +1049,112 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ACTION IMPLEMENTATIONS
 // ============================================================================
 
+// ============================================================================
+// REAL SEQUENCE HELPERS (doctrine audit 2026-11-04, D1–D9 of docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): the analysis below used to return canned
+// data (a literal "ATGCATGCATGC" for any file source, one invented ORF, an "ExampleGene", "MMMM" translations, an invented SNP, a canned alignment).
+// What can be computed correctly from the real input now is (ORF scan, exact motif search, standard-code translation); the rest FAILS honestly.
+// ============================================================================
+
+/// Raw / FASTA text only. Anything else would need a real reader — never a substituted placeholder sequence.
+fn sequence_text(sequence: &SequenceData) -> Result<String, String> {
+    match sequence {
+        SequenceData::Raw(s) => Ok(s.to_uppercase()),
+        SequenceData::FASTA(s) => Ok(s.lines().filter(|l| !l.starts_with('>')).collect::<String>().to_uppercase()),
+        _ => Err("this sequence source is not readable here: only Raw and FASTA text are supported — no sequence was read (a placeholder sequence is NOT substituted)".to_string()),
+    }
+}
+
+/// Standard genetic code (NCBI table 1), codon index = 16*b1 + 4*b2 + b3 with bases ordered T, C, A, G.
+const STD_CODONS: &str = "FFLLSSSSYY**CC*WLLLLPPPPHHQQRRRRIIIMTTTTNNKKSSRRVVVVAAAADDEEGGGG";
+
+fn base_idx(c: char) -> Option<usize> {
+    match c {
+        'T' | 'U' => Some(0),
+        'C' => Some(1),
+        'A' => Some(2),
+        'G' => Some(3),
+        _ => None,
+    }
+}
+
+fn translate_codon(c: &[char]) -> char {
+    if c.len() != 3 {
+        return 'X';
+    }
+    match (base_idx(c[0]), base_idx(c[1]), base_idx(c[2])) {
+        (Some(a), Some(b), Some(d)) => STD_CODONS.chars().nth(a * 16 + b * 4 + d).unwrap_or('X'),
+        _ => 'X',
+    }
+}
+
+fn reverse_complement(s: &str) -> String {
+    s.chars()
+        .rev()
+        .map(|c| match c {
+            'A' => 'T',
+            'T' => 'A',
+            'U' => 'A',
+            'C' => 'G',
+            'G' => 'C',
+            o => o,
+        })
+        .collect()
+}
+
+/// Real six-frame ORF scan: ATG … first in-frame stop (TAA/TAG/TGA), longest-first per start (no nested ORFs), at least `min_aa` residues.
+fn scan_orfs(seq: &str, min_aa: usize) -> Vec<ORF> {
+    let len = seq.chars().count();
+    let mut out: Vec<ORF> = Vec::new();
+    for (strand, text) in [(Strand::Forward, seq.replace('U', "T")), (Strand::Reverse, reverse_complement(&seq.replace('U', "T")))] {
+        let chars: Vec<char> = text.chars().collect();
+        for frame in 0..3usize {
+            let mut i = frame;
+            while i + 3 <= chars.len() {
+                if chars[i..i + 3] == ['A', 'T', 'G'] {
+                    let mut j = i;
+                    let mut protein = String::new();
+                    let mut stop: Option<String> = None;
+                    while j + 3 <= chars.len() {
+                        let codon = &chars[j..j + 3];
+                        let aa = translate_codon(codon);
+                        if aa == '*' {
+                            stop = Some(codon.iter().collect());
+                            break;
+                        }
+                        protein.push(aa);
+                        j += 3;
+                    }
+                    if let Some(stop_codon) = stop {
+                        if protein.chars().count() >= min_aa {
+                            let (start0, end0) = (i, j + 3); // [start0, end0) on this strand's text
+                            let (start, end) = match strand {
+                                Strand::Reverse => (len - end0 + 1, len - start0),
+                                _ => (start0 + 1, end0),
+                            };
+                            out.push(ORF {
+                                orf_id: format!("orf_{}", out.len() + 1),
+                                start,
+                                end,
+                                strand: strand.clone(),
+                                frame: frame as u8,
+                                start_codon: "ATG".to_string(),
+                                stop_codon,
+                                protein_length: protein.chars().count(),
+                                protein_sequence: protein,
+                            });
+                        }
+                        i = j + 3;
+                        continue;
+                    }
+                    // no in-frame stop before the end of the sequence: not a complete ORF — move past this ATG
+                }
+                i += 3;
+            }
+        }
+    }
+    out
+}
+
 async fn analyze_sequence(
     sequence: &SequenceData,
     sequence_type: SequenceType,
@@ -1064,7 +1170,8 @@ async fn analyze_sequence(
                 .collect::<String>()
                 .to_uppercase()
         }
-        _ => "ATGCATGCATGC".to_string(),
+        // D1 (audit): any other source used to be replaced by the literal "ATGCATGCATGC" and "analysed" — fabricated input. It now FAILS.
+        _ => return Err("this sequence source is not readable here: only Raw and FASTA text are supported — no sequence was read (a placeholder sequence is NOT substituted)".to_string()),
     };
 
     let length = seq.len();
@@ -1105,19 +1212,9 @@ async fn analyze_sequence(
         SequenceStatistics::default()
     };
 
+    // D2 (audit): used to return ONE invented ORF (positions 1..300, protein "MXXX...") for any sequence. Now a real six-frame scan (empty = none found).
     let orfs = if find_orfs && (sequence_type == SequenceType::DNA || sequence_type == SequenceType::RNA) {
-        // Simple ORF finding (in production, use proper algorithm)
-        vec![ORF {
-            orf_id: "orf_1".to_string(),
-            start: 1,
-            end: length.min(300),
-            strand: Strand::Forward,
-            frame: 0,
-            start_codon: "ATG".to_string(),
-            stop_codon: "TAA".to_string(),
-            protein_sequence: "MXXX...".to_string(),
-            protein_length: (length.min(300) - 1) / 3,
-        }]
+        scan_orfs(&seq, 30)
     } else {
         vec![]
     };
@@ -1139,11 +1236,15 @@ async fn analyze_sequence(
     })
 }
 
+#[allow(unused_variables)]
 async fn annotate_sequence(
     sequence: &SequenceData,
     reference_db: Option<String>,
     _feature_types: &[FeatureType],
 ) -> Result<AnnotationResult, String> {
+    // HONESTY (audit D3): the original body below returns a canned example; it is kept in place but UNREACHABLE — the arm FAILS instead of presenting canned output as a result.
+    #[allow(unreachable_code)]
+    { return Err("sequence annotation is not implemented: no annotation database is wired (the previous output was a canned example gene); use the dna-mcp provider".to_string()); }
     // In production, use actual annotation databases
 
     Ok(AnnotationResult {
@@ -1210,59 +1311,56 @@ async fn annotate_sequence(
 }
 
 async fn align_sequences(
-    sequences: &[SequenceData],
-    algorithm: AlignmentAlgorithm,
+    _sequences: &[SequenceData],
+    _algorithm: AlignmentAlgorithm,
     _gap_open: f32,
     _gap_extend: f32,
 ) -> Result<AlignmentResult, String> {
-    // In production, use actual alignment algorithms
-
-    let aligned_seqs: Vec<AlignedSequence> = sequences
-        .iter()
-        .enumerate()
-        .map(|(i, _seq)| AlignedSequence {
-            sequence_id: format!("seq_{}", i + 1),
-            name: format!("Sequence {}", i + 1),
-            aligned_sequence: "ATGC--ATGC".to_string(),
-            start: 1,
-            end: 8,
-        })
-        .collect();
-
-    Ok(AlignmentResult {
-        alignment_id: format!("aln_{}", generate_graph_id()),
-        aligned_sequences: aligned_seqs,
-        score: 85.0,
-        length: 10,
-        identity: 80.0,
-        similarity: 85.0,
-        gaps: 20.0,
-        consensus: Some("ATGCNATGC".to_string()),
-        conservation: vec![1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0],
-    })
+    // HONESTY (audit D4): used to return a canned alignment "ATGC--ATGC" with score 85 / identity 80 for any input.
+    Err("sequence alignment is not implemented: no aligner is wired (the previous output was a canned alignment); use the dna-mcp provider".to_string())
 }
 
 async fn find_motifs(
-    _sequence: &SequenceData,
+    sequence: &SequenceData,
     _motif_db: Option<String>,
     custom_patterns: &[String],
 ) -> Result<MotifResult, String> {
-    let motifs: Vec<MotifMatch> = custom_patterns
-        .iter()
-        .enumerate()
-        .map(|(i, pattern)| MotifMatch {
-            motif_id: format!("motif_{}", i + 1),
-            motif_name: format!("Pattern {}", i + 1),
-            pattern: pattern.clone(),
-            start: 10,
-            end: 20,
-            strand: Strand::Forward,
-            score: 0.85,
-            p_value: Some(1e-5),
-            matched_sequence: "ATGCATGCAT".to_string(),
-        })
-        .collect();
-
+    // REAL exact-pattern search on both strands (audit D5: used to report every pattern at fixed positions 10..20 with a canned match string).
+    let seq = sequence_text(sequence)?;
+    let rc = reverse_complement(&seq);
+    let len = seq.len();
+    let mut motifs: Vec<MotifMatch> = Vec::new();
+    for (pi, pattern) in custom_patterns.iter().enumerate() {
+        let pat = pattern.trim().to_uppercase();
+        if pat.is_empty() {
+            continue;
+        }
+        for (strand, text) in [(Strand::Forward, &seq), (Strand::Reverse, &rc)] {
+            let mut from = 0usize;
+            while let Some(pos) = text[from..].find(&pat) {
+                let p0 = from + pos;
+                let (start, end) = match strand {
+                    Strand::Reverse => (len - (p0 + pat.len()) + 1, len - p0),
+                    _ => (p0 + 1, p0 + pat.len()),
+                };
+                motifs.push(MotifMatch {
+                    motif_id: format!("motif_{}_{}", pi + 1, motifs.len() + 1),
+                    motif_name: format!("Pattern {}", pi + 1),
+                    pattern: pattern.clone(),
+                    start,
+                    end,
+                    strand: strand.clone(),
+                    score: 0.0, // no model score: an exact match is simply present
+                    p_value: None,
+                    matched_sequence: text[p0..p0 + pat.len()].to_string(),
+                });
+                from = p0 + 1;
+                if from >= text.len() {
+                    break;
+                }
+            }
+        }
+    }
     Ok(MotifResult {
         sequence_id: format!("seq_{}", generate_graph_id()),
         total_matches: motifs.len(),
@@ -1270,10 +1368,14 @@ async fn find_motifs(
     })
 }
 
+#[allow(unused_variables)]
 async fn predict_structure(
     _sequence: &SequenceData,
     method: StructurePredictionMethod,
 ) -> Result<StructurePrediction, String> {
+    // HONESTY (audit D6): the original body below returns a canned example; it is kept in place but UNREACHABLE — the arm FAILS instead of presenting canned output as a result.
+    #[allow(unreachable_code)]
+    { return Err("structure prediction is not implemented: no predictor is wired (the previous output was canned); use a protein-structure provider".to_string()); }
     Ok(StructurePrediction {
         sequence_id: format!("seq_{}", generate_graph_id()),
         method,
@@ -1302,21 +1404,45 @@ async fn translate_sequence(
     reading_frame: i32,
     codon_table: u32,
 ) -> Result<TranslationResult, String> {
-    let seq = match sequence {
-        SequenceData::Raw(s) => s.clone(),
-        _ => "ATGATGATGATG".to_string(),
+    // REAL translation with the standard genetic code (audit D7: used to return "MMMM" for everything). Frames 0..2 forward, -1..-3 reverse strand.
+    if codon_table != 1 {
+        return Err(format!("codon table {codon_table} is not implemented: only the standard genetic code (table 1) is supported — nothing was translated"));
+    }
+    let seq = sequence_text(sequence)?;
+    let (text, offset) = if reading_frame >= 0 {
+        (seq.replace('U', "T"), reading_frame as usize)
+    } else {
+        (reverse_complement(&seq.replace('U', "T")), (-reading_frame - 1) as usize)
     };
-
-    // Simple translation (in production, use proper codon table)
-    let protein = "MMMM".to_string();
-
+    if offset > 2 {
+        return Err(format!("reading frame {reading_frame} is invalid: use 0..2 (forward) or -1..-3 (reverse)"));
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut protein = String::new();
+    let mut stop_codons: Vec<usize> = Vec::new();
+    let mut start_codons: Vec<usize> = Vec::new();
+    let mut i = offset;
+    let mut aa_index = 0usize;
+    while i + 3 <= chars.len() {
+        let codon = &chars[i..i + 3];
+        let aa = translate_codon(codon);
+        if aa == '*' {
+            stop_codons.push(aa_index);
+        }
+        if codon == ['A', 'T', 'G'] {
+            start_codons.push(aa_index);
+        }
+        protein.push(aa);
+        aa_index += 1;
+        i += 3;
+    }
     Ok(TranslationResult {
         input_sequence: seq,
         protein_sequence: protein,
         reading_frame,
         codon_table,
-        stop_codons: vec![],
-        start_codons: vec![0],
+        stop_codons,
+        start_codons,
     })
 }
 
@@ -1325,36 +1451,8 @@ async fn find_variants(
     _reference: &SequenceData,
     _min_quality: f32,
 ) -> Result<VariantResult, String> {
-    Ok(VariantResult {
-        query_id: "query_1".to_string(),
-        reference_id: "ref_1".to_string(),
-        variants: vec![Variant {
-            variant_id: "var_1".to_string(),
-            position: 100,
-            reference: "A".to_string(),
-            alternate: "G".to_string(),
-            variant_type: VariantType::SNP,
-            quality: 30.0,
-            depth: Some(50),
-            allele_frequency: Some(0.5),
-            effect: Some(VariantEffect {
-                effect_type: "missense".to_string(),
-                impact: EffectImpact::Moderate,
-                gene: Some("Gene1".to_string()),
-                transcript: Some("TR001".to_string()),
-                amino_acid_change: Some("A100G".to_string()),
-                codon_change: Some("GCA>GCG".to_string()),
-            }),
-            clinical_significance: Some(ClinicalSignificance::Uncertain),
-            dbsnp_id: Some("rs12345".to_string()),
-        }],
-        total_variants: 1,
-        snp_count: 1,
-        indel_count: 0,
-        transition_count: 1,
-        transversion_count: 0,
-        ti_tv_ratio: None,
-    })
+    // HONESTY (audit D8): used to return one invented SNP (position 100, A→G, quality 30, depth 50) for ANY pair of sequences.
+    Err("variant calling is not implemented: no variant caller is wired (the previous output was a single invented SNP); use the dna-mcp provider".to_string())
 }
 
 async fn zsei_query(query: serde_json::Value) -> Result<serde_json::Value, String> {
@@ -1383,7 +1481,7 @@ async fn persist_dna_graph(graph: &mut DNAGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("dna".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!(
@@ -1899,7 +1997,7 @@ async fn main() {
     let mut input_json = String::new();
     let mut ai = 1usize;
     while ai < args.len() {
-        if args[ai] == "--input" && ai + 1 < args.len() { input_json = args[ai + 1].clone(); ai += 2; } else { ai += 1; }
+        if args[ai] == "--input" && ai + 1 < args.len() { input_json = ozone_input_arg(&args[ai + 1]); ai += 2; } else { ai += 1; }
     }
     if input_json.is_empty() {
         use std::io::Read;
@@ -1961,6 +2059,29 @@ mod tests {
     }
 
     #[test]
+    fn real_orf_scan_and_translation_use_the_input() {
+        // 1 start + 30 alanine codons + stop = a 31-aa ORF on the forward strand
+        let seq = format!("{}{}{}", "ATG", "GCT".repeat(30), "TAA");
+        let orfs = scan_orfs(&seq, 30);
+        assert!(orfs.iter().any(|o| matches!(o.strand, Strand::Forward) && o.protein_length == 31 && o.start == 1 && o.end == seq.len()));
+        // the canned sequence from the old placeholder has NO 30-aa ORF — and so must report none (it used to report one invented ORF)
+        assert!(scan_orfs("ATGCATGCATGCATGC", 30).is_empty());
+        assert_eq!(translate_codon(&['A', 'T', 'G']), 'M');
+        assert_eq!(translate_codon(&['T', 'A', 'A']), '*');
+        assert_eq!(translate_codon(&['G', 'C', 'T']), 'A');
+        assert_eq!(reverse_complement("ATGC"), "GCAT");
+    }
+
+    #[tokio::test]
+    async fn unreadable_source_and_unimplemented_actions_fail_instead_of_fabricating() {
+        let alignment = align_sequences(&[], AlignmentAlgorithm::default(), 0.0, 0.0).await;
+        assert!(alignment.is_err());
+        let motifs = find_motifs(&SequenceData::Raw("ACGTACGT".into()), None, &["CGT".to_string()]).await.unwrap();
+        // real positions (2..4 and 6..8 on the forward strand) — not the canned 10..20
+        assert!(motifs.motifs.iter().any(|m| m.start == 2 && m.end == 4 && matches!(m.strand, Strand::Forward)));
+    }
+
+    #[test]
     fn test_sequence_position() {
         let pos1 = SequencePosition { start: 100, end: 200 };
         let pos2 = SequencePosition { start: 150, end: 250 };
@@ -1970,5 +2091,18 @@ mod tests {
         assert!(!pos1.overlaps(&pos3));
         assert!(pos1.contains(150));
         assert!(!pos1.contains(250));
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

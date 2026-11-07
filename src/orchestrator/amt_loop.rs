@@ -773,7 +773,9 @@ async fn try_reexpand_one(
         _ => String::new(),
     };
     let prompt = format!(
-        r#"You are deepening one specific branch of an existing analysis tree.
+        r#"{}
+
+You are deepening one specific branch of an existing analysis tree.
 
 OVERALL REQUEST: {}
 {}{}BRANCH TO DEEPEN (currently has no concrete supporting detail): {}{}{}
@@ -787,7 +789,7 @@ Return ONLY valid JSON:
     "details": ["specific detail 1", "specific detail 2"]
 }}
 If nothing substantive can be added, return: {{"details": []}}"#,
-        root_content, signals_block, trigger_block, target_content, guidance_block, related_block
+        crate::orchestrator::run_spans::now_line(), root_content, signals_block, trigger_block, target_content, guidance_block, related_block
     );
 
     let mut input = serde_json::json!({

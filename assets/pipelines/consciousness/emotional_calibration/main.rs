@@ -484,11 +484,16 @@ pub async fn execute(input: EmotionalCalibrationInput) -> Result<EmotionalCalibr
             }
             
             store.baseline.last_updated = now();
+            let (snap_valence, snap_arousal, snap_dominance) = (
+                store.baseline.default_valence,
+                store.baseline.default_arousal,
+                store.baseline.default_dominance,
+            );
             store.snapshots.push(BaselineSnapshot {
                 timestamp: now(),
-                valence: store.baseline.default_valence,
-                arousal: store.baseline.default_arousal,
-                dominance: store.baseline.default_dominance,
+                valence: snap_valence,
+                arousal: snap_arousal,
+                dominance: snap_dominance,
                 trigger: "force_update".to_string(),
             });
             
@@ -511,7 +516,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     
@@ -527,5 +532,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

@@ -1,5 +1,7 @@
 # Efficiency Guide — making this system fast without degrading it
 
+> **UPDATE 2026-11-04:** statements below about the AMT/I-Loop/meta-loop "1800 s interval" describe the pre-event-driven design; the I-Loop, meta-loop and assistant are now event-driven with a minimum gap between paid passes (docs/RIPPLE_CATEGORIES_AND_META_RIPPLE_2026-11-04.md). Stage 2 prompt calls now use a request-proportional HTTP timeout (45 s + 1 s/10 requested tokens, cap 600 s) instead of a flat 120 s.
+
 > Companion to `docs/ZERO_SHOT_EXPANSION_GUIDE.md` (the mechanical-vs-judgment
 > doctrine) and `docs/STATIC_LOGIC_REGISTRY.md` (the mechanical-logic side).
 > This doc is the third leg: given a call site or a code path, how do you

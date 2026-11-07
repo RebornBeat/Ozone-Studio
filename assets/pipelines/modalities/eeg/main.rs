@@ -1024,6 +1024,12 @@ pub async fn execute(input: Value) -> Result<Value, String> {
 // ACTION IMPLEMENTATIONS
 // ============================================================================
 
+/// HONESTY (doctrine audit 2026-11-04, R-FAB): the five analysis functions below used to RETURN SYNTHETIC DATA — hard-coded channel lists, random band
+/// powers (`rand_float()` = clock nanoseconds), a modulo-pattern sleep hypnogram over 600 invented epochs, literal network metrics — while ignoring
+/// the recording they were handed (the unit test "analysed" a file that does not exist and passed). Fabricated analysis is worse than none, so
+/// they now FAIL with this message until a real implementation exists (real EEG signal work lives in tools/cerebrix-mcp / tools/connectome-mcp).
+const EEG_ANALYSIS_NOT_IMPLEMENTED: &str = "EEG analysis is not implemented in this pipeline: no analysis was performed on the recording (the previous output was synthetic placeholder data and has been removed); use the cerebrix / connectome MCP providers for real EEG signal analysis";
+
 async fn analyze_eeg(
     _eeg_data: &EEGData,
     depth: AnalysisDepth,
@@ -1031,6 +1037,10 @@ async fn analyze_eeg(
     extract_bands_flag: bool,
     detect_artifacts_flag: bool,
 ) -> Result<EEGAnalysisResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     // In production, use MNE-Python or similar for actual analysis
 
     let channels = vec![
@@ -1148,6 +1158,8 @@ async fn analyze_eeg(
     })
 }
 
+#[allow(dead_code)]
+/// DO NOT USE (doctrine audit R-FAB): clock-nanosecond noise is not data. Kept only so the unreachable legacy bodies still type-check until they are deleted.
 fn rand_float() -> f32 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().subsec_nanos();
@@ -1159,6 +1171,10 @@ async fn detect_events(
     event_types: &[EventType],
     _threshold: f32,
 ) -> Result<EventDetectionResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     let events: Vec<EEGEvent> = event_types
         .iter()
         .enumerate()
@@ -1196,6 +1212,10 @@ async fn extract_bands(
     _window_seconds: f32,
     _overlap: f32,
 ) -> Result<BandExtractionResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     let bands_to_use = if bands.is_empty() {
         FrequencyBand::standard_bands()
     } else {
@@ -1232,6 +1252,10 @@ async fn compute_connectivity(
     method: ConnectivityMethod,
     frequency_band: Option<FrequencyBand>,
 ) -> Result<ConnectivityResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     let channels = vec!["Fp1".to_string(), "Fp2".to_string(), "Cz".to_string()];
     let n = channels.len();
 
@@ -1288,6 +1312,10 @@ async fn stage_sleep(
     _eeg_data: &EEGData,
     epoch_length: f32,
 ) -> Result<SleepStagingResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     let epoch_len = if epoch_length <= 0.0 { 30.0 } else { epoch_length };
     let total_epochs = 600; // 5 hours
 
@@ -1374,6 +1402,10 @@ async fn compute_erp(
     events: &[TimeMarker],
     _baseline: Option<(f32, f32)>,
 ) -> Result<ERPResult, String> {
+    #[allow(unreachable_code, unused_variables)]
+    {
+        return Err(EEG_ANALYSIS_NOT_IMPLEMENTED.to_string());
+    }
     let channels = vec!["Fz".to_string(), "Cz".to_string(), "Pz".to_string()];
     let times: Vec<f32> = (-100..500).map(|t| t as f32 / 1000.0).collect();
 
@@ -1434,7 +1466,7 @@ async fn persist_eeg_graph(graph: &mut EEGGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("eeg".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!(
@@ -1909,7 +1941,7 @@ async fn main() {
     let mut input_json = String::new();
     let mut ai = 1usize;
     while ai < args.len() {
-        if args[ai] == "--input" && ai + 1 < args.len() { input_json = args[ai + 1].clone(); ai += 2; } else { ai += 1; }
+        if args[ai] == "--input" && ai + 1 < args.len() { input_json = ozone_input_arg(&args[ai + 1]); ai += 2; } else { ai += 1; }
     }
     if input_json.is_empty() {
         use std::io::Read;
@@ -1967,8 +1999,9 @@ mod tests {
             }
         });
 
+        // the synthetic analysis was removed (R-FAB): an unimplemented analysis must FAIL, never "succeed" on a file that does not exist
         let result = execute(input).await;
-        assert!(result.is_ok());
+        assert!(result.is_err() || result.as_ref().map(|v| v["success"] == serde_json::json!(false)).unwrap_or(false));
     }
 
     #[test]
@@ -1977,5 +2010,18 @@ mod tests {
         assert_eq!(bands.len(), 5);
         assert_eq!(bands[0].name, "Delta");
         assert_eq!(bands[2].name, "Alpha");
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

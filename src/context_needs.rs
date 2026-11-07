@@ -176,7 +176,7 @@ impl ContextNeed {
                                     .and_then(|k| k.as_str())
                             })
                             .unwrap_or("");
-                        let extract: String = raw.chars().take(400).collect();
+                        let extract: String = raw.to_string(); // whole (no-cap doctrine, audit #19); the consumer fits the block to the window
                         if name.is_empty() && extract.is_empty() {
                             excluded.push(id);
                             continue;

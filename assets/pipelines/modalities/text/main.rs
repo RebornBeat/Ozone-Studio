@@ -2377,18 +2377,48 @@ impl TextModalityPipeline {
                     },
                     _ => text,
                 };
-                self.analyze_text(
+                // ANALYSIS REUSE (operator 2026-11-06): identical content analysed under identical parameters is NOT re-run — Stage 2 costs
+                // dozens of sequential model calls per request. The stored entry holds the exact text (compared on a hit, so a hash
+                // collision can never return another document's analysis). Re-running content with a different model later is done by
+                // the operator / meta, ripple and file beacon as needed (re-run with OZONE_ANALYSIS_REUSE=0 or clear the entry) — no
+                // replacement or model-tier logic lives here.
+                let reuse_key = analysis_reuse_key(
                     &text,
                     max_chunk_tokens,
-                    depth,
+                    &format!("{:?}", depth),
                     extract_entities,
                     extract_topics,
                     &available_modalities,
-                    processing_path,
-                    executor_model,
-                    grammar_mode,
-                )
-                .await
+                    &format!("{:?}", processing_path),
+                    &format!("{:?}", executor_model),
+                    &format!("{:?}", grammar_mode),
+                );
+                let reuse_on = analysis_reuse_enabled();
+                if let Some(mut cached) = reuse_on.then(|| load_reused_analysis(&reuse_key, &text)).flatten() {
+                    eprintln!("text analysis: REUSED stored analysis {} (identical content + parameters) — no model calls", reuse_key);
+                    if let Ok(mut r) = ANALYSIS_REUSED.lock() {
+                        *r = Some(reuse_key.clone());
+                    }
+                    cached.processing_time_ms = Some(start_time.elapsed().as_millis() as u64); // this request's real time
+                    return cached;
+                }
+                let analysed = self
+                    .analyze_text(
+                        &text,
+                        max_chunk_tokens,
+                        depth,
+                        extract_entities,
+                        extract_topics,
+                        &available_modalities,
+                        processing_path,
+                        executor_model,
+                        grammar_mode,
+                    )
+                    .await;
+                if analysed.success && reuse_on {
+                    store_reused_analysis(&reuse_key, &text, &analysed);
+                }
+                analysed
             }
 
             TextModalityAction::CreateGraph {
@@ -2676,26 +2706,23 @@ impl TextModalityPipeline {
 
     /// Require `n` CONSECUTIVE YES answers. Aborts on the first non-YES.
     async fn confirm_times_yes(&self, prompt: String, n: u32) -> bool {
-        for _ in 0..n {
-            let (answer, _) = self.ask_yes_no(prompt.clone()).await;
-            match answer {
-                Some(true) => continue,
-                _ => return false,
-            }
-        }
-        true
+        self.confirm_times(prompt, n, true).await
     }
 
     /// Require `n` CONSECUTIVE NO answers. Aborts on the first non-NO.
     async fn confirm_times_no(&self, prompt: String, n: u32) -> bool {
-        for _ in 0..n {
-            let (answer, _) = self.ask_yes_no(prompt.clone()).await;
-            match answer {
-                Some(false) => continue,
-                _ => return false,
-            }
-        }
-        true
+        self.confirm_times(prompt, n, false).await
+    }
+
+    /// ONE vote primitive for the whole system: delegates to the shared contract `k_validation::confirm_consecutive_with` (the same
+    /// function the host's AMT validation uses). Both routes decide identically (ALL `n` answers must equal `want`; the first vote
+    /// gates); the optimized route (config `[optimization] concurrent_votes`) only changes whether the last 4 votes run concurrently.
+    async fn confirm_times(&self, prompt: String, n: u32, want: bool) -> bool {
+        let policy = k_validation::ValidationPolicy { strength: n };
+        // `this`/`question` are Copy references, moved into the closure and into each async block (so every vote's future owns its refs)
+        let this = self;
+        let question = &prompt;
+        k_validation::confirm_consecutive_with(move || async move { this.ask_yes_no(question.clone()).await.0 }, &policy, want).await
     }
 
     // ========================================================================
@@ -2858,7 +2885,7 @@ Return ONLY valid JSON with a single one-word answer:
         );
         let chunk_view = fit_chunk_to_window("sentence_order_validation.chunk", chunk_text, 20, &build);
         let prompt = build(&chunk_view);
-        self.confirm_times_yes(prompt, 5).await
+        self.confirm_times_yes(prompt, k_validation::configured_strength()).await
     }
 
     /// Correction validation: does the corrected version preserve the
@@ -2882,7 +2909,7 @@ QUESTION: Is the corrected sentence a grammatically correct version of the origi
 Return ONLY valid JSON with a single one-word answer:
 {{"answer": "YES"}} or {{"answer": "NO"}}"#
         );
-        self.confirm_times_yes(prompt, 5).await
+        self.confirm_times_yes(prompt, k_validation::configured_strength()).await
     }
 
     /// Duplicate backstop — invoked ONLY when the deterministic span guard is
@@ -2918,14 +2945,8 @@ Return ONLY valid JSON with a single one-word answer:
             },
             candidate = candidate.original,
         );
-        for _ in 0..5 {
-            let (answer, _) = self.ask_yes_no(prompt.clone()).await;
-            match answer {
-                Some(false) => continue, // not a duplicate — keep confirming
-                _ => return false,
-            }
-        }
-        true
+        // ONE vote primitive (was a hand-rolled copy of the same 5x-NO loop): the candidate is new only if EVERY vote says NO
+        self.confirm_times_no(prompt, k_validation::configured_strength()).await
     }
 
     /// The Path 2 sentence loop: extract → deterministic span guard →
@@ -3009,7 +3030,7 @@ QUESTION: Is there any sentence in this chunk after the last captured one that h
 Return ONLY valid JSON with a single one-word answer:
 {{"answer": "YES"}} if an uncaptured sentence remains, {{"answer": "NO"}} if the chunk is fully captured."#,
                     );
-                    if seen.is_empty() || self.confirm_times_no(prompt, 5).await {
+                    if seen.is_empty() || self.confirm_times_no(prompt, k_validation::configured_strength()).await {
                         completed_in_order = true;
                         break;
                     }
@@ -3288,7 +3309,7 @@ Return ONLY valid JSON with a single one-word answer:
         );
         let chunk_view = fit_chunk_to_window("validate_section_event.chunk", chunk_text, 20, &build);
         let order_prompt = build(&chunk_view);
-        if !self.confirm_times_yes(order_prompt, 5).await {
+        if !self.confirm_times_yes(order_prompt, k_validation::configured_strength()).await {
             return false;
         }
 
@@ -3313,7 +3334,7 @@ Return ONLY valid JSON with a single one-word answer:
             etype = etype,
             level = level,
         );
-        self.confirm_times_yes(class_prompt, 5).await
+        self.confirm_times_yes(class_prompt, k_validation::configured_strength()).await
     }
 
     /// Apply a validated section event to the carry state and emit a
@@ -3562,7 +3583,7 @@ Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#,
         );
         let chunk_view = fit_chunk_to_window("validate_paragraph.chunk", chunk_text, 20, &build);
         let order_prompt = build(&chunk_view);
-        if !self.confirm_times_yes(order_prompt, 5).await {
+        if !self.confirm_times_yes(order_prompt, k_validation::configured_strength()).await {
             return false;
         }
 
@@ -3580,7 +3601,7 @@ QUESTION: Does the text above form ONE coherent paragraph — a single block dev
 
 Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#
                 );
-                return self.confirm_times_yes(boundary_prompt, 5).await;
+                return self.confirm_times_yes(boundary_prompt, k_validation::configured_strength()).await;
             }
         }
         true
@@ -3822,7 +3843,7 @@ Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#,
         );
         let chunk_view = fit_chunk_to_window("validate_modality.chunk", chunk_text, 20, &build);
         let order_prompt = build(&chunk_view);
-        if !self.confirm_times_yes(order_prompt, 5).await {
+        if !self.confirm_times_yes(order_prompt, k_validation::configured_strength()).await {
             return false;
         }
 
@@ -3845,7 +3866,7 @@ QUESTION: Is the content above correctly classified as modality '{m}' (and not p
 
 Return ONLY valid JSON: {{"answer": "YES"}} or {{"answer": "NO"}}"#
         );
-        self.confirm_times_yes(class_prompt, 5).await
+        self.confirm_times_yes(class_prompt, k_validation::configured_strength()).await
     }
 
     /// Full per-chunk modality loop (both paths). Updates the carry; returns
@@ -4331,7 +4352,7 @@ RESPOND ONLY WITH JSON ARRAY: ["keyword1", "keyword2", ...]"#,
     async fn extract_entities_from_text(&self, text: &str) -> Vec<ExtractedEntity> {
         let prompt = format!(
             r#"Extract named entities from this text.
-Return as JSON array with objects: {{"text": "entity", "type": "PERSON|ORG|LOCATION|DATE|PRODUCT|EVENT|TECHNOLOGY|OTHER", "confidence": 0.0-1.0}}
+Return as JSON array with objects: {{"text": "entity", "type": "PERSON|ORG|LOCATION|DATE|PRODUCT|EVENT|TECHNOLOGY|OTHER"}}
 
 TEXT:
 {}
@@ -4398,7 +4419,7 @@ RESPOND ONLY WITH JSON ARRAY."#,
                             Some(ExtractedEntity {
                                 text: v.get("text")?.as_str()?.to_string(),
                                 entity_type: v.get("type")?.as_str()?.to_string(),
-                                confidence: v.get("confidence")?.as_f64()? as f32,
+                                confidence: 1.0, // an entity the model listed is AFFIRMED (present); confidence retired — never requested, never required (a missing one used to DROP the entity)
                                 start_offset: None,
                                 end_offset: None,
                             })
@@ -5026,7 +5047,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
             })
             .collect();
         keywords.sort_by(|a, b| b.frequency.cmp(&a.frequency));
-        keywords.truncate(20);
+        // all extracted keywords kept (no top-20 cut — doctrine audit #33)
 
         // FALLBACK only — confirmed live this session that Path1
         // (ChunkZeroShot, the only path any real orchestrate request has
@@ -5055,7 +5076,7 @@ RESPOND ONLY WITH JSON ARRAY: ["topic1", "topic2", ...]"#,
                     relevance: 1.0,
                 })
                 .collect();
-            keywords.truncate(20);
+            // all extracted keywords kept (no top-20 cut — doctrine audit #33)
         }
 
         // Structure extraction is graph-native now; the rule-based form is
@@ -5294,7 +5315,7 @@ Return ONLY valid JSON with a single one-word answer:
                     b_summary = b_summary,
                     subj = subj_a,
                 );
-                if self.confirm_times_yes(prompt, 5).await {
+                if self.confirm_times_yes(prompt, k_validation::configured_strength()).await {
                     let b_take = pools.remove(i + 1);
                     pools[i].extend(b_take);
                     continue;
@@ -8250,6 +8271,110 @@ fn fit_chunk_to_window(
     assembled.text
 }
 
+// ============================================================================
+// ANALYSIS REUSE STORE (2026-11-06) — `<data_dir>/analysis_cache/text/<key>.json`
+// ============================================================================
+// Key = two independent FNV-1a 64 hashes over (pipeline version, text, every parameter that changes the analysis). The entry stores
+// the FULL text; a hit is accepted only when the stored text equals the request text exactly. No model tier in the key (operator:
+// work with the model we have). `window_tokens` records the reading window the analysis was made under (information only).
+// `OZONE_ANALYSIS_REUSE=0` turns the store off. Best-effort: any I/O error means "no reuse", never a failed analysis.
+
+/// Bump when the Stage 2 algorithm changes in a way that makes older stored analyses wrong.
+const ANALYSIS_PIPELINE_VERSION: &str = "text-analysis-v1";
+
+/// Set (to the reused key) when this request was served from the store; drained into the output by `output_with_context_records`.
+static ANALYSIS_REUSED: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+fn fnv1a64(seed: u64, bytes: &[u8]) -> u64 {
+    let mut h: u64 = seed;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(0x100000001b3);
+    }
+    h
+}
+
+#[allow(clippy::too_many_arguments)]
+fn analysis_reuse_key(
+    text: &str,
+    max_chunk_tokens: u32,
+    depth: &str,
+    extract_entities: bool,
+    extract_topics: bool,
+    available_modalities: &[String],
+    processing_path: &str,
+    executor_model: &str,
+    grammar_mode: &str,
+) -> String {
+    let mut mods: Vec<&str> = available_modalities.iter().map(|m| m.as_str()).collect();
+    mods.sort_unstable();
+    let material = format!(
+        "{ANALYSIS_PIPELINE_VERSION}\x1f{max_chunk_tokens}\x1f{depth}\x1f{extract_entities}\x1f{extract_topics}\x1f{}\x1f{processing_path}\x1f{executor_model}\x1f{grammar_mode}\x1f{}\x1f{text}",
+        mods.join(","),
+        text.len()
+    );
+    let a = fnv1a64(0xcbf29ce484222325, material.as_bytes());
+    let b = fnv1a64(0x84222325cbf29ce4, material.as_bytes());
+    format!("{a:016x}{b:016x}")
+}
+
+/// Whether the reuse store is consulted/written by the analyze path (`OZONE_ANALYSIS_REUSE=0` turns it off). Checked ONLY there — the
+/// load/store helpers themselves always work on the directory, so tests of the store do not depend on this process-global switch.
+fn analysis_reuse_enabled() -> bool {
+    !env::var("OZONE_ANALYSIS_REUSE").map(|v| v == "0").unwrap_or(false)
+}
+
+fn analysis_reuse_dir() -> Option<std::path::PathBuf> {
+    let base = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    Some(std::path::Path::new(&base).join("analysis_cache").join("text"))
+}
+
+fn load_reused_analysis(key: &str, text: &str) -> Option<TextModalityOutput> {
+    load_reused_analysis_in(&analysis_reuse_dir()?, key, text)
+}
+
+/// Directory-explicit form (the env-derived wrapper above is what the pipeline uses; tests call this with their own directory so they
+/// never touch the process-global `OZONE_ZSEI_DATA_DIR`, which other tests also set).
+fn load_reused_analysis_in(dir: &std::path::Path, key: &str, text: &str) -> Option<TextModalityOutput> {
+    let path = dir.join(format!("{key}.json"));
+    let entry: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    if entry.get("text").and_then(|t| t.as_str()) != Some(text) {
+        return None; // hash collision or a damaged entry: never reuse another document's analysis
+    }
+    let output: TextModalityOutput = serde_json::from_value(entry.get("output")?.clone()).ok()?;
+    if !output.success {
+        return None;
+    }
+    Some(output)
+}
+
+fn store_reused_analysis(key: &str, text: &str, output: &TextModalityOutput) {
+    if let Some(dir) = analysis_reuse_dir() {
+        store_reused_analysis_in(&dir, key, text, output);
+    }
+}
+
+fn store_reused_analysis_in(dir: &std::path::Path, key: &str, text: &str, output: &TextModalityOutput) {
+    if std::fs::create_dir_all(dir).is_err() {
+        return;
+    }
+    let entry = serde_json::json!({
+        "key": key,
+        "pipeline_version": ANALYSIS_PIPELINE_VERSION,
+        "analyzed_at": chrono::Utc::now().to_rfc3339(),
+        "window_tokens": active_window_tokens(),
+        "text": text,
+        "output": output,
+    });
+    let path = dir.join(format!("{key}.json"));
+    let tmp = dir.join(format!("{key}.json.tmp{}", std::process::id()));
+    if let Ok(body) = serde_json::to_string(&entry) {
+        if std::fs::write(&tmp, body).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
 /// The pipeline output with its context records attached: `context_trims`
 /// (every cut made while building prompts) and `window_unknown`. Drains the
 /// collector so a serve-mode request never reports another request's cuts.
@@ -8265,6 +8390,8 @@ fn output_with_context_records<T: serde::Serialize>(output: &T) -> serde_json::V
     if let Some(obj) = value.as_object_mut() {
         obj.insert("context_trims".to_string(), serde_json::json!(trims));
         obj.insert("window_unknown".to_string(), serde_json::json!(window_unknown));
+        let reused = ANALYSIS_REUSED.lock().ok().and_then(|mut r| r.take());
+        obj.insert("analysis_reused".to_string(), serde_json::json!(reused));
     }
     value
 }
@@ -8411,11 +8538,44 @@ mod tests {
         assert_eq!(chunks.first().unwrap().index, 0);
     }
 
+    #[test]
+    fn analysis_reuse_key_is_stable_and_parameter_sensitive() {
+        let k = |t: &str, chunk: u32, ents: bool, path: &str| {
+            analysis_reuse_key(t, chunk, "Standard", ents, true, &["code".to_string(), "math".to_string()], path, "Llm", "GraphNative")
+        };
+        assert_eq!(k("hello", 2000, true, "Path1"), k("hello", 2000, true, "Path1"));
+        assert_ne!(k("hello", 2000, true, "Path1"), k("hello!", 2000, true, "Path1"), "content");
+        assert_ne!(k("hello", 2000, true, "Path1"), k("hello", 8000, true, "Path1"), "chunk size (model size)");
+        assert_ne!(k("hello", 2000, true, "Path1"), k("hello", 2000, false, "Path1"), "flags");
+        assert_ne!(k("hello", 2000, true, "Path1"), k("hello", 2000, true, "Path2"), "processing path");
+        // modality order must not matter
+        let a = analysis_reuse_key("x", 1, "Standard", true, true, &["b".to_string(), "a".to_string()], "Path1", "Llm", "GraphNative");
+        let b = analysis_reuse_key("x", 1, "Standard", true, true, &["a".to_string(), "b".to_string()], "Path1", "Llm", "GraphNative");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn analysis_store_round_trips_and_never_returns_another_documents_analysis() {
+        // own directory, NO process-global env (OZONE_ZSEI_DATA_DIR is also set by other tests running in parallel)
+        let dir = std::env::temp_dir().join(format!("ozone_reuse_test_{}_{}", std::process::id(), "store"));
+        let _ = std::fs::remove_dir_all(&dir);
+        let out = TextModalityOutput { success: true, ..Default::default() };
+        store_reused_analysis_in(&dir, "k1", "the exact text", &out);
+        assert!(load_reused_analysis_in(&dir, "k1", "the exact text").is_some(), "identical text is reused");
+        assert!(load_reused_analysis_in(&dir, "k1", "a different text under a colliding key").is_none(), "exact-text check");
+        assert!(load_reused_analysis_in(&dir, "missing", "the exact text").is_none());
+        let failed = TextModalityOutput { success: false, ..Default::default() };
+        store_reused_analysis_in(&dir, "k2", "t", &failed);
+        assert!(load_reused_analysis_in(&dir, "k2", "t").is_none(), "a failed analysis is never reused");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn test_analyze_text() {
         let executor = Arc::new(MockExecutor);
         let pipeline = TextModalityPipeline::new(executor);
 
+        std::env::set_var("OZONE_ANALYSIS_REUSE", "0"); // a unit test with a mock executor must never read or write the reuse store
         let input = TextModalityInput {
             action: TextModalityAction::Analyze {
                 text: "John Smith works at Acme Corp. He joined on January 15, 2024.".to_string(),

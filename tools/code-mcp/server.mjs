@@ -62,7 +62,7 @@ const server = createServer((req, res) => {
   }
   const chunks = [];
   let size = 0;
-  req.on("data", (c) => { size += c.length; if (size > 20 * 1024 * 1024) req.destroy(); else chunks.push(c); });
+  req.on("data", (c) => { size += c.length; if (size > (Number(process.env.OZONE_MCP_MAX_BODY_BYTES) || 512 * 1024 * 1024)) { if (!res.headersSent) { res.writeHead(413, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ success: false, error: `request body is over the transport guard (OZONE_MCP_MAX_BODY_BYTES, default 512 MiB) — NOT processed (nothing was cut); this is a host-memory guard, not a model limit — chunk the call` }), () => req.destroy()); } } else chunks.push(c); });
   req.on("end", async () => {
     let tool = "";
     let input = {};

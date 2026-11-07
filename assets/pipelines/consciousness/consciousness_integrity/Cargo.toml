@@ -15,6 +15,7 @@ lazy_static = "1.4"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { version = "1.35", features = ["full"] }
+sha2 = "0.10"
 
 # Own workspace root: independent unit — builds anywhere, connects over the wire.
 [workspace]

@@ -131,7 +131,7 @@ The "LIVE FLEET CAPTURE" table above is a 2026-09-29 snapshot: its header has fi
 | security-mcp | 3240 | OZONE_SECURITY_PORT |
 | gcal-mcp | 3241 | OZONE_GCAL_PORT |
 | cerebrix-mcp | 3245 | OZONE_CEREBRIX_PORT |
-| threed-mcp | 3250 | OZONE_THREED_PORT |
+| threed-mcp | 3250 | OZONE_THREED_PORT | tools: eeg_cap_costume_generate (rat 3D asset — historical name, not EEG), clock_generate, cad_clock_generate; PROVIDER id `threed-mcp` |
 | connectome-mcp | 3255 | OZONE_CONNECTOME_PORT (circuit service 3256: OZONE_CIRCUIT_SERVICE_PORT) |
 | re-mcp | 3260 | OZONE_RE_PORT |
 | zoom-mcp | 3265 | OZONE_ZOOM_PORT |
@@ -157,3 +157,7 @@ Notes: zoom-mcp (3265) was missing from the fleet table; like gcal it is LOCKED 
 
 ### Gate coverage note (2026-11-02)
 Every MCP server binds 127.0.0.1 and trusts the host's `/mcp/call` for G1 (session/internal token), G5 (jurisdiction) and G10 (usage ledger); in-process callers (`call_global`) now pass the same jurisdiction snapshot via `mcp::set_call_gate`. A tool port called directly on loopback skips all of that — `terminal-mcp` has `OZONE_TERMINAL_TOKEN`; the others have no equivalent yet (see `CALL_ROUTE_REGISTRY.md` §3). Role-gated tools must key on the envelope's `agent_trust` (`validated` | `declared`); `terminal-mcp` now does.
+
+
+## Terminology 2026-11-04
+A **tool** is a registry call contract (name + capabilities + endpoint); the **provider** is the MCP server process behind one or more tools (id = the `tools/<dir>` name in the supervisor port table, e.g. `threed-mcp`) — the unit that is installed, started, trusted and shared. Methodologies declare PROVIDERS per rule; blueprint creation turns each into a provider STEP. See docs/MCP_TOOLS_MODALITY_ARCHITECTURE_REVIEW_2026-11-04.md.

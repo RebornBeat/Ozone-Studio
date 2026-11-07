@@ -32,7 +32,7 @@ Rule of the registry: **a route with no row here is a bypass until proven otherw
 | R4 | Pipeline-internal LLM — modality `llm_zero_shot` / `SubprocessExecutor` via the prompt binary | modality pipeline process | G8 (the binary is the limiter), G9; **not** G3/G6 (inside an already-gated run) | per-pipeline `capture::capture_zero_shot_call` | ⚠️ see R4 notes |
 | R5 | `/pipeline/execute` (external) | HTTP, session token | session validated, consciousness-category refused, G2, **G4 added 2026-11-02** | span row | ✅ (was missing jurisdiction) |
 | R6 | `/mcp/call` (external agents) | HTTP | **G1 (now PROTECTED)**, G5, G10, identity forwarded as `agent_trust` | usage ledger, activity hub | ✅ |
-| R7 | `mcp::call_global` (tool routing, sensor tick, approved assistant proposals) | in-process | G10 + **G4 added 2026-11-02** (these skipped jurisdiction) | usage ledger + gate verdict rows | ✅ |
+| R7 | `mcp::call_global` (**PROVIDER STEPS**, search-based tool routing, sensor tick, approved assistant proposals) | in-process | G10 + **G4 added 2026-11-02** (these skipped jurisdiction); per-step gate for provider steps/tool routing | usage ledger + gate verdict rows (`provider-step` / `tool-routing`) + **post-call hook 2026-11-04**: a tool's `graph` block is persisted with `called_from` provenance and an S13 capture row is written (parity with R6); provider health ledger; the same hook writes the **S13 `tool_calls.jsonl` capture row for every call (success and failure, `transport: call_global`)** | ✅ (the context-mirror coordination ripple is still R6-only — open) |
 | R8 | `/task/step/rerun` | HTTP | G1 (`/task/`), session token, G2 `gated_checked` | span row | ✅ |
 | R9 | `/capture/ingest_image`, `/capture/ingest_uidocument` | HTTP | G1, G2 | graph write choke point | ✅ |
 | R10 | Text modality → document MCP (`document_extract`) | text pipeline → host `/mcp/call` | G1 (internal token), G5, G10 | usage ledger | ✅ new 2026-11-02 |
@@ -107,3 +107,23 @@ Already correct and left as is: decision review (blank ⇒ unjudged ⇒ awaiting
 
 ## 5. Consciousness pipelines: registry ↔ crates (corrected 2026-11-02)
 The earlier statement that the names "do not match" was incomplete: `pipeline::registry::binary_alias` already linked 39/41/42/43/47 and is now extended to 40, 44, 45, 46, 50, 51, 53, 54 (only 48/49 have no crate) — the table with the evidence is in `SPAN_OUT_AND_RESUME_2026-11-02.md` §5. None of the consciousness binaries is built yet; the host-native store remains the working implementation (stage 12 verifies it; stage 13 no longer dispatches the dashboard "Update" call, which the crate cannot deserialize).
+
+
+## 6. Additions 2026-11-04 (entry points added or changed this wave)
+
+| # | Route / entry | Guardrails | What it does |
+|---|---|---|---|
+| R13 | `POST /context/span_out` | G1 (`/context/` PROTECTED), read-only | runs the one span-out algorithm from given seeds; items carry per-modality `fanout{entries, sequence_head, class_counts}` (`graph_fanout.rs`) |
+| R14 | `GET /ripple/meta/status` | G1 (`/ripple/`), read-only | meta-ripple counters + per-loop wakes/passes + policy (min gap / heartbeat) |
+| R15 | `GET /marketplace/overview` | G1 (`/marketplace/`), read-only | providers (MCP servers) + their tools/health, paired peers (catalog exchange honestly `not_implemented`), methodologies with per-rule `requires` (declared) and keyword-INFERRED providers, blueprints (provider steps), WANTED capabilities, provider health, binding proposals, policy |
+| R16 | **Provider step** (`BlueprintStep.step_type == "provider"`) → `execute_provider_step` → `tool_routing::call_provider_for_step` → `call_global` (R7) | per-step jurisdiction gate, metering, internal token; failure pauses the walk (resumable) | calls a PROVIDER (MCP server) chosen from a methodology rule's `requires[]`; tool chosen at call time from the step text (or pinned); result reaches the carrying step; containers get `called_from` keywords |
+| R17 | Meta-ripple dispatcher (`ripple_class::spawn_meta_ripple_dispatcher`) | free, no LLM | classifies every graph event; meta events wake I-Loop, meta-loop, assistant, AMT loop |
+| R18 | Capability-gap capture (`tool_binding::record_capability_gaps`) | free | required-but-unregistered providers → `capability_gaps.json` + `CapabilityGap` meta ripple + methodology gap |
+
+**Superseded statements in this file:** R7 above (was "tool routing, sensor tick, approved proposals"); §3 residue about tool routing caps (2,000/4,000 chars, ≤2 tools, 200-char query) — REMOVED 2026-11-04 (no-cap doctrine; the block is fitted to the window by the caller). Stage 3 no longer lists "the first 8 registry entries" — we either have a capability or we don't.
+
+
+## Update 2026-11-07 (uncompiled) — capability closure + walk metrics
+| R19 | **Capability closure** (`stages.rs::close_capability_gaps`, between Stage 6 and 7) → per gap: strength-N necessity vote (`confirm_yes_no_orch` → shared `k_validation` primitive) → `draft_methodology_for_capability` (pipeline 12 `Create`) → `replan` through Stage 6 | 1 vote set + 1 draft call per real need; progress-bounded | gaps → `not_needed` / `drafted` in `capability_gaps.json` |
+| R20 | **Walk metrics** (`orchestration_events::append_walk_metric`) | free | one line per stage event → `zsei_data/walk_metrics.jsonl`; read by `tools/walk-scorecard/scorecard.mjs` |
+Vote strength for every vote route = `k_validation::configured_strength()` (`OZONE_VALIDATION_STRENGTH` ← `[k_algorithms] validation_preset`).

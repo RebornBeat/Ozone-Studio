@@ -1091,10 +1091,27 @@ Return ONLY valid JSON array:
     }
 
     async fn infer_semantic_relationships_validated(&self, nodes: &[NetworkGraphNode]) -> (Vec<(u64, u64, NetworkEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(&self, nodes: &[NetworkGraphNode]) -> (Vec<(u64, u64, NetworkEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let node_list: Vec<serde_json::Value> = nodes.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
-            "content": n.content.chars().take(80).collect::<String>(),
+            "content": n.content.to_string(),
             "ip": n.ip_address, "port": n.port, "protocol": n.protocol,
         })).collect();
 
@@ -1593,7 +1610,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: NetworkAnalysisResu
     }
 
     // ── FLOW PATH NODES (sample top 50 flows) ──
-    for flow in analysis.flow_paths.iter().take(50) {
+    for flow in analysis.flow_paths.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let fnid = node_id;
         nodes.push(NetworkGraphNode {
             node_id: fnid, node_type: NetworkNodeType::FlowPathNode,
@@ -1766,7 +1783,7 @@ async fn persist_network_graph(graph: &mut NetworkGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("network".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Network graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1840,6 +1857,10 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
             }
         }
         NetworkModalityAction::Analyze { data, discover_hosts, map_services, analyze_flows, detect_anomalies, compute_resilience } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(NetworkModalityOutput { success: false, error: Some("network analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a network analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let source_description = match &data {
                 NetworkDataSource::NmapXML { file_path } => format!("nmap: {}", file_path),
@@ -1994,6 +2015,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
         }
 
         NetworkModalityAction::DiscoverNetwork { target, scan_type, port_range, timeout_ms } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB — docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): this arm used to return invented numbers/records for network discovery (hosts the arm did not discover were returned). It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(NetworkModalityOutput { success: false, error: Some("network discovery (hosts the arm did not discover were returned) is not implemented: nothing was computed (the previous output was fabricated: literal metrics / unchanged data presented as a result)".to_string()), ..Default::default() }); }
             // In production: invoke nmap/masscan with constructed arguments, parse output
             // Here we return an empty discovery result with a description
             let cidr = target.cidr.as_deref().unwrap_or("0.0.0.0/0");
@@ -2010,6 +2034,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
         }
 
         NetworkModalityAction::AnalyzeCapture { pcap_path, flow_timeout_sec, layer_depth } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB — docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): this arm used to return invented numbers/records for packet-capture analysis. It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(NetworkModalityOutput { success: false, error: Some("packet-capture analysis is not implemented: nothing was computed (the previous output was fabricated: literal metrics / unchanged data presented as a result)".to_string()), ..Default::default() }); }
             // In production: use libpcap/dpkt/scapy via subprocess to reconstruct flows
             let analysis = NetworkAnalysisResult {
                 analysis_id: executor.generate_id(),
@@ -2455,6 +2482,9 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
         }
 
         NetworkModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(NetworkModalityOutput { success: false, error: Some("network export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let ext = match &format {
                 NetworkExportFormat::GraphML => "graphml",
                 NetworkExportFormat::Cytoscape_JSON => "json",
@@ -2482,11 +2512,11 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                 NetworkExportFormat::DOT => {
                     let mut dot = format!("digraph network_{} {{\n", graph_id);
                     dot.push_str("  graph [layout=neato];\n");
-                    for n in graph.nodes.iter().take(200) {
+                    for n in graph.nodes.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                         let label = n.content.chars().take(30).collect::<String>().replace('"', "'");
                         dot.push_str(&format!("  {} [label=\"{}\"];\n", n.node_id, label));
                     }
-                    for e in graph.edges.iter().take(500) {
+                    for e in graph.edges.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                         dot.push_str(&format!("  {} -> {} [label=\"{:?}\"];\n", e.from_node, e.to_node, e.edge_type));
                     }
                     dot.push_str("}\n");
@@ -2494,12 +2524,12 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                 }
                 NetworkExportFormat::D3_JSON => {
                     let d3 = serde_json::json!({
-                        "nodes": graph.nodes.iter().take(500).map(|n| serde_json::json!({
+                        "nodes": graph.nodes.iter().map(|n| serde_json::json!({ // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                             "id": n.node_id, "label": n.content.chars().take(30).collect::<String>(),
                             "type": format!("{:?}", n.node_type), "group": format!("{:?}", n.node_type),
                             "ip": n.ip_address, "criticality": n.criticality, "hotness": n.hotness_score,
                         })).collect::<Vec<_>>(),
-                        "links": graph.edges.iter().take(1000).map(|e| serde_json::json!({
+                        "links": graph.edges.iter().map(|e| serde_json::json!({ // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                             "source": e.from_node, "target": e.to_node,
                             "type": format!("{:?}", e.edge_type), "weight": e.weight,
                         })).collect::<Vec<_>>(),
@@ -2509,10 +2539,10 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                 NetworkExportFormat::Cytoscape_JSON => {
                     let cyto = serde_json::json!({
                         "elements": {
-                            "nodes": graph.nodes.iter().take(500).map(|n| serde_json::json!({
+                            "nodes": graph.nodes.iter().map(|n| serde_json::json!({ // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                                 "data": { "id": n.node_id.to_string(), "label": n.content.chars().take(30).collect::<String>(), "type": format!("{:?}", n.node_type) }
                             })).collect::<Vec<_>>(),
-                            "edges": graph.edges.iter().take(1000).map(|e| serde_json::json!({
+                            "edges": graph.edges.iter().map(|e| serde_json::json!({ // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                                 "data": { "id": e.edge_id.to_string(), "source": e.from_node.to_string(), "target": e.to_node.to_string(), "type": format!("{:?}", e.edge_type) }
                             })).collect::<Vec<_>>(),
                         }
@@ -2640,11 +2670,11 @@ pub async fn execute(input: NetworkModalityAction) -> Result<NetworkModalityOutp
                     NetworkOperation::ExportTopologyFile => {
                         // Trigger default DOT export
                         let mut dot = format!("digraph net_{} {{\n", graph_id);
-                        for n in graph.nodes.iter().take(200) {
+                        for n in graph.nodes.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                             let label = n.content.chars().take(25).collect::<String>().replace('"', "'");
                             dot.push_str(&format!("  n{} [label=\"{}\"];\n", n.node_id, label));
                         }
-                        for e in graph.edges.iter().take(500) {
+                        for e in graph.edges.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                             dot.push_str(&format!("  n{} -> n{};\n", e.from_node, e.to_node));
                         }
                         dot.push_str("}\n");
@@ -2701,7 +2731,7 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
             i += 2;
         } else {
             i += 1;
@@ -2753,5 +2783,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

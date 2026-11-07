@@ -5,10 +5,15 @@
 //! - **GATED**: dead unless `OZONE_TOOL_ROUTING=1`. The ruling (#46: the
 //!   simulation owns pipeline/MCP/tool calls) becomes a flag the operator
 //!   flips — the code being present never turns it on.
-//! - **SIMULATION-SELECTED**: only tools already in `state.applicable_tools`
-//!   (stage 3's capability view, consciousness-filtered) are candidates.
-//! - **BUDGETED**: at most 2 tools per step, 2,000 chars per result, 4,000
-//!   chars per block — a tool result is context, never the step.
+//! - **FALLBACK PATH** (2026-11-04): methodologies bind PROVIDERS per rule and blueprint creation turns each into a
+//!   PROVIDER STEP (`call_provider_for_step` below, executed by `execute_provider_step`); this module's search-based
+//!   context block is the fallback/learning path. Candidates are tools in `state.applicable_tools` (stage 3, consciousness-
+//!   filtered) that are NOT already bound (bound ones run as provider steps — never called twice). A search-selected tool
+//!   that answers for real is recorded as a binding PROPOSAL (`tool_binding::record_binding_proposal`).
+//! - **NO FIXED CAPS** (2026-11-04, no-cap doctrine): the step's own text goes to the tool WHOLE (the old 200-char
+//!   `query` slice is gone), results are not cut at 2,000/4,000 chars and there is no "at most 2 tools" rule — which
+//!   tools run is decided by relevance (word overlap with the step, best-scoring group), and the CALLER fits the block
+//!   to the step model's window (`render_within_window`, any trim recorded). A tool result is context, never the step.
 //! - **UNTRUSTED**: every result is wrapped in `<<<UNTRUSTED_DATA>>>` (the
 //!   convention the preconditions required), so tool output is quoted data
 //!   to the step's model, never instructions.
@@ -59,17 +64,10 @@ fn installed_step_gate() -> Option<StepGate> {
 const ENV_REQUIRE_GATE: &str = "OZONE_TOOL_ROUTING_REQUIRE_GATE";
 
 const ENV_TOOL_ROUTING: &str = "OZONE_TOOL_ROUTING";
-const MAX_TOOLS_PER_STEP: usize = 2;
-const MAX_RESULT_CHARS: usize = 2_000;
-const MAX_BLOCK_CHARS: usize = 4_000;
 const AGENT: &str = "orchestrator-step";
 
 pub fn tool_routing_enabled() -> bool {
     std::env::var(ENV_TOOL_ROUTING).as_deref() == Ok("1")
-}
-
-fn cut_chars(s: &str, n: usize) -> String {
-    s.chars().take(n).collect()
 }
 
 /// Pick the tools worth calling for this step: `matched` entries first
@@ -80,20 +78,21 @@ fn cut_chars(s: &str, n: usize) -> String {
 fn select_tools(
     step_description: &str,
     applicable_tools: &[Value],
-) -> Vec<(String, String)> {
+) -> Vec<(String, String, String)> {
     let step_words: Vec<String> = step_description
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| w.len() > 3)
         .map(|w| w.to_lowercase())
-        .take(12)
         .collect();
-    let mut picked: Vec<(String, String)> = Vec::new();
+    // (name, caps, endpoint, overlap score)
+    let mut scored: Vec<(String, String, String, usize)> = Vec::new();
     for t in applicable_tools {
-        if picked.len() >= MAX_TOOLS_PER_STEP {
-            break;
-        }
         let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
         if name.is_empty() {
+            continue;
+        }
+        // bound providers run as PROVIDER STEPS — never call them a second time from the search fallback
+        if t.get("source").and_then(|v| v.as_str()) == Some("methodology-binding") {
             continue;
         }
         let endpoint = t.get("endpoint").and_then(|v| v.as_str()).unwrap_or("");
@@ -103,21 +102,21 @@ fn select_tools(
         let caps = t
             .get("capabilities")
             .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|c| c.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            })
+            .map(|a| a.iter().filter_map(|c| c.as_str()).collect::<Vec<_>>().join(" "))
             .unwrap_or_default();
-        let matched_flag = t.get("matched").and_then(|v| v.as_bool()).unwrap_or(false);
         let hay = format!("{name} {caps}").to_lowercase();
-        let overlaps = step_words.iter().any(|w| hay.contains(w));
-        if matched_flag || overlaps {
-            picked.push((name, caps));
+        let score = step_words.iter().filter(|w| hay.contains(w.as_str())).count();
+        if score > 0 {
+            scored.push((name, caps, endpoint.to_string(), score));
         }
     }
-    picked
+    // relevance, not a count cap: keep the best-scoring group (>= half the best score)
+    let best = scored.iter().map(|x| x.3).max().unwrap_or(0);
+    scored
+        .into_iter()
+        .filter(|x| x.3 * 2 >= best)
+        .map(|(n, c, e, _)| (n, c, e))
+        .collect()
 }
 
 /// Build the untrusted tool-result block for one step. `None` when the gate
@@ -130,7 +129,7 @@ pub async fn tool_context_for_step(
     step_description: &str,
     applicable_tools: &[Value],
 ) -> Option<String> {
-    tool_context_for_step_gated(step_description, applicable_tools, installed_step_gate(), None).await
+    tool_context_for_step_gated(step_description, applicable_tools, installed_step_gate(), None, &[]).await
 }
 
 /// [`tool_context_for_step`] with the run's task id (gate verdicts and MCP call
@@ -139,8 +138,9 @@ pub async fn tool_context_for_step_with_task(
     step_description: &str,
     applicable_tools: &[Value],
     task_id: Option<u64>,
+    methodology_ids: &[u64],
 ) -> Option<String> {
-    tool_context_for_step_gated(step_description, applicable_tools, installed_step_gate(), task_id).await
+    tool_context_for_step_gated(step_description, applicable_tools, installed_step_gate(), task_id, methodology_ids).await
 }
 
 /// Same as [`tool_context_for_step`] with an explicit step gate and the task
@@ -150,6 +150,7 @@ pub async fn tool_context_for_step_gated(
     applicable_tools: &[Value],
     step_gate: Option<StepGate>,
     task_id: Option<u64>,
+    methodology_ids: &[u64],
 ) -> Option<String> {
     if !tool_routing_enabled() {
         return None;
@@ -180,7 +181,7 @@ pub async fn tool_context_for_step_gated(
     };
 
     let mut sections: Vec<String> = Vec::new();
-    for (name, caps) in tools {
+    for (name, caps, endpoint) in tools {
         if let Err(reason) = &verdict {
             crate::orchestrator::entry_gate::record_gate_verdict(
                 "tool-routing",
@@ -190,10 +191,7 @@ pub async fn tool_context_for_step_gated(
                 Some(serde_json::json!({ "agent": AGENT, "task_id": task_id })),
             );
             tracing::warn!(tool = %name, reason = %reason, "tool routing: call BLOCKED by the per-step gate");
-            sections.push(format!(
-                "[TOOL CALL BLOCKED: {name} — {}]",
-                cut_chars(reason, 300)
-            ));
+            sections.push(format!("[TOOL CALL BLOCKED: {name} — {reason}]"));
             continue;
         }
 
@@ -214,9 +212,9 @@ pub async fn tool_context_for_step_gated(
             tool: name.clone(),
             agent: AGENT.to_string(),
             input: serde_json::json!({
-                // The step's own ask, bounded: tools see WHAT the step needs,
+                // The step's own ask, WHOLE (no cap doctrine): tools see WHAT the step needs,
                 // never the whole prompt or the user's full context.
-                "query": cut_chars(step_description, 200),
+                "query": step_description,
             }),
             context: Some(ctx),
             session_token: None,
@@ -235,8 +233,15 @@ pub async fn tool_context_for_step_gated(
             })),
         );
 
+        // PROVIDER HEALTH (tool_binding.rs): every real outcome counts toward the provider's health
+        let provider_id = crate::mcp_supervisor::provider_for_endpoint(&endpoint);
+        super::tool_binding::record_tool_outcome(&provider_id, &name, result.success, result.error.as_deref());
+        if result.success && result.output.is_some() {
+            // LEARN ONCE, BIND FOREVER: a search-selected provider that answered becomes a binding PROPOSAL
+            super::tool_binding::record_binding_proposal(methodology_ids, &provider_id, step_description);
+        }
         let body = match (&result.success, &result.output) {
-            (true, Some(out)) => cut_chars(&out.to_string(), MAX_RESULT_CHARS),
+            (true, Some(out)) => out.to_string(),
             (true, None) => continue, // success with no output: nothing to add
             (false, _) => {
                 let err = result.error.clone().unwrap_or_else(|| "unknown error".into());
@@ -264,12 +269,164 @@ pub async fn tool_context_for_step_gated(
         block.push_str(s);
         block.push('\n');
     }
-    if block.len() > MAX_BLOCK_CHARS {
-        block = cut_chars(&block, MAX_BLOCK_CHARS);
-        block.push_str("\n[...tool results truncated to budget]\n");
-    }
+    // No fixed cut here: the caller fits this block to the step model's window (render_within_window) and records any trim.
     Some(block)
 }
+
+// =============================================================================================
+// PROVIDER STEPS (2026-11-04) — `step_type == "provider"` (operator: "provider is just a step type").
+// =============================================================================================
+
+/// One tool call made by a provider step.
+#[derive(Debug, Clone)]
+pub struct ProviderCallOutcome {
+    pub provider: String,
+    pub tool: String,
+    pub success: bool,
+    pub output: Option<Value>,
+    pub error: Option<String>,
+    /// The result as the next step reads it: `[PROVIDER RESULT: …]` + the WHOLE output wrapped in `<<<UNTRUSTED_DATA>>>`.
+    pub text: String,
+}
+
+fn step_verdict(step_gate: &Option<StepGate>, step_description: &str) -> Result<(), String> {
+    match step_gate {
+        Some(g) => g(step_description),
+        None => {
+            if std::env::var(ENV_REQUIRE_GATE).as_deref() == Ok("1") {
+                Err("no step gate installed and OZONE_TOOL_ROUTING_REQUIRE_GATE=1".to_string())
+            } else {
+                Ok(())
+            }
+        }
+    }
+}
+
+/// Which of a provider's tools a step should call, decided at CALL TIME from the step's own text (the methodology lists the
+/// provider, not its tools): a pinned tool wins; a single-tool provider calls that tool; otherwise the best-scoring group by
+/// word overlap with the step (name + capabilities). `Err` when a multi-tool provider matches nothing — the caller fails the
+/// step honestly (pin a tool or clarify the rule) instead of guessing.
+pub fn choose_provider_tools(step_description: &str, pinned: Option<&str>, tools: &[(String, String)]) -> Result<Vec<String>, String> {
+    if let Some(p) = pinned {
+        return if tools.iter().any(|t| t.0 == p) { Ok(vec![p.to_string()]) } else { Err(format!("pinned tool '{p}' is not one of this provider's tools")) };
+    }
+    if tools.len() == 1 {
+        return Ok(vec![tools[0].0.clone()]);
+    }
+    let words: Vec<String> = step_description.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 3).map(|w| w.to_lowercase()).collect();
+    let mut scored: Vec<(String, usize)> = tools
+        .iter()
+        .map(|(n, caps)| {
+            let hay = format!("{} {}", n.replace('_', " "), caps).to_lowercase();
+            (n.clone(), words.iter().filter(|w| hay.contains(w.as_str())).count())
+        })
+        .collect();
+    let best = scored.iter().map(|x| x.1).max().unwrap_or(0);
+    if best == 0 {
+        return Err(format!(
+            "the provider has {} tools ({}) and none matches this step's text — pin a tool on the step or make the rule's text name the capability",
+            tools.len(),
+            tools.iter().map(|t| t.0.as_str()).collect::<Vec<_>>().join(", ")
+        ));
+    }
+    scored.retain(|x| x.1 == best); // only the best-matching tool(s); ties keep all
+    Ok(scored.into_iter().map(|x| x.0).collect())
+}
+
+/// Execute a PROVIDER STEP: call the named provider's chosen tool(s) through the gated, metered, jurisdiction-checked MCP path
+/// (`call_global`, agent `orchestrator-step`) with the step's text WHOLE (or its structured `args`), carrying the provenance
+/// the produced containers record (`called_from`: provider, tool, site, task, step, rule). Health is recorded per provider.
+/// Errors only when the step cannot be attempted (provider gone, gate refusal, no tool matches); individual call failures are
+/// returned in the outcomes so the caller can apply optional/required semantics.
+pub async fn call_provider_for_step(
+    step_description: &str,
+    provider: &str,
+    pinned_tool: Option<&str>,
+    args: &Value,
+    rule_refs: &[String],
+    step_index: u32,
+    task_id: Option<u64>,
+) -> Result<Vec<ProviderCallOutcome>, String> {
+    let entries = crate::mcp::registry_entries().await.unwrap_or_default();
+    let mine: Vec<&crate::mcp::McpTool> = entries
+        .iter()
+        .filter(|t| crate::mcp_supervisor::provider_for_endpoint(&t.endpoint).eq_ignore_ascii_case(provider))
+        .filter(|t| t.endpoint.starts_with("http://") || t.endpoint.starts_with("https://"))
+        .collect();
+    if mine.is_empty() {
+        return Err(format!("provider '{provider}' has no registered HTTP tools — it is not installed/registered on this host"));
+    }
+    let verdict = step_verdict(&installed_step_gate(), step_description);
+    if let Err(reason) = &verdict {
+        crate::orchestrator::entry_gate::record_gate_verdict(
+            "provider-step",
+            provider,
+            "blocked",
+            Some(reason),
+            Some(serde_json::json!({ "agent": AGENT, "task_id": task_id, "step": step_index })),
+        );
+        return Err(format!("provider step blocked by the per-step gate: {reason}"));
+    }
+    let tool_rows: Vec<(String, String)> = mine.iter().map(|t| (t.name.clone(), t.capabilities.join(" "))).collect();
+    let chosen = choose_provider_tools(step_description, pinned_tool, &tool_rows)?;
+    let input = match args {
+        Value::Object(o) if !o.is_empty() => args.clone(),
+        _ => serde_json::json!({ "query": step_description }),
+    };
+    let mut outcomes: Vec<ProviderCallOutcome> = Vec::new();
+    for tool in chosen {
+        let started = std::time::Instant::now();
+        let mut ctx = serde_json::json!({
+            "source": "orchestrator-step",
+            "internal": true,
+            "task_id": task_id,
+            "site": "provider-step",
+            "provider": provider,
+            "tool": tool,
+            "step_index": step_index,
+            "rule_refs": rule_refs,
+        });
+        if let (Some(obj), serde_json::Value::Object(fields)) = (ctx.as_object_mut(), crate::trace::current_fields()) {
+            for (k, v) in fields {
+                obj.entry(k).or_insert(v);
+            }
+        }
+        let result = crate::mcp::call_global(crate::mcp::McpCall {
+            tool: tool.clone(),
+            agent: AGENT.to_string(),
+            input: input.clone(),
+            context: Some(ctx),
+            session_token: None,
+        })
+        .await;
+        crate::orchestrator::entry_gate::record_gate_verdict(
+            "provider-step",
+            &tool,
+            "allowed",
+            None,
+            Some(serde_json::json!({
+                "agent": AGENT, "task_id": task_id, "step": step_index, "provider": provider,
+                "success": result.success, "latency_ms": started.elapsed().as_millis() as u64,
+            })),
+        );
+        super::tool_binding::record_tool_outcome(provider, &tool, result.success, result.error.as_deref());
+        let text = match (&result.success, &result.output) {
+            (true, Some(out)) => format!("[PROVIDER RESULT: {provider} / {tool}]\n<<<UNTRUSTED_DATA\n{out}\nUNTRUSTED_DATA>>>"),
+            (true, None) => format!("[PROVIDER RESULT: {provider} / {tool}] (success, no output)"),
+            (false, _) => format!("[PROVIDER CALL FAILED: {provider} / {tool} — {}]", result.error.clone().unwrap_or_else(|| "unknown error".into())),
+        };
+        outcomes.push(ProviderCallOutcome {
+            provider: provider.to_string(),
+            tool,
+            success: result.success,
+            output: result.output.clone(),
+            error: result.error.clone(),
+            text,
+        });
+    }
+    Ok(outcomes)
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -299,5 +456,19 @@ mod tests {
         assert!(g("a forbidden step").is_err());
         set_step_gate(None);
         assert!(installed_step_gate().is_none());
+    }
+
+    #[test]
+    fn provider_tool_choice_is_decided_from_the_step_text_never_guessed() {
+        let tools = vec![
+            ("clock_generate".to_string(), "3d blender clock".to_string()),
+            ("cad_clock_generate".to_string(), "cad solid step".to_string()),
+            ("eeg_cap_costume_generate".to_string(), "rat asset".to_string()),
+        ];
+        assert_eq!(choose_provider_tools("build a blender clock render", None, &tools).unwrap(), vec!["clock_generate".to_string()]);
+        assert_eq!(choose_provider_tools("anything", Some("cad_clock_generate"), &tools).unwrap(), vec!["cad_clock_generate".to_string()]);
+        assert!(choose_provider_tools("anything", Some("nope"), &tools).is_err());
+        assert!(choose_provider_tools("zzzz qqqq", None, &tools).is_err()); // multi-tool provider, no match → honest failure
+        assert_eq!(choose_provider_tools("whatever", None, &tools[..1]).unwrap(), vec!["clock_generate".to_string()]); // single tool
     }
 }

@@ -69,11 +69,15 @@ struct Entry {
     latencies: Vec<u64>,
     last_outcome: String,
     last_seen_ms: u64,
+    /// (ts_ms, success) per attempt — lets "recent" success rates exclude old outages (an all-time rate keeps punishing a model for
+    /// the days when every call failed for a reason that was later fixed, e.g. the 10-26..11-01 prompt-path outage).
+    events: Vec<(u64, bool)>,
 }
 
 impl Entry {
     fn apply(&mut self, outcome: &Outcome, latency_ms: u64, ts_ms: u64) {
         self.attempts += 1;
+        self.events.push((ts_ms, matches!(outcome, Outcome::Success)));
         self.latencies.push(latency_ms);
         self.last_outcome = kind_name(outcome).to_string();
         self.last_seen_ms = ts_ms;
@@ -107,7 +111,11 @@ struct Table {
 static TABLE: OnceLock<RwLock<Table>> = OnceLock::new();
 
 fn table() -> &'static RwLock<Table> {
-    TABLE.get_or_init(|| RwLock::new(load_file()))
+    static STATS_BOOT: std::sync::Once = std::sync::Once::new();
+    let t = TABLE.get_or_init(|| RwLock::new(load_file()));
+    // the derived stats file exists from the first load on (so readers never have to fall back to parsing the ledger)
+    STATS_BOOT.call_once(write_stats_snapshot);
+    t
 }
 
 fn now_ms() -> u64 {
@@ -456,6 +464,97 @@ pub fn record_with_text(
     )
 }
 
+/// Load the ledger table now (and write the derived stats snapshot) instead of at the first recorded call — called once at host boot so
+/// `model_calls/model_stats.json` exists from the start (readers otherwise fall back to parsing the 29 MB ledger).
+pub fn init() {
+    let _ = table();
+}
+
+/// DERIVED STATS SNAPSHOT (`model_calls/model_stats.json`): per-model attempts / outcomes / median latency, rewritten (temp file + rename)
+/// after every recorded row and once when the table first loads. It exists so other processes — every prompt-binary call, nested
+/// modality pipelines — read ~10 KB instead of parsing the 29 MB ledger (89.7% of which is prompt bodies) on EVERY call. The ledger
+/// stays the source of truth; this file is derived and can always be rebuilt from it. Best-effort: a write failure never affects a call.
+/// Epoch ms of the last model-call liveness stamp written by the prompt binary (`model_calls/model_activity.stamp` mtime: written when
+/// a call starts, streams output, or ends). 0 when no stamp exists. The host watchdogs use it so a pipeline that is steadily making
+/// model calls is never killed merely for exceeding a wall-clock budget ("timeouts are not a limiter while it is doing work").
+pub fn last_model_activity_ms() -> u64 {
+    std::fs::metadata(ledger_path().with_file_name("model_activity.stamp"))
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// The most recent recorded call this host process saw: (model, call_site, latency_ms, success, ts_ms). `None` before the first call
+/// after boot. Feeds the unified live feed (the `liveness` frame) — real captured values, never invented.
+static LAST_CALL: std::sync::Mutex<Option<(String, String, u64, bool, u64)>> = std::sync::Mutex::new(None);
+pub fn last_call() -> Option<(String, String, u64, bool, u64)> {
+    LAST_CALL.lock().ok().and_then(|l| l.clone())
+}
+
+/// (attempts, successes) of `model` within the last `days` days (0,0 when unknown).
+pub fn recent_counts(model: &str, days: u64) -> (u64, u64) {
+    let cutoff = now_ms().saturating_sub(days.saturating_mul(86_400_000));
+    let t = table().read().unwrap_or_else(|e| e.into_inner());
+    t.entries
+        .get(model)
+        .map(|e| {
+            let recent: Vec<&(u64, bool)> = e.events.iter().filter(|(ts, _)| *ts >= cutoff).collect();
+            (recent.len() as u64, recent.iter().filter(|(_, ok)| *ok).count() as u64)
+        })
+        .unwrap_or((0, 0))
+}
+
+/// Days the "proven model" rule looks back (OZONE_PROVEN_RECENT_DAYS, default 7).
+pub fn proven_recent_days() -> u64 {
+    std::env::var("OZONE_PROVEN_RECENT_DAYS").ok().and_then(|v| v.parse().ok()).filter(|d| *d > 0).unwrap_or(7)
+}
+
+/// True when a model call made progress within the last `secs` seconds.
+pub fn model_activity_within(secs: u64) -> bool {
+    now_ms().saturating_sub(last_model_activity_ms()) < secs.saturating_mul(1000)
+}
+
+fn write_stats_snapshot() {
+    static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // TABLE.get() (not table()): table() runs the boot-time snapshot through a Once — calling it from here would re-enter that Once
+    let Some(table_lock) = TABLE.get() else { return };
+    let snapshot = {
+        let t = table_lock.read().unwrap_or_else(|e| e.into_inner());
+        let mut models = serde_json::Map::new();
+        let recent_cutoff = now_ms().saturating_sub(proven_recent_days().saturating_mul(86_400_000));
+        for (model, e) in t.entries.iter() {
+            let recent: Vec<&(u64, bool)> = e.events.iter().filter(|(ts, _)| *ts >= recent_cutoff).collect();
+            models.insert(
+                model.clone(),
+                serde_json::json!({
+                    "attempts": e.attempts,
+                    "successes": e.successes,
+                    "recent_attempts": recent.len(),
+                    "recent_successes": recent.iter().filter(|(_, ok)| *ok).count(),
+                    "empties": e.empties,
+                    "http_errors": e.http_errors,
+                    "timeouts": e.timeouts,
+                    "other_errors": e.other_errors,
+                    "median_latency_ms": e.median(),
+                    "last_outcome": e.last_outcome,
+                    "last_seen_ms": e.last_seen_ms,
+                }),
+            );
+        }
+        serde_json::json!({ "updated_ms": now_ms(), "models": models })
+    };
+    let path = ledger_path().with_file_name("model_stats.json");
+    let tmp = path.with_extension(format!("json.tmp{}", std::process::id()));
+    if let Ok(text) = serde_json::to_string(&snapshot) {
+        if std::fs::write(&tmp, text).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
 fn record_inner(
     model: &str,
     outcome: Outcome,
@@ -467,6 +566,9 @@ fn record_inner(
 ) -> Option<Cause> {
     let ts = now_ms();
     let cause = cause_of_with_cap(&outcome, model, max_tokens_sent);
+    if let Ok(mut l) = LAST_CALL.lock() {
+        *l = Some((model.to_string(), call_site.to_string(), latency_ms, matches!(outcome, Outcome::Success), ts));
+    }
     let mut line = to_line(model, &outcome, latency_ms, call_site, ts);
     line.cause = cause.map(|c| c.tag().to_string());
     line.prompt = prompt;
@@ -483,6 +585,7 @@ fn record_inner(
             .apply(&outcome, latency_ms, ts);
     }
     append_line(&line);
+    write_stats_snapshot();
     cause
 }
 

@@ -96,7 +96,8 @@ pub struct InferredRelationship {
     pub from_node: NodeId,
     pub to_node: NodeId,
     pub relationship_type: EdgeType,
-    pub confidence: f32,
+    // NO confidence field (2026-11-04, operator doctrine + docs/CONTRACTS.md §5.1): a relationship is affirmed or it is not — validation is the
+    // yes/no strength-N loop, never a model-reported number.
     pub reasoning: String,
 }
 
@@ -463,9 +464,8 @@ impl ZSEIHookProcessor {
         llm_client: &Arc<dyn LLMClient>,
         config: &HookConfig,
     ) -> OzoneResult<()> {
-        // Load graph, process all hooks, save once
-        // This is a placeholder for actual implementation
-        Ok(())
+        // HONESTY (doctrine audit H4, 2026-11-04): this was a placeholder returning Ok(()) — reporting a batch of hooks as processed when nothing ran.
+        Err(OzoneError::Hook(format!("batch hook processing is not implemented: {} hook(s) for graph {:?} were NOT processed", hooks.len(), graph_id)))
     }
     
     /// Process OnGraphCreated: Add semantic annotations to new graph
@@ -524,28 +524,27 @@ impl ZSEIHookProcessor {
         // Parse relationships from response
         let relationships = self.parse_relationship_response(&response, node_pairs)?;
         
-        // Add inferred edges to graph
+        // Add inferred edges to graph. Every relationship the model AFFIRMED is added — there is no self-reported confidence threshold
+        // (the old `confidence >= 0.7` filter trusted a false number); weight is the neutral structural weight 1.0 (binary: affirmed).
         for rel in &relationships {
-            if rel.confidence >= 0.7 {
-                graph.edges.push(GraphEdge {
-                    from_node: rel.from_node.clone(),
-                    to_node: rel.to_node.clone(),
-                    edge_type: rel.relationship_type,
-                    weight: rel.confidence,
-                    metadata: {
-                        let mut meta = HashMap::new();
-                        meta.insert(
-                            "reasoning".to_string(),
-                            serde_json::Value::String(rel.reasoning.clone())
-                        );
-                        meta.insert(
-                            "source".to_string(),
-                            serde_json::Value::String("zsei_inference".to_string())
-                        );
-                        meta
-                    },
-                });
-            }
+            graph.edges.push(GraphEdge {
+                from_node: rel.from_node.clone(),
+                to_node: rel.to_node.clone(),
+                edge_type: rel.relationship_type,
+                weight: 1.0,
+                metadata: {
+                    let mut meta = HashMap::new();
+                    meta.insert(
+                        "reasoning".to_string(),
+                        serde_json::Value::String(rel.reasoning.clone())
+                    );
+                    meta.insert(
+                        "source".to_string(),
+                        serde_json::Value::String("zsei_inference".to_string())
+                    );
+                    meta
+                },
+            });
         }
         
         graph.updated_at = chrono::Utc::now();
@@ -602,13 +601,11 @@ impl ZSEIHookProcessor {
         
         // Build node summary
         let node_summary: Vec<String> = graph.nodes.iter()
-            .take(50) // Limit for prompt size
             .map(|(id, node)| {
                 format!("Node {}: type={}, content={}", 
                     id.0, 
                     node.node_type,
                     serde_json::to_string(&node.content).unwrap_or_default()
-                        .chars().take(100).collect::<String>()
                 )
             })
             .collect();
@@ -631,6 +628,8 @@ For example:
 - Contradicts: Nodes express conflicting information
 - Extends: One node extends/elaborates on another
 - SimilarTo: Nodes are semantically similar
+BINARY, not graded: a relationship either exists or it does not. Include ONLY relationships you can affirm with a concrete reason; omit everything else. Do not rate your certainty (a self-reported score is false confidence — real validation is a repeated yes/no confirmation loop, docs/CONTRACTS.md §5).
+
 
 Respond with JSON:
 {{
@@ -639,15 +638,13 @@ Respond with JSON:
       "from_node": <node_id>,
       "to_node": <node_id>,
       "edge_type": "<RelatesTo|Supports|Contradicts|Extends|SimilarTo>",
-      "confidence": <0.0-1.0>,
       "reasoning": "<why this relationship exists>"
     }}
   ],
   "node_annotations": [
     {{
       "node_id": <node_id>,
-      "semantic_role": "<description>",
-      "importance": <0.0-1.0>
+      "semantic_role": "<description>"
     }}
   ]
 }}
@@ -686,8 +683,9 @@ Node pairs to analyze:
 
 For each pair, determine:
 1. What semantic relationship exists (if any)
-2. Confidence level (0.0-1.0)
-3. Reasoning
+2. Reasoning (why it exists)
+
+BINARY, not graded: a relationship either exists or it does not. Include ONLY relationships you can affirm with a concrete reason; omit everything else. Do not rate your certainty (a self-reported score is false confidence — real validation is a repeated yes/no confirmation loop, docs/CONTRACTS.md §5).
 
 Respond with JSON:
 {{
@@ -696,7 +694,6 @@ Respond with JSON:
       "from_node": <node_id>,
       "to_node": <node_id>,
       "relationship_type": "<RelatesTo|Supports|Contradicts|Extends|Specializes|Generalizes|SimilarTo|None>",
-      "confidence": <0.0-1.0>,
       "reasoning": "<explanation>"
     }}
   ]
@@ -729,6 +726,8 @@ Find nodes in the source that:
 - Describe nodes in the target
 - Implement concepts from the target
 - Represent the same information
+BINARY, not graded: a relationship either exists or it does not. Include ONLY relationships you can affirm with a concrete reason; omit everything else. Do not rate your certainty (a self-reported score is false confidence — real validation is a repeated yes/no confirmation loop, docs/CONTRACTS.md §5).
+
 - Document or explain the target
 
 Respond with JSON:
@@ -738,7 +737,6 @@ Respond with JSON:
       "source_node": <node_id>,
       "target_node": <node_id>,
       "link_type": "<Describes|Implements|Represents|Documents|Illustrates>",
-      "confidence": <0.0-1.0>,
       "reasoning": "<explanation>"
     }}
   ]
@@ -792,9 +790,6 @@ Respond with JSON:
                     .map(NodeId);
                 let edge_type_str = edge_val.get("edge_type")
                     .and_then(|v| v.as_str());
-                let confidence = edge_val.get("confidence")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.5) as f32;
                 let reasoning = edge_val.get("reasoning")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
@@ -815,7 +810,7 @@ Respond with JSON:
                         from_node: from,
                         to_node: to,
                         edge_type,
-                        weight: confidence,
+                        weight: 1.0, // binary (affirmed) — not a confidence
                         metadata: {
                             let mut meta = HashMap::new();
                             meta.insert(
@@ -857,9 +852,8 @@ Respond with JSON:
                         if let Some(role) = ann.get("semantic_role") {
                             node.metadata.insert("semantic_role".to_string(), role.clone());
                         }
-                        if let Some(importance) = ann.get("importance") {
-                            node.metadata.insert("importance".to_string(), importance.clone());
-                        }
+                        // no model-reported "importance" score (graded self-assessment = false precision); importance, where needed,
+                        // is derived from the graph (degree / verification), not asked of the model
                         annotated += 1;
                     }
                 }
@@ -889,9 +883,6 @@ Respond with JSON:
                     .map(NodeId);
                 let rel_type_str = rel.get("relationship_type")
                     .and_then(|v| v.as_str());
-                let confidence = rel.get("confidence")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.5) as f32;
                 let reasoning = rel.get("reasoning")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
@@ -917,7 +908,6 @@ Respond with JSON:
                         from_node: from,
                         to_node: to,
                         relationship_type,
-                        confidence,
                         reasoning,
                     });
                 }
@@ -948,9 +938,6 @@ Respond with JSON:
                     .map(NodeId);
                 let link_type_str = link.get("link_type")
                     .and_then(|v| v.as_str());
-                let confidence = link.get("confidence")
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.5) as f32;
                 let reasoning = link.get("reasoning")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
@@ -969,7 +956,7 @@ Respond with JSON:
                         from_node: source,
                         to_node: target,
                         edge_type,
-                        weight: confidence,
+                        weight: 1.0, // binary (affirmed) — not a confidence
                         metadata: {
                             let mut meta = HashMap::new();
                             meta.insert(

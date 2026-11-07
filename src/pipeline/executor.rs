@@ -243,14 +243,21 @@ fn run_child_bounded(
         }
         let reason = if cancel.load(Ordering::SeqCst) {
             Some("its caller was dropped".to_string())
-        } else if std::time::Instant::now() - spawn_time > ABS_CEILING {
-            // Unconditional: applies whether the child was silent or
-            // streaming the whole time — not a silence judgment, a hard
-            // wall-clock bound. `activity` is kept (still fed by the drain
-            // threads below) as the liveness signal a future call-start
-            // marker protocol would read; nothing reads it for a kill
-            // decision anymore.
-            Some(format!("absolute ceiling ({}s)", ABS_CEILING.as_secs()))
+        } else if std::time::Instant::now() - spawn_time > ABS_CEILING && {
+            // PROGRESS-AWARE (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"). Past the soft
+            // ceiling the child is kept ONLY while it is demonstrably working: it wrote to stdout/stderr, or a model call (its own or a
+            // nested prompt call) made progress, within the last 300 s. The prompt binary now streams and stamps liveness, so "silent"
+            // finally means "stalled". A very large HARD ceiling (OZONE_CHILD_HARD_CEILING_SECS, default 14400) still applies.
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+            let child_idle_s = now_ms.saturating_sub(activity.load(Ordering::Relaxed)) / 1000;
+            let hard: u64 = std::env::var("OZONE_CHILD_HARD_CEILING_SECS").ok().and_then(|v| v.parse().ok()).unwrap_or(14400);
+            let working = child_idle_s < 300 || crate::model_ledger::model_activity_within(300);
+            !working || (std::time::Instant::now() - spawn_time).as_secs() > hard
+        } {
+            Some(format!("ceiling ({}s soft, no progress for 300s or hard limit)", ABS_CEILING.as_secs()))
         } else {
             None
         };
@@ -924,8 +931,37 @@ impl PipelineExecutor {
             }
         };
 
+        // Linux caps ONE argv string at 128 KiB (MAX_ARG_STRLEN) — a rich step
+        // context (blueprint + span-out, no cap by doctrine) overflows it with
+        // E2BIG "Argument list too long". Large inputs go through a file and
+        // the child gets `--input @<path>` (binaries that understand `@path`:
+        // prompt; the rest still receive small inputs inline).
+        struct InputFileGuard(Option<std::path::PathBuf>);
+        impl Drop for InputFileGuard {
+            fn drop(&mut self) {
+                if let Some(p) = &self.0 {
+                    let _ = std::fs::remove_file(p);
+                }
+            }
+        }
+        let mut _input_guard = InputFileGuard(None);
+        let input_arg: String = if input_json.len() > 100_000 {
+            let path = std::env::temp_dir().join(format!(
+                "ozone-input-{}-{}.json",
+                std::process::id(),
+                execution_id.as_str().replace([':', '/'], "_")
+            ));
+            std::fs::write(&path, &input_json).map_err(|e| {
+                OzoneError::PipelineError(format!("could not stage large pipeline input: {}", e))
+            })?;
+            let arg = format!("@{}", path.display());
+            _input_guard.0 = Some(path);
+            arg
+        } else {
+            input_json.clone()
+        };
         cmd.arg("--input")
-            .arg(&input_json)
+            .arg(&input_arg)
             .arg("--execution-id")
             .arg(execution_id.as_str());
 
@@ -999,12 +1035,29 @@ impl PipelineExecutor {
             // "Pipeline execution failed (non-zero exit) stderr=" log line.
             // Capture stdout too so the real message is never discarded.
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let detail = if !stderr.trim().is_empty() {
-                stderr.to_string()
-            } else if !stdout.trim().is_empty() {
-                stdout.to_string()
-            } else {
-                String::new()
+            // THE REAL ERROR FIRST (2026-11-06): the prompt pipeline prints its error JSON to STDOUT, while stderr carries informational
+            // lines (limiter waits, streaming heartbeats, empty-response diagnostics). Preferring a non-empty stderr hid the real
+            // failure behind "waited 1 ms for an OpenRouter per-minute slot" (4 of 8 recent other_error rows) and mis-tagged causes.
+            // Now: stdout's `error` field when present, then the stderr lines that are NOT informational, then raw stdout / stderr.
+            let stdout_error: Option<String> = serde_json::from_str::<serde_json::Value>(stdout.trim())
+                .ok()
+                .and_then(|v| v.get("error").and_then(|e| e.as_str()).map(|e| e.to_string()))
+                .filter(|e| !e.trim().is_empty());
+            let informational = |l: &str| {
+                let t = l.trim();
+                t.is_empty()
+                    || t.starts_with("prompt pipeline: waited ")
+                    || t.starts_with("prompt pipeline: streaming ")
+                    || t.starts_with("prompt pipeline: waiting on ")
+                    || t.starts_with("prompt pipeline: OpenRouter per-minute window full")
+            };
+            let stderr_errors: String = stderr.lines().filter(|l| !informational(l)).collect::<Vec<_>>().join("\n");
+            let detail = match (stdout_error, stderr_errors.trim().is_empty()) {
+                (Some(e), true) => e,
+                (Some(e), false) => format!("{e} | stderr: {}", stderr_errors.trim()),
+                (None, false) => stderr_errors,
+                (None, true) if !stdout.trim().is_empty() => stdout.to_string(),
+                (None, true) => stderr.to_string(),
             };
             tracing::error!(
                 execution_id = %execution_id,

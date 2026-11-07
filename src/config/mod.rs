@@ -74,6 +74,65 @@ pub struct OzoneConfig {
     /// rather than fabricating results.
     #[serde(default)]
     pub web_search: WebSearchConfig,
+
+    /// OPTIMIZED ROUTES (operator 2026-11-06): opt-in latency/throughput routes for high-end hardware / ample API quota. Every
+    /// optimized route has a standard (sequential/conservative) twin that stays available and is the DEFAULT — local models and
+    /// constrained setups keep the standard path. Optimized routes never change a decision rule, only how the same calls are run.
+    #[serde(default)]
+    pub optimization: OptimizationConfig,
+}
+
+/// See OzoneConfig::optimization. `profile`: "standard" (default — every route sequential) | "high_end" (enables every optimized
+/// route below unless that key is set explicitly to false). Individual keys override the profile. Exported to pipeline
+/// subprocesses as OZONE_OPT_* env (an env var already set in the host's environment wins over config).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OptimizationConfig {
+    #[serde(default = "default_opt_profile")]
+    pub profile: String,
+    /// Text modality (and any K-validation loop using `confirm_times`): the first yes/no vote gates; if it matches, the remaining
+    /// votes run concurrently. Same all-N-must-agree rule, same call count on a pass; fewer sequential round trips.
+    #[serde(default)]
+    pub concurrent_votes: Option<bool>,
+    /// K-validation votes: `"provider"` (default — the provider's own reasoning behaviour, unchanged) or `"off"` (ask for no hidden
+    /// reasoning on one-word votes; measured ~1,000 tokens/vote today). Effect on vote ACCURACY is unmeasured — flip after an A/B.
+    #[serde(default = "default_vote_reasoning")]
+    pub vote_reasoning: String,
+}
+
+fn default_vote_reasoning() -> String {
+    "provider".to_string()
+}
+
+fn default_opt_profile() -> String {
+    "standard".to_string()
+}
+
+impl Default for OptimizationConfig {
+    fn default() -> Self {
+        Self { profile: default_opt_profile(), concurrent_votes: None, vote_reasoning: default_vote_reasoning() }
+    }
+}
+
+impl OptimizationConfig {
+    fn high_end(&self) -> bool {
+        self.profile.eq_ignore_ascii_case("high_end")
+    }
+
+    pub fn concurrent_votes_enabled(&self) -> bool {
+        self.concurrent_votes.unwrap_or_else(|| self.high_end())
+    }
+
+    /// Env for pipeline subprocesses (set once at boot; a pre-set env var wins).
+    pub fn to_pipeline_env(&self) -> Vec<(String, String)> {
+        let mut v = vec![
+            ("OZONE_OPT_PROFILE".to_string(), self.profile.clone()),
+            ("OZONE_OPT_VOTE_REASONING".to_string(), self.vote_reasoning.clone()),
+        ];
+        if std::env::var_os("OZONE_OPT_CONCURRENT_VOTES").is_none() {
+            v.push(("OZONE_OPT_CONCURRENT_VOTES".to_string(), if self.concurrent_votes_enabled() { "1" } else { "0" }.to_string()));
+        }
+        v
+    }
 }
 
 /// See OzoneConfig::web_search's doc comment. `provider` is a label only
@@ -190,6 +249,11 @@ pub struct KAlgorithmConfig {
     /// "default" (window 8 / 50 pairs) | "wide" (16 / 100)
     #[serde(default = "default_pairwise_preset")]
     pub pairwise_preset: String,
+    /// Consecutive-agreement strength for EVERY yes/no validation vote in the system (text-pipeline 5x checks, AMT neighbourhood merge,
+    /// capability-closure necessity judgement): "strict-5" (default) | "lenient-3" | "paranoid-7". Exported to pipelines as
+    /// OZONE_VALIDATION_STRENGTH and read through `k_validation::configured_strength()` — one source, no per-site literals.
+    #[serde(default = "default_validation_preset")]
+    pub validation_preset: String,
 }
 
 fn default_convergence_preset() -> String {
@@ -198,12 +262,16 @@ fn default_convergence_preset() -> String {
 fn default_pairwise_preset() -> String {
     "default".to_string()
 }
+fn default_validation_preset() -> String {
+    "strict-5".to_string()
+}
 
 impl Default for KAlgorithmConfig {
     fn default() -> Self {
         Self {
             convergence_preset: default_convergence_preset(),
             pairwise_preset: default_pairwise_preset(),
+            validation_preset: default_validation_preset(),
         }
     }
 }
@@ -224,6 +292,7 @@ impl Default for OzoneConfig {
             models: ModelConfig::default(),
             voice: VoiceConfig::default(),
             k_algorithms: KAlgorithmConfig::default(),
+            optimization: OptimizationConfig::default(),
             jurisdiction: JurisdictionConfig::default(),
             web_search: WebSearchConfig::default(),
         }

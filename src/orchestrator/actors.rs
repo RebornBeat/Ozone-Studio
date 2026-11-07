@@ -573,7 +573,7 @@ async fn resolve_or_create_finding_target(
     let root_node = AMTNode {
         id: 0,
         node_type: AMTNodeType::Root,
-        content: format!("[{}] {}", route, detail.chars().take(600).collect::<String>()),
+        content: format!("[{}] {}", route, detail), // whole (no-cap doctrine, audit #27)
         source_chunk_indices: vec![],
         children: vec![],
         relationships: vec![],
@@ -806,6 +806,9 @@ async fn dispatch_event(
                 container_id = target_container_id,
                 "ripple actor: real finding queued as an AMT re-expansion candidate"
             );
+            // META RIPPLE: a real finding (security / mcp / task-failed / staleness / coordination) is exactly
+            // what the meta loops exist to react to — wake them via the ripple, not a timer.
+            crate::orchestrator::ripple_class::emit_finding(finding.route);
             notify_wake();
         } else {
             // Never silent: an actor's finding that did not queue says why.

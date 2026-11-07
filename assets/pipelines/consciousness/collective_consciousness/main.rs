@@ -554,13 +554,9 @@ fn summarize_content(content: &str) -> String {
 }
 
 fn extract_pattern(content: &str) -> String {
-    // Simple pattern extraction - would be more sophisticated in production
-    let words: Vec<&str> = content.split_whitespace().collect();
-    if words.len() > 5 {
-        format!("[{} word pattern about general topic]", words.len())
-    } else {
-        "[brief pattern]".to_string()
-    }
+    // HONESTY (doctrine audit H2, 2026-11-04): this used to return "[N word pattern about general topic]" / "[brief pattern]" — a placeholder string
+    // presented as an extracted pattern. No pattern extraction exists here, so the strict level carries the content's own summary (whole, never invented).
+    summarize_content(content)
 }
 
 fn now() -> u64 {
@@ -942,7 +938,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     
@@ -958,5 +954,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

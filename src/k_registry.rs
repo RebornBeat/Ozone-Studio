@@ -165,6 +165,16 @@ impl KAlgorithms {
         self.pairwise.write().map(|mut p| p.set_default(name)).unwrap_or(false)
     }
 
+    /// Switch the live default validation (vote strength) preset: "strict-5" | "lenient-3" | "paranoid-7". False (no-op) on an unknown name.
+    pub fn set_validation_preset(&self, name: &str) -> bool {
+        self.validation.write().map(|mut p| p.set_default(name)).unwrap_or(false)
+    }
+
+    /// The live consecutive-agreement strength every yes/no vote uses (default preset's `strength`; 5 if the lock is poisoned).
+    pub fn current_validation_strength(&self) -> u32 {
+        self.validation.read().map(|p| p.default_preset().strength).unwrap_or(5)
+    }
+
     /// The live default selection policy (methodology branch discovery).
     pub fn current_selection_policy(&self) -> SelectionPolicy {
         self.selection

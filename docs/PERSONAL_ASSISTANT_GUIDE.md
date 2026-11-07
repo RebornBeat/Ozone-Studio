@@ -40,11 +40,11 @@ Two consequences follow, both binding:
 | Senses | Model-call capture quartet S10–S13 (decision reviews, host zero-shots, pipeline zero-shots, tool calls) | `{data_dir}/model_calls/*.jsonl` + read routes `/capture/*` | **writes all live; reads partial** (see §5) |
 | Order | Universal task order — derived view, buckets, kind/due fields | `/order/global` (`src/grpc/mod.rs get_global_order`), Stage-1 task fields | **live** (64 done, filters verified) |
 | Memory | Experience memory + emotional context + decision gate | `src/consciousness/store.rs` (§35-40) | compiled, **gated off** (`consciousness.enabled=false`) |
-| Reflection | I-Loop self-reflection (pipeline 9 prompt, reflection JSON persisted) | `src/orchestrator/i_loop.rs` — **built**, 1800s budget-clamped floor | built, **gated off** |
+| Reflection | I-Loop self-reflection (pipeline 9 prompt, reflection JSON persisted) | `src/orchestrator/i_loop.rs` — **built**, EVENT-DRIVEN since 2026-11-04 (meta ripple; ≥10 min gap; the 1800s timer floor was replaced) | built, **gated off** |
 | Review | Consciousness review pass — aged `review-failed` S10 rows + S11 zero-shot failures → creates real follow-up tasks | `src/consciousness/review.rs run_review_pass`, called from `src/grpc/mod.rs:783` (on-demand route) | **live on demand** |
 | Planning | AMT re-expansion — event-woken (`Notify`), reviews candidates with a real LLM call each | `src/orchestrator/amt_loop.rs` + `amt_candidates.rs` | **live** |
 | Acting | Ripple actors — subscribes the GraphEventHub, matched events wake the same amt_loop consumption | `src/orchestrator/actors.rs spawn_ripple_actor_dispatch`, `ACTING_LOOP_GUIDE.md` §6 | **live dispatch, registry content young** |
-| Methodology | Meta-loop review pass | `src/orchestrator/meta_loop.rs`, 1800s | **live** |
+| Methodology | Meta-loop review pass | `src/orchestrator/meta_loop.rs`, event-driven since 2026-11-04 (meta ripple; gap/capability-gap signals) | **live** |
 
 The boot-spawn block (`src/lib.rs` ~1020-1100) is the single place all loops
 spawn — the assistant joins this block, same convention.
@@ -73,7 +73,7 @@ One new boot-spawned loop + one derived read route. No new store (the
 
 - `run_assistant_loop(...)` in the lib.rs boot block, gated on
   `consciousness.enabled` (same switch as the I-Loop).
-- Interval: **1800s floor, same clamp idiom as i_loop.rs** (the budget
+- Interval (SUPERSEDED 2026-11-04 — now event-driven with a ≥5 min gap, next-deadline sleep and 6 h heartbeat; kept for history): **1800s floor, same clamp idiom as i_loop.rs** (the budget
   doctrine: 60s-class intervals are budget-incompatible; never honored
   literally). Event wake on task ripples via the same `tokio::sync::Notify`
   idiom amt_loop uses — a task completing or slipping wakes the pass early.

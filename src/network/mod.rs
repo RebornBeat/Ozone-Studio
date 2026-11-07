@@ -228,9 +228,51 @@ impl NetworkManager {
         let paired_peers_path = data_dir.join("paired_peers.json");
         let paired_peers = load_paired_peers(&paired_peers_path);
 
-        // Generate or load keypair
-        let local_key = identity::Keypair::generate_ed25519();
+        // LOAD or generate-and-persist the node identity. The comment here used to say
+        // "generate or load" but the code only ever generated, so the peer id changed on
+        // EVERY restart and paired_peers.json (keyed by peer id) went stale — pairings could
+        // not survive a restart. The key now lives at <data_dir>/p2p_identity.key (0600).
+        let key_path = data_dir.join("p2p_identity.key");
+        let local_key = match std::fs::read(&key_path)
+            .ok()
+            .and_then(|b| identity::Keypair::from_protobuf_encoding(&b).ok())
+        {
+            Some(k) => {
+                tracing::info!("P2P: loaded persisted node identity from {:?}", key_path);
+                k
+            }
+            None => {
+                let k = identity::Keypair::generate_ed25519();
+                match k.to_protobuf_encoding() {
+                    Ok(bytes) => {
+                        if let Some(dir) = key_path.parent() {
+                            let _ = std::fs::create_dir_all(dir);
+                        }
+                        let write = std::fs::write(&key_path, &bytes);
+                        #[cfg(unix)]
+                        {
+                            use std::os::unix::fs::PermissionsExt;
+                            let _ = std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600));
+                        }
+                        match write {
+                            Ok(()) => tracing::info!("P2P: generated and persisted a new node identity at {:?}", key_path),
+                            Err(e) => tracing::error!("P2P: could not persist node identity at {:?}: {} — peer id will change on restart", key_path, e),
+                        }
+                    }
+                    Err(e) => tracing::error!("P2P: could not encode node identity: {} — peer id will change on restart", e),
+                }
+                k
+            }
+        };
         let local_peer_id = PeerId::from(local_key.public());
+
+        // Publish the REAL peer id where the p2p sync pipeline reads it (<data_dir>/p2p/peer_id) — that pipeline used to invent a second,
+        // fake "12D3KooW<clock nanoseconds>" identity (doctrine audit H1, 2026-11-04).
+        {
+            let p2p_dir = data_dir.join("p2p");
+            let _ = std::fs::create_dir_all(&p2p_dir);
+            let _ = std::fs::write(p2p_dir.join("peer_id"), local_peer_id.to_string());
+        }
 
         log::info!("Local peer ID: {}", local_peer_id);
 
@@ -1080,6 +1122,8 @@ pub const DIALOGUE_ENV: &str = "OZONE_PEER_DIALOGUE";
 pub const DIALOGUE_MAGIC: &str = "ozone-dialogue/v1";
 pub const DIALOGUE_MAX_TURNS_PER_DAY: u32 = 20;
 pub const DIALOGUE_MAX_HOP: u32 = 3;
+/// Size of ONE wire part, not a limit on a turn: a longer body is SPLIT into parts and sent whole (chunkable system — nothing is refused or cut
+/// because of its size; the receiving model's window decides how the parts are read).
 pub const DIALOGUE_MAX_BODY_CHARS: usize = 4_000;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -1101,6 +1145,12 @@ pub struct PeerDialogueTurn {
     pub from_peer: Option<String>,
     pub body: String,
     pub ts: u64,
+    /// Multi-part turns (2026-11-04): this part's 1-based index and the total number of parts. `0/0` (the default, and what every
+    /// pre-existing turn deserialises to) = the whole body in one message.
+    #[serde(default)]
+    pub part: u32,
+    #[serde(default)]
+    pub parts: u32,
 }
 
 /// Derive the shared thread id for a topic: both instances hash the same
@@ -1175,25 +1225,40 @@ impl NetworkManager {
                 "dialogue turn exceeded hop limit ({DIALOGUE_MAX_HOP}) — not relayed"
             )));
         }
-        if turn.body.chars().count() > DIALOGUE_MAX_BODY_CHARS {
-            turn.body = turn.body.chars().take(DIALOGUE_MAX_BODY_CHARS).collect();
-        }
+        // ONE logical turn = ONE unit of the daily budget, however many wire parts it needs.
         take_dialogue_budget().map_err(OzoneError::NetworkError)?;
         turn.ts = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let wire = serde_json::json!({
-            "magic": DIALOGUE_MAGIC,
-            "turn": turn,
-        });
-        let data = serde_json::to_vec(&wire)
-            .map_err(|e| OzoneError::NetworkError(format!("dialogue serialize: {e}")))?;
-        tracing::info!(
-            thread = %turn.thread_id,
-            turn = turn.turn,
-            "peer dialogue: sending turn (budgeted, paired-only)"
-        );
-        self.send_to_peer(peer_id, &data).await
+        // CHUNKED, NEVER REFUSED OR CUT (operator doctrine 2026-11-04: the system is graph-based and chunkable — any model, any context size):
+        // a body longer than one wire part is split on character boundaries into numbered parts, each sent whole; the receiver reassembles by
+        // (thread_id, turn, part/parts). The body is never truncated and never rejected for its size.
+        let chars: Vec<char> = turn.body.chars().collect();
+        let part_size = DIALOGUE_MAX_BODY_CHARS.max(1);
+        let total_parts = if chars.is_empty() { 1 } else { (chars.len() + part_size - 1) / part_size };
+        for idx in 0..total_parts {
+            let mut part_turn = turn.clone();
+            if total_parts > 1 {
+                part_turn.body = chars[idx * part_size..((idx + 1) * part_size).min(chars.len())].iter().collect();
+                part_turn.part = idx as u32 + 1;
+                part_turn.parts = total_parts as u32;
+            }
+            let wire = serde_json::json!({
+                "magic": DIALOGUE_MAGIC,
+                "turn": part_turn,
+            });
+            let data = serde_json::to_vec(&wire)
+                .map_err(|e| OzoneError::NetworkError(format!("dialogue serialize: {e}")))?;
+            tracing::info!(
+                thread = %part_turn.thread_id,
+                turn = part_turn.turn,
+                part = part_turn.part,
+                parts = part_turn.parts,
+                "peer dialogue: sending turn part (budgeted per turn, paired-only)"
+            );
+            self.send_to_peer(peer_id, &data).await?;
+        }
+        Ok(())
     }
 }

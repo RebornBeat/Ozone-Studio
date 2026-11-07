@@ -17,7 +17,7 @@
 //! GEOMETRY (shared spatial layer, docs/SPATIAL_GEOMETRY_LAYER.md): a node whose
 //! `attributes.geom` is `{"frame": str, "kind": "box", "x","y","w","h"}` gets its
 //! spatial relations computed HERE, centrally, by `compute_spatial_relations`
-//! (same-frame boxes only; bounded by MAX_EDGES; truncation is recorded in the
+//! (same-frame boxes only; bounded by the host-work spatial_edge_budget; truncation is recorded in the
 //! summary note). Tools emit geometry, not relations.
 
 use std::collections::{HashMap, HashSet};
@@ -43,15 +43,18 @@ pub struct GraphSummary {
     pub truncation_note: Option<String>,
 }
 
-/// Bounds on UNTRUSTED tool output. A graph over either count cap is
-/// REFUSED with an explicit error (never partially persisted and never
-/// silently trimmed): trimming nodes would orphan their parents/edges.
-const MAX_NODES: usize = 5_000;
-const MAX_EDGES: usize = 20_000;
-/// Per-field bounds: shortened with a recorded note, never silently.
-const MAX_LABEL_CHARS: usize = 200;
+/// Tool output is UNTRUSTED but is NEVER refused or cut by size (no-cap doctrine, operator 2026-11-06: "the tool output graphs limit
+/// should be digesting in chunks"). A graph of any size is DIGESTED: nodes are persisted one container at a time (parents first, in
+/// passes), edges are applied in per-source batches, and each node's FULL label and attributes are written to its content file. Only
+/// the container's display NAME is shortened (recorded in the notes). `spatial_edge_budget` below is a host-WORK guard on the O(n²)
+/// geometry pass, scaled with the graph and reported when it bites — not a limit on tool-supplied nodes/edges.
+const MAX_LABEL_CHARS: usize = 200; // display name only (the full label is kept in the content file)
 const MAX_KIND_CHARS: usize = 40;
-const MAX_ATTR_BYTES: usize = 64 * 1024;
+
+/// Host-work budget for GENERATED spatial edges (the geometry pass is O(n²) per frame): generous and proportional to the graph.
+fn spatial_edge_budget(n_nodes: usize, n_edges: usize) -> usize {
+    (n_nodes.saturating_mul(64)).max(100_000).saturating_sub(n_edges.min(100_000))
+}
 
 /// Keywords that other subsystems react to. A tool-supplied `kind` must never
 /// be able to forge one (it becomes a container keyword, and graph events
@@ -113,6 +116,84 @@ pub async fn persist_from_output_scoped(
     if let Some(p) = project_id {
         scope.push(format!("proj:{p}"));
     }
+    Some(persist(zsei, data_dir, tool, agent, graph, &scope).await)
+}
+
+/// WHERE a tool call came from (2026-11-04, operator: "the container should reference where it was called from"). Stamped on
+/// every container a call's `graph` block creates as `call:*` keywords, so a graph node can always be traced back to the
+/// provider/tool that produced it and the site/task/step/rule that asked for it.
+#[derive(Debug, Clone, Default)]
+pub struct CalledFrom {
+    /// The MCP provider (server) that answered, e.g. `threed-mcp`.
+    pub provider: Option<String>,
+    pub tool: String,
+    /// "provider-step" | "orchestrator" | "mcp-call" (HTTP) | "actor" | agent name …
+    pub site: String,
+    pub task_id: Option<u64>,
+    pub step_index: Option<u64>,
+    /// Methodology rules that required the call (`m<id>:r<n>`).
+    pub rule_refs: Vec<String>,
+    pub trace_id: Option<String>,
+}
+
+impl CalledFrom {
+    /// Read the provenance a caller put in the call context (task_id, step_index, rule_refs, provider, site, trace_id).
+    pub fn from_context(tool: &str, default_site: &str, ctx: Option<&Value>) -> Self {
+        let g = |k: &str| ctx.and_then(|c| c.get(k));
+        CalledFrom {
+            provider: g("provider").and_then(|v| v.as_str()).map(String::from),
+            tool: tool.to_string(),
+            site: g("site").and_then(|v| v.as_str()).unwrap_or(default_site).to_string(),
+            task_id: g("task_id").and_then(|v| v.as_u64()),
+            step_index: g("step_index").and_then(|v| v.as_u64()),
+            rule_refs: g("rule_refs").and_then(|v| v.as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default(),
+            trace_id: g("trace_id").and_then(|v| v.as_str()).map(String::from),
+        }
+    }
+
+    /// `call:*` keywords (host-made, so ':' is allowed; values are sanitised so a tool name can't forge a scope keyword).
+    pub fn keywords(&self) -> Vec<String> {
+        let clean = |v: &str| v.replace(':', "-").replace(char::is_whitespace, "_");
+        let mut k = vec![format!("call:tool:{}", clean(&self.tool)), format!("call:site:{}", clean(&self.site))];
+        if let Some(p) = &self.provider {
+            k.push(format!("call:provider:{}", clean(p)));
+        }
+        if let Some(t) = self.task_id {
+            k.push(format!("call:task:{t}"));
+        }
+        if let Some(s) = self.step_index {
+            k.push(format!("call:step:{s}"));
+        }
+        for r in &self.rule_refs {
+            k.push(format!("call:rule:{}", clean(r)));
+        }
+        if let Some(t) = &self.trace_id {
+            k.push(format!("call:trace:{}", clean(t)));
+        }
+        k
+    }
+}
+
+/// Same as [`persist_from_output_scoped`], additionally stamping `called_from` provenance keywords on every created container.
+pub async fn persist_from_output_called(
+    zsei: &ZSEI,
+    data_dir: &str,
+    tool: &str,
+    agent: &str,
+    output: &Value,
+    workspace_id: Option<u64>,
+    project_id: Option<u64>,
+    from: &CalledFrom,
+) -> Option<Result<GraphSummary, String>> {
+    let graph = output.get("graph").or_else(|| output.get("output").and_then(|o| o.get("graph")))?;
+    let mut scope: Vec<String> = Vec::new();
+    if let Some(w) = workspace_id {
+        scope.push(format!("ws:{w}"));
+    }
+    if let Some(p) = project_id {
+        scope.push(format!("proj:{p}"));
+    }
+    scope.extend(from.keywords());
     Some(persist(zsei, data_dir, tool, agent, graph, &scope).await)
 }
 
@@ -300,18 +381,6 @@ async fn persist(
     if nodes.is_empty() {
         return Err("graph has no nodes".to_string());
     }
-    if nodes.len() > MAX_NODES {
-        return Err(format!(
-            "graph has {} nodes; the limit for untrusted tool output is {MAX_NODES} (refused, nothing persisted)",
-            nodes.len()
-        ));
-    }
-    if edges.len() > MAX_EDGES {
-        return Err(format!(
-            "graph has {} edges; the limit for untrusted tool output is {MAX_EDGES} (refused, nothing persisted)",
-            edges.len()
-        ));
-    }
     let mut notes: Vec<String> = Vec::new();
 
     let mut keys: HashMap<&str, Option<&str>> = HashMap::new();
@@ -348,9 +417,9 @@ async fn persist(
     // carry `attributes.geom` get Overlaps/Encloses/Within/NearTo/Above/Below/
     // LeftOf/RightOf computed from their geometry. Runs after key validation
     // (keys are unique and valid) and before edge validation (generated edges
-    // are validated like tool-supplied ones). Total edges stay <= MAX_EDGES.
+    // are validated like tool-supplied ones). Generated edges are bounded by a host-work budget (see spatial_edge_budget).
     {
-        let room = MAX_EDGES.saturating_sub(edges.len());
+        let room = spatial_edge_budget(nodes.len(), edges.len());
         let (spatial, spatial_note) = compute_spatial_relations(nodes, room);
         if !spatial.is_empty() {
             edges.extend(spatial);
@@ -420,27 +489,14 @@ async fn persist(
             }
             let raw_label = node.get("label").and_then(|l| l.as_str()).unwrap_or(key);
             let label_owned: String = if raw_label.chars().count() > MAX_LABEL_CHARS {
-                notes.push(format!("node '{key}': label shortened to {MAX_LABEL_CHARS} chars"));
+                notes.push(format!("node '{key}': display name shortened to {MAX_LABEL_CHARS} chars (full label kept in the content file)"));
                 take_chars(raw_label, MAX_LABEL_CHARS)
             } else {
                 raw_label.to_string()
             };
             let label: &str = &label_owned;
-            let attributes_value = {
-                let raw = node.get("attributes").cloned().unwrap_or(Value::Null);
-                let size = serde_json::to_vec(&raw).map(|v| v.len()).unwrap_or(0);
-                if size > MAX_ATTR_BYTES {
-                    notes.push(format!("node '{key}': attributes ({size} bytes) replaced by a bounded preview"));
-                    let text = serde_json::to_string(&raw).unwrap_or_default();
-                    serde_json::json!({
-                        "truncated": true,
-                        "original_bytes": size,
-                        "preview": take_chars(&text, 4_000),
-                    })
-                } else {
-                    raw
-                }
-            };
+            // attributes are written WHOLE to the node's content file (no preview / no size bound)
+            let attributes_value = node.get("attributes").cloned().unwrap_or(Value::Null);
             let parent_id = match node.get("parent").and_then(|p| p.as_str()) {
                 None => root_id,
                 Some(pk) => match key_to_id.get(pk) {
@@ -456,7 +512,7 @@ async fn persist(
             let attrs = serde_json::json!({
                 "key": key,
                 "kind": kind,
-                "label": label,
+                "label": raw_label, // the FULL label; the container name above may be shortened for display
                 "tool": tool,
                 "attributes": attributes_value,
             });
@@ -489,7 +545,11 @@ async fn persist(
         }
     }
 
+    // EDGES in per-source BATCHES: one fetch + one UpdateContainer per SOURCE node (was one fetch + one rewrite per EDGE — O(E)
+    // store round trips and O(degree²) container rewrites on a big graph). Input order is preserved within a source.
     let mut relations = 0usize;
+    let mut by_source: Vec<(u64, Vec<Relation>)> = Vec::new();
+    let mut source_index: HashMap<u64, usize> = HashMap::new();
     for edge in &edges {
         let from = edge.get("from").and_then(|v| v.as_str()).unwrap_or("");
         let to = edge.get("to").and_then(|v| v.as_str()).unwrap_or("");
@@ -514,27 +574,40 @@ async fn persist(
                 continue;
             }
         };
-
-        let source = zsei
-            .get_container(from_id)
-            .await
-            .map_err(|e| e.to_string())?
-            .ok_or("edge source container vanished")?;
-        let mut context = source.local_state.context.clone();
-        let already = context
-            .relationships
-            .iter()
-            .any(|r| r.target_id == to_id && r.relation_type == relation_type);
-        if already {
-            continue;
-        }
-        context.relationships.push(Relation {
+        let idx = *source_index.entry(from_id).or_insert_with(|| {
+            by_source.push((from_id, Vec::new()));
+            by_source.len() - 1
+        });
+        by_source[idx].1.push(Relation {
             target_id: to_id,
             relation_type,
             confidence,
             discovered_via: DiscoveryMethod::ToolOutput,
             graph_hops: None,
         });
+    }
+    for (from_id, rels) in by_source {
+        let source = zsei
+            .get_container(from_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .ok_or("edge source container vanished")?;
+        let mut context = source.local_state.context.clone();
+        let mut added = 0usize;
+        for rel in rels {
+            let already = context
+                .relationships
+                .iter()
+                .any(|r| r.target_id == rel.target_id && r.relation_type == rel.relation_type);
+            if already {
+                continue;
+            }
+            context.relationships.push(rel);
+            added += 1;
+        }
+        if added == 0 {
+            continue;
+        }
         zsei.query(ZSEIQuery::UpdateContainer {
             container_id: from_id,
             updates: ContainerUpdate {
@@ -544,7 +617,7 @@ async fn persist(
         })
         .await
         .map_err(|e| e.to_string())?;
-        relations += 1;
+        relations += added;
     }
 
     let truncation_note = if notes.is_empty() {

@@ -33,6 +33,9 @@ pub enum MethodologyCreateInput {
         add_principles: Option<Vec<PrincipleInput>>,
         remove_principles: Option<Vec<String>>,
         add_heuristics: Option<Vec<HeuristicInput>>,
+        /// New decision rules (with their per-rule providers) appended to the existing ones.
+        #[serde(default)]
+        add_decision_rules: Option<Vec<DecisionRuleInput>>,
         add_keywords: Option<Vec<String>>,
         remove_keywords: Option<Vec<String>>,
     },
@@ -63,7 +66,32 @@ pub struct HeuristicInput {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DecisionRuleInput { pub name: String, pub condition: String, pub outcome: String }
+pub struct DecisionRuleInput {
+    pub name: String,
+    pub condition: String,
+    pub outcome: String,
+    /// PROVIDERS this rule needs (2026-11-04, operator doctrine: methodologies list providers per rule; blueprint creation turns
+    /// each into a provider STEP). Stored as `requires` on the canonical DecisionRule (src/types/methodology.rs `ToolRequirement`).
+    #[serde(default)]
+    pub requires: Vec<ToolRequirementInput>,
+}
+
+/// One provider/capability a rule needs. `kind`: "provider" (MCP server id, e.g. `threed-mcp`) | "mcp"/"tool" (a tool name —
+/// resolved to its provider) | "capability" (free text) | "pipeline".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolRequirementInput {
+    #[serde(default = "default_requirement_kind")]
+    pub kind: String,
+    pub name: String,
+    #[serde(default)]
+    pub purpose: Option<String>,
+    #[serde(default)]
+    pub optional: bool,
+}
+
+fn default_requirement_kind() -> String {
+    "provider".to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MethodologyCreateOutput {
@@ -247,6 +275,10 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                     "action": d.outcome,
                     "priority": 5,
                     "exceptions": Vec::<String>::new(),
+                    // per-rule providers (empty = none declared)
+                    "requires": d.requires.iter().filter(|r| !r.name.trim().is_empty()).map(|r| serde_json::json!({
+                        "kind": r.kind, "name": r.name.trim(), "purpose": r.purpose, "optional": r.optional,
+                    })).collect::<Vec<_>>(),
                 }))
                 .collect();
             let content = serde_json::json!({
@@ -289,6 +321,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             add_principles,
             remove_principles,
             add_heuristics,
+            add_decision_rules,
             add_keywords,
             remove_keywords,
         } => {
@@ -328,22 +361,55 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                 .and_then(|v| v.as_str())
                 .map(String::from);
 
-            // Content additions (principles/heuristics) and name/description
-            // changes get folded into a fresh content file version — the
-            // real content, not a placeholder, even though it isn't
-            // re-fetched from the old file (Update's own input only ever
-            // carries deltas, so the additions themselves are what's real
-            // here; a full read-modify-write of the old file is a
-            // reasonable follow-up but not fabricated data either way).
-            if add_principles.is_some() || add_heuristics.is_some() {
-                let content = serde_json::json!({
-                    "added_principles": add_principles,
-                    "removed_principles": remove_principles,
-                    "added_heuristics": add_heuristics,
-                });
-                write_content_file(&methodology_id.to_string(), &content);
+            // REAL READ-MERGE-WRITE (2026-11-05): the previous body wrote a deltas-only file that the container never pointed at, so
+            // content additions were silently lost. Now: read the methodology's CURRENT content file, merge the additions/removals into
+            // it (nothing existing is dropped), write it as a NEW versioned file (the old file is kept — history), and point the
+            // container's storage at the new file (the host's UpdateContainer snapshots the prior version).
+            let data_dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+            let mut content: serde_json::Value = existing_path
+                .as_ref()
+                .and_then(|rel| std::fs::read_to_string(format!("{}/{}", data_dir, rel)).ok())
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_else(|| serde_json::json!({"principles": [], "heuristics": [], "decision_rules": []}));
+            if !content.is_object() {
+                content = serde_json::json!({"principles": [], "heuristics": [], "decision_rules": []});
             }
-            let _ = existing_path;
+            let mut content_changed = false;
+            if let Some(n) = &name { content["name"] = serde_json::json!(n); content_changed = true; }
+            if let Some(d) = &description { content["description"] = serde_json::json!(d); content_changed = true; }
+            if let Some(remove) = &remove_principles {
+                if let Some(arr) = content.get_mut("principles").and_then(|v| v.as_array_mut()) {
+                    arr.retain(|p| !p.get("statement").and_then(|x| x.as_str()).map(|st| remove.iter().any(|r| r == st)).unwrap_or(false));
+                    content_changed = true;
+                }
+            }
+            if let Some(add) = &add_principles {
+                let arr = content["principles"].as_array().cloned().unwrap_or_default();
+                let mut arr = arr;
+                for p in add { arr.push(serde_json::json!({"statement": p.name, "rationale": p.description, "applicability": Vec::<String>::new()})); }
+                content["principles"] = serde_json::json!(arr);
+                content_changed = true;
+            }
+            if let Some(add) = &add_heuristics {
+                let mut arr = content["heuristics"].as_array().cloned().unwrap_or_default();
+                for h in add { arr.push(serde_json::json!({"name": h.condition, "when_to_apply": h.condition, "description": h.action, "examples": Vec::<String>::new()})); }
+                content["heuristics"] = serde_json::json!(arr);
+                content_changed = true;
+            }
+            if let Some(add) = &add_decision_rules {
+                let mut arr = content["decision_rules"].as_array().cloned().unwrap_or_default();
+                for d in add {
+                    arr.push(serde_json::json!({
+                        "condition": d.condition, "action": d.outcome, "priority": 5, "exceptions": Vec::<String>::new(),
+                        "requires": d.requires.iter().filter(|r| !r.name.trim().is_empty()).map(|r| serde_json::json!({
+                            "kind": r.kind, "name": r.name.trim(), "purpose": r.purpose, "optional": r.optional,
+                        })).collect::<Vec<_>>(),
+                    }));
+                }
+                content["decision_rules"] = serde_json::json!(arr);
+                content_changed = true;
+            }
+            let new_path = if content_changed { write_content_file(&methodology_id.to_string(), &content) } else { None };
 
             let updates = serde_json::json!({
                 "metadata": {
@@ -354,7 +420,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                     "provenance": container.pointer("/local_state/metadata/provenance").cloned().unwrap_or(serde_json::json!("methodology_create")),
                     "permissions": 0,
                     "owner_id": 0,
-                    "name": name.unwrap_or(existing_name),
+                    "name": name.clone().unwrap_or(existing_name),
                     "materialized_path": null
                 },
                 "context": {
@@ -367,7 +433,15 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
                     "embedding": null
                 }
             });
-            let _ = description; // folded into the content file, not the container's own fields
+            let mut updates = updates;
+            if let Some(np) = &new_path {
+                updates["storage"] = serde_json::json!({
+                    "db_shard_id": container.pointer("/local_state/storage/db_shard_id").cloned().unwrap_or(serde_json::Value::Null),
+                    "vector_index_ref": container.pointer("/local_state/storage/vector_index_ref").cloned().unwrap_or(serde_json::Value::Null),
+                    "object_store_path": np,
+                    "compression_type": container.pointer("/local_state/storage/compression_type").cloned().unwrap_or(serde_json::json!("None")),
+                });
+            }
             zsei_query(serde_json::json!({
                 "UpdateContainer": {"container_id": methodology_id, "updates": updates}
             }))
@@ -375,7 +449,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             Ok(MethodologyCreateOutput {
                 success: true,
                 methodology_id: Some(methodology_id),
-                version: Some(2),
+                version: Some(container.pointer("/global_state/version").and_then(|v| v.as_u64()).unwrap_or(1) as u32 + 1),
                 proposal_id: None,
                 error: None,
             })
@@ -399,7 +473,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
             // unbuilt feature) — returning a fabricated proposal_id here
             // would misrepresent a P2P feature that doesn't exist. Report
             // honestly rather than fake success.
-            Err("Methodology proposal/consensus is not implemented yet".to_string())
+            Err("Methodology proposal/consensus is not implemented yet — publishing to paired peers needs the peer catalog exchange (signed offers, review states): docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6; the Marketplace tab previews exactly what would be shared".to_string())
         }
     }
 }
@@ -407,7 +481,7 @@ pub async fn execute(input: MethodologyCreateInput) -> Result<MethodologyCreateO
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut input_json = String::new();
-    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); } }
+    for i in 1..args.len() { if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); } }
     // The host passes the full PipelineInput envelope {data, context} — every
     // real invocation from the orchestrator is wrapped this way. Unwrap
     // `data` when present; a bare MethodologyCreateInput (direct CLI use)
@@ -423,5 +497,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap()),
         Err(e) => { println!("{}", serde_json::json!({"success": false, "error": e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

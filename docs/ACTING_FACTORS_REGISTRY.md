@@ -73,12 +73,12 @@ Finding routes dedupe on (container, route, detail digest) [code]. Budget discip
 ### 2c. Loops and daemons (boot-spawned in `src/lib.rs`) [code]
 | Loop | Cadence | Paid? | Gate / switch |
 |---|---|---|---|
-| AMT re-expansion (`amt_loop`) | event-woken (`AMT_WAKE`) + 1800 s | **1 LLM call / candidate** | always |
+| AMT re-expansion (`amt_loop`) | event-woken (`AMT_WAKE`, also by the meta ripple dispatcher) + interval fallback (unchanged) | **1 LLM call / candidate** | always |
 | Graph-ripple sync → candidates | event | free | always |
 | Ripple-actor dispatch | event | free | always |
-| Methodology meta-loop | 1800 s | LLM | always |
-| I-Loop (self-reflection) | 1800 s floor (60 s doc value is budget-incompatible) | LLM | `[consciousness] enabled` |
-| **Personal Assistant check-up** (`consciousness/assistant.rs`) | 1800 s floor + task-ripple wake; change-detection skips unchanged findings ("paid check-up skipped") | free filter, then **1 batched call** | `[consciousness] enabled` [live: "findings unchanged… skipped"] |
+| Methodology meta-loop | **EVENT-DRIVEN since 2026-11-04** — wakes on meta ripples (`MethodologyGap`, `CapabilityGap`), ≥10 min between paid passes, 6 h liveness heartbeat, 60 s startup catch-up (`ripple_class.rs`); the 1800 s timer is gone | LLM | always |
+| I-Loop (self-reflection) | **EVENT-DRIVEN since 2026-11-04** — meta ripple + 60 s startup catch-up + 6 h heartbeat, ≥10 min between paid passes (replaces the 1800 s timer floor; `i_loop_interval_ms` is retained in config but no longer a schedule); signals are shown DATED with age + current time; change detection still skips an unchanged signal set | LLM | `[consciousness] enabled` |
+| **Personal Assistant check-up** (`consciousness/assistant.rs`) | **event-driven since 2026-11-04**: meta-ripple/task wake, ≥5 min gap, sleeps until the NEXT real due/remind deadline (heartbeat 6 h) — the 1800 s floor is gone; change-detection skips unchanged findings ("paid check-up skipped") | free filter, then **1 batched call** | `[consciousness] enabled` [live: "findings unchanged… skipped"] |
 | Integrity monitor | continuous | free | always (read-guard fix, see lib.rs deadlock note) |
 | OpenRouter quota monitor / catalog refresh / free-model probe | periodic | free | key present |
 | MCP autostart supervisor | boot + on demand | free | per-tool autostart; knows ports in `facts_for_port` |
@@ -116,7 +116,7 @@ tool-contract defect (methodology 45), not consciousness misbehaving.
   slippage cascade, check-up due, stuck step [doc PA §4.1]. Only classes that fire are batched into **one** LLM call; nothing
   firing = silent and free. Unchanged findings skip the paid call entirely [live].
 - **Acts** only by enqueuing real follow-up tasks (the Order stays the single store) and by speaking in `/assistant/feed`.
-- Same switch as the I-Loop (`[consciousness] enabled`), 1800 s floor, never fabricates urgency or percentages.
+- Same switch as the I-Loop (`[consciousness] enabled`); event-driven + next-deadline sleep (2026-11-04), never fabricates urgency or percentages.
 
 ## 5. Where the browser / mobile / security / terminal MCPs sit
 | Question | Answer |
@@ -170,3 +170,7 @@ I did not edit or review the code line by line; this is a design note, not a ver
 - New acting factor: the **awaiting driver** (15 s tick) — wakes walks parked on a meta/consciousness gate and applies resume requests; no model call, no human.
 - Assistant follow-ups (urgent overdue, slippage cascade, just-ended meeting) are real tasks, deduped by stable key; approved proposals execute as agent `assistant-proposal (operator-approved)` through `call_global`.
 - All routes and their guardrails: `CALL_ROUTE_REGISTRY.md`.
+
+
+## Addendum 2026-11-04
+New acting factors: **meta ripple dispatcher** (`ripple_class::spawn_meta_ripple_dispatcher`, free, no LLM; wakes I-Loop/meta-loop/assistant/AMT on meta events); **capability-gap capture** (`tool_binding::record_capability_gaps` → `capability_gaps.json` + `CapabilityGap` ripple + methodology gap, free); **tool/provider health** (`tool_health.json`, free); **binding proposals** (`tool_binding_proposals.json`, free). Env: `OZONE_META_HEARTBEAT_SECS` (default 21600), `OZONE_META_MIN_GAP_SECS` (600), `OZONE_ASSISTANT_MIN_GAP_SECS` (300).

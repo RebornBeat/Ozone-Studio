@@ -155,7 +155,7 @@ The priorities are a proposal. They are the decision the operator must make per 
 
 ## 4. Decisions needed from the operator
 
-1. Chunk size: fixed 2000 tokens (today) or window-sized (opt-in per call site)?
+1. Chunk size: **RESOLVED (2026-11-06 code read): the orchestrate path is ALREADY window-sized** — Stage 2 passes `max_chunk_tokens = model_context_limit / 4` (floor 256, `orchestrator/mod.rs`); the text crate's `default_max_chunk_tokens() = 2000` is only the standalone default when a caller passes nothing. Operator doctrine: model-agnostic, no fixed limits (see REVIEW_WINDOWING W1).
 2. Priorities per section (section 2.7).
 3. Lane budget: per smallest candidate, or fixed with repack on fallback?
 4. Tool summary cap: top N by relevance to the request, or a fixed count?

@@ -548,7 +548,7 @@ fn main() {
             "--input" => {
                 i += 1;
                 if i < args.len() {
-                    input_json = args[i].clone();
+                    input_json = ozone_input_arg(&args[i]);
                 }
             }
             _ => {}
@@ -585,5 +585,18 @@ fn main() {
             println!("{}", serde_json::to_string(&output).unwrap());
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

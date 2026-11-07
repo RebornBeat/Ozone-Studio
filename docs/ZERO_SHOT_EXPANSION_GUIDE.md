@@ -7,6 +7,14 @@
 > we're adding real intelligence, what context each needs, which registry
 > catalog it, and the build order.**
 
+> **DOCTRINE NOTE 2026-11-04 (operator): NO SELF-REPORTED CONFIDENCE.** A model's `confidence: 0.0–1.0` is false confidence. Every judgment in this guide is
+> **yes or no**, validated by the repeated-confirmation loop (`confirm_yes_no_orch` / `k_validation::confirm_consecutive_yes_with`, strength-N), and a relationship
+> is present or absent. Wherever an "Output shape" below lists `confidence`, read it as **removed — replaced by a binary verdict + the strength-N loop**; when
+> that entry is built, do not add the field. (docs/CONTRACTS.md §5.1: "No fabricated confidence… absence is None/false/0.0 — never an invented default".)
+> Code swept 2026-11-04: `zsei/hooks.rs` no longer asks for or thresholds (`≥ 0.7`) a confidence, `importance` scores are gone, span-out no longer scales by stored
+> edge confidence, the meta-loop draft prompt no longer asks for heuristic confidence, math parse absence is 0.0 not 0.5. Still to retire: the stored `Relation.confidence`
+> field and the decision-gate `confidence` (see docs/EDIT_MANIFEST_2026-11-04.md §2 item 23).
+
 ---
 
 ## 1. The doctrine for expansion
@@ -129,6 +137,16 @@ problem is actually understood.
 | **Note** | this is an architectural shape decision, not a separate build item — E2 and E3 ARE the implementations of this pattern |
 
 ### E6: Cross-file call resolution (code modality)
+
+> **STATUS UPDATE 2026-11-04 (supersedes "Currently" below; read first):** the **mechanical half is BUILT** — in line with the Review-before-judge rule and
+> "mechanical calls stay mechanical". `assets/pipelines/modalities/code/main.rs`: (1) the Python block-end bug that made every function span to EOF (and so
+> mis-attributed every call, and counted `def` lines as self-calls) is fixed (indentation-aware ranges, innermost caller, declarations skipped); (2)
+> `extract_function_calls(code, language, functions, imports)` now resolves a callee that the file IMPORTS (`from util import tokenize`) and emits `FunctionCall.module`;
+> the graph builder adds an EXTERNAL Function node `<module>.<symbol>` and a `Calls` edge to it, so the file boundary is visible instead of silently dropped
+> (verified: `tools/e2e/fanout.mjs` FO9, `parse -Calls-> util.tokenize`). **Still open:** (a) linking that external node to the OTHER file's own Function container
+> (a project-level pass — deterministic by module/file name first); (b) Rust/JS/Go import forms (only Python-style item lists are resolved so far); (c) the pipeline-18
+> tree-sitter resolver decision (revive it vs keep regex) is still unmade; (d) **the zero-shot adjudication below remains a candidate ONLY for what (a)–(c)
+> leave ambiguous** (dynamic dispatch, same-named exports in several files) — it is not needed for the common case and must not be built first.
 
 > **CORRECTION FLAGGED (2026-10-08), per the Review-before-judge rule**: a
 > review-first pass checking `docs/STATIC_LOGIC_REGISTRY.md`'s dead-trio
@@ -416,3 +434,42 @@ Every expansion MUST update:
 
 No exceptions — undocumented call sites are how the leading-{} bug class
 stayed invisible for days.
+
+
+---
+
+## 7. Expansion candidates added 2026-11-04 (provider steps / capability gaps) — NOT built; Review-before-judge applies to each
+
+Context: methodologies now list PROVIDERS (MCP servers) per rule and blueprint creation turns each into a **provider STEP** (`step_type: "provider"`). Dispatch,
+availability checks, capability-gap capture and `called_from` provenance are all **mechanical** (no model call — "plain is the efficiency"). The judgment points that
+remain, in the order a review should consider them (each only after the mechanical fix is ruled out):
+
+| ID | Judgment point | Mechanical first (do this before any model call) | If a judgment call is still warranted | Context it needs |
+|---|---|---|---|---|
+| E9 | **Tool choice inside a multi-tool provider** when no tool name/capability overlaps the step text (`choose_provider_tools` fails honestly today) | pin `tool` on the step / name the capability in the rule text; richer per-tool descriptions in the registry | one short zero-shot pick among the provider's tools, output `{tool, confidence}`, validated against the provider's tool list | step text, rule text, the provider's tools with capabilities |
+| E10 | **Structured argument derivation** for a provider call (e.g. `clock_generate` needs `{time, radius_m}`; the step sends `{"query": text}` today) | registry `input_schema` per tool + direct extraction (regex/typed) of values the request already fixes | zero-shot arg extraction constrained by the tool's `input_schema`, validated against the schema before the call | step text, original request, `input_schema`, workspace/project scope (host-injected, never model-supplied) |
+| E11 | **Promote a binding proposal** (`tool_binding_proposals.json`: a search-selected provider that really answered a step) to a declared per-rule `requires[]` | frequency/success thresholds (N successes across M runs) | meta-loop adjudication of "is this rule really about that provider" | the rule text, the proposals, the provider's capabilities |
+| E12 | **Capability-id vocabulary** (`3d.mesh.analyze`-style ids; today 181 free-text capability strings) | deterministic normalisation of existing strings + `modality:` tags | meta-loop proposes a new id; the operator approves (open decision) | existing ids, the provider's tools |
+
+**Registries touched when any of these lands:** ZERO_SHOT_CALL_REGISTRY (new row + §9 budget row), CONTEXT_REGISTRY (provider/rule context), BUILDER_REGISTRY, CALL_ROUTE_REGISTRY (R16 provider step), MASTER_TEST_GUIDE.
+**Capture parity:** a provider step's tool call goes through `call_global` (G4/G10 + per-step gate) and leaves a `provider-step` verdict row; the S13 `tool_calls.jsonl` row IS now written for `call_global` by the post-call hook (2026-11-04); only the context-mirror coordination ripple that `/mcp/call` writes is still missing (EDIT_MANIFEST_2026-11-04.md item 7).
+
+
+## 2026-11-07 addendum — what the live walks taught, and where to expand next (operator: "ensure we are expanding as needed where needed … we do not drop intelligence")
+**Expanded this stretch (zero-shot where intelligence adds value, deterministic where it does not):** methodology SUFFICIENCY review (#19) and MODIFY (#20) — every request is judged for new/modify methodologies instead of "skip when something matched"; CAPABILITY CLOSURE (#21/#22) — each missing capability is judged (strength-N) and every real need is closed on the spot with a drafted methodology + a re-plan, so planning no longer ends at "missing"; ONE vote primitive with one configurable strength; keyword hygiene + relevance-first floor (deterministic).
+**Findings that change the expansion priorities (all from measured walks, docs/WALK_COMPLETION_GUIDE.md §1–§2):** (1) the pipeline's keyword extraction returned ["you", "<whole sentence>"] → Stage 3 matched nothing → the floor loaded EVERY methodology → 61 AMT branches, a 12-step plan and 9 invented "missing" capabilities for a two-sentence request: plan size scaled with the STORE; (2) a rule's provider was attached to a plan whose request the rule did not apply to (no rule-condition check) → step 0 failed; (3) 8 of 14 walks died in Stage 2 under a wall-clock watchdog; only 1 of 14 reached delivery.
+**Expansion backlog (E13+; each item = one question and who decides):**
+| # | Where | Zero-shot or deterministic | Question / rule | Status |
+|---|---|---|---|---|
+| E13 | Stage 3 | zero-shot (batched windows) + strength-N only for DROPS | "does this methodology apply to this request?" per gathered methodology — the relevance filter the floor lacks beyond word overlap | design |
+| E14 | Stage 6 (rule → provider step) | zero-shot yes/no (strength-N) | "does this rule's CONDITION hold for this request?" before a provider step is attached | open — defect that failed step 0 of walk 1148 |
+| E15 | Stage 7 | zero-shot | feasibility "low" after closure → treat clarifications/risks as gap signals → another re-plan round | open |
+| E16 | Stage 2 keyword extraction | zero-shot (retry) | re-ask for keywords when hygiene leaves <3 usable (the hygiene already guarantees search terms deterministically) | optional |
+| E17 | Stage 10 provider tool choice | zero-shot yes/no | "which of this provider's tools fits this step?" instead of word overlap that fails ("none matches this step's text") | open |
+| E18 | meta | zero-shot | methodology quality audit: every methodology has ≥3 real keywords and non-placeholder rules (the store grows by meta drafting; thin ones feed the floor) | open |
+| E19 | calls | deterministic | per-call-site registry key (`call_site`) for every ledger label (5 labels are undocumented, REVIEW_ALIGNMENT B1) | open |
+**Rule restated:** a zero-shot judgement that DROPS something (a requirement, a methodology, an event) needs the strength-N agreement; a judgement that ADDS or merely reorders does not. Deterministic hygiene comes before any model call.
+
+**Status update (same day, implemented uncompiled):** E13 methodology relevance filter (`mod.rs` Stage 3), E14 rule-condition gate (`stages.rs::gate_rule_applicability`), E15 post-simulation feasibility re-plan, E17 provider tool choice by the model (`provider_tool_choice`). Remaining: E16, E18, E19. Details: `EDIT_CAPTURE_2026-11-07.md` §J.
+
+**Status (third pass):** E16 keyword re-ask, E18 methodology quality audit, E19 call-site key table now implemented (uncompiled) — the whole E13–E19 backlog is edited; see `EDIT_CAPTURE_2026-11-07.md` §K.

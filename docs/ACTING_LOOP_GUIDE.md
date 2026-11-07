@@ -1,5 +1,8 @@
 # The Acting Loop — what responds when something is seen
 
+> **UPDATE 2026-11-04 (supersedes the interval/trigger-model discussion below):** the I-Loop, the methodology meta-loop and the assistant are now EVENT-DRIVEN through the META RIPPLE (`src/orchestrator/ripple_class.rs`): a meta-significant ripple event wakes them; a minimum gap between paid passes (I-Loop/meta-loop 10 min, assistant 5 min, env-tunable) replaces the fixed 1800 s schedule and keeps the ~1,000-calls/day budget guarantee; a 6 h heartbeat remains only as a liveness net; a 60 s startup catch-up processes signals that accumulated while the host was down. `GET /ripple/meta/status` shows counters. The 60 s-vs-1800 s analysis in §5 is kept as history. See docs/RIPPLE_CATEGORIES_AND_META_RIPPLE_2026-11-04.md.
+
+
 > **STATUS CORRECTION 2026-10-23 (read before acting on this document):**
 > parts of this guide are stale relative to the tree. Verified current facts:
 > the I-Loop EXISTS and runs (`src/orchestrator/i_loop.rs`, boot-spawned,

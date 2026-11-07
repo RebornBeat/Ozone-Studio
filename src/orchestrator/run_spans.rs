@@ -410,3 +410,61 @@ mod tests {
         assert_eq!(j["candidate_container_ids"][1], 9);
     }
 }
+
+
+// ---------------------------------------------------------------------------------------------
+// TIME AWARENESS (operator ruling 2026-11-04): every periodic loop prompt (I-Loop, assistant, meta-loop,
+// AMT re-expansion) must know the CURRENT time, and every signal/task handed to a model carries WHEN it
+// happened — a model that cannot tell a 3-week-old failure from one a minute ago will reflect on history
+// as if it were the present (the I-Loop did exactly that with 317 fixed `failed_structural` rows).
+// Data is never clipped for this; it is only dated.
+// ---------------------------------------------------------------------------------------------
+
+/// "CURRENT TIME (UTC): 2026-11-04 06:42 (unix 1793774520)" — first line of every loop prompt.
+pub fn now_line() -> String {
+    let now = chrono::Utc::now();
+    format!("CURRENT TIME (UTC): {} (unix {})", now.format("%Y-%m-%d %H:%M"), now.timestamp())
+}
+
+/// "2026-10-14 03:11 UTC, 21d 4h ago" for a unix-seconds timestamp ("in 3h" for the future; "undated" for 0).
+pub fn when(ts_secs: i64) -> String {
+    if ts_secs <= 0 {
+        return "undated".to_string();
+    }
+    let abs = chrono::DateTime::<chrono::Utc>::from_timestamp(ts_secs, 0)
+        .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+        .unwrap_or_else(|| "undated".to_string());
+    let delta = chrono::Utc::now().timestamp() - ts_secs;
+    let (sign_ago, d) = if delta >= 0 { (true, delta) } else { (false, -delta) };
+    let rel = if d < 90 {
+        "just now".to_string()
+    } else if d < 3600 {
+        format!("{}m", d / 60)
+    } else if d < 86400 {
+        format!("{}h {}m", d / 3600, (d % 3600) / 60)
+    } else {
+        format!("{}d {}h", d / 86400, (d % 86400) / 3600)
+    };
+    if rel == "just now" {
+        format!("{abs}, just now")
+    } else if sign_ago {
+        format!("{abs}, {rel} ago")
+    } else {
+        format!("{abs}, in {rel}")
+    }
+}
+
+#[cfg(test)]
+mod time_tests {
+    use super::*;
+    #[test]
+    fn when_dates_and_ages_signals() {
+        let now = chrono::Utc::now().timestamp();
+        assert!(when(now - 3 * 86400 - 2 * 3600).contains("3d 2h ago"));
+        assert!(when(now - 5 * 60).contains("5m ago"));
+        assert!(when(now - 10).ends_with("just now"));
+        assert!(when(now + 7200).contains("in 2h"));
+        assert_eq!(when(0), "undated");
+        assert!(now_line().starts_with("CURRENT TIME (UTC): 20"));
+    }
+}

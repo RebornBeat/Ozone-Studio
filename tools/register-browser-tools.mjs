@@ -62,6 +62,11 @@ const FAMILIES = {
     document_images: "list embedded images in a PDF (pdfimages) for image-modality hand-off",
     document_formats: "which document backends are installed on this host (honest capability probe)",
   } },
+  threed: { port: Number(process.env.OZONE_THREED_PORT ?? 3250), version: "0.2.0", tools: {
+    eeg_cap_costume_generate: "rat 3D asset (standalone workspace asset, NOT an EEG tool; historical tool name) via headless Blender -> glTF (known headless-hang limitation; hard timeout)",
+    clock_generate: "3D analog clock via headless Blender -> GLB + STL + PNG render {time:'HH:MM', radius_m?, output_dir?}",
+    cad_clock_generate: "solid-model (CAD / OpenCascade) clock -> STEP + STL {radius_mm?, output_dir?}; separate process from Blender, run them one at a time",
+  } },
   security: { port: Number(process.env.OZONE_SECURITY_PORT ?? 3240), version: "0.2.0", tools: {
     exposure_report: "listeners split loopback/external, risky ports flagged", security_status: "security-mcp self posture (privileged?, tools)",
   } },

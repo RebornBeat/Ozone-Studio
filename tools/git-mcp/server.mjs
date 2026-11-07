@@ -59,7 +59,7 @@ function diffText(a, b) {
     out.push(...del, ...add);
     if (i < al.length && j < bl.length) { i++; j++; }
   }
-  return out.slice(0, 500);
+  return out; // every diff line (doctrine audit #24: was cut at 500 with no flag)
 }
 
 function reply(res, code, body) {

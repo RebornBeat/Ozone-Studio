@@ -1000,7 +1000,7 @@ async fn persist_image_graph(graph: &mut ImageGraph) -> Result<(), String> {
         if k.is_empty() {
             k.push("image".to_string());
         }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!(
@@ -2633,7 +2633,7 @@ async fn main() {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_str = args[i + 1].clone();
+            input_str = ozone_input_arg(&args[i + 1]);
             i += 1;
         }
         i += 1;
@@ -2996,5 +2996,18 @@ mod tests {
         assert_eq!(diff.differences.len(), 16);
         assert!(compare_image_bytes(&red, &blue, ComparisonType::Structural).is_err());
         assert!(diff.structural_similarity.is_none() && diff.composition_similarity.is_none());
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

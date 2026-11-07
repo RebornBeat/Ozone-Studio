@@ -525,3 +525,50 @@ Voice: VB1–VB8.
 | T-SPAN-4 | runaway guard | `FETCH CAP HIT` is reported, not silent |
 | T-SPAN-5 | AMT re-expansion candidate "(container N)" | prompt carries CONNECTED CONTEXT spanning out from the AMT and container N |
 | T-LINK-1 | `binary_alias("i_loop")` etc. | maps to `reflection` / `self_model` / `experience_playback` / `emotional_response` / `consciousness_dashboard` |
+
+### §26g — E2E phase 2/3 rows (2026-11-03, real host)
+| ID | What | Result |
+|---|---|---|
+| E2E-MCP-1..9 | `tools/e2e/mcp-contract.mjs`: 9 MCPs × registry endpoint==port, positive, ripple, refusal, S13 | 43 pass / 0 fail / 2 skip (git, security accept empty input) |
+| E2E-PR-1 | blocked-model run ends PAUSED, not lost | verified by hand (task 990); scripted run times out on slow stage 2 |
+| E2E-PR-2 | Order/pause_info/checkpoint/unknown-resume refusal | PASS |
+| E2E-PR-3 | oversize step input (>128 KiB argv) must not fail | was FAIL (E2BIG) → fixed via `--input @file`; resume advanced past step 0 |
+| E2E-PR-4 | resumed task runs to completion and closes the paused record | PASS — `resume_run finished task_id=990 success=true` (2026-11-03 19:43 UTC, ~95 min after resume from step 0; stage 10 ran 50+ steps with span-out context) |
+
+### §26h — Fan-out, code call-graph and jurisdiction rows (2026-11-04, real host)
+| ID | What | Result |
+|---|---|---|
+| FO-U1..U4 | graph_fanout unit tests (classifier over all modality families, entry-rooted digest, structural roots, empty graph) | PASS 4/4 |
+| CG-U1 | Python function ranges + caller attribution (`callgraph_tests`) | PASS (was FAIL: EOF-spanning ranges) |
+| FO-E1 | code workspace via Ozone Code modality → span-out fan-out evidence (`tools/e2e/fanout.mjs`) | PASS 12/12 |
+| FO-E2 | clock via Ozone `/orchestrate` (Blender + CAD tools, one at a time) → ingest → CAD→3D fan-out | IN PROGRESS (task 992) |
+| FO-E3 | edge-class coverage over every graph file; list modalities with empty edges | TODO (sparse-capture modalities known: control, network, radar, …) |
+| J1..J7 | jurisdiction gate on /mcp/call + /pipeline/execute (`tools/e2e/jurisdiction.mjs`) | PASS 9/9 |
+
+### §26i — Written, NOT yet run (edits made under "no build, no test", 2026-11-04)
+| ID | What | Where |
+|---|---|---|
+| MR0–MR5 | meta ripple: status route, structure events not meta, Task = meta, 20-event burst coalesces to ≤2 passes, no self-trigger runaway | `tools/e2e/meta-ripple.mjs` (host with `OZONE_META_MIN_GAP_SECS=15 OZONE_ASSISTANT_MIN_GAP_SECS=15`) |
+| MK0–MK13 | marketplace overview is built from real registry/methodology/blueprint/pairing data; providers = MCP servers; peers honest; wanted/health/proposals present | `tools/e2e/marketplace.mjs` |
+| PS1–PS8 | provider step: methodology with per-rule provider created via pipeline 12; blueprint has a `provider` step before its carrier (contiguous indices, deps resolve); missing provider captured as WANTED; provider step completes with a real provider result | `tools/e2e/provider-step.mjs` |
+| U-binding | `tool_binding` evaluate/manifest tests | `src/orchestrator/tool_binding.rs` |
+| U-route | `choose_provider_tools` (pinned / single / best-group / honest failure) | `src/orchestrator/tool_routing.rs` |
+| U-req | legacy rules load; `requires` round-trips | `src/types/methodology.rs` |
+| X-cap | jurisdiction call gate sees text beyond 4,000 chars (Block phrase at position > 4,000 must be refused) | TODO: add to `jurisdiction.mjs` (J8) |
+
+## §27 Walk completion and per-stage criteria (2026-11-07 — docs/WALK_COMPLETION_GUIDE.md) — rows W0–W7, NOT YET RUN (needs the next host build for `walk_metrics.jsonl`)
+Test: `tools/e2e/walk-completion.mjs` (one real walk; asserts from the durable per-stage metrics). Tool: `tools/walk-scorecard/scorecard.mjs`.
+| ID | Assertion | Target |
+|---|---|---|
+| W0 | the walk finished (not timed out) | yes |
+| W1 | completion 100% — all 13 core stages completed | 13/13 |
+| W2 | ≥3 usable request keywords after hygiene (`Keywords: N usable of M extracted`) | 100% of walks |
+| W3 | methodology floor NOT used (`Floor: no`) — keyword search found matches | 0% floor |
+| W4 | no unresolved missing capabilities after the capability-closure step | 0 |
+| W5 | simulation feasibility not "low" | 0 low |
+| W6 | every planned step executed | executed = planned |
+| W7 | response delivered | yes |
+Known harness limits (recorded 2026-11-07): the walk may legitimately PARK at the Jurisdiction Full Gate for a human `RequireConfirmation` (`awaiting`, kind `jurisdiction_confirm`) — e.g. the 3D-clock plan; a walk test that expects completion must resolve the confirmation first (`POST /consciousness/reviews/resolve`) — NOT YET in `provider-step.mjs` (PS3/PS4 read `runs/<task>.json`, which does not exist for a parked walk; PS7 previously crashed on the missing result — fixed). The scorecard shows such a walk as STOPPED before Stage 9 with `blocked=true` in Stage 14's summary.
+Other rows added this stretch (not yet run): vote primitive both routes (unit, passing), `configured_strength` (unit), `request_terms` hygiene + floor (unit, 4 tests), analysis reuse store (unit, passing), capability closure (needs a real walk with one invented + one genuine gap).
+
+**§27b rows for E13/E14/E15/E17 (NOT YET RUN):** W8 a request unrelated to a declared provider rule gets NO provider step (log: "rule-condition gate: rule judged NOT applicable"); W9 a request the rule applies to still gets its provider step (applicability `applies`); W10 methodology relevance filter keeps the gather non-empty and logs kept/dropped counts; W11 a LOW-feasibility simulation triggers one re-plan + re-simulate ("feasibility LOW — re-planning"); W12 a multi-tool provider whose word overlap matches nothing logs "provider tool chosen by the model" and the step runs. `provider-step.mjs` PS3/PS4 now resolve a jurisdiction hold by review_id and re-submit.

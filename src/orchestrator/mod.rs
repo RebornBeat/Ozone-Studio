@@ -45,6 +45,7 @@ pub mod meta_loop;
 pub mod amt_loop;
 pub mod dispatch;
 pub mod lane_split;
+pub mod request_terms;
 pub mod actors;
 pub mod i_loop;
 
@@ -54,6 +55,9 @@ pub mod decision_review;
 pub mod jurisdiction;
 pub mod run_checkpoint; // failure-pause checkpoints + resume from the failed step (2026-11-02)
 pub mod span_out; // the one context fan-out (span-out) algorithm, token-budgeted (2026-11-02)
+pub mod tool_binding; // per-rule tool bindings, missing-capability capture, tool health (2026-11-04)
+pub mod ripple_class; // meta ripple: categories, dispatcher, event-driven loop gates (2026-11-04)
+pub mod graph_fanout; // per-modality fan-out rule: edge classes, entries, flow sequence (2026-11-03)
 pub mod chat_store; // scoped chat persistence: ChatSession/ChatTurn containers, full text (2026-11-02)
 pub mod awaiting; // durable awaiting items for meta/consciousness gates (2026-11-01 doctrine); file created by the gate fork
 pub mod jurisdiction_search;
@@ -988,6 +992,42 @@ pub struct BlueprintStep {
     /// branch — no compliance check runs, never fabricated against nothing.
     #[serde(default)]
     pub methodology_ids: Vec<u64>,
+    /// The methodology rules this step carries out, as `m<id>:r<index>` refs (tool_binding.rs `Binding::rule_ref`).
+    /// Filled by blueprint creation (model-proposed, host-validated against the gathered methodologies) so a step
+    /// remembers WHICH RULE it came from — previously only the methodology id was remembered, by overlap.
+    #[serde(default)]
+    pub rule_refs: Vec<String>,
+    /// STEP TYPE (2026-11-04, operator: "provider is just a step type"). `"pipeline"` (default — runs `pipeline_id`; pipeline 56 keeps
+    /// its web-search special case) or `"provider"` — an MCP PROVIDER step: the host calls the named provider (an MCP server, e.g.
+    /// `threed-mcp`) through the gated, metered MCP path; which of the provider's tools runs is decided at call time from this
+    /// step's own text (or the pinned `tool`). A provider step is created from a methodology rule's declared `requires[]`
+    /// (provider) by blueprint creation, runs BEFORE the step that carries the rule, and its result flows to that step as a
+    /// previous-step output (via `depends_on`). Absent on every blueprint stored before this field existed = "pipeline".
+    #[serde(default = "default_step_type")]
+    pub step_type: String,
+    /// Provider id for `step_type == "provider"` (an id from the registry's provider list: `threed-mcp`, `mesh-mcp`, `bridges`, …).
+    #[serde(default)]
+    pub provider: Option<String>,
+    /// Optional explicit tool of the provider (pin); `None` = chosen at call time from the step text.
+    #[serde(default)]
+    pub tool: Option<String>,
+    /// Optional structured arguments for the provider call (e.g. `{"time":"10:10"}`); `null` = `{"query": <full step text>}`.
+    #[serde(default)]
+    pub args: serde_json::Value,
+    /// True when the plan can still be answered without this provider (a rule's optional requirement).
+    #[serde(default)]
+    pub optional: bool,
+}
+
+fn default_step_type() -> String {
+    "pipeline".to_string()
+}
+
+impl BlueprintStep {
+    /// True for an MCP provider step (see `step_type`).
+    pub fn is_provider_step(&self) -> bool {
+        self.step_type == "provider"
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1202,26 +1242,28 @@ pub(crate) struct OrchestrationState {
     /// from the MCP registry; None = registry empty/unavailable. Compact
     /// one-line-per-tool format for prompt embedding.
     pub capability_summary: Option<String>,
-    /// Stage-3 tools/MCP aggregation (operator directive: gather tools and
-    /// MCPs WHERE pipeline gathering is) — applicable entries selected
-    /// against the request's keywords/topics, general-availability floor
-    /// when nothing matches. [{"name","capabilities","endpoint","matched"}]
+    /// Stage-3 tools/MCP aggregation — PROVIDER BINDINGS FIRST (2026-11-04; supersedes the 2026-10-23 "general-availability
+    /// floor" design): `tool_manifest` holds what the gathered methodologies' rules DECLARE they need (providers = MCP servers);
+    /// THIS list is the tools of the bound providers (source "methodology-binding") followed by registry entries whose
+    /// name/capabilities match the request's keywords/topics (source "search" — the fallback/learning path). There is NO
+    /// "first N registry entries" floor: we either have a capability or we don't, and a missing one is captured
+    /// (`missing_capabilities` / capability_gaps.json). [{"name","capabilities","endpoint","matched","source"}]
     ///
-    /// TOOL-SELECTION RULING (2026-10-23, operator-approved): there are two
-    /// selections and they have different jobs. `capability_summary`
-    /// (filtered per need by `capability_summary_for_need` in stages.rs) is
-    /// what the blueprint / simulation PROMPTS read, so a plan can name the
-    /// capabilities it needs (`missing_capabilities`). THIS list is the
-    /// keyword/floor selection that feeds the stage-3 log line and is the
-    /// intended input for the future tool-ROUTING consumer. It is kept, not
-    /// removed. Tool routing itself — a blueprint step actually invoking an
-    /// MCP tool — is deliberately NOT wired: every executable step is
-    /// pipeline 9 (or 56), and nothing in the orchestrator calls
-    /// `mcp::call_global`. That stays deferred until the approval gate, the
-    /// untrusted-text labelling of tool output and the `model_override`
-    /// whitelist exist, because wiring it converts today's accidental
-    /// safety (model text can't reach a tool) into an execution path.
+    /// Two selections with different jobs: `capability_summary` (filtered per need by `capability_summary_for_need` in
+    /// stages.rs) is what the blueprint / simulation PROMPTS read; THIS list feeds the search-based tool-routing FALLBACK
+    /// (`tool_routing.rs`, `OZONE_TOOL_ROUTING=1`, untrusted-wrapped, per-step gated) for tools that are NOT already bound.
+    /// Bound providers do not go through that path: blueprint creation turns each into a PROVIDER STEP
+    /// (`BlueprintStep::step_type == "provider"`, `execute_provider_step`) that calls the provider through `mcp::call_global`
+    /// (gated, metered, jurisdiction-checked) with `called_from` provenance on every container the call creates.
     pub applicable_tools: Vec<serde_json::Value>,
+    /// PER-RULE TOOL BINDINGS of the gathered methodologies, evaluated against the registry (Stage 3):
+    /// one object per declared `requires[]` entry with `status` registered|degraded|missing|unchecked and its `rule_ref`
+    /// (`m<id>:r<index>`). Authoritative input to blueprint creation and simulation (tool_binding.rs). Empty = no gathered
+    /// methodology declares required tools.
+    pub tool_manifest: Vec<serde_json::Value>,
+    /// Required-but-unavailable capabilities discovered this run (declared bindings with no provider, blueprint-reported
+    /// `missing_capabilities`, invalid tool calls, simulation `tool_checks` misses). Also persisted to capability_gaps.json.
+    pub missing_capabilities: Vec<serde_json::Value>,
     /// Real file content (read from disk in prompt_normalization's attached-
     /// file step), keyed by the same file_path as file_graphs. Confirmed
     /// live this was the actual gap behind attached files being "seen"
@@ -1236,6 +1278,20 @@ pub(crate) struct OrchestrationState {
     pub attached_file_contents: HashMap<String, String>,
     pub classified_file_graphs: Vec<ClassifiedFileGraph>, // primary/supplementary/raw roles
     pub chunk_graph_ids: Vec<u64>,         // ordered list of chunk graph IDs
+    /// Cross-modal link attempts already made THIS walk: (source graph, target graph, phase 0=A text→other, 1=B other→text, 2=C inter).
+    /// A pair is attempted once. `link_to_modality` returns a fresh `link_result` on EVERY call (even for an existing link), so the
+    /// pass used to count every re-attempt as a "new edge" and never reached 5 quiet passes — it ran to the 31-pass ceiling.
+    pub cross_modal_linked: std::collections::HashSet<(u64, u64, u8)>,
+    /// Capability gaps already JUDGED by the in-walk closure step this walk (lower-cased names) — each gap is judged once, which also
+    /// guarantees the closure/re-plan loop terminates.
+    pub closure_attempted: std::collections::HashSet<String>,
+    /// Keyword tracking (operator 2026-11-07: "review all keywords … ensure 100%"): how many keywords the model EXTRACTED, how many
+    /// remained USABLE after hygiene, and whether the methodology floor was used — surfaced in the Stage 2/3 summaries and walk_metrics.
+    pub keywords_extracted: usize,
+    pub floor_used: bool,
+    /// Set while the closure step re-runs blueprint assignment: skip the "reuse a matching stored blueprint" shortcut and build a NEW one
+    /// from the now-richer methodology set.
+    pub replan: bool,
 
     // PHASE 2: INITIAL MODALITY GRAPHS
     pub modality_graphs: HashMap<String, u64>, // modality_name → graph_id
@@ -1941,6 +1997,11 @@ impl PromptOrchestrator {
             attached_file_contents: HashMap::new(),
             classified_file_graphs: Vec::new(),
             chunk_graph_ids: Vec::new(),
+            cross_modal_linked: std::collections::HashSet::new(),
+            closure_attempted: std::collections::HashSet::new(),
+            keywords_extracted: 0,
+            floor_used: false,
+            replan: false,
             modality_graphs: HashMap::new(),
             graph_states: HashMap::new(),
             root_modality_list: RootModalityList::default(),
@@ -1982,6 +2043,8 @@ impl PromptOrchestrator {
             available_pipelines,
             capability_summary,
             applicable_tools: Vec::new(),
+            tool_manifest: Vec::new(),
+            missing_capabilities: Vec::new(),
         };
 
         // Record the run's trace id on the thinking log (and so the task
@@ -2063,6 +2126,13 @@ impl PromptOrchestrator {
         }
 
         let result = self.execute_stages(&mut state).await;
+        // FAILURE DOCTRINE (pre-task): a real failure before any task existed becomes a PAUSED task
+        // with the original request checkpointed, instead of a lost run. Decisions (blocks, declines,
+        // holds, clarifications) are not failures and pass through untouched.
+        let result = match result {
+            Err(e) if state.task_id.is_none() && Self::is_pausable_failure(&e) => Err(self.pause_pre_task(&mut state, &e).await),
+            other => other,
+        };
 
         // Persist the full thinking cycle onto the task record, if one was
         // created — task creation happens mid-run (Stage 9-11), before the
@@ -2159,24 +2229,16 @@ impl PromptOrchestrator {
                 // was invisible to graph creation entirely, no matter its
                 // actual size. is_inline: true has no real file to read
                 // (content was provided directly, not via a path), so that
-                // case still uses content_preview as-is. Capped generously
-                // (not unbounded) so one pathological huge attachment can't
-                // hang analysis — a warning marks when that cap bites.
-                const MAX_FILE_ANALYSIS_BYTES: usize = 200_000;
+                // case still uses content_preview as-is.
+                // NEVER CUT, NEVER REFUSED FOR SIZE (operator doctrine 2026-11-04: graph-based, chunkable system — any model, any context size).
+                // The attached file is read and analysed WHOLE by its modality pipeline; chunking to the reading model's window happens
+                // downstream (chunk graphs / span-out / window-fit), not here. A pathological file is bounded by the pipeline's own idle-kill
+                // watchdog and the failure doctrine (pause → resume), not by a size ceiling.
                 let file_content = if file_spec.is_inline {
                     file_spec.content_preview.clone().unwrap_or_default()
                 } else {
                     match std::fs::read_to_string(&file_spec.file_path) {
-                        Ok(mut content) => {
-                            if content.len() > MAX_FILE_ANALYSIS_BYTES {
-                                tracing::warn!(
-                                    file_path = %file_spec.file_path,
-                                    size = content.len(),
-                                    cap = MAX_FILE_ANALYSIS_BYTES,
-                                    "Attached file exceeds analysis cap — truncating"
-                                );
-                                content.truncate(MAX_FILE_ANALYSIS_BYTES);
-                            }
+                        Ok(content) => {
                             content
                         }
                         Err(e) => {
@@ -2223,7 +2285,7 @@ impl PromptOrchestrator {
                         .as_ref()
                         .and_then(|p| p.get("confidence"))
                         .and_then(|c| c.as_f64())
-                        .unwrap_or(0.5) as f32;
+                        .unwrap_or(0.0) as f32; // absence is 0.0, never an invented 0.5 (docs/CONTRACTS.md §5.1)
                     serde_json::json!({
                         "action": {
                             "type": "CreateGraph",
@@ -2425,7 +2487,37 @@ impl PromptOrchestrator {
 
         state.prompt_tokens = Self::estimate_tokens(&state.cleaned_prompt);
         state.tokens_used_so_far += state.prompt_tokens;
-        state.keywords = all_keywords.into_iter().collect();
+        // KEYWORD HYGIENE (2026-11-07): the extracted "keywords" for a short request were ["you", "<the whole sentence>"] — nothing matched and
+        // the methodology floor then pulled EVERY methodology. Strip stopwords / sentence-like items; if fewer than 3 usable ones remain,
+        // add the prompt's own content words. A rich extraction is untouched. See request_terms.rs.
+        state.keywords_extracted = all_keywords.len();
+        // KEYWORD RE-ASK (E16, 2026-11-07): when the extraction left fewer than 3 USABLE keywords (stopwords / whole sentence), ask the
+        // model once more for search keywords before the deterministic fallback fills in the prompt's own words. The fallback still
+        // guarantees terms; this adds intelligence first. A rich extraction never triggers it.
+        if request_terms::sanitize_keywords("", all_keywords.iter().cloned().collect()).len() < 3 {
+            let ask = format!(
+                "REQUEST:\n{}\n\nList 3 to 8 SEARCH KEYWORDS for finding methodologies and tools relevant to this request: single words or short noun phrases (at most 3 words each), no pronouns or filler words, no whole sentences. Return ONLY a JSON array of strings.",
+                state.cleaned_prompt
+            );
+            let input = serde_json::json!({
+                "prompt": ask, "max_tokens": 120, "temperature": 0.0,
+                "system_prompt": "Return only a JSON array of keyword strings."
+            });
+            if let Ok(res) = self.metered_execute_resilient(state, input, "keyword_reask").await {
+                let text = self.extract_output_text(&res);
+                let (lo, hi) = (text.find('['), text.rfind(']'));
+                if let (Some(lo), Some(hi)) = (lo, hi) {
+                    if hi > lo {
+                        if let Ok(v) = serde_json::from_str::<Vec<String>>(&text[lo..=hi]) {
+                            for k in v {
+                                all_keywords.insert(k);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        state.keywords = request_terms::sanitize_keywords(&state.cleaned_prompt, all_keywords.into_iter().collect());
         state.entities = all_entities;
         state.topics = all_topics.into_iter().collect();
 
@@ -2471,7 +2563,9 @@ impl PromptOrchestrator {
         let methodology_ids = self
             .store
             .search_by_keywords(
-                &state.keywords.iter().take(20).cloned().collect::<Vec<_>>(),
+                // ALL request keywords (no-cap doctrine, audit #3): methodology gathering is the heart of Stage 3 — it used to search only
+                // the first 20, so a long request silently lost methodologies keyed on later keywords
+                &state.keywords.iter().cloned().collect::<Vec<_>>(),
                 Some("Methodology"),
             )
             .await
@@ -2493,8 +2587,84 @@ impl PromptOrchestrator {
                     .and_then(|g| g.get("child_ids"))
                     .and_then(|c| serde_json::from_value::<Vec<u64>>(c.clone()).ok())
                 {
-                    state.methodologies = children;
+                    // RELEVANCE-FIRST FLOOR (2026-11-07): "never an empty gather" is kept, but the floor is no longer EVERY methodology in
+                    // the store (it scaled the plan with the store: 87 → 99 methodologies, 61 AMT branches, 12 steps, 9 invented missing
+                    // capabilities for a two-sentence request). Order: methodologies sharing a content word with the request → the base
+                    // orchestration methodology → all (only for a store with neither). See request_terms::floor_selection.
+                    let mut candidates: Vec<(u64, String, Vec<String>)> = Vec::new();
+                    for id in &children {
+                        if let Ok(Some(c)) = self.store.get_container(*id).await {
+                            let name = c
+                                .get("local_state")
+                                .and_then(|l| l.get("metadata"))
+                                .and_then(|m| m.get("name"))
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let kws: Vec<String> = c
+                                .get("local_state")
+                                .and_then(|l| l.get("context"))
+                                .and_then(|x| x.get("keywords"))
+                                .and_then(|k| serde_json::from_value(k.clone()).ok())
+                                .unwrap_or_default();
+                            candidates.push((*id, name, kws));
+                        } else {
+                            candidates.push((*id, String::new(), Vec::new()));
+                        }
+                    }
+                    let request_words = request_terms::content_words(&state.cleaned_prompt);
+                    let chosen = request_terms::floor_selection(&request_words, &candidates);
+                    tracing::info!(
+                        stage = 3,
+                        store = children.len(),
+                        floor = chosen.len(),
+                        "methodology floor: keyword search found none — using the relevance-first floor instead of every methodology"
+                    );
+                    state.methodologies = chosen;
+                    state.floor_used = true;
                 }
+            }
+        }
+        // METHODOLOGY RELEVANCE FILTER (E13, 2026-11-07; operator: "tighten our conditions"). Keyword overlap alone gathers anything that
+        // shares a word with the request. Each gathered methodology is judged once: "does this methodology clearly NOT apply to this
+        // request?" — DROPPING is the assured action, so it needs `configured_strength()` consecutive YES (the first NO keeps it and
+        // ends that vote). Never leaves the gather empty: if every methodology is judged irrelevant they are all KEPT (the floor
+        // doctrine "methodologies should never be 0"). The floor path is exempt (already relevance-ordered, and may be a single base
+        // methodology). Runs only for a keyword-found set of more than one.
+        if !state.floor_used && state.methodologies.len() > 1 {
+            let request = state.cleaned_prompt.clone();
+            let ids = state.methodologies.clone();
+            let mut keep: Vec<u64> = Vec::new();
+            let mut dropped: Vec<u64> = Vec::new();
+            for id in ids {
+                let (name, desc) = match self.store.get_container(id).await {
+                    Ok(Some(c)) => {
+                        let md = c.get("local_state").and_then(|l| l.get("metadata"));
+                        (
+                            md.and_then(|m| m.get("name")).and_then(|n| n.as_str()).unwrap_or("").to_string(),
+                            md.and_then(|m| m.get("description")).and_then(|n| n.as_str()).unwrap_or("").to_string(),
+                        )
+                    }
+                    _ => (String::new(), String::new()),
+                };
+                if name.is_empty() && desc.is_empty() {
+                    keep.push(id); // nothing to judge it on — keep, never drop blind
+                    continue;
+                }
+                let prompt = format!(
+                    "REQUEST (the user's request, whole):\n{request}\n\nMETHODOLOGY: {name}\n{desc}\n\nQUESTION: Does this methodology clearly NOT apply to the request above — i.e. its subject matter has nothing to do with what the request asks for? Answer YES only if it is clearly irrelevant. Answer NO if it applies or you are unsure."
+                );
+                if self.confirm_yes_no_orch(state, prompt, k_validation::configured_strength()).await {
+                    dropped.push(id);
+                } else {
+                    keep.push(id);
+                }
+            }
+            if keep.is_empty() {
+                tracing::warn!(stage = 3, "methodology relevance filter judged EVERY gathered methodology irrelevant — keeping them all (never an empty gather)");
+            } else if !dropped.is_empty() {
+                tracing::info!(stage = 3, kept = keep.len(), dropped = dropped.len(), "methodology relevance filter: dropped clearly-irrelevant methodologies (strength-N)");
+                state.methodologies = keep;
             }
         }
         if state.methodologies.is_empty() {
@@ -2645,27 +2815,86 @@ impl PromptOrchestrator {
         // with its classified count) and the AMT is Stage 5 (build_amt,
         // which logs Intents/Branches/Details/Cross-refs/Passes/Validated).
         // This stage owns ONLY the methodology set + categories.
-        // TOOLS/MCP AGGREGATION (operator: "gather mcps and tools where
-        // pipeline gathering is as well") — the same stage that gathers
-        // methodologies + pipelines selects the applicable capability
-        // entries for this request. Keyword/topic match first; when nothing
-        // matches, a capped general-availability floor so the blueprint
-        // still knows the fleet exists (labeled matched=false — honest).
-        state.applicable_tools = {
+        // TOOLS/MCP AGGREGATION — BINDINGS FIRST (operator doctrine 2026-11-04; src/orchestrator/tool_binding.rs).
+        // Tools/MCPs are declared PER RULE inside methodologies (`DecisionRule.requires[]`), so the same stage that
+        // gathers the methodologies gathers what their rules need:
+        //   1. every declared binding of the gathered methodologies is evaluated against the registry
+        //      (registered / degraded / missing) into `state.tool_manifest` — the authoritative input to blueprint
+        //      creation and simulation;
+        //   2. a required binding with NO provider is a MISSING CAPABILITY: recorded durably (capability_gaps.json),
+        //      announced on the ripple, queued as a methodology gap for the meta-loop, wanted in the Marketplace;
+        //   3. `applicable_tools` = the providers of bound tools first (source "methodology-binding"), then registry
+        //      entries whose name/capabilities match the request's keywords/topics (source "search" — the fallback and
+        //      learning path). There is NO "first N registry entries" floor any more: we either HAVE a capability or
+        //      we DON'T — a missing one is captured, never papered over by listing unrelated tools.
+        {
+            let registry_entries = crate::mcp::registry_entries().await.unwrap_or_default();
+            let registry_rows: Vec<tool_binding::RegistryRow> = registry_entries
+                .iter()
+                .map(|t| (t.name.clone(), t.capabilities.clone(), t.endpoint.clone()))
+                .collect();
+            let bindings = tool_binding::gather_bindings(&self.store, &state.methodologies).await;
+            let evaluated = tool_binding::evaluate(&bindings, &registry_rows);
+            tool_binding::close_satisfied_gaps(&registry_rows);
+            let required_missing: Vec<tool_binding::GapInput> = evaluated
+                .missing
+                .iter()
+                .filter(|m| !m["optional"].as_bool().unwrap_or(false))
+                .map(|m| tool_binding::GapInput {
+                    kind: m["kind"].as_str().unwrap_or("mcp").to_string(),
+                    name: m["name"].as_str().unwrap_or("").to_string(),
+                    source: "methodology-binding".to_string(),
+                    detail: format!(
+                        "required by methodology \"{}\" rule {} ({})",
+                        m["methodology_name"].as_str().unwrap_or(""),
+                        m["rule_index"],
+                        m["rule_ref"].as_str().unwrap_or("")
+                    ),
+                })
+                .collect();
+            tool_binding::record_capability_gaps(&required_missing);
+            state.missing_capabilities.extend(evaluated.missing.iter().cloned());
+            state.tool_manifest = evaluated.manifest.clone();
+
             let kws: Vec<String> = state
                 .keywords
                 .iter()
                 .chain(state.topics.iter())
                 .map(|k| k.to_lowercase())
                 .collect();
-            let entries = crate::mcp::registry_entries().await.unwrap_or_default();
             let mut applicable: Vec<serde_json::Value> = Vec::new();
-            for t in &entries {
+            // 1. providers of declared bindings (registered or degraded)
+            for m in &evaluated.manifest {
+                let status = m["status"].as_str().unwrap_or("");
+                if status != "registered" && status != "degraded" {
+                    continue;
+                }
+                let Some(provider) = m["provider"].as_str() else { continue };
+                if applicable.iter().any(|a| a["name"].as_str() == Some(provider)) {
+                    continue;
+                }
+                if let Some(t) = registry_entries.iter().find(|t| t.name == provider) {
+                    applicable.push(serde_json::json!({
+                        "name": t.name,
+                        "capabilities": t.capabilities,
+                        "endpoint": t.endpoint,
+                        "matched": true,
+                        "source": "methodology-binding",
+                        "rule_ref": m["rule_ref"],
+                    }));
+                }
+            }
+            let bound_count = applicable.len();
+            // 2. keyword/topic search — fallback + learning path
+            for t in &registry_entries {
                 let hay = format!("{} {}", t.name, t.capabilities.join(" ")).to_lowercase();
                 // CONSCIOUSNESS GUARDRAIL (operator: consciousness is not to
                 // be aggregated) — internal-meta entries never enter the
                 // orchestration-facing capability set.
                 if hay.contains("consciousness") {
+                    continue;
+                }
+                if applicable.iter().any(|a| a["name"].as_str() == Some(t.name.as_str())) {
                     continue;
                 }
                 if kws.iter().any(|k| !k.is_empty() && hay.contains(k)) {
@@ -2674,38 +2903,42 @@ impl PromptOrchestrator {
                         "capabilities": t.capabilities,
                         "endpoint": t.endpoint,
                         "matched": true,
-                    }));
-                }
-            }
-            let matched_count = applicable.len();
-            if applicable.is_empty() {
-                for t in entries.iter().take(8) {
-                    applicable.push(serde_json::json!({
-                        "name": t.name,
-                        "capabilities": t.capabilities,
-                        "endpoint": t.endpoint,
-                        "matched": false,
+                        "source": "search",
                     }));
                 }
             }
             tracing::info!(
-                matched = matched_count,
-                total = entries.len(),
-                carried = applicable.len(),
-                "Stage 3: tools/MCP aggregation complete"
+                bindings = bindings.len(),
+                bound_providers = bound_count,
+                searched = applicable.len() - bound_count,
+                missing_required = required_missing.len(),
+                total_registry = registry_entries.len(),
+                "Stage 3: tools/MCP aggregation complete (bindings first, search as fallback, no first-N floor)"
             );
-            applicable
-        };
+            state.applicable_tools = applicable;
+        }
+        // METHODOLOGY SUFFICIENCY REVIEW QUEUE (operator 2026-11-05): EVERY request is queued — found some or none — so the meta-loop
+        // can judge "is a NEW methodology needed? does an EXISTING one need modification?" exactly as missing capabilities are
+        // identified for tools/MCPs. Non-blocking: a durable record + a meta ripple; the judgement runs detached.
+        Self::record_methodology_review(
+            &state.request.prompt,
+            &state.keywords.iter().cloned().collect::<Vec<_>>(),
+            &state.topics,
+            &state.methodologies,
+        );
         self.record_stage_timed(
             state,
             3,
             "Gather Methodologies",
             true,
             &format!(
-                "Methodologies: {}, Categories: {} ({} created)",
+                "Methodologies: {}, Categories: {} ({} created), Keywords: {} usable of {} extracted, Floor: {}",
                 state.methodologies.len(),
                 state.categories.len(),
                 state.categories_created,
+                state.keywords.len(),
+                state.keywords_extracted,
+                if state.floor_used { "yes" } else { "no" },
             ),
             stage_start.elapsed().as_millis() as u64,
         );
@@ -2969,6 +3202,11 @@ impl PromptOrchestrator {
                             "confetti: several top-level JSON candidates in one response".to_string(),
                         );
                     }
+                    if let Some(served) = v.get("model_used").and_then(|m| m.as_str()) {
+                        if crate::model_windows::is_non_chat_model(served) {
+                            return Outcome::OtherError(format!("non-chat model served ({served}): output is not a usable text answer"));
+                        }
+                    }
                     return Outcome::Success;
                 }
                 Outcome::EmptyResponse {
@@ -3091,6 +3329,12 @@ impl PromptOrchestrator {
                 let text = v.get("response").and_then(|r| r.as_str()).unwrap_or("");
                 if text.trim().is_empty() {
                     return true;
+                }
+                // The member the router actually served (e.g. behind `openrouter/free`) is non-chat or ledger-bad → unusable; retry re-picks.
+                if let Some(served) = v.get("model_used").and_then(|m| m.as_str()) {
+                    if crate::model_windows::served_model_unusable(served) {
+                        return true;
+                    }
                 }
                 Self::extract_all_json_candidates_shared(text).len() > 1
             }
@@ -4443,6 +4687,26 @@ impl PromptOrchestrator {
                                 .position(|id| id == &m.identifier)
                                 .unwrap_or(usize::MAX)
                         });
+                        // PROVEN-IN-SLOT (operator 2026-11-05): the fallback CHAIN is not replaced or reordered (local first where local is
+                        // enabled, free for the VPS — as configured). Inside the `openrouter/free` slot only: if a concrete `:free` pool model
+                        // has a PROVEN ledger record (>= 30 attempts, >= 70% success, not a non-chat/ledger-bad member) it is tried
+                        // immediately BEFORE `openrouter/free` itself, which remains the fallback it rotates behind.
+                        let proven = base[pool_start..].iter().position(|m| {
+                            m.identifier.ends_with(":free")
+                                && !crate::model_windows::served_model_unusable(&m.identifier)
+                                && {
+                                    // RECENT window (OZONE_PROVEN_RECENT_DAYS, default 7): old outage-era failures must not keep a
+                                    // model that works now from qualifying
+                                    let (attempts, successes) = crate::model_ledger::recent_counts(&m.identifier, crate::model_ledger::proven_recent_days());
+                                    attempts >= 30 && successes * 10 >= attempts * 7
+                                }
+                        });
+                        let slot = base[..pool_start].iter().position(|m| m.identifier == "openrouter/free");
+                        if let (Some(rel), Some(slot)) = (proven, slot) {
+                            let m = base.remove(pool_start + rel);
+                            tracing::info!(model = %m.identifier, "openrouter/free slot: proven free model tried first (ledger >= 70% over >= 30 attempts); chain order unchanged");
+                            base.insert(slot, m);
+                        }
                     }
                     None => tracing::warn!(
                         "[models] openrouter_pool is set but no configured model is served through OpenRouter; pool skipped"
@@ -5107,33 +5371,19 @@ impl PromptOrchestrator {
     // Helpers
     // ========================================================================
 
+    /// Wait (bounded) for a running I-Loop reflection to finish before a walk starts.
+    /// The I-Loop is HOST-NATIVE (`consciousness::set_i_loop_active` is set around every
+    /// reflection), so this reads that flag directly. It used to dispatch
+    /// `{"action":"GetStatus"}` to pipeline 44 — whose crate (`reflection`) has no such
+    /// action and answered "Parse error: missing field `action`" (found in the 2026-11-03
+    /// E2E once the crate became linkable) — a dead round trip on every walk start.
     async fn wait_for_i_loop(&self) -> Result<(), String> {
-        let max_wait_ms = 30000;
-        let check_interval_ms = 100;
-        let mut waited = 0u64;
-
-        loop {
-            let input = serde_json::json!({ "action": "GetStatus" });
-
-            if let Ok(result) = self.executor.execute(44, input).await {
-                let active = result
-                    .get("active")
-                    .and_then(|a| a.as_bool())
-                    .unwrap_or(false);
-                if !active {
-                    return Ok(());
-                }
-            } else {
-                return Ok(());
-            }
-
-            if waited >= max_wait_ms {
-                return Err("Timeout waiting for I-Loop".to_string());
-            }
-
-            tokio::time::sleep(tokio::time::Duration::from_millis(check_interval_ms)).await;
-            waited += check_interval_ms;
+        let max_wait_ms = 30000u64;
+        crate::consciousness::store::wait_for_i_loop_completion(max_wait_ms).await;
+        if crate::consciousness::store::i_loop_busy() {
+            return Err("Timeout waiting for I-Loop".to_string());
         }
+        Ok(())
     }
 
     /// Also add this static helper for use in non-&self contexts:
@@ -5338,20 +5588,8 @@ impl PromptOrchestrator {
         }
     }
 
-    fn parse_json_object(s: &str) -> serde_json::Value {
-        let trimmed = s.trim();
-        let json_str = if let Some(start) = trimmed.find('{') {
-            if let Some(end) = trimmed.rfind('}') {
-                &trimmed[start..=end]
-            } else {
-                trimmed
-            }
-        } else {
-            trimmed
-        };
-
-        serde_json::from_str(json_str).unwrap_or_else(|_| serde_json::json!({}))
-    }
+    // `parse_json_object` (unparseable model JSON → `{}`) was DELETED 2026-11-04 (R-EMPTY audit #5): dead code kept alive only by its own test;
+    // `parse_json_object_strict` is the live path and returns an error instead of a fabricated empty object.
 }
 
 // ============================================================================
@@ -5605,20 +5843,6 @@ mod tests {
         assert_eq!(root.count_nodes(), 3);
         assert_eq!(root.branch_count(), 1);
         assert_eq!(root.max_depth(), 2);
-    }
-
-    #[test]
-    fn test_parse_json_object() {
-        let result = PromptOrchestrator::parse_json_object(
-            r#"Some text before {"key": "value"} some text after"#,
-        );
-        assert_eq!(result.get("key").and_then(|v| v.as_str()), Some("value"));
-
-        let empty_result = PromptOrchestrator::parse_json_object("no json here");
-        assert!(empty_result
-            .as_object()
-            .map(|o| o.is_empty())
-            .unwrap_or(true));
     }
 
     #[test]

@@ -421,11 +421,9 @@ pub async fn execute(input: ExperiencePlaybackInput) -> Result<ExperiencePlaybac
         ExperiencePlaybackInput::StartPlayback { experience_id, depth, focus_areas } => {
             let mut store = PLAYBACK_STORE.lock().unwrap();
             
-            let session = store.start_session(
-                experience_id,
-                depth.unwrap_or_else(|| store.config.default_depth.clone()),
-                focus_areas.unwrap_or_else(|| store.config.default_focus_areas.clone()),
-            );
+            let depth_resolved = depth.unwrap_or_else(|| store.config.default_depth.clone());
+            let focus_resolved = focus_areas.unwrap_or_else(|| store.config.default_focus_areas.clone());
+            let session = store.start_session(experience_id, depth_resolved, focus_resolved);
             
             match session {
                 Some(s) => Ok(ExperiencePlaybackOutput {
@@ -557,8 +555,9 @@ pub async fn execute(input: ExperiencePlaybackInput) -> Result<ExperiencePlaybac
             let mut store = PLAYBACK_STORE.lock().unwrap();
             let annotation = store.add_annotation(annotation_type, content, emotional_response);
             
+            let annotation_found = annotation.is_some();
             Ok(ExperiencePlaybackOutput {
-                success: annotation.is_some(),
+                success: annotation_found,
                 session: store.current_session.clone(),
                 record: None,
                 annotation,
@@ -567,7 +566,7 @@ pub async fn execute(input: ExperiencePlaybackInput) -> Result<ExperiencePlaybac
                 history: None,
                 analysis: None,
                 config: None,
-                error: if annotation.is_none() { Some("No active session".to_string()) } else { None },
+                error: if !annotation_found { Some("No active session".to_string()) } else { None },
             })
         }
         
@@ -675,8 +674,9 @@ pub async fn execute(input: ExperiencePlaybackInput) -> Result<ExperiencePlaybac
             let store = PLAYBACK_STORE.lock().unwrap();
             let analysis = store.analyze_experience(experience_id);
             
+            let analysis_found = analysis.is_some();
             Ok(ExperiencePlaybackOutput {
-                success: analysis.is_some(),
+                success: analysis_found,
                 session: None,
                 record: None,
                 annotation: None,
@@ -685,7 +685,7 @@ pub async fn execute(input: ExperiencePlaybackInput) -> Result<ExperiencePlaybac
                 history: None,
                 analysis,
                 config: None,
-                error: if analysis.is_none() { Some("Experience not found".to_string()) } else { None },
+                error: if !analysis_found { Some("Experience not found".to_string()) } else { None },
             })
         }
         
@@ -715,7 +715,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     
@@ -731,5 +731,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

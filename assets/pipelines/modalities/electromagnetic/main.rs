@@ -943,11 +943,28 @@ Return ONLY valid JSON array: [{{"emitter_id": N, "emitter_class": "ClassName"}}
     }
 
     async fn infer_semantic_relationships_validated(&self, nodes: &[EMGraphNode]) -> (Vec<(u64, u64, EMEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
-        let shown: Vec<&EMGraphNode> = nodes.iter().take(25).collect();
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(&self, nodes: &[EMGraphNode]) -> (Vec<(u64, u64, EMEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let shown: Vec<&EMGraphNode> = nodes.iter().collect();
         let node_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
-            "content": n.content.chars().take(80).collect::<String>(),
+            "content": n.content.to_string(),
             "freq_mhz": n.freq_hz.map(|f| f / 1e6),
             "power_dbm": n.power_dbm,
         })).collect();
@@ -979,7 +996,7 @@ Return ONLY valid JSON array:
                 })).collect::<Vec<_>>()});
                 let entities: Vec<String> = shown.iter().map(|n| n.node_id.to_string()).collect();
                 let source: String = shown.iter()
-                    .map(|n| format!("{} {}", n.node_id, n.content.chars().take(80).collect::<String>()))
+                    .map(|n| format!("{} {}", n.node_id, n.content.to_string()))
                     .collect::<Vec<_>>().join("\n");
                 let validated = semantic_relations::validate_mapped(&proposal, &entities, &source);
                 // Edges come only from the validated accepted set. A raw proposal
@@ -1120,7 +1137,7 @@ async fn persist_em_graph(graph: &mut EMGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("electromagnetic".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("EM graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1261,7 +1278,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: EMAnalysisResult, p
         }
 
         // Signal detected in snapshot
-        for &(_, snap_nid) in snap_node_ids.iter().take(3) {
+        for &(_, snap_nid) in snap_node_ids.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
             edges.push(EMGraphEdge { edge_id, from_node: sid, to_node: snap_nid, edge_type: EMEdgeType::DetectedIn, weight: 0.8, provenance: EdgeProvenance::DerivedFromPrompt, version: 1, ..Default::default() });
             edge_id += 1;
         }
@@ -1506,6 +1523,10 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
             }
         }
         EMModalityAction::Analyze { data, detect_signals, classify_modulations, locate_emitters, model_propagation } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(EMModalityOutput { success: false, error: Some("electromagnetic analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a electromagnetic analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let source_description = match &data {
                 EMDataSource::IQFile { file_path, center_freq_hz, sample_rate_hz, .. } =>
@@ -2078,6 +2099,9 @@ pub async fn execute(input: EMModalityAction) -> Result<EMModalityOutput, String
         }
 
         EMModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(EMModalityOutput { success: false, error: Some("electromagnetic export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let graph = executor.load_graph(graph_id)?;
             let ext = match &format {
                 EMExportFormat::GeoJSON  => "geojson",
@@ -2345,7 +2369,7 @@ fn main() {
     let mut i = 1;
     while i < args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
             i += 2;
         } else {
             i += 1;
@@ -2400,5 +2424,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

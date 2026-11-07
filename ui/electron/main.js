@@ -419,7 +419,11 @@ async function ensureSessionToken() {
 // was nowhere near enough and turned genuine in-progress work into a false
 // "Error: timeout" in the chat UI. Slow, known-long-running routes get a
 // generous budget; everything else keeps the original fast timeout.
-const SLOW_ENDPOINT_TIMEOUT_MS = 45 * 60 * 1000; // 45 min — real walks run 544–795 s+ and may await meta judgments; the server walk is detached, so this is only the client wait
+// NO wall-clock cap on the long routes (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"). Node's
+// `timeout` option is an IDLE-SOCKET timeout and the host sends nothing until the detached walk finishes, so the old 45-minute value
+// acted as a hard cap that turned a still-working walk into a client error. 0 disables it; TCP keepalive (set on the socket below)
+// still detects a genuinely dead connection (e.g. a remote host going away), so a dead peer is not waited on forever.
+const SLOW_ENDPOINT_TIMEOUT_MS = 0;
 const SLOW_ENDPOINTS = ["/orchestrate", "/task/step/rerun", "/consciousness/review_pass"];
 
 async function backendRequest(method, path, body = null) {
@@ -470,6 +474,12 @@ function rawRequest(method, path, body = null, timeoutMs) {
       });
     });
 
+    // dead-peer detection without a time cap: probe the idle connection every 30 s
+    req.on("socket", (sock) => {
+      try {
+        sock.setKeepAlive(true, 30000);
+      } catch (_) {}
+    });
     req.on("error", (err) => {
       log.error(`[HTTP ERROR] ${method} ${path}:`, err);
       reject(err);
@@ -747,7 +757,57 @@ ipcMain.handle("pipelines:register", async (event, registration) => {
 // Orchestration endpoint — routes to backend /orchestrate ONLY this creates tasks
 ipcMain.handle("orchestrate", async (event, request) => {
   requireConnection();
-  return await backendRequest("POST", "/orchestrate", request);
+  // SUBMIT + POLL (operator 2026-11-06: no wall-clock limiter while the walk is working). The host acknowledges immediately with a
+  // run_token and runs the walk detached; we poll /orchestrate/status with SHORT requests until it is no longer "running"; the status
+  // record carries the full blocking-call response under `result`, so the chat renders exactly what the blocking call used to return.
+  // RETRIES, not give-ups:
+  //  - SUBMIT: a connection-level failure BEFORE the host could have received the request (refused / unreachable / DNS) is retried with
+  //    backoff (the host may be starting). An ambiguous failure (timeout/reset after sending) is NOT retried blindly — that could start
+  //    a duplicate walk — it rejects and the chat's task-discovery recovers by the baseline task-id set.
+  //  - POLL: an unreachable host is retried FOREVER with backoff (2 s → 15 s); the wait is not a failure while the host is away.
+  //  - A LIVE host that answers "no such run" (found:false — it restarted and lost the in-memory run record) can never produce this run
+  //    again, so waiting is pointless: reject at once and let the chat recover from the durable task record.
+  const isPreSend = (e) => /ECONNREFUSED|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|EAI_AGAIN/.test(String((e && (e.code || e.message)) || e));
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  let ack;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      ack = await rawRequest("POST", "/orchestrate", { ...request, submit_only: true, session_token: await ensureSessionToken() }, 60000);
+      break;
+    } catch (e) {
+      if (!isPreSend(e) || attempt >= 9) throw e; // not delivered ⇒ safe to retry; 10 tries (~1 min of host start-up) then surface the real error
+      await sleep(Math.min(2000 * (attempt + 1), 8000));
+    }
+  }
+  if (!ack || !ack.accepted || !ack.run_token) return ack; // an older host answered blocking-style (or rejected): return as is
+  let backoff = 2000;
+  for (;;) {
+    await sleep(backoff);
+    let s;
+    try {
+      s = await rawRequest("GET", `/orchestrate/status?run_token=${encodeURIComponent(ack.run_token)}`, null, 10000);
+      backoff = 2000;
+    } catch (e) {
+      backoff = Math.min(backoff * 1.5, 15000); // host unreachable: keep retrying, slower each time
+      continue;
+    }
+    if (!s || s.found === false) {
+      throw new Error("client-timeout: the host no longer has this run record (it restarted) — the task may still exist; recovering from the task list");
+    }
+    if (s.state && s.state !== "running") {
+      if (s.result) return s.result;
+      return {
+        success: !!s.success,
+        response: null,
+        task_id: s.task_id ?? null,
+        blueprint_id: s.blueprint_id ?? null,
+        error: s.error ?? null,
+        awaiting: !!s.awaiting,
+        await_id: s.await_id ?? null,
+        status: s.awaiting ? "awaiting" : undefined,
+      };
+    }
+  }
 });
 
 // Generic HTTP bridges — renderer panels call the host through the main

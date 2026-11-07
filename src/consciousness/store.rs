@@ -1258,6 +1258,8 @@ fn migrate_hook_emotional_state(content: &str) -> Option<EmotionalState> {
         return None;
     }
     let valence = v.get("valence")?.as_f64()? as f32;
+    // a missing arousal is NOT migrated as an invented 0.3 (audit #28): the legacy state is skipped instead
+    let arousal = v.get("arousal")?.as_f64()? as f32;
     Some(EmotionalState {
         state_id: 0,
         timestamp: v.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
@@ -1267,7 +1269,7 @@ fn migrate_hook_emotional_state(content: &str) -> Option<EmotionalState> {
             .unwrap_or("neutral")
             .to_string(),
         valence,
-        arousal: v.get("arousal").and_then(|a| a.as_f64()).unwrap_or(0.3) as f32,
+        arousal,
         dominance: 0.0,
         stability: 0.0,
         triggers: Vec::new(),
@@ -1282,12 +1284,15 @@ fn migrate_hook_gate_decisions(content: &str) -> Option<Vec<GateDecisionRecord>>
     }
     let mut out = Vec::with_capacity(arr.len());
     for (i, d) in arr.iter().enumerate() {
-        let ethical_score = d.get("ethical_score").and_then(|s| s.as_f64()).unwrap_or(1.0) as f32;
-        let decision = d
-            .get("decision")
-            .and_then(|s| s.as_str())
-            .unwrap_or("Proceed")
-            .to_lowercase();
+        // NEVER FABRICATE A GATE DECISION (doctrine audit #6, 2026-11-04): a legacy hook record missing its ethical score or its
+        // decision used to be migrated as `Proceed` with ethical score 1.0 — an invented approval. Such a record is SKIPPED and counted.
+        let (Some(ethical_score), Some(decision)) = (
+            d.get("ethical_score").and_then(|s| s.as_f64()).map(|x| x as f32),
+            d.get("decision").and_then(|s| s.as_str()).map(|s| s.to_lowercase()),
+        ) else {
+            tracing::warn!(index = i, "legacy gate record missing ethical_score/decision — skipped, not migrated as an invented approval");
+            continue;
+        };
         let concerns: Vec<String> = d
             .get("concerns")
             .and_then(|c| c.as_array())
@@ -1324,6 +1329,8 @@ fn migrate_hook_perception_window(content: &str) -> Option<PerceptionWindow> {
     let inputs = v.get("active_inputs")?.as_array()?;
     let mut window = PerceptionWindow::default();
     for i in inputs {
+        // a legacy input without a relevance score is skipped, not given an invented 0.8 (audit #28)
+        let Some(relevance_score) = i.get("relevance_score").and_then(|r| r.as_f64()).map(|r| r as f32) else { continue };
         let task_id = i.get("task_id").and_then(|t| t.as_u64()).unwrap_or(0);
         let task_type = i.get("task_type").and_then(|t| t.as_str()).unwrap_or("task");
         let status = i.get("status").and_then(|t| t.as_str()).unwrap_or("");
@@ -1336,7 +1343,7 @@ fn migrate_hook_perception_window(content: &str) -> Option<PerceptionWindow> {
             content: format!("task {} ({}) {}", task_id, task_type, status),
             timestamp: i.get("timestamp").and_then(|t| t.as_u64()).unwrap_or(0),
             source: "task-manager".to_string(),
-            relevance_score: i.get("relevance_score").and_then(|r| r.as_f64()).unwrap_or(0.8) as f32,
+            relevance_score,
         });
     }
     while window.active_inputs.len() > window.input_buffer_size {

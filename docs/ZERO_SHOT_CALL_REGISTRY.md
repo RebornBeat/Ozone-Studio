@@ -750,3 +750,77 @@ The 18-row inventory above is per-prompt and its line numbers have drifted. The 
 - **Bypass fixed:** pipeline 16 (`zero_shot_simulation`) called OpenRouter directly; now routed through the prompt binary.
 - **Dead path fixed:** 18 modality pipelines never reached the prompt binary (wrong env var name); now `OZONE_PROMPT_PIPELINE_PATH` first.
 - **§9 flat `max_tokens` table is superseded:** the listed values are answer-length hints and are NOT sent to the provider (no response cap — see `CALL_ROUTE_REGISTRY.md` §2). Local runtimes are bounded by half the context window.
+
+
+## 15. 2026-11-04 addendum — call contexts changed, no new LLM call sites, caps under audit
+
+**No new model call sites were added this wave** (provider steps, capability-gap capture, tool health, marketplace and the meta ripple are all mechanical). What changed in EXISTING sites:
+
+| Row | Change |
+|---|---|
+| #10 `stage_3_blueprint_assignment` | prompt gains **RULE → REQUIRED PROVIDERS** (the Stage 3 `tool_manifest`: the gathered methodologies' declared per-rule providers + status), **STEP TYPES** (`pipeline` \| `provider`) and the schema fields `step_type/provider/tool/args/rule_refs`; "a capability with no provider goes to `missing_capabilities` — captured, never papered over". Output is **host-validated** (`reconcile_tool_bindings`): unknown providers fall back to ordinary model steps + a recorded gap; declared providers are inserted as provider steps whether or not the model proposed them (the binding is authoritative). |
+| #11 `stage_4_zero_shot_simulation` | the instruction "flag any step whose goal matches a registered capability" (which had NO slot in the output schema) is replaced by a **host-computed PROVIDER STEP AVAILABILITY** block (ready / degraded / missing); the model only judges the plan; availability facts are recorded as a thinking entry `Simulation — provider step checks`. |
+| #17 `amt_loop` re-expansion, #18 `meta_loop` draft | prompts now start with `CURRENT TIME (UTC)`; #18's JSON schema asks for per-rule `requires` (providers) and, for `capability…` keyword gaps, drafts a methodology around how the missing capability is provided. Both loops are EVENT-DRIVEN (meta ripple), not timers. |
+| I-Loop reflection (`i_loop.rs`) and assistant check-up (`assistant.rs`) | prompts start with `CURRENT TIME (UTC)`; every signal/finding is DATED with its age; the I-Loop's change-detection fingerprint uses ABSOLUTE timestamps. (Both call pipeline 9 through the same `PipelineExecutor`; neither is in the 18-row table above because they predate this audit's scope — add them when §1 is next regenerated.) |
+| Stage 2 / prompt pipeline | per-request HTTP timeout is now `45 s + 1 s per 10 requested tokens` (cap 600 s) instead of a flat 120 s; oversize local prompts go through `-f <file>` (E2BIG). |
+
+**§9 (flat `max_tokens` table) status:** the table still lists 16 flat literals (500/600/…/1000). Under the no-cap doctrine they are inert at the API (`effective_api_cap` returns None unless `OZONE_API_FORCE_MAX_TOKENS=1`) but they DO feed the new `request_timeout()` and local runtimes' sizing — see docs/DOCTRINE_VIOLATIONS_AUDIT_2026-11-04.md for the full catalog and the fix list.
+**§13 (silent truncation/dropping) re-opened:** the same audit found content cuts in places this document did not cover (jurisdiction call gate 4,000 chars — FIXED 2026-11-04; tool-routing 200/2,000/4,000 chars — REMOVED; awaiting/decision-review/subject fields — see the audit).
+
+## 16. 2026-11-05 addendum — methodology sufficiency review (2 NEW zero-shot call sites) + model-served filter
+
+Operator: *"we should never skip due to no methodology … even if we find some we still identify if we need new ones or to modify the ones we have, like we do missing capabilities for tools and MCPs."* Before this, a methodology gap was recorded ONLY on a zero-match (≥3 keywords) in AMT enrich, with a 500-entry log cap; nothing judged whether the methodologies that WERE found were sufficient.
+
+| Row | Site | Detached? | Input (nothing cut; trims to the model window are recorded) | Output |
+|---|---|---|---|---|
+| #19 `meta_loop_methodology_review` | `meta_loop::review_methodology_requests_once` | yes (meta loop, event-driven) | the request WHOLE + every gathered methodology WHOLE (container + content file) | JSON `{new_needed, new_reason, new_keywords, modify:[{id, reason}]}` — yes/no verdicts, **no confidence** |
+| #20 `meta_loop_methodology_modify` | `meta_loop::modify_methodology_for_gap` | yes | request + the target methodology WHOLE + the review's reason | JSON additions only (`add_principles/heuristics/decision_rules(+requires)/keywords`) → pipeline 12 `Update` |
+
+Flow: Stage 3 (`gather_methodologies`) queues EVERY request in `methodology_reviews.json` (`PromptOrchestrator::record_methodology_review`, non-blocking, meta ripple). The meta loop judges it (#19) and raises gaps with `kind` `new` / `modify` (`record_methodology_gap_ex`; `reason` + `request` stored). `new` gaps skip the "already covered by keyword match" shortcut and go through the existing draft call (#18, which now also receives the review's reason + request) → pipeline 12 `Create`. `modify` gaps run #20 → pipeline 12 `Update`.
+
+**Pipeline 12 `Update` fixed:** it used to write a deltas-only content file the container never pointed at (additions silently lost). It is now a real read-merge-write: reads the current content file, merges (principles / heuristics / **decision rules with per-rule providers** / name / description / keywords), writes a NEW versioned file (old kept), repoints `storage.object_store_path`; the host's `UpdateContainer` snapshots the prior version. New input field `add_decision_rules`.
+
+**Model-served filter (not a new call site):** the prompt binary (`assets/pipelines/general/prompt`) re-calls (≤3×) when `openrouter/*` SERVES a non-chat member (safety classifier, music, embedding, … same markers as `model_windows::NON_CHAT_ID_MARKERS`, now incl. `safety`, `classif`); the host also treats such a served member / a ledger-bad one (≥20 attempts, <25% success) as an unusable attempt and records a non-chat answer as a ledger FAILURE. `openrouter/free` stays the leading model; a proven `:free` pool model (≥30 attempts, ≥70% success) is tried only inside the `openrouter/free` slot, the chain order is unchanged.
+
+**Update 2026-11-05 (late) — proven-in-slot moved into the prompt binary.** The `text` modality (Stage 2) and every nested modality pipeline call the prompt binary directly, bypassing the host's chain code. `assets/pipelines/general/prompt` now applies the rule itself for `openrouter/free`: if the ledger shows a `:free` model with ≥30 attempts and ≥70% success (still `is_free` in `model_catalog.json`, a chat model), it is called first; an error / empty / non-chat answer falls through to the router (which re-calls up to 3× on a non-chat member). Off switch: `OZONE_PROVEN_FIRST=0`. Today this selects `nvidia/nemotron-3-ultra-550b-a55b:free` (77% over 1,383 attempts; median 14 s vs the router's 10 s). Stage 2's text pipeline is the K-ALGORITHM "1×1 in order, dual-5× validated" design — a ONE-sentence request produced 18 sequential detect/validate calls in 9 minutes with the bare router; the validators reject on weak members' wrong YES/NO, so model quality drives Stage 2's duration.
+
+
+## 17. 2026-11-07 — the strength-N VOTE audit + new call sites (operator: "ensure the 5x is used properly everywhere … we do not drop intelligence or zero-shot calls")
+
+**Why the strength-N vote exists:** a yes/no judgement that GATES an action (accept an event as validated, merge two neighbourhoods, DROP a requirement) must not rest on one sample. `k_validation::confirm_consecutive_with` requires `strength` CONSECUTIVE agreeing answers; the first dissent fails the check; the first vote always gates. It is the system's assurance primitive ("strength is a parameter, not a law" — `DEFAULT_STRENGTH` 5). Honest limit recorded this session: votes run at temperature 0.0 (operator: a yes/no repeats), so against ONE model the 5 votes are near-duplicates — their value is failure-tolerance and, behind the `openrouter/free` router, member diversity; the proven-model rule narrows that diversity (cost/benefit is the operator's call; `[k_algorithms] validation_preset` now makes the strength a single switch).
+**Audit (every vote site, host + pipelines, read from code):**
+| Site | Question | Strength source (before → after) | Primitive |
+|---|---|---|---|
+| text `validate_section_event` (order + class) ×2 | is this the next section event / right class? | literal 5 → `configured_strength()` | `confirm_times_yes` → shared primitive |
+| text `validate_paragraph` (order + boundary) ×2 | next paragraph / one coherent paragraph? | literal 5 → configured | same |
+| text `validate_modality` (order + class) ×2 | next modality block / right class? | literal 5 → configured | same |
+| text sentence order + correction ×2 | next sentence / correction valid? | literal 5 → configured | same |
+| text duplicate-sentence check | is the candidate already captured? (5× NO) | **hand-rolled 5× loop (a second implementation, ignored the optimized route)** → `confirm_times_no(configured)` | now the shared primitive |
+| text exhaustion confirmation | is the chunk exhausted? (5× NO) | literal 5 → configured | same |
+| host `amt.rs` neighbourhood merge | same semantic neighbourhood? | literal 5 → configured | `confirm_yes_no_orch` → shared primitive |
+| host `stages.rs` capability closure (NEW) | can the request be completed WITHOUT this capability? (5× YES = drop it) | configured from the start | `confirm_yes_no_orch` |
+| modality relation inference (16 sensor modalities) | proposed relations | NOT a vote: one model call per window, then deterministic structural validation (`semantic_relations::validate*`: accepted/rejected sets) | by design |
+**Wiring:** `[k_algorithms] validation_preset` (`strict-5` default / `lenient-3` / `paranoid-7`) → `KAlgorithms::set_validation_preset` → host exports `OZONE_VALIDATION_STRENGTH` at boot and on `/config/set` (`/config/get` reports `validation_strength`) → `k_validation::configured_strength()` read by every site. Before this the registry presets had NO live consumer and 12 sites hard-coded 5.
+**Nothing was dropped:** diff vs HEAD of every call pattern (`metered_execute_resilient` labels, `capture_loop_model_call` labels, `execute(9`/`PROMPT_PIPELINE_ID`, vote primitives) across all changed host/pipeline/shared files shows **0 sites removed and 5 added**.
+**New zero-shot call sites this stretch:** #19 `meta_loop_methodology_review` (chunked by the reading model's window), #20 `meta_loop_methodology_modify`, #21 `capability_closure_draft` (stages.rs; drafts ONE methodology for a necessary missing capability, pipeline 12 `Create`), #22 `capability_closure_necessity` (the 5× yes/no vote via `confirm_yes_no_orch`; ledger label is the vote's own `walk:pipeline-9`). Request-term hygiene and the relevance-first floor are deterministic (no call). Analysis reuse removes calls on repeat content (Stage 2), it does not remove any call site.
+
+**#23–#25 (2026-11-07, uncompiled):** #23 `rule_gate` — vote "does this declared rule clearly NOT apply to the request?" (stages.rs, before provider steps; drop needs strength-N YES); #24 `methodology_relevance` — vote "does this gathered methodology clearly NOT apply?" (mod.rs Stage 3; never empties the gather); #25 `provider_tool_choice` — which tool of a multi-tool provider fits the step (stages.rs, only when word overlap matched none). The feasibility re-plan re-runs existing Stage 6/7 calls (no new site).
+
+## 18. Call-site KEY TABLE (E19, 2026-11-07) — every ledger/capture label → its code site (closes REVIEW_ALIGNMENT B1: 10 labels were undocumented)
+The label is the call-site key stored in `model_ledger.jsonl`; walk-level votes carry the vote's own label `walk:pipeline-9`, so a vote's question is identified here by its site, not by label.
+| Label | Site | Purpose |
+|---|---|---|
+| `amt_detail_extraction` | amt.rs:1727 | AMT intent/detail extraction |
+| `amt_reexpansion` | amt_loop.rs:839 | AMT loop re-expansion of a branch |
+| `context_compaction` | stages.rs:3238 | step-context compaction to the reading model's window |
+| `keyword_reask` | mod.rs:2506 | E16: re-ask for search keywords when extraction left <3 usable |
+| `meta_loop_draft` | meta_loop.rs:701, 745 | meta loop drafts a new methodology for a gap |
+| `methodology_domain_id` | amt.rs:3893 | methodology domain identification |
+| `methodology_synthesis` | amt.rs:3959 | methodology synthesis |
+| `on_step_complete_alignment` | mod.rs:5193 | alignment check after a step completes |
+| `response_graph_render` | response.rs:312 | response graph render |
+| `web_search_decompose` | stages.rs:2921, 2933 | multi-part web search query decomposition |
+| `provider_tool_choice` | stages.rs:2832 | E17: which tool of a multi-tool provider fits the step |
+| `capability_closure_draft` | stages.rs:902 | #21 methodology drafted for a necessary missing capability |
+| `meta_loop_methodology_review` / `_modify` | meta_loop.rs | #19/#20 sufficiency review / modify |
+Votes (no own label; site = the question): `rule_gate` (stages.rs `gate_rule_applicability`), `methodology_relevance` (mod.rs Stage 3 relevance filter), capability necessity (stages.rs `close_capability_gaps`), AMT neighbourhood merge (amt.rs), text-modality validations (text main.rs). Deterministic, no call: E18 methodology quality audit (meta_loop.rs `audit_methodology_quality_once`).

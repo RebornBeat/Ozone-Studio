@@ -161,6 +161,17 @@ pub fn extract_port(endpoint: &str) -> Option<u16> {
     host_port.rsplit(':').next()?.parse().ok()
 }
 
+/// PROVIDER identity of a registered endpoint (2026-11-04, operator doctrine: "work with providers" — a PROVIDER is the MCP
+/// server process behind one or more tool names, the unit you install, trust, start/stop and share). The id is the
+/// `tools/<dir>` name from the port table (`threed-mcp`, `mesh-mcp`, `bridges`, …); an endpoint with no table entry gets
+/// `endpoint-<port>` (or the raw endpoint for stdio/unparseable) so it is still addressable, never silently dropped.
+pub fn provider_for_endpoint(endpoint: &str) -> String {
+    match extract_port(endpoint) {
+        Some(port) => facts_for_port(port).map(|f| f.dir.to_string()).unwrap_or_else(|| format!("endpoint-{port}")),
+        None => endpoint.to_string(),
+    }
+}
+
 /// Where the fleet's source lives. Resolution order (first that exists):
 /// 1. `OZONE_TOOLS_DIR` (explicit operator override, honored as-is),
 /// 2. `<exe dir>/../../tools` (the dev layout: binary in `target/release/`),

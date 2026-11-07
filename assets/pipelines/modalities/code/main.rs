@@ -1005,6 +1005,10 @@ pub struct FunctionCall {
     pub callee: String,
     pub line: usize,
     pub is_method: bool,
+    /// Set when the callee is NOT defined in this file but imported from `module`
+    /// (cross-file call, resolved by import name — 2026-11-04).
+    #[serde(default)]
+    pub module: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1512,7 +1516,7 @@ impl CodeModalityPipeline {
         let function_calls = if matches!(depth, AnalysisDepth::Surface) {
             Vec::new()
         } else {
-            self.extract_function_calls(code, &language, &functions)
+            self.extract_function_calls(code, &language, &functions, &imports)
         };
         
         let complexity_metrics = self.compute_complexity(code, &functions);
@@ -1942,29 +1946,57 @@ impl CodeModalityPipeline {
         comments
     }
     
-    fn extract_function_calls(&self, code: &str, _language: &str, functions: &[FunctionDef]) -> Vec<FunctionCall> {
+    fn extract_function_calls(&self, code: &str, _language: &str, functions: &[FunctionDef], imports: &[ImportDef]) -> Vec<FunctionCall> {
         let mut calls = Vec::new();
         let function_names: HashSet<_> = functions.iter().map(|f| f.name.as_str()).collect();
+        // names this file imports (`from util import tokenize` -> tokenize => util)
+        let mut imported: HashMap<&str, &str> = HashMap::new();
+        for im in imports {
+            for it in &im.items {
+                let name = it.split_whitespace().next().unwrap_or("").trim();
+                if !name.is_empty() && name != "*" && !function_names.contains(name) {
+                    imported.insert(name, im.module.as_str());
+                }
+            }
+        }
         
         // Simple pattern: word followed by parenthesis
         let call_pattern = Regex::new(r"(\w+)\s*\(").unwrap();
         
         for (line_num, line) in code.lines().enumerate() {
             // Find which function we're in
+            // innermost enclosing function (smallest range) — not merely the first one in the list
             let caller = functions.iter()
-                .find(|f| line_num + 1 >= f.start_line && line_num + 1 <= f.end_line)
+                .filter(|f| line_num + 1 >= f.start_line && line_num + 1 <= f.end_line)
+                .min_by_key(|f| f.end_line - f.start_line)
                 .map(|f| f.name.as_str())
                 .unwrap_or("global");
+            // the declaration line of a function is not a call to it
+            let declared_here: Option<&str> = functions.iter()
+                .find(|f| f.start_line == line_num + 1)
+                .map(|f| f.name.as_str());
             
             for cap in call_pattern.captures_iter(line) {
                 if let Some(m) = cap.get(1) {
                     let callee = m.as_str();
+                    if declared_here == Some(callee) {
+                        continue;
+                    }
                     if function_names.contains(callee) {
                         calls.push(FunctionCall {
                             caller: caller.to_string(),
                             callee: callee.to_string(),
                             line: line_num + 1,
                             is_method: line.contains(&format!(".{}", callee)),
+                            module: None,
+                        });
+                    } else if let Some(module) = imported.get(callee) {
+                        calls.push(FunctionCall {
+                            caller: caller.to_string(),
+                            callee: callee.to_string(),
+                            line: line_num + 1,
+                            is_method: line.contains(&format!(".{}", callee)),
+                            module: Some((*module).to_string()),
                         });
                     }
                 }
@@ -2103,12 +2135,57 @@ impl CodeModalityPipeline {
             .collect()
     }
 
+    /// End line (1-based, inclusive) of the block whose header is at 0-based index `start_line`.
+    /// Brace languages (Rust/JS/Go/C…): matching `}`. Indentation languages (Python, Ruby-ish
+    /// `...:` blocks): the last non-blank line indented deeper than the header, so a function
+    /// ends where its body ends — NOT at the end of the file (2026-11-03: the brace-only version
+    /// made every Python function span to EOF, which broke call attribution and entry points).
     fn find_block_end(&self, code: &str, start_line: usize) -> usize {
         let lines: Vec<&str> = code.lines().collect();
+        let header_idx = start_line;
+        // Header (possibly a multi-line signature): up to 6 lines to find the opener.
+        let mut opener: Option<char> = None;
+        for l in lines.iter().skip(header_idx).take(6) {
+            let t = l.trim_end();
+            let before_comment = t.split('#').next().unwrap_or(t).trim_end();
+            if t.contains('{') {
+                opener = Some('{');
+                break;
+            }
+            if before_comment.ends_with(':') {
+                opener = Some(':');
+                break;
+            }
+        }
+        if opener == Some(':') {
+            let indent = |l: &str| l.len() - l.trim_start().len();
+            let base = lines.get(header_idx).map(|l| indent(l)).unwrap_or(0);
+            let mut last = start_line + 1;
+            // skip past the header lines (until the one ending in ':'), then take the deeper-indented body
+            let mut i = header_idx + 1;
+            while i < lines.len() {
+                let l = lines[i];
+                if l.trim().is_empty() {
+                    i += 1;
+                    continue;
+                }
+                if indent(l) <= base {
+                    // a continuation of a multi-line signature closes with ':' at deeper indent; a real dedent ends the block
+                    if i <= header_idx + 5 && l.trim_start().starts_with(')') {
+                        last = i + 1;
+                        i += 1;
+                        continue;
+                    }
+                    break;
+                }
+                last = i + 1;
+                i += 1;
+            }
+            return last.max(start_line + 1);
+        }
         let mut brace_count = 0;
         let mut found_open = false;
-        
-        for (i, line) in lines.iter().enumerate().skip(start_line) {
+        for (i, line) in lines.iter().enumerate().skip(header_idx) {
             for c in line.chars() {
                 if c == '{' {
                     brace_count += 1;
@@ -2121,10 +2198,9 @@ impl CodeModalityPipeline {
                 }
             }
         }
-        
         lines.len()
     }
-    
+
     async fn create_graph(&self, analysis: CodeAnalysisResult, project_id: u64, link_to_existing: bool) -> CodeModalityOutput {
         let graph_id = self.generate_graph_id();
         // Extracted to build_graph_nodes_edges (task 65) so update_graph can
@@ -2812,6 +2888,47 @@ fn build_graph_nodes_edges(
         }
     }
 
+    // CROSS-FILE calls (2026-11-04): a call to a name this file imports becomes an edge to an
+    // external function node "<module>.<name>" (deduplicated), so the call graph shows
+    // main -Calls-> util.tokenize instead of silently dropping the file boundary. A later
+    // project-level pass can link the external node to the other file's own Function node.
+    let mut external_ids: HashMap<String, u64> = HashMap::new();
+    for call in &analysis.function_calls {
+        let Some(module) = &call.module else { continue };
+        let Some(&caller_id) = function_name_to_id.get(&call.caller) else { continue };
+        let key = format!("{}.{}", module, call.callee);
+        let ext_id = *external_ids.entry(key.clone()).or_insert_with(|| {
+            let id = node_id;
+            nodes.push(CodeGraphNode {
+                node_id: id,
+                node_type: CodeNodeType::Function,
+                name: key.clone(),
+                position: None,
+                properties: {
+                    let mut props = HashMap::new();
+                    props.insert("external".to_string(), serde_json::json!(true));
+                    props.insert("module".to_string(), serde_json::json!(module));
+                    props.insert("symbol".to_string(), serde_json::json!(call.callee));
+                    props
+                },
+            });
+            node_id += 1;
+            id
+        });
+        edges.push(CodeGraphEdge {
+            from_node: caller_id,
+            to_node: ext_id,
+            edge_type: CodeEdgeType::Calls,
+            weight: 1.0,
+            properties: {
+                let mut props = HashMap::new();
+                props.insert("line".to_string(), serde_json::json!(call.line));
+                props.insert("external".to_string(), serde_json::json!(true));
+                props
+            },
+        });
+    }
+
     // Import nodes + edges
     for import in &analysis.imports {
         let import_node_id = node_id;
@@ -3119,4 +3236,49 @@ fn compute_call_ordering(
     }
 
     (entry_points, sequence, funcs)
+}
+#[cfg(test)]
+mod callgraph_tests {
+    use super::*;
+
+    fn exec() -> CodeModalityPipeline { CodeModalityPipeline::new() }
+
+    #[test]
+    fn python_functions_end_where_their_body_ends_and_calls_attribute_to_the_right_caller() {
+        let code = "def load_config(p):\n    return p\n\ndef parse(t):\n    return tokenize(t)\n\ndef render(k):\n    return fmt(k)\n\ndef run(c):\n    a = parse(c)\n    return render(a)\n\ndef main():\n    c = load_config('x')\n    return run(c)\n\nif __name__ == '__main__':\n    main()\n";
+        let e = exec();
+        let funcs = e.extract_functions(code, "python");
+        let by = |n: &str| funcs.iter().find(|f| f.name == n).unwrap().clone();
+        assert_eq!(by("load_config").end_line, 2);
+        assert_eq!(by("parse").end_line, 5);
+        assert_eq!(by("run").end_line, 12);
+        assert_eq!(by("main").end_line, 16);
+        let calls = e.extract_function_calls(code, "python", &funcs, &[]);
+        let has = |a: &str, b: &str| calls.iter().any(|c| c.caller == a && c.callee == b);
+        assert!(has("main", "load_config") && has("main", "run"));
+        assert!(has("run", "parse") && has("run", "render"));
+        assert!(!has("parse", "render"), "render is called from run, not parse");
+        assert!(!calls.iter().any(|c| c.caller == c.callee), "a def line is not a self-call");
+        assert!(has("global", "main"), "the module-level main() call is attributed to global");
+    }
+
+    #[test]
+    fn imported_calls_become_external_edges() {
+        let code = "from util import tokenize, fmt_line\n\ndef parse(t):\n    return tokenize(t)\n\ndef main():\n    return parse('x')\n";
+        let e = exec();
+        let funcs = e.extract_functions(code, "python");
+        let imports = e.extract_imports(code, "python");
+        let calls = e.extract_function_calls(code, "python", &funcs, &imports);
+        let ext = calls.iter().find(|c| c.callee == "tokenize").expect("imported call captured");
+        assert_eq!((ext.caller.as_str(), ext.module.as_deref()), ("parse", Some("util")));
+        let analysis = CodeAnalysisResult {
+            language: "python".into(), file_path: Some("app.py".into()), line_count: 7, functions: funcs, classes: vec![], imports, exports: vec![],
+            variables: vec![], type_definitions: vec![], comments: vec![], function_calls: calls,
+            complexity_metrics: e.compute_complexity(code, &[]), entry_points: vec![], call_sequence: vec![],
+        };
+        let (nodes, edges) = build_graph_nodes_edges(&analysis);
+        assert!(nodes.iter().any(|n| n.name == "util.tokenize"), "external node present");
+        let ext_node = nodes.iter().find(|n| n.name == "util.tokenize").unwrap().node_id;
+        assert!(edges.iter().any(|ed| ed.to_node == ext_node && matches!(ed.edge_type, CodeEdgeType::Calls)));
+    }
 }

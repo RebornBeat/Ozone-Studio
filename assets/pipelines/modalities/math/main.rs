@@ -1940,7 +1940,7 @@ STEPS:
 {}
 
 Return ONLY a JSON array, one object per step, in this exact shape:
-[{{"step_number": <int>, "cited_steps": [<int>, ...], "cited_theorems": ["<name>", ...], "confidence": <0.0-1.0>}}]
+[{{"step_number": <int>, "cited_steps": [<int>, ...], "cited_theorems": ["<name>", ...]}}]
 
 RESPOND ONLY WITH THE JSON ARRAY."#,
         serde_json::to_string_pretty(&steps_json).unwrap_or_default()
@@ -2007,7 +2007,7 @@ RESPOND ONLY WITH THE JSON ARRAY."#,
                             .and_then(|c| c.as_array())
                             .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
                             .unwrap_or_default();
-                        let confidence = v.get("confidence").and_then(|c| c.as_f64()).unwrap_or(0.0) as f32;
+                        let confidence = 1.0f32; // affirmed citation (confidence retired — no longer requested from the model)
                         Some((step_number, cited_steps, cited_theorems, confidence))
                     })
                     .collect();

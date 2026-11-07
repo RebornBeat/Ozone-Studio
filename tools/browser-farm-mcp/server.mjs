@@ -226,7 +226,7 @@ const server = createServer((req, res) => {
   if (req.method !== "POST" || !url.startsWith("/call")) { reply(res, 404, { error: "POST /call or GET /status" }); return; }
   if (TOKEN_SECRET && req.headers["x-ozone-farm-token"] !== TOKEN_SECRET) { reply(res, 401, { success: false, error: "missing/invalid x-ozone-farm-token" }); return; }
   const chunks = []; let size = 0;
-  req.on("data", (c) => { size += c.length; if (size > 1024 * 1024) req.destroy(); else chunks.push(c); });
+  req.on("data", (c) => { size += c.length; if (size > (Number(process.env.OZONE_MCP_MAX_BODY_BYTES) || 512 * 1024 * 1024)) { if (!res.headersSent) { res.writeHead(413, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ success: false, error: `request body is over the transport guard (OZONE_MCP_MAX_BODY_BYTES, default 512 MiB) — NOT processed (nothing was cut); this is a host-memory guard, not a model limit — chunk the call` }), () => req.destroy()); } } else chunks.push(c); });
   req.on("end", async () => {
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { reply(res, 400, { success: false, error: "invalid JSON body" }); return; }

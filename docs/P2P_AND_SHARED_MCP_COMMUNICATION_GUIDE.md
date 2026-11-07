@@ -1,5 +1,7 @@
 # P2P and Shared-MCP Communication — Three Subsystems, Disambiguated
 
+> **UPDATE 2026-11-04:** §7's statements that approve-peer / peer review are "not built" are STALE — both exist (`POST /network/approve-peer`, `/network/revoke-peer`, `/network/paired-peers`, default-deny bidirectional pairing, `spawn_peer_sync_review`). What is genuinely NOT built: tool/MCP/provider catalog exchange, signed offers, quarantine/review states for peer artifacts, install-from-peer, and the `Propose` flow (see docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §5–§6 and the Marketplace tab, which says so instead of listing invented offers).
+
 > **STATUS CORRECTION 2026-10-23 (read before acting on this document):**
 > parts of this guide are stale relative to the tree. Verified current facts:
 > the I-Loop EXISTS and runs (`src/orchestrator/i_loop.rs`, boot-spawned,

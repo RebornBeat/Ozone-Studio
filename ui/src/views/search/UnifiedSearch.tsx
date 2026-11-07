@@ -57,13 +57,17 @@ function modalityFromObjectStorePath(path: unknown): "code" | "math" | "text" | 
 async function searchContainers(term: string): Promise<ContainerResult[]> {
   const res = await zseiQuery<any>({ SearchContainersByKeywords: { keywords: [term], strategy: "scan" } });
   const ids: number[] = res?.Containers ?? [];
-  const capped = ids.slice(0, 60);
-  const containers = await Promise.all(
-    capped.map(async (id) => {
-      const c = (await zseiQuery<any>({ GetContainer: { container_id: id } }))?.Container;
-      return { id, c };
-    }),
-  );
+  // EVERY matching id is resolved (doctrine audit #35, 2026-11-04: was silently cut at 60), in batches of 40 so the host is not flooded.
+  const containers: { id: number; c: any }[] = [];
+  for (let o = 0; o < ids.length; o += 40) {
+    const batch = await Promise.all(
+      ids.slice(o, o + 40).map(async (id) => {
+        const c = (await zseiQuery<any>({ GetContainer: { container_id: id } }))?.Container;
+        return { id, c };
+      }),
+    );
+    containers.push(...batch);
+  }
   const out: ContainerResult[] = [];
   for (const { id, c } of containers) {
     if (!c) continue;
@@ -99,7 +103,7 @@ async function searchZeroShotCalls(term: string): Promise<{ results: CaptureResu
   );
   return {
     capped,
-    results: hits.slice(0, 30).map((r) => ({
+    results: hits.map((r) => ({ // every hit (audit #35: was the first 30)
       kind: "zero-shot-call",
       group: "zero-shot-call",
       title: `${r.call_site} · ${r.model_used || "no model answered"}`,
@@ -116,7 +120,7 @@ async function searchDecisionReviews(term: string): Promise<{ results: CaptureRe
   );
   return {
     capped,
-    results: hits.slice(0, 30).map((r) => ({
+    results: hits.map((r) => ({ // every hit (audit #35)
       kind: "decision-review",
       group: "decision-review",
       title: `${r.decision} · ${r.model_used}`,

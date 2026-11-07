@@ -53,35 +53,58 @@ fn run_bounded_child(cmd: &mut std::process::Command) -> std::io::Result<std::pr
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child = cmd.spawn()?;
+    // PROGRESS-BASED (operator 2026-11-06): the reader threads stamp `activity` on every read (a local model prints tokens/log lines
+    // as it works). The child is killed when it has been SILENT for `secs` (idle limit; OZONE_PIPELINE_TIMEOUT_SECS, default 285) —
+    // or when it exceeds a very large safety ceiling (OZONE_LOCAL_MAX_SECS, default 7200). Taking long while producing output is
+    // never a reason to kill it.
+    let activity = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+    ));
+    fn drain_stamped<R: Read + Send + 'static>(
+        mut pipe: R,
+        activity: std::sync::Arc<std::sync::atomic::AtomicU64>,
+        tx: std::sync::mpsc::Sender<Vec<u8>>,
+    ) {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let mut chunk = [0u8; 8192];
+            loop {
+                match pipe.read(&mut chunk) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&chunk[..n]);
+                        activity.store(
+                            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0),
+                            std::sync::atomic::Ordering::Relaxed,
+                        );
+                    }
+                }
+            }
+            let _ = tx.send(buf);
+        });
+    }
     let (out_tx, out_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let mut out_pipe = child.stdout.take();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = out_pipe.as_mut() {
-            let _ = p.read_to_end(&mut buf);
-        }
-        let _ = out_tx.send(buf);
-    });
+    if let Some(p) = child.stdout.take() {
+        drain_stamped(p, activity.clone(), out_tx);
+    }
     let (err_tx, err_rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    let mut err_pipe = child.stderr.take();
-    std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = err_pipe.as_mut() {
-            let _ = p.read_to_end(&mut buf);
-        }
-        let _ = err_tx.send(buf);
-    });
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    if let Some(p) = child.stderr.take() {
+        drain_stamped(p, activity.clone(), err_tx);
+    }
+    let max_secs: u64 = env::var("OZONE_LOCAL_MAX_SECS").ok().and_then(|v| v.parse().ok()).filter(|v| *v > 0).unwrap_or(7200);
+    let started = std::time::Instant::now();
     let status = loop {
         if let Some(status) = child.try_wait()? {
             break status;
         }
-        if std::time::Instant::now() >= deadline {
+        let now_ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+        let idle_ms = now_ms.saturating_sub(activity.load(std::sync::atomic::Ordering::Relaxed));
+        if idle_ms >= secs * 1000 || started.elapsed().as_secs() >= max_secs {
             let _ = child.kill();
             let _ = child.wait();
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
-                format!("local child process killed after {secs} seconds (time bound)"),
+                format!("local child process killed: no output for {}s (idle limit {secs}s) after {}s running", idle_ms / 1000, started.elapsed().as_secs()),
             ));
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -122,6 +145,11 @@ pub struct PromptInput {
     /// of the run). Wire counterpart of orchestrator::ModelConfigOverride's
     /// connection fields.
     pub model_override_config: Option<ModelOverrideConfig>,
+    /// OpenRouter unified `reasoning` control forwarded verbatim (e.g. `{"enabled": false}`); models/providers that do not support it
+    /// ignore it. Used by the K-validation votes (config `[optimization] vote_reasoning = "off"`): a one-word vote was costing a median
+    /// ~1,000 tokens of hidden reasoning. `None` = provider default (unchanged behaviour).
+    #[serde(default)]
+    pub reasoning: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -370,15 +398,127 @@ async fn execute_api(input: PromptInput, config: &ModelConfig) -> Result<PromptO
             &model,
             &input,
         ).await?,
-        WireProtocol::ChatCompletions => call_openai_api(
-            endpoint,
-            &api_key,
-            &model,
-            &input,
-        ).await?
+        WireProtocol::ChatCompletions => {
+            // ROUTER MEMBERS (operator 2026-11-05): `openrouter/*` rotates its member models and the requested id says nothing about who
+            // answered. If the SERVED member is not a chat model (safety classifier, music, embedding ... — same markers as the host's
+            // model_windows::NON_CHAT_ID_MARKERS), its text is not an answer: re-call so the router re-picks (bounded; the router stays
+            // the model, nothing is promoted above it). Every caller — including modality pipelines that nest this binary — gets this.
+            let is_router = model.starts_with("openrouter/");
+            // PROVEN-IN-SLOT (operator 2026-11-05): inside the `openrouter/free` slot only — if the ledger shows a concrete `:free`
+            // model with a PROVEN record (>= 30 attempts, >= 70% success, still listed free in the live catalog, a chat model), call
+            // IT first; any failure / empty / non-chat answer falls through to the router itself. The fallback chain is untouched.
+            let mut early: Option<PromptOutput> = None;
+            if model == "openrouter/free" && env::var("OZONE_PROVEN_FIRST").map(|v| v != "0").unwrap_or(true) {
+                for proven in proven_free_models() {
+                    match call_openai_api(endpoint, &api_key, &proven, &input).await {
+                        Ok(r) if !r.response.trim().is_empty() && !served_is_non_chat(&r.model_used) => {
+                            early = Some(r);
+                            break;
+                        }
+                        Ok(_) => eprintln!("prompt pipeline: proven free model {} returned an unusable answer — trying the next proven model / openrouter/free", proven),
+                        Err(e) => eprintln!("prompt pipeline: proven free model {} failed ({}) — trying the next proven model / openrouter/free", proven, e.chars().take(160).collect::<String>()),
+                    }
+                }
+            }
+            if let Some(r) = early {
+                r
+            } else {
+                let mut attempt = 0u32;
+                loop {
+                    let r = call_openai_api(endpoint, &api_key, &model, &input).await?;
+                    attempt += 1;
+                    if is_router && attempt < 4 && served_is_non_chat(&r.model_used) {
+                        eprintln!("prompt pipeline: router served a non-chat member ({}) — re-calling (attempt {}/3)", r.model_used, attempt);
+                        continue;
+                    }
+                    break r;
+                }
+            }
+        }
     };
 
     Ok(response)
+}
+
+const NON_CHAT_ID_MARKERS: &[&str] = &[
+    "guard", "moderation", "shield", "safety", "classif", "lyria", "embed", "rerank", "whisper", "tts", "image", "imagen", "veo",
+];
+
+fn served_is_non_chat(id: &str) -> bool {
+    let l = id.to_lowercase();
+    !l.starts_with("openrouter/") && NON_CHAT_ID_MARKERS.iter().any(|m| l.contains(m))
+}
+
+/// The proven concrete `:free` model, if any, read from the derived `model_calls/model_stats.json` (ledger fallback) and the live catalog
+/// (`model_catalog.json`): >= 30 attempts, >= 70% success, listed free, a chat model. Best success rate first, then most attempts.
+/// Unreadable/garbled ledger rows are skipped. `None` => the router handles the call.
+fn proven_free_models_opt() -> Option<Vec<String>> {
+    let dir = env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+    let catalog: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(format!("{dir}/model_catalog.json")).ok()?).ok()?;
+    // `entries` is a list of {id, context_length, max_completion_tokens, is_free} (a keyed object is accepted too).
+    let free_ids: std::collections::HashSet<String> = match catalog.get("entries")? {
+        serde_json::Value::Array(a) => a
+            .iter()
+            .filter(|e| e.get("is_free").and_then(|f| f.as_bool()).unwrap_or(false))
+            .filter_map(|e| e.get("id").and_then(|i| i.as_str()).map(String::from))
+            .collect(),
+        serde_json::Value::Object(o) => o
+            .iter()
+            .filter(|(_, e)| e.get("is_free").and_then(|f| f.as_bool()).unwrap_or(false))
+            .map(|(k, _)| k.clone())
+            .collect(),
+        _ => return None,
+    };
+    // Per-model (attempts, successes). PRIMARY: the host's derived `model_calls/model_stats.json` (~10 KB, rewritten after every
+    // recorded row). FALLBACK (file absent, e.g. first boot): parse the ledger itself — it is 29 MB and ~90% prompt bodies, so this is
+    // the slow path.
+    let mut stats: std::collections::HashMap<String, (u64, u64)> = std::collections::HashMap::new();
+    let derived = std::fs::read_to_string(format!("{dir}/model_calls/model_stats.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+    if let Some(models) = derived.as_ref().and_then(|d| d.get("models")).and_then(|m| m.as_object()) {
+        for (m, e) in models {
+            if m.ends_with(":free") {
+                // RECENT window first (the host writes recent_* over the last OZONE_PROVEN_RECENT_DAYS days, default 7) so an old
+                // outage cannot disqualify a model that works now; all-time counts only if the file predates the recent fields.
+                let attempts = e.get("recent_attempts").and_then(|v| v.as_u64()).or_else(|| e.get("attempts").and_then(|v| v.as_u64())).unwrap_or(0);
+                let successes = e.get("recent_successes").and_then(|v| v.as_u64()).or_else(|| e.get("successes").and_then(|v| v.as_u64())).unwrap_or(0);
+                stats.insert(m.clone(), (attempts, successes));
+            }
+        }
+    } else {
+        let ledger = std::fs::read_to_string(format!("{dir}/model_calls/model_ledger.jsonl")).ok()?;
+        for line in ledger.lines() {
+            let Ok(v) = serde_json::from_str::<serde_json::Value>(line) else { continue };
+            let (Some(m), Some(k)) = (v.get("model").and_then(|m| m.as_str()), v.get("kind").and_then(|k| k.as_str())) else { continue };
+            if !m.ends_with(":free") {
+                continue;
+            }
+            let e = stats.entry(m.to_string()).or_insert((0, 0));
+            e.0 += 1;
+            if k == "success" {
+                e.1 += 1;
+            }
+        }
+    }
+    let mut ranked: Vec<(f64, u64, String)> = Vec::new();
+    for (m, (attempts, successes)) in stats {
+        if attempts < 30 || successes * 10 < attempts * 7 || served_is_non_chat(&m) {
+            continue;
+        }
+        if !free_ids.contains(&m) {
+            continue;
+        }
+        ranked.push((successes as f64 / attempts as f64, attempts, m));
+    }
+    // best success rate first, then most evidence; EVERY qualifying model is a candidate (no count cap)
+    ranked.sort_by(|a, b| (b.0, b.1).partial_cmp(&(a.0, a.1)).unwrap_or(std::cmp::Ordering::Equal));
+    Some(ranked.into_iter().map(|r| r.2).collect())
+}
+
+/// Every PROVEN concrete `:free` model, best first (see `proven_free_models_opt`); empty when none qualifies or data is unavailable.
+fn proven_free_models() -> Vec<String> {
+    proven_free_models_opt().unwrap_or_default()
 }
 
 /// Call Anthropic API (Claude)
@@ -585,6 +725,36 @@ fn http_error_text(status: reqwest::StatusCode, body: &str) -> String {
     }
 }
 
+/// Per-request HTTP timeout (2026-11-04). The flat 120 s was applied even to tiny stage-2 validation calls: one hung provider burned 120 s per
+/// fallback candidate, ~10 min per call across a 5-model chain, and a one-sentence prompt hit the 30-min watchdog. Derived from the PROMPT
+/// SIZE (never from `max_tokens` — that is a caller hint, not a cap, and deriving a wait from it made small hints shorten the wait for
+/// reasoning models; doctrine audit #31): floor 90 s + 1 s per 2,000 prompt characters, cap 600 s. `OZONE_PROMPT_TIMEOUT_SECS` overrides.
+/// This bounds WAITING, never the response length (no response cap).
+fn request_timeout(input: &PromptInput) -> std::time::Duration {
+    if let Some(v) = std::env::var("OZONE_PROMPT_TIMEOUT_SECS").ok().and_then(|v| v.parse::<u64>().ok()) {
+        return std::time::Duration::from_secs(v.max(5));
+    }
+    let size = input.prompt.len() + input.system_prompt.as_ref().map(|s| s.len()).unwrap_or(0);
+    std::time::Duration::from_secs((90 + (size as u64) / 2000).clamp(90, 600))
+}
+
+/// Anthropic's API REQUIRES `max_tokens`. The doctrine is "no response cap" (a caller's `max_tokens` is a hint, never a cap), so the
+/// value sent is the model family's real output ceiling, not the old hidden 4096 default or the caller's small hint (doctrine audit #7).
+/// Unknown families keep the conservative 4096; `OZONE_ANTHROPIC_MAX_TOKENS` overrides.
+fn anthropic_max_output(model: &str) -> u64 {
+    if let Some(v) = std::env::var("OZONE_ANTHROPIC_MAX_TOKENS").ok().and_then(|v| v.parse::<u64>().ok()) {
+        return v;
+    }
+    let m = model.to_lowercase();
+    if m.contains("opus-4") || m.contains("sonnet-4") || m.contains("haiku-4") || m.contains("-5") || m.contains("fable") {
+        32_000 // below every 4.x/5.x family's real ceiling
+    } else if m.contains("3-5") || m.contains("3.5") {
+        8_192
+    } else {
+        4_096
+    }
+}
+
 async fn call_anthropic_api(
     endpoint: &str,
     api_key: &str,
@@ -596,7 +766,7 @@ async fn call_anthropic_api(
     // this call forever with nothing surfacing to the caller. 120s is
     // generous for real generation latency while still bounding it.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(request_timeout(input))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     
@@ -619,7 +789,7 @@ async fn call_anthropic_api(
     let mut body = serde_json::json!({
         "model": model,
         "messages": messages,
-        "max_tokens": input.max_tokens.unwrap_or(4096),
+        "max_tokens": anthropic_max_output(model), // the model's real output ceiling — NOT the caller's hint, NOT a hidden 4096 (audit #7)
     });
     
     if let Some(system) = &input.system_prompt {
@@ -740,17 +910,160 @@ fn effective_api_cap(input: &PromptInput) -> Option<u32> {
 }
 
 /// Call OpenAI-compatible API
+fn stream_enabled() -> bool {
+    env::var("OZONE_PROMPT_STREAM").map(|v| v != "0").unwrap_or(true)
+}
+
+/// (first-output limit, idle limit, safety ceiling) in seconds for a STREAMED call. A call is abandoned only when it produces no
+/// content/reasoning for the limit (queue wait before the first token is allowed longer) — never merely for taking long while working.
+fn stream_limits() -> (u64, u64, u64) {
+    let get = |k: &str, d: u64| env::var(k).ok().and_then(|v| v.parse::<u64>().ok()).filter(|v| *v > 0).unwrap_or(d);
+    (get("OZONE_PROMPT_FIRST_TOKEN_SECS", 300), get("OZONE_PROMPT_IDLE_SECS", 120), get("OZONE_PROMPT_MAX_SECS", 3600))
+}
+
+/// Liveness stamp for the HOST: `<limiter dir>/model_activity.stamp` is rewritten (throttled to once per 5 s unless `force`) whenever a
+/// model call starts, streams output, or ends. The host's watchdogs read its mtime so a Stage that is steadily making model calls is
+/// never killed merely for exceeding a wall-clock budget. Best-effort.
+fn touch_model_activity(force: bool) {
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = limiter_now_ms();
+    let last = LAST.load(std::sync::atomic::Ordering::Relaxed);
+    if !force && now.saturating_sub(last) < 5_000 {
+        return;
+    }
+    LAST.store(now, std::sync::atomic::Ordering::Relaxed);
+    let dir = limiter_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let _ = std::fs::write(dir.join("model_activity.stamp"), now.to_string());
+}
+
+/// Read an OpenAI-compatible SSE stream to the end and return it as the SAME JSON shape a non-streamed response has
+/// (`model`, `choices[0].message.{content,reasoning}`, `choices[0].finish_reason`, `usage`), so everything downstream is unchanged.
+/// Keepalive comments (`: ...`) show the connection is alive but are NOT progress; content/reasoning deltas are.
+async fn assemble_openai_stream(mut response: reqwest::Response, requested_model: &str) -> Result<serde_json::Value, String> {
+    use std::time::{Duration, Instant};
+    let (first_limit, idle_limit, max_total) = stream_limits();
+    let started = Instant::now();
+    let mut last_progress = Instant::now();
+    let mut got_progress = false;
+    let mut last_heartbeat = Instant::now();
+    let mut pending: Vec<u8> = Vec::new();
+    let mut content = String::new();
+    let mut reasoning = String::new();
+    let mut reasoning_key = "reasoning";
+    let mut finish: Option<String> = None;
+    let mut model: Option<String> = None;
+    let mut usage: Option<serde_json::Value> = None;
+    let mut done = false;
+    while !done {
+        let limit = if got_progress { idle_limit } else { first_limit };
+        let remaining = Duration::from_secs(limit).saturating_sub(last_progress.elapsed());
+        if remaining.is_zero() || started.elapsed() > Duration::from_secs(max_total) {
+            return Err(format!(
+                "Request timed out (stalled: no output for {}s after {} chars; elapsed {}s)",
+                limit,
+                content.len() + reasoning.len(),
+                started.elapsed().as_secs()
+            ));
+        }
+        let chunk = match tokio::time::timeout(remaining.min(Duration::from_secs(30)), response.chunk()).await {
+            Err(_) => {
+                if last_heartbeat.elapsed() >= Duration::from_secs(30) {
+                    eprintln!("prompt pipeline: waiting on {} — {}s elapsed, {} chars so far", requested_model, started.elapsed().as_secs(), content.len() + reasoning.len());
+                    last_heartbeat = Instant::now();
+                }
+                continue;
+            }
+            Ok(Err(e)) => return Err(format!("Stream failed after {}s: {}", started.elapsed().as_secs(), e)),
+            Ok(Ok(None)) => break,
+            Ok(Ok(Some(c))) => c,
+        };
+        pending.extend_from_slice(&chunk);
+        while let Some(pos) = pending.iter().position(|b| *b == b'\n') {
+            let line_bytes: Vec<u8> = pending.drain(..=pos).collect();
+            let line = String::from_utf8_lossy(&line_bytes).trim().to_string();
+            if line.is_empty() || line.starts_with(':') {
+                continue;
+            }
+            let Some(data) = line.strip_prefix("data:") else { continue };
+            let data = data.trim();
+            if data == "[DONE]" {
+                done = true;
+                break;
+            }
+            let Ok(ev) = serde_json::from_str::<serde_json::Value>(data) else { continue };
+            if let Some(err) = ev.get("error") {
+                return Err(format!("Provider stream error: {}", err));
+            }
+            if let Some(m) = ev["model"].as_str() {
+                model = Some(m.to_string());
+            }
+            if ev.get("usage").map_or(false, |u| !u.is_null()) {
+                usage = Some(ev["usage"].clone());
+            }
+            let mut progressed = false;
+            if let Some(ch) = ev["choices"].get(0) {
+                let d = &ch["delta"];
+                if let Some(c) = d["content"].as_str() {
+                    if !c.is_empty() {
+                        content.push_str(c);
+                        progressed = true;
+                    }
+                }
+                for f in ["reasoning", "reasoning_content"] {
+                    if let Some(r) = d[f].as_str() {
+                        if !r.is_empty() {
+                            reasoning.push_str(r);
+                            reasoning_key = f;
+                            progressed = true;
+                        }
+                    }
+                }
+                if let Some(fr) = ch["finish_reason"].as_str() {
+                    finish = Some(fr.to_string());
+                }
+            }
+            if progressed {
+                last_progress = Instant::now();
+                got_progress = true;
+                touch_model_activity(false);
+            }
+        }
+        if last_heartbeat.elapsed() >= Duration::from_secs(30) {
+            eprintln!("prompt pipeline: streaming {} — {}s elapsed, {} chars", requested_model, started.elapsed().as_secs(), content.len() + reasoning.len());
+            last_heartbeat = Instant::now();
+        }
+    }
+    let mut message = serde_json::Map::new();
+    message.insert("content".to_string(), if content.is_empty() { serde_json::Value::Null } else { serde_json::json!(content) });
+    if !reasoning.is_empty() {
+        message.insert(reasoning_key.to_string(), serde_json::json!(reasoning));
+    }
+    Ok(serde_json::json!({
+        "model": model.unwrap_or_else(|| requested_model.to_string()),
+        "choices": [{"message": message, "finish_reason": finish}],
+        "usage": usage.unwrap_or(serde_json::Value::Null),
+    }))
+}
+
 async fn call_openai_api(
     endpoint: &str,
     api_key: &str,
     model: &str,
     input: &PromptInput,
 ) -> Result<PromptOutput, String> {
-    // See call_anthropic_api's comment — same missing-timeout bug, same fix.
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
-        .build()
-        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
+    // PROGRESS-BASED TIMEOUTS (operator 2026-11-06: "timeouts should not be a limiter as long as it is doing work"). The call is
+    // STREAMED; there is NO total request deadline — it is abandoned only when it STALLS (no content/reasoning for the first-token /
+    // idle limit) or hits a very large safety ceiling (OZONE_PROMPT_MAX_SECS, default 3600). `OZONE_PROMPT_STREAM=0` restores the
+    // old single-shot request with the total `request_timeout` deadline.
+    let streaming = stream_enabled();
+    let client = if streaming {
+        reqwest::Client::builder().connect_timeout(std::time::Duration::from_secs(30)).build()
+    } else {
+        // See call_anthropic_api's comment — same missing-timeout bug, same fix.
+        reqwest::Client::builder().timeout(request_timeout(input)).build()
+    }
+    .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     
     let mut messages = vec![];
     
@@ -770,6 +1083,10 @@ async fn call_openai_api(
         "model": model,
         "messages": messages,
     });
+    if streaming {
+        body["stream"] = serde_json::json!(true);
+        body["stream_options"] = serde_json::json!({"include_usage": true});
+    }
     
     if let Some(eff) = effective_api_cap(input) {
         body["max_tokens"] = serde_json::json!(eff);
@@ -777,6 +1094,9 @@ async fn call_openai_api(
     
     if let Some(temp) = input.temperature {
         body["temperature"] = serde_json::json!(temp);
+    }
+    if let Some(r) = &input.reasoning {
+        body["reasoning"] = r.clone();
     }
     
     let limited = is_limited_endpoint(endpoint, model);
@@ -787,6 +1107,7 @@ async fn call_openai_api(
         }
     }
 
+    touch_model_activity(true);
     let response = client
         .post(endpoint)
         .header("Authorization", format!("Bearer {}", api_key))
@@ -820,8 +1141,12 @@ async fn call_openai_api(
         return Err(text);
     }
     
-    let result: serde_json::Value = response.json().await
-        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    let result: serde_json::Value = if streaming {
+        assemble_openai_stream(response, model).await?
+    } else {
+        response.json().await.map_err(|e| format!("Failed to parse response: {}", e))?
+    };
+    touch_model_activity(true);
     
     let message = &result["choices"][0]["message"];
     // content may be JSON null or absent; both mean "no content field".
@@ -948,10 +1273,11 @@ async fn execute_gguf(input: PromptInput, config: &ModelConfig) -> Result<Prompt
 
     // Same anti-repetition fix as execute_bitnet (see its comment) — applies
     // equally to any local llama.cpp-served GGUF model.
+    let (prompt_args, _prompt_file) = stage_prompt_args(&prompt);
     let output = run_bounded_child(std::process::Command::new(&llama_cli)
+        .args(["-m", model_path])
+        .args(&prompt_args)
         .args([
-            "-m", model_path,
-            "-p", &prompt,
             "-n", &max_tokens,
             "--temp", &input.temperature.unwrap_or(0.7).to_string(),
             "-ngl", &config.gpu_layers.unwrap_or(0).to_string(),
@@ -1054,7 +1380,7 @@ except Exception as e:
 "#, 
         model_path.replace("\\", "\\\\").replace("'", "\\'"),
         prompt.replace("\\", "\\\\").replace("'", "\\'"),
-        input.max_tokens.unwrap_or(1024),
+        (config.context_length / 2).max(256), // half the loaded window, like -n (no hidden 1024; audit #30)
         input.temperature.unwrap_or(0.7)
     );
     
@@ -1192,6 +1518,31 @@ fn parse_bitnet_metrics(stderr: &str) -> Option<BitnetTokenMetrics> {
     }
 }
 
+/// A single argv string is capped at 128 KiB (MAX_ARG_STRLEN); a rich step prompt exceeds it and the
+/// spawn fails with E2BIG "Argument list too long" (found by the pause/resume E2E, 2026-11-04).
+/// Large prompts go to a file (`-f`), small ones stay inline (`-p`). The guard removes the file on drop.
+struct PromptFileGuard(Option<std::path::PathBuf>);
+impl Drop for PromptFileGuard {
+    fn drop(&mut self) {
+        if let Some(p) = &self.0 {
+            let _ = std::fs::remove_file(p);
+        }
+    }
+}
+fn stage_prompt_args(prompt: &str) -> (Vec<String>, PromptFileGuard) {
+    if prompt.len() > 100_000 {
+        let path = std::env::temp_dir().join(format!(
+            "ozone-prompt-{}-{}.txt",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0)
+        ));
+        if std::fs::write(&path, prompt).is_ok() {
+            return (vec!["-f".to_string(), path.display().to_string()], PromptFileGuard(Some(path)));
+        }
+    }
+    (vec!["-p".to_string(), prompt.to_string()], PromptFileGuard(None))
+}
+
 /// Execute using BitNet model (1-bit quantized, CPU-efficient)
 ///
 /// Runs the llama.cpp-fork CLI (BitNet i2_s kernels) and derives token
@@ -1229,7 +1580,7 @@ async fn execute_bitnet_server(
 
     let body = serde_json::json!({
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens.parse::<u64>().unwrap_or(512),
+        "max_tokens": ((effective_ctx / 2).max(256)) as u64, // window-derived (audit #30)
         "temperature": input.temperature.unwrap_or(0.7),
     });
     let resp = reqwest::Client::new()
@@ -1334,11 +1685,13 @@ async fn execute_bitnet(input: PromptInput, config: &ModelConfig) -> Result<Prom
     // box included) — it only enables acceleration that was always
     // configurable but never actually reached the process.
     let gpu_layers = config.gpu_layers.unwrap_or(0).to_string();
+    let (prompt_args, prompt_file_guard) = stage_prompt_args(&prompt);
     let run = tokio::task::spawn_blocking(move || {
+        let _keep = &prompt_file_guard;
         run_bounded_child(std::process::Command::new(&clone_cli)
+            .args(["-m", &clone_model_path])
+            .args(&prompt_args)
             .args([
-                "-m", &clone_model_path,
-                "-p", &prompt,
                 "-n", &max_tokens,
                 "--temp", &temp,
                 "-ngl", &gpu_layers,
@@ -1481,6 +1834,7 @@ fn main() {
                     token_budget: None,
                     aggregated_context: None,
                     model_override_config: None,
+                    reasoning: None,
                 });
             let config = load_model_config_from_env();
             let rt = tokio::runtime::Runtime::new().expect("serve runtime");
@@ -1509,7 +1863,15 @@ fn main() {
             "--input" => {
                 i += 1;
                 if i < args.len() {
-                    input_json = args[i].clone();
+                    // `@path` = the host staged an oversize input in a file
+                    // (a single argv string is capped at 128 KiB).
+                    input_json = match args[i].strip_prefix('@') {
+                        Some(path) => std::fs::read_to_string(path).unwrap_or_else(|e| {
+                            eprintln!("Failed to read staged input {}: {}", path, e);
+                            std::process::exit(1);
+                        }),
+                        None => args[i].clone(),
+                    };
                 }
             }
             "--task-id" => {

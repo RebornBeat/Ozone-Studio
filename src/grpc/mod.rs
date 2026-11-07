@@ -574,7 +574,7 @@ async fn authenticate(
         }
     };
 
-    let runtime = state.runtime.write().await;
+    let runtime = state.runtime.read().await; // authenticate(&self) uses an interior lock; a WRITE here queued behind long walks
 
     match runtime.authenticate(&public_key, &signature).await {
         Ok(session) => Json(AuthResponse {
@@ -674,6 +674,9 @@ async fn session_gate(
         "/mcp/tools",
         "/mcp/call",
         "/chat/",
+        "/context/",
+        "/ripple/",
+        "/marketplace/",
         "/network/",
         "/task/",
         "/context/mirror",
@@ -858,11 +861,9 @@ async fn resume_paused_run(
     let runtime_handle = state.runtime.clone();
     let task_id = req.task_id;
     tokio::spawn(async move {
-        let runtime = runtime_handle.read().await;
-        match runtime.resume_run(task_id).await {
-            Ok(out) => tracing::info!(task_id, success = out.success, error = ?out.error, "resume_run finished"),
-            Err(e) => tracing::error!(task_id, error = %e, "resume_run failed"),
-        }
+        let orchestrator = { runtime_handle.read().await.prepare_resume() };
+        let out = crate::OzoneRuntime::output_from_response(orchestrator.resume_run(task_id).await);
+        tracing::info!(task_id, success = out.success, error = ?out.error, "resume_run finished");
     });
     Json(serde_json::json!({
         "success": true,
@@ -896,6 +897,237 @@ async fn task_pause_info(
         "resumable": step.is_some() && cp.exists(),
         "checkpoint": cp.exists(),
     }))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SpanOutRequest {
+    /// Container ids to span out from (score 1.0 unless given as `{id, score}` objects).
+    #[serde(default)]
+    seeds: Vec<serde_json::Value>,
+    /// Keyword rediscovery seeds (score 0.5) — the same door a step uses.
+    #[serde(default)]
+    keywords: Vec<String>,
+    /// Token budget for the packed context (default 8000). Not a cap on the graph — a budget.
+    #[serde(default)]
+    budget_tokens: Option<u32>,
+    /// Include the packed text in the response (default false: items + fan-out evidence only).
+    #[serde(default)]
+    include_text: bool,
+}
+
+/// POST /context/span_out — run the ONE span-out algorithm (best-first, token-budgeted, per-modality
+/// fan-out of modality graph files) from given seeds and return what it packed: each item with its
+/// score, hops, how it was reached and — for modality graphs — the `fanout` evidence (entries,
+/// flow sequence, edge-class counts). Read-only; used by the E2E suites and the UI context viewer.
+async fn context_span_out(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SpanOutRequest>,
+) -> Json<serde_json::Value> {
+    let runtime = state.runtime.read().await;
+    let data_dir = runtime.config.general.data_dir.clone();
+    let store: Arc<dyn crate::orchestrator::StoreAccess> =
+        Arc::new(crate::orchestrator::ZseiStoreAdapter { zsei: runtime.zsei.clone() });
+    drop(runtime);
+    let mut seeds: Vec<crate::orchestrator::span_out::SpanSeed> = Vec::new();
+    for v in &req.seeds {
+        if let Some(id) = v.as_u64() {
+            seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, 1.0, "request"));
+        } else if let Some(id) = v.get("id").and_then(|x| x.as_u64()) {
+            let sc = v.get("score").and_then(|x| x.as_f64()).unwrap_or(1.0) as f32;
+            seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, sc, "request"));
+        }
+    }
+    if !req.keywords.is_empty() {
+        if let Ok(ids) = store.search_by_keywords(&req.keywords, None).await {
+            for id in ids.into_iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
+                seeds.push(crate::orchestrator::span_out::SpanSeed::new(id, 0.5, "keyword"));
+            }
+        }
+    }
+    if seeds.is_empty() {
+        return Json(serde_json::json!({"success": false, "error": "no seeds: pass `seeds` (container ids) and/or `keywords`"}));
+    }
+    let r = crate::orchestrator::span_out::span_out(&store, &data_dir, seeds, req.budget_tokens.unwrap_or_else(|| {
+        // default from the READING model (a quarter of its window, as Stage 2/step span-out do); 8,000 only when the window is unknown
+        std::env::var("OZONE_CONTEXT_LENGTH").ok().and_then(|v| v.parse::<u32>().ok()).filter(|w| *w > 0).map(|w| (w / 4).max(256)).unwrap_or(8000)
+    })).await;
+    let mut v = serde_json::to_value(&r).unwrap_or_default();
+    if !req.include_text {
+        if let Some(o) = v.as_object_mut() {
+            o.remove("text");
+        }
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.insert("success".into(), serde_json::json!(true));
+    }
+    Json(v)
+}
+
+/// GET /marketplace/overview — everything the Marketplace UI needs in ONE read-only call (2026-11-04):
+///   * `tools`   — this host's registered tools/MCPs (same facts as /mcp/tools) grouped into providers (process = endpoint)
+///   * `peers`   — paired peers + the honest catalog-exchange status (NOT implemented yet: no peer listings are invented)
+///   * `methodologies` — every methodology on disk with its RULES; per rule the DECLARED `requires[]` (the binding) and,
+///                 for rules that declare none, tools INFERRED by keyword overlap (labelled `inferred`, never presented as binding)
+///   * `blueprints` — blueprints with their steps' pipelines and the methodology ids they cite
+///   * `policy`  — what is shared with peers (`auto_broadcast_sync`) and the review rules that apply to downloads
+/// docs/METHODOLOGY_BLUEPRINT_TOOLS_REVIEW_2026-11-04.md §6.
+async fn marketplace_overview(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    use serde_json::{json, Value};
+    let tools_v: Vec<Value> = mcp_list_tools(State(state.clone())).await.0["tools"].as_array().cloned().unwrap_or_default();
+    let (data_dir, auto_sync, paired) = {
+        let runtime = state.runtime.read().await;
+        let dd = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| runtime.config.general.data_dir.clone());
+        let paired = runtime.network.read().await.paired_peer_ids().await;
+        (dd, runtime.config.network.auto_broadcast_sync, paired)
+    };
+    // PROVIDERS (operator doctrine 2026-11-04): a provider is the MCP SERVER process behind one or more tool names — the unit that
+    // is installed, trusted, started/stopped and shared. Grouped by provider id (the supervisor port table's tool dir).
+    let mut providers: std::collections::BTreeMap<String, Vec<&Value>> = Default::default();
+    for t in &tools_v {
+        providers.entry(crate::mcp_supervisor::provider_for_endpoint(t["endpoint"].as_str().unwrap_or(""))).or_default().push(t);
+    }
+    let providers_json: Vec<Value> = providers
+        .iter()
+        .map(|(id, ts)| {
+            let mut endpoints: Vec<String> = ts.iter().filter_map(|t| t["endpoint"].as_str().map(String::from)).collect();
+            endpoints.sort();
+            endpoints.dedup();
+            json!({
+                "provider": id,
+                "endpoints": endpoints,
+                "endpoint": endpoints.first().cloned().unwrap_or_default(),
+                "tools": ts.iter().map(|t| t["name"].clone()).collect::<Vec<_>>(),
+                "tool_count": ts.len(),
+                "running": ts.iter().any(|t| t["running"].as_bool().unwrap_or(false)),
+                "auto_start": ts.iter().any(|t| t["auto_start"].as_bool().unwrap_or(false)),
+                "device_requirement": ts[0]["device_requirement"].clone(),
+                "credential_requirement": ts[0]["credential_requirement"].clone(),
+                "capabilities": ts.iter().flat_map(|t| t["capabilities"].as_array().cloned().unwrap_or_default()).collect::<Vec<_>>(),
+                "source": "local",
+                "installed_from": Value::Null, // no install-from-peer flow exists yet
+            })
+        })
+        .collect();
+
+    // keyword inference (rules that declare NO provider) — by PROVIDER: id + its tool names + capabilities; clearly labelled inference
+    let provider_hay: Vec<(String, String)> = providers
+        .iter()
+        .map(|(id, ts)| {
+            let names = ts.iter().filter_map(|t| t["name"].as_str()).collect::<Vec<_>>().join(" ").replace('_', " ");
+            let caps = ts.iter().flat_map(|t| t["capabilities"].as_array().cloned().unwrap_or_default()).filter_map(|c| c.as_str().map(String::from)).collect::<Vec<_>>().join(" ");
+            (id.clone(), format!("{} {} {}", id.replace('-', " "), names, caps).to_lowercase())
+        })
+        .collect();
+    let infer = |text: &str| -> Vec<String> {
+        let words: std::collections::BTreeSet<String> = text.split(|c: char| !c.is_alphanumeric()).filter(|w| w.len() > 4).map(|w| w.to_lowercase()).take(40).collect();
+        let mut scored: Vec<(usize, &String)> = provider_hay
+            .iter()
+            .filter_map(|(id, hay)| {
+                let hits = words.iter().filter(|w| hay.contains(w.as_str())).count();
+                (hits >= 2).then_some((hits, id))
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(b.1)));
+        scored.into_iter().take(3).map(|(_, n)| n.clone()).collect()
+    };
+
+    let read_json = |path: &std::path::Path| -> Option<Value> { std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()) };
+    let mut methodologies: Vec<Value> = Vec::new();
+    for (sub, source) in [("methodologies", "runtime"), ("methodologies_created", "created")] {
+        let dir = std::path::Path::new(&data_dir).join(sub);
+        let index: std::collections::HashMap<String, Value> = read_json(&dir.join("index.json"))
+            .and_then(|v| v["methodologies"].as_array().cloned())
+            .map(|a| a.into_iter().filter_map(|m| Some((m["file"].as_str()?.to_string(), m))).collect())
+            .unwrap_or_default();
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "json") && p.file_name().map_or(true, |n| n != "index.json")).collect();
+        files.sort();
+        for f in files {
+            let Some(m) = read_json(&f) else { continue };
+            let fname = f.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+            let idx = index.get(&fname);
+            let rules: Vec<Value> = m["decision_rules"]
+                .as_array()
+                .map(|rs| {
+                    rs.iter()
+                        .enumerate()
+                        .map(|(i, r)| {
+                            let requires = r.get("requires").cloned().unwrap_or(json!([]));
+                            let declared = requires.as_array().map(|a| !a.is_empty()).unwrap_or(false);
+                            let text = format!("{} {}", r["condition"].as_str().unwrap_or(""), r["action"].as_str().unwrap_or(""));
+                            json!({
+                                "index": i,
+                                "condition": r["condition"], "action": r["action"], "priority": r["priority"],
+                                "requires": requires,
+                                "binding": if declared { "declared" } else { "none" },
+                                "inferred_providers": if declared { json!([]) } else { json!(infer(&text)) },
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            methodologies.push(json!({
+                "id": idx.and_then(|i| i["methodology_id"].as_u64()).or_else(|| m["methodology_id"].as_u64()),
+                "name": idx.and_then(|i| i["name"].as_str()).or_else(|| m["name"].as_str()).unwrap_or(&fname),
+                "file": fname, "source": source,
+                "categories": idx.map(|i| i["categories"].clone()).unwrap_or(json!([])),
+                "rule_count": rules.len(),
+                "rules_with_declared_tools": rules.iter().filter(|r| r["binding"] == "declared").count(),
+                "rules": rules,
+            }));
+        }
+    }
+    let mut blueprints: Vec<Value> = Vec::new();
+    if let Ok(rd) = std::fs::read_dir(std::path::Path::new(&data_dir).join("blueprints")) {
+        let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "json") && p.file_name().map_or(true, |n| n != "index.json")).collect();
+        files.sort();
+        for f in files {
+            let Some(b) = read_json(&f) else { continue };
+            let steps = b["steps"].as_array().cloned().unwrap_or_default();
+            let mut pipelines: Vec<u64> = steps.iter().filter_map(|s| s["pipeline_id"].as_u64()).collect();
+            pipelines.sort();
+            pipelines.dedup();
+            let mut meths: Vec<u64> = steps.iter().flat_map(|s| s["methodology_ids"].as_array().cloned().unwrap_or_default()).filter_map(|v| v.as_u64()).collect();
+            meths.sort();
+            meths.dedup();
+            blueprints.push(json!({
+                "id": b["blueprint_id"], "name": b["name"], "step_count": steps.len(),
+                "pipelines": pipelines, "methodology_ids": meths,
+                "declares_tool_calls": steps.iter().any(|s| s.get("step_type").and_then(|v| v.as_str()) == Some("provider")),
+                "provider_steps": steps.iter().filter(|s| s.get("step_type").and_then(|v| v.as_str()) == Some("provider")).filter_map(|s| s.get("provider").and_then(|v| v.as_str()).map(String::from)).collect::<Vec<_>>(),
+            }));
+        }
+    }
+    Json(json!({
+        "success": true,
+        "generated_at": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0),
+        "tools": { "count": tools_v.len(), "providers": providers_json },
+        // WANTED: capabilities that were required (methodology binding / blueprint / simulation) but are not registered —
+        // to be built or downloaded after review (tool_binding.rs `record_capability_gaps`)
+        "wanted": crate::orchestrator::tool_binding::capability_gaps().into_iter().filter(|g| g["status"].as_str() == Some("wanted")).collect::<Vec<_>>(),
+        "provider_health": crate::orchestrator::tool_binding::health_summary(),
+        // PROPOSALS: search-selected providers that really answered a step — candidates to promote to declared per-rule bindings
+        "binding_proposals": crate::orchestrator::tool_binding::binding_proposals(),
+        "peers": {
+            "paired": paired,
+            "catalog_exchange": "not_implemented",
+            "note": "Peer catalogs are not exchanged yet (no tool/MCP offer protocol): nothing from other users is listed because nothing real is received. Pairing is real.",
+        },
+        "methodologies": methodologies,
+        "blueprints": blueprints,
+        "policy": {
+            "auto_broadcast_sync": auto_sync,
+            "downloads_require_review": true,
+            "executables_require_human_approval": true,
+            "installed_from_peer": [],
+        },
+    }))
+}
+
+/// GET /ripple/meta/status — the meta ripple's live counters (events seen, meta events, own-pass echoes
+/// ignored) and, per meta loop, how many times it was woken and how many passes it finished.
+async fn ripple_meta_status() -> Json<serde_json::Value> {
+    Json(crate::orchestrator::ripple_class::status_json())
 }
 
 /// GET /consciousness/reviews/pending — the operator's visibility half of the
@@ -3093,6 +3325,7 @@ async fn get_config(
             serde_json::to_value(serde_json::json!({
                 "convergence_preset": convergence_preset,
                 "pairwise_preset": pairwise_preset,
+                "validation_strength": k.current_validation_strength(),
                 "convergence_options": convergence_options,
                 "pairwise_options": pairwise_options,
             }))
@@ -3452,6 +3685,13 @@ async fn set_config(
                     runtime.config.k_algorithms.pairwise_preset = v.to_string();
                 }
             }
+            if let Some(v) = k_alg.get("validation_preset").and_then(|v| v.as_str()) {
+                if k.set_validation_preset(v) {
+                    runtime.config.k_algorithms.validation_preset = v.to_string();
+                    // pipelines spawned from now on inherit the new strength
+                    std::env::set_var("OZONE_VALIDATION_STRENGTH", k.current_validation_strength().to_string());
+                }
+            }
         }
 
         // Handle UI updates
@@ -3659,8 +3899,13 @@ async fn orchestrate(
         }
         let token_for_task = run_token.clone();
         tokio::spawn(async move {
-            let runtime = runtime_handle.read().await;
-            let outcome = runtime.orchestrate(pipeline_input, user_id, device_id).await;
+            let walk_started = std::time::Instant::now();
+            // Build under the guard, DROP it, then walk: a walk must never hold the runtime lock.
+            let prepared = { runtime_handle.read().await.prepare_orchestration(pipeline_input, user_id, device_id).await };
+            let outcome = match prepared {
+                Ok((orchestrator, request)) => Ok(crate::OzoneRuntime::output_from_response(orchestrator.orchestrate(request).await)),
+                Err(e) => Err(e),
+            };
             let summary = match &outcome {
                 Ok(r) => {
                     let awaiting_id = r
@@ -3669,8 +3914,16 @@ async fn orchestrate(
                         .and_then(parse_awaiting)
                         .or_else(|| r.response_text.as_deref().and_then(parse_awaiting));
                     if let (Some(aid), Some(tid)) = (&awaiting_id, r.task_id) {
-                        runtime.task_manager.read().await.mark_awaiting(&tid, aid).await;
+                        runtime_handle.read().await.task_manager.read().await.mark_awaiting(&tid, aid).await;
                     }
+                    // `result` = the FULL blocking-call response (same object `POST /orchestrate` returns), so a client can submit,
+                    // poll with no wall-clock cap, and render the answer without a second fetch.
+                    let full = serde_json::to_value(orchestrate_response_from_output(
+                        r.clone(),
+                        walk_started.elapsed().as_millis() as u64,
+                        awaiting_id.clone(),
+                    ))
+                    .unwrap_or(serde_json::Value::Null);
                     serde_json::json!({
                         "state": if awaiting_id.is_some() { "awaiting" } else { "finished" },
                         "task_id": r.task_id,
@@ -3679,6 +3932,7 @@ async fn orchestrate(
                         "awaiting": awaiting_id.is_some(),
                         "await_id": awaiting_id,
                         "error": if awaiting_id.is_some() { None } else { r.error.clone() },
+                        "result": full,
                     })
                 }
                 Err(e) => {
@@ -3722,8 +3976,12 @@ async fn orchestrate(
     }
 
     let walk = tokio::spawn(async move {
-        let runtime = runtime_handle.read().await;
-        let outcome = runtime.orchestrate(pipeline_input, user_id, device_id).await;
+        // Build under the guard, DROP it, then walk: a walk must never hold the runtime lock.
+        let prepared = { runtime_handle.read().await.prepare_orchestration(pipeline_input, user_id, device_id).await };
+        let outcome = match prepared {
+            Ok((orchestrator, request)) => Ok(crate::OzoneRuntime::output_from_response(orchestrator.orchestrate(request).await)),
+            Err(e) => Err(e),
+        };
         match &outcome {
             Ok(result) => tracing::info!(
                 "Orchestration complete: task={:?}, blueprint={:?}, {}ms",
@@ -4163,6 +4421,38 @@ async fn handle_websocket(mut socket: WebSocket, state: Arc<AppState>) {
         });
     }
 
+    // LIVENESS (UI review 2026-11-06, H3/H4): every 3 s a small frame says how long ago ANY model call last made progress (the prompt
+    // binary's `model_activity.stamp`) and the remaining daily free quota, so the UI can show that a long stage is alive ("last model
+    // activity 2 s ago") instead of an unexplained timer. `last_model_activity_ms_ago` is null when no call has ever stamped.
+    {
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                let last = crate::model_ledger::last_model_activity_ms();
+                let frame = serde_json::json!({
+                    "action": "liveness",
+                    "last_model_activity_ms_ago": if last == 0 { serde_json::Value::Null } else { serde_json::json!(now.saturating_sub(last)) },
+                    "free_quota_remaining": crate::openrouter_quota::latest().and_then(|q| q.remaining),
+                    "last_model_call": crate::model_ledger::last_call().map(|(model, site, latency, ok, ts)| serde_json::json!({
+                        "model": model, "call_site": site, "latency_ms": latency, "success": ok, "ago_ms": now.saturating_sub(ts),
+                    })),
+                    "last_stage": crate::orchestration_events::last_stage().map(|(stage, name, ok, summary, ts)| serde_json::json!({
+                        "stage": stage, "name": name, "success": ok, "summary": summary, "ago_ms": now.saturating_sub(ts),
+                    })),
+                    "timestamp": now,
+                });
+                if tx.send(serde_json::to_string(&frame).unwrap_or_default()).await.is_err() {
+                    break;
+                }
+            }
+        });
+    }
+
     tokio::spawn(async move {
         let mut last_snapshot: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
@@ -4508,6 +4798,9 @@ pub async fn start_server(runtime: Arc<RwLock<OzoneRuntime>>) -> OzoneResult<()>
         .route("/task/resume", post(resume_awaiting_task))
         .route("/task/resume_run", post(resume_paused_run))
         .route("/task/pause_info", post(task_pause_info))
+        .route("/context/span_out", post(context_span_out))
+        .route("/ripple/meta/status", get(ripple_meta_status))
+        .route("/marketplace/overview", get(marketplace_overview))
         // ORCHESTRATE STATUS — poll a submit_only run by run_token.
         .route("/orchestrate/status", get(orchestrate_status))
         .layer(cors)
@@ -5489,6 +5782,7 @@ async fn mcp_call(
         .map(|s| s.chars().take(300).collect::<String>())
         .unwrap_or_default();
     let call_input = call.input.clone();
+    let call_ctx_json = call.context.clone();
     // Caller-declared scope, read BEFORE `call` is moved into invoke().
     let (call_scope, call_ws, call_proj) = mcp_call_scope(call.context.as_ref());
 
@@ -5707,7 +6001,12 @@ async fn mcp_call(
         Some(out) if result.success => {
             let zsei = runtime.zsei.read().await;
             let data_dir = runtime.config.general.data_dir.clone();
-            crate::mcp_graph::persist_from_output(&zsei, &data_dir, &call_tool, &call_agent, out)
+            // `called_from` provenance (2026-11-04): provider/tool/site/task/step/rule keywords on every created container
+            let mut from = crate::mcp_graph::CalledFrom::from_context(&call_tool, "mcp-call", call_ctx_json.as_ref());
+            if from.provider.is_none() {
+                from.provider = crate::orchestrator::tool_binding::provider_of_tool(&call_tool).await;
+            }
+            crate::mcp_graph::persist_from_output_called(&zsei, &data_dir, &call_tool, &call_agent, out, call_ws, call_proj, &from)
                 .await
         }
         _ => None,
@@ -6140,7 +6439,7 @@ async fn create_coordination_task(
     }
 
     let enqueue_result = {
-        let runtime = state.runtime.write().await;
+        let runtime = state.runtime.read().await; // task_manager has its own lock; no runtime write needed
         let task_mgr = runtime.task_manager.read().await;
         task_mgr
             .enqueue_task(
@@ -6197,7 +6496,7 @@ async fn update_coordination_task(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CoordinationTaskUpdateRequest>,
 ) -> Json<serde_json::Value> {
-    let runtime = state.runtime.write().await;
+    let runtime = state.runtime.read().await; // task_manager has its own lock
     let result = runtime
         .task_manager
         .read()
@@ -6270,6 +6569,47 @@ pub struct OrchestrateStatusQuery {
 /// run: {found, run_token, status, ...OrchestrateResponse fields once done}.
 /// Unknown token = {found:false} (the registry is in-memory; the task record
 /// stays the durable truth after a restart).
+/// The blocking `/orchestrate` response for a FINISHED walk, built for the `submit_only` status record so a polled run returns the SAME
+/// object the blocking call does (response text, thinking log, trail, model, awaiting/paused status …). Mirrors the blocking path's
+/// construction (refactoring that path onto this helper is a follow-up). Pure: the caller does any `mark_awaiting` bookkeeping.
+fn orchestrate_response_from_output(
+    result: crate::OrchestrationOutput,
+    execution_time_ms: u64,
+    awaiting_id: Option<String>,
+) -> OrchestrateResponse {
+    let (attempt_trail, refusals) = attempt_trail_and_refusals(&result.thinking_log);
+    let is_awaiting = awaiting_id.is_some();
+    let result_error_is_pause = result.error.as_deref().map(|e| e.contains("PAUSED:")).unwrap_or(false);
+    OrchestrateResponse {
+        success: if is_awaiting { false } else { result.success },
+        response: if is_awaiting { None } else { result.response_text },
+        task_id: result.task_id,
+        blueprint_id: result.blueprint_id,
+        stages_completed: result.stages_completed.into_iter().map(|s| serde_json::to_value(s).unwrap_or_default()).collect(),
+        needs_clarification: result.needs_clarification,
+        clarification_points: result.clarification_points,
+        error: if is_awaiting { None } else { result.error },
+        execution_time_ms,
+        model_used: result.model_used,
+        total_tokens_used: result.total_tokens_used,
+        amt_summary: result.amt_summary,
+        thinking_log: result.thinking_log,
+        attempt_trail,
+        refusals,
+        awaiting: is_awaiting,
+        status: if is_awaiting {
+            Some("awaiting".to_string())
+        } else if result_error_is_pause {
+            Some("paused".to_string())
+        } else {
+            None
+        },
+        await_id: awaiting_id,
+        accepted: false,
+        run_token: None,
+    }
+}
+
 async fn orchestrate_status(
     axum::extract::Query(q): axum::extract::Query<OrchestrateStatusQuery>,
 ) -> Json<serde_json::Value> {

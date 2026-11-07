@@ -141,10 +141,27 @@ pub fn is_openrouter(m: &crate::config::AvailableModel) -> bool {
 /// prompt (e.g. a moderation model failed 28 times in one day), so they are
 /// never pool members.
 const NON_CHAT_ID_MARKERS: &[&str] = &[
-    "guard", "moderation", "shield", "lyria", "embed", "rerank", "whisper", "tts", "image", "imagen", "veo",
+    "guard", "moderation", "shield", "safety", "classif", "lyria", "embed", "rerank", "whisper", "tts", "image", "imagen", "veo",
 ];
 
-fn is_non_chat_model(id: &str) -> bool {
+/// A model that SERVED a call (read back from the response — `openrouter/free` rotates its members, so the requested id says
+/// nothing) is unusable when it is not a chat model, or when the ledger has enough history to show it fails (>= 20 attempts and
+/// under 25% success). Operator doctrine: `openrouter/free` stays the leading model; bad members are marked unusable INSIDE it —
+/// the call is treated as unusable and retried (the router re-picks), instead of promoting other models above it.
+pub fn served_model_unusable(served: &str) -> bool {
+    if served.is_empty() || served.starts_with("openrouter/") {
+        return false;
+    }
+    if is_non_chat_model(served) {
+        return true;
+    }
+    match crate::model_ledger::stats(served) {
+        Some(st) => st.attempts >= 20 && st.successes * 4 < st.attempts,
+        None => false,
+    }
+}
+
+pub fn is_non_chat_model(id: &str) -> bool {
     let l = id.to_lowercase();
     NON_CHAT_ID_MARKERS.iter().any(|m| l.contains(m))
 }

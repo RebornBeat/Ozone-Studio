@@ -1244,11 +1244,28 @@ Return ONLY valid JSON array:
     }
 
     async fn infer_semantic_relationships_validated(&self, nodes: &[BiologyGraphNode]) -> (Vec<(u64, u64, BiologyEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
-        let shown: Vec<&BiologyGraphNode> = nodes.iter().take(25).collect();
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(&self, nodes: &[BiologyGraphNode]) -> (Vec<(u64, u64, BiologyEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let shown: Vec<&BiologyGraphNode> = nodes.iter().collect();
         let node_list: Vec<serde_json::Value> = shown.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
-            "content": n.content.chars().take(80).collect::<String>(),
+            "content": n.content.to_string(),
             "bio_id": n.biological_id, "scale": n.scale,
         })).collect();
 
@@ -1422,7 +1439,7 @@ async fn persist_biology_graph(graph: &mut BiologyGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("biology".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Biology graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1901,7 +1918,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
     }
 
     // ── REGULATORY NETWORK NODES ──
-    for reg in analysis.gene_regulatory_network.iter().take(100) {
+    for reg in analysis.gene_regulatory_network.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let rnid = node_id;
         nodes.push(BiologyGraphNode {
             node_id: rnid, node_type: BiologyNodeType::RegulatoryEdgeNode,
@@ -1924,7 +1941,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: BiologyAnalysisResu
     }
 
     // ── METABOLITE NODES ──
-    for met in analysis.metabolites.iter().take(50) {
+    for met in analysis.metabolites.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let mnid = node_id;
         nodes.push(BiologyGraphNode {
             node_id: mnid, node_type: BiologyNodeType::MetaboliteNode,
@@ -2012,6 +2029,10 @@ pub async fn execute(input: BiologyModalityAction) -> Result<BiologyModalityOutp
             }
         }
         BiologyModalityAction::Analyze { data, extract_pathways, extract_cell_types, extract_tissue, extract_organism, extract_ecology } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(BiologyModalityOutput { success: false, error: Some("biology analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a biology analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let (source_description, organism) = match &data {
                 BiologyDataSource::PathwayFile { file_path, organism, .. } =>
@@ -2186,6 +2207,9 @@ pub async fn execute(input: BiologyModalityAction) -> Result<BiologyModalityOutp
         }
 
         BiologyModalityAction::BuildRegulatoryNetwork { graph_id, evidence_types } => {
+            // HONESTY (audit item 4/9, R-FAB): this arm used to record "regulatory-network construction" (a version note / a fabricated node) while it did none of that work. It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(BiologyModalityOutput { success: false, error: Some("regulatory-network construction is not implemented: nothing was done (the previous output fabricated a record claiming it had been)".to_string()), ..Default::default() }); }
             let mut graph = executor.load_graph(graph_id)?;
             let now = executor.now_iso8601();
             graph.version += 1; graph.updated_at = now.clone();
@@ -2346,6 +2370,9 @@ pub async fn execute(input: BiologyModalityAction) -> Result<BiologyModalityOutp
         }
 
         BiologyModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(BiologyModalityOutput { success: false, error: Some("biology export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let ext = match &format {
                 BiologyExportFormat::SBML => "xml",
                 BiologyExportFormat::BioPAX => "owl",
@@ -2445,7 +2472,7 @@ fn main() {
     let mut input_json = String::new();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; } else { i += 1; }
+        if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); i += 2; } else { i += 1; }
     }
     if input_json.is_empty() { eprintln!("Usage: biology --input '<json>'"); std::process::exit(1); }
     // CONTRACT UNIFICATION (2026-10-14): the host serializes the
@@ -2486,5 +2513,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

@@ -231,7 +231,7 @@ const SNAPSHOT_JS = `(() => {
   const label = (el) => (el.getAttribute('aria-label') || el.innerText || el.value || el.placeholder || el.alt || el.title || '').replace(/\\s+/g,' ').trim().slice(0, 80);
   document.querySelectorAll('[data-oz-idx]').forEach(e => e.removeAttribute('data-oz-idx'));
   const sel = 'a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=tab],[role=menuitem],[role=checkbox],[role=switch],[onclick],[tabindex]:not([tabindex="-1"])';
-  const els = [...document.querySelectorAll(sel)].filter(vis).slice(0, 150);
+  const allEls = [...document.querySelectorAll(sel)].filter(vis); const els = allEls.slice(0, 150);
   const elements = els.map((el, i) => { el.setAttribute('data-oz-idx', String(i)); const r = el.getBoundingClientRect();
     return { i, tag: el.tagName.toLowerCase(), role: el.getAttribute('role') || undefined, type: el.type || undefined,
       text: label(el), href: el.tagName === 'A' ? el.getAttribute('href') : undefined,
@@ -240,9 +240,11 @@ const SNAPSHOT_JS = `(() => {
       box: [Math.round(r.x), Math.round(r.y), Math.round(r.width), Math.round(r.height)] }; });
   const outline = [...document.querySelectorAll('h1,h2,h3,h4,[role=heading],nav,main,aside,header,footer,form,dialog,[role=dialog],[role=alert]')].filter(vis).slice(0, 80)
     .map(e => e.tagName.toLowerCase() + (e.getAttribute('role') ? '[' + e.getAttribute('role') + ']' : '') + ': ' + label(e).slice(0, 80));
-  const text = (document.body ? document.body.innerText : '').replace(/\\n{3,}/g, '\\n\\n').slice(0, 3500);
+  const fullText = (document.body ? document.body.innerText : '').replace(/\\n{3,}/g, '\\n\\n'); const text = fullText.slice(0, 3500);
   return { url: location.href, title: document.title, viewport: [innerWidth, innerHeight], scroll: [Math.round(scrollX), Math.round(scrollY)],
-    scrollHeight: document.documentElement.scrollHeight, outline, elements, text };
+    scrollHeight: document.documentElement.scrollHeight, outline, elements, text,
+    // NEVER SILENT (doctrine audit #23): what the snapshot did not include is reported with totals
+    truncated: { elements: allEls.length > els.length ? { shown: els.length, total: allEls.length } : false, text: fullText.length > text.length ? { shown: text.length, total: fullText.length } : false } };
 })()`;
 
 async function snapshot(s) {
@@ -359,7 +361,10 @@ async function handle(tool, input) {
       const s = getSession(input); await guard(s);
       if (input.index !== undefined || input.selector) { const c = await elementCenter(s, input); await click(s, c); }
       if (input.clear) { await s.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", modifiers: 2 }); await s.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: 2 }); await s.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Backspace", code: "Backspace" }); await s.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Backspace", code: "Backspace" }); }
-      await s.cdp.send("Input.insertText", { text: String(input.text ?? "").slice(0, 5000) });
+      { // WHOLE text (doctrine audit #11, 2026-11-04): was silently cut at 5,000 chars; inserted in chunks so no CDP message is oversized
+        const full = String(input.text ?? "");
+        for (let o = 0; o < full.length || o === 0; o += 5000) { await s.cdp.send("Input.insertText", { text: full.slice(o, o + 5000) }); if (full.length === 0) break; }
+      }
       if (input.submit) { await s.cdp.send("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" }); await s.cdp.send("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 }); }
       await new Promise((r) => setTimeout(r, 300));
       return { typed: String(input.text ?? "").length, submitted: Boolean(input.submit), url: await evalIn(s, "location.href") };
@@ -414,7 +419,7 @@ const server = createServer((req, res) => {
   if (req.method !== "POST" || !url.startsWith("/call")) { reply(res, 404, { error: "POST /call or GET /status" }); return; }
   if (TOKEN_SECRET && req.headers["x-ozone-browser-token"] !== TOKEN_SECRET) { reply(res, 401, { success: false, error: "missing/invalid x-ozone-browser-token" }); return; }
   const chunks = []; let size = 0;
-  req.on("data", (c) => { size += c.length; if (size > 1024 * 1024) req.destroy(); else chunks.push(c); });
+  req.on("data", (c) => { size += c.length; if (size > (Number(process.env.OZONE_MCP_MAX_BODY_BYTES) || 512 * 1024 * 1024)) { if (!res.headersSent) { res.writeHead(413, { "Content-Type": "application/json", Connection: "close" }); res.end(JSON.stringify({ success: false, error: `request body is over the transport guard (OZONE_MCP_MAX_BODY_BYTES, default 512 MiB) — NOT processed (nothing was cut); this is a host-memory guard, not a model limit — chunk the call` }), () => req.destroy()); } } else chunks.push(c); });
   req.on("end", async () => {
     let body;
     try { body = JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}"); } catch { reply(res, 400, { success: false, error: "invalid JSON body" }); return; }

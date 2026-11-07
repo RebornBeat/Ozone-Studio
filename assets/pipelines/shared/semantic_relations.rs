@@ -311,3 +311,118 @@ mod tests {
         assert!(v.accepted.is_empty());
     }
 }
+
+
+/// Overlapping windows `(start, end)` of at most `w` items (stride `w/2`) that COVER all `n` items — relationship inference runs per window
+/// so no node is silently left out of the prompt (doctrine audit #10, 2026-11-04: the old code showed the first 30 nodes only).
+pub fn windows(n: usize, w: usize) -> Vec<(usize, usize)> {
+    if n <= w || w == 0 {
+        return vec![(0, n)];
+    }
+    let stride = (w / 2).max(1);
+    let mut out = Vec::new();
+    let mut a = 0usize;
+    loop {
+        let b = (a + w).min(n);
+        out.push((a, b));
+        if b == n {
+            break;
+        }
+        a += stride;
+    }
+    out
+}
+
+/// Approximate tokens of one node as it appears in a relationship prompt: its content (~4 chars/token) plus the per-node JSON fields
+/// (id, type, labels, numeric attributes) — a fixed overhead, not a cap.
+const NODE_PROMPT_OVERHEAD_TOKENS: usize = 60;
+/// Output + scaffold reserve for one relationship window call (tokens).
+const WINDOW_CALL_RESERVE_TOKENS: usize = 2500;
+
+/// The READING model's window in tokens (host exports `OZONE_CONTEXT_LENGTH` from config; pipeline children inherit it). `None` when
+/// unset/0 — callers then fall back to count-based windows (the previous, conservative behaviour).
+pub fn reading_window_tokens() -> Option<usize> {
+    std::env::var("OZONE_CONTEXT_LENGTH").ok()?.parse::<usize>().ok().filter(|w| *w > 0)
+}
+
+/// TOKEN-AWARE overlapping windows `(start, end)` over `n = tokens.len()` items: each window holds as many WHOLE items as fit in
+/// `budget_tokens` (always at least 2 items when 2+ remain, so there is something to relate), consecutive windows overlap by about
+/// half (stride = the item where half of the window's tokens are passed, at least 1), and every item is covered. Sizing follows the
+/// reading model (a big window = few big windows; a small one = more, smaller windows) — no node-count constant.
+pub fn windows_by_tokens(tokens: &[usize], budget_tokens: usize) -> Vec<(usize, usize)> {
+    let n = tokens.len();
+    if n == 0 {
+        return vec![(0, 0)];
+    }
+    let budget = budget_tokens.max(1);
+    let mut out = Vec::new();
+    let mut a = 0usize;
+    loop {
+        let mut b = a;
+        let mut sum = 0usize;
+        while b < n && (sum + tokens[b] <= budget || b < a + 2) {
+            sum += tokens[b];
+            b += 1;
+        }
+        out.push((a, b));
+        if b >= n {
+            break;
+        }
+        // advance to where about half of this window's tokens have been passed (overlap keeps cross-window pairs)
+        let mut acc = 0usize;
+        let mut next = a + 1;
+        for (i, t) in tokens.iter().enumerate().take(b).skip(a) {
+            acc += *t;
+            if acc * 2 >= sum {
+                next = (i + 1).max(a + 1);
+                break;
+            }
+        }
+        a = next.min(b - 1).max(a + 1);
+    }
+    out
+}
+
+/// Windows for a node list given each node's content length in chars: token-aware when the reading window is known, else the
+/// count-based `windows(n, 30)` (unchanged fallback).
+pub fn windows_for(content_chars: &[usize]) -> Vec<(usize, usize)> {
+    match reading_window_tokens() {
+        Some(w) => {
+            let tokens: Vec<usize> = content_chars.iter().map(|c| c / 4 + NODE_PROMPT_OVERHEAD_TOKENS).collect();
+            windows_by_tokens(&tokens, w.saturating_sub(WINDOW_CALL_RESERVE_TOKENS).max(1_000))
+        }
+        None => windows(content_chars.len(), 30),
+    }
+}
+
+#[cfg(test)]
+mod window_tests {
+    #[test]
+    fn token_windows_cover_every_item_and_respect_budget() {
+        use super::windows_by_tokens;
+        for (n, per, budget) in [(0usize, 10usize, 100usize), (1, 10, 100), (5, 10, 100), (45, 100, 1000), (301, 70, 1500), (50, 5000, 1000)] {
+            let tokens = vec![per; n];
+            let ws = windows_by_tokens(&tokens, budget);
+            let mut seen = vec![false; n];
+            for (a, b) in &ws {
+                for i in *a..*b { seen[i] = true; }
+                if b - a > 2 { assert!(tokens[*a..*b].iter().sum::<usize>() <= budget, "window over budget"); }
+            }
+            assert!(seen.into_iter().all(|x| x), "n={n} not fully covered");
+        }
+    }
+
+    use super::windows;
+    #[test]
+    fn windows_cover_every_item() {
+        for n in [0usize, 1, 2, 29, 30, 31, 45, 100, 301] {
+            let ws = windows(n, 30);
+            let mut seen = vec![false; n];
+            for (a, b) in &ws {
+                assert!(b - a <= 30.max(n.min(30)));
+                for i in *a..*b { seen[i] = true; }
+            }
+            assert!(seen.into_iter().all(|x| x), "n={n} not fully covered");
+        }
+    }
+}

@@ -16,8 +16,8 @@
 //! 2. Pop the highest-scoring unvisited node, fetch it, render it; add it to the
 //!    packed context if the budget allows.
 //! 3. Expand: every captured relationship (`context.relationships`, weighted by
-//!    relation type × edge confidence), structural children, and the parent. A
-//!    neighbour's score = node score × relation weight × confidence.
+//!    relation class), structural children, and the parent. A neighbour's
+//!    score = node score × relation weight (no confidence term: edges are present or absent).
 //! 4. Stop when the token budget is full, the frontier is empty, or the score floor
 //!    is reached. A fetch cap exists ONLY as a runaway guard on host work; hitting
 //!    it is reported (`fetch_cap_hit`), never silent.
@@ -58,6 +58,22 @@ pub struct SpanItem {
     /// How it was reached: "seed:<why>" or "<parent id> -<relation>-> this".
     pub via: String,
     pub tokens: u32,
+    /// Set when the container is a modality graph whose graph FILE was fanned out
+    /// (entries, call/flow sequence, edge classes) instead of rendered as flat text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fanout: Option<FanoutInfo>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FanoutInfo {
+    pub modality: String,
+    pub nodes: usize,
+    pub edges: usize,
+    pub entries: Vec<String>,
+    pub sequence_head: Vec<String>,
+    pub class_counts: std::collections::HashMap<String, usize>,
+    pub lines_total: usize,
+    pub lines_packed: usize,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
@@ -72,24 +88,29 @@ pub struct SpanOutResult {
 }
 
 const SCORE_FLOOR: f32 = 0.02;
-/// Runaway guard on host work (store reads), NOT a context cap.
+/// Runaway guard on host work (store reads), NOT a context cap. It SCALES with the READING model's budget (operator 2026-11-06:
+/// model-agnostic, no fixed limits): a fetched container is worth at least ~50 tokens of context, so a budget of B tokens can use up
+/// to B/50 fetches; the floor (400) keeps small budgets exactly as before. `OZONE_SPAN_OUT_MAX_FETCH` still overrides everything.
 const DEFAULT_FETCH_CAP: usize = 400;
 
-fn fetch_cap() -> usize {
+fn fetch_cap(token_budget: u32) -> usize {
     std::env::var("OZONE_SPAN_OUT_MAX_FETCH")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(DEFAULT_FETCH_CAP)
+        .unwrap_or_else(|| (token_budget as usize / 50).max(DEFAULT_FETCH_CAP))
 }
 
-/// How strongly a relation type carries context (multiplied with edge confidence).
+/// How strongly a relation type carries context (class weight only — no edge-confidence term).
+/// Per-modality edge types are classified by `graph_fanout::classify` (structure / order /
+/// flow / spatial / similarity / cross-modal / provenance); the few legacy container
+/// relations keep their tuned weights.
 fn relation_weight(rel: &str) -> f32 {
     match rel {
         "Continues" => 0.95,
         "Contains" | "PartOf" | "ChildOf" | "ParentOf" => 0.9,
         "Renders" | "Supports" | "DerivedFrom" | "DependsOn" | "Calls" | "Imports" | "Implements" => 0.85,
         "RelatedTo" | "SimilarTo" | "Locates" | "DepictsSameEntity" | "References" | "Mentions" => 0.8,
-        _ => 0.6,
+        other => super::graph_fanout::classify(other).weight(),
     }
 }
 
@@ -179,6 +200,21 @@ struct Rendered {
     header_and_keywords: String,
     content: Option<String>,
     expansions: Vec<(u64, f32, String)>, // (target id, relative weight, relation label)
+    /// Modality-graph fan-out of the container's graph file (None for ordinary containers).
+    digest: Option<super::graph_fanout::GraphDigest>,
+}
+
+/// Read a modality graph FILE (`graphs/<modality>_<id>.json`) and digest it per its modality's rule.
+fn read_graph_digest(data_dir: &str, rel: &str) -> Option<super::graph_fanout::GraphDigest> {
+    let file = std::path::Path::new(rel).file_name()?.to_str()?;
+    if !rel.contains("graphs/") && !rel.starts_with("graphs") {
+        return None;
+    }
+    let modality = file.split('_').next().unwrap_or("graph").to_lowercase();
+    let base = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| data_dir.to_string());
+    let raw = std::fs::read_to_string(std::path::Path::new(&base).join(rel)).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    super::graph_fanout::digest_graph(&v, &modality)
 }
 
 fn render(data_dir: &str, c: &serde_json::Value) -> Option<Rendered> {
@@ -203,8 +239,10 @@ fn render(data_dir: &str, c: &serde_json::Value) -> Option<Rendered> {
         for r in rels {
             let Some(t) = r.get("target_id").and_then(|x| x.as_u64()) else { continue };
             let rel = r.get("relation_type").and_then(|x| x.as_str()).unwrap_or("Related");
-            let conf = r.get("confidence").and_then(|x| x.as_f64()).unwrap_or(1.0) as f32;
-            expansions.push((t, relation_weight(rel) * conf.clamp(0.05, 1.0), format!("-{rel}->")));
+            // NO confidence scaling (operator doctrine 2026-11-04, docs/CONTRACTS.md §5.1): a relationship is PRESENT or ABSENT — the stored
+            // `confidence` is frequently a model's self-reported (false) number or the 0.5 convention, and validation is the yes/no strength-N
+            // loop, so the walk is weighted by the relation's CLASS only.
+            expansions.push((t, relation_weight(rel), format!("-{rel}->")));
         }
     }
     if let Some(g) = c.get("global_state") {
@@ -227,11 +265,12 @@ fn render(data_dir: &str, c: &serde_json::Value) -> Option<Rendered> {
         .and_then(|s| s.as_str())
         .filter(|s| !s.is_empty())
         .map(String::from);
-    let content_file = local
+    let store_path = local
         .get("storage")
         .and_then(|s| s.get("object_store_path"))
-        .and_then(|p| p.as_str())
-        .and_then(|rel| read_content_text(data_dir, rel));
+        .and_then(|p| p.as_str());
+    let content_file = store_path.and_then(|rel| read_content_text(data_dir, rel));
+    let digest = store_path.and_then(|rel| read_graph_digest(data_dir, rel));
     let content = match (summary, content_file) {
         (Some(s), Some(f)) => Some(format!("{s}\n{f}")),
         (Some(s), None) => Some(s),
@@ -241,7 +280,7 @@ fn render(data_dir: &str, c: &serde_json::Value) -> Option<Rendered> {
         "## {container_type}: {name} (id {id})\nKeywords: {}\n",
         keywords.join(", ")
     );
-    Some(Rendered { container_type, name, header_and_keywords, content, expansions })
+    Some(Rendered { container_type, name, header_and_keywords, content, expansions, digest })
 }
 
 /// Span out from `seeds` into `store` until `token_budget` tokens of rendered
@@ -252,7 +291,7 @@ pub async fn span_out(
     seeds: Vec<SpanSeed>,
     token_budget: u32,
 ) -> SpanOutResult {
-    let cap = fetch_cap();
+    let cap = fetch_cap(token_budget);
     let mut heap: BinaryHeap<Frontier> = BinaryHeap::new();
     let mut seen: HashSet<u64> = HashSet::new();
     let mut result = SpanOutResult::default();
@@ -299,6 +338,33 @@ pub async fn span_out(
                 tokens += ct;
             }
         }
+        // Modality graph: entries -> flow/call sequence -> structure, whole LINES while they fit.
+        let mut fanout: Option<FanoutInfo> = None;
+        if let Some(d) = &r.digest {
+            let mut packed_lines = 0usize;
+            let mut gtext = String::new();
+            for line in &d.lines {
+                let lt = est_tokens(&line.text) + 1;
+                if tokens + lt + 12 > remaining {
+                    break;
+                }
+                gtext.push_str(&line.text);
+                gtext.push('\n');
+                tokens += lt;
+                packed_lines += 1;
+            }
+            block.push_str(&gtext);
+            fanout = Some(FanoutInfo {
+                modality: d.modality.clone(),
+                nodes: d.nodes,
+                edges: d.edges,
+                entries: d.entries.clone(),
+                sequence_head: d.sequence.iter().take(12).cloned().collect(),
+                class_counts: d.class_counts.clone(),
+                lines_total: d.lines.len(),
+                lines_packed: packed_lines,
+            });
+        }
         block.push_str(&format!("[reached: {} | score {:.2} | hops {}]\n\n", node.via, node.score, node.hops));
         tokens += 12;
         packed.push_str(&block);
@@ -311,6 +377,7 @@ pub async fn span_out(
             hops: node.hops,
             via: node.via.clone(),
             tokens,
+            fanout,
         });
 
         for (target, w, label) in r.expansions {
@@ -362,16 +429,13 @@ impl super::PromptOrchestrator {
         // Keyword rediscovery for this step's own terms (branch-derived keywords first).
         let mut kws: Vec<String> = step.context_requirements.iter().cloned().collect();
         for w in step.description.split_whitespace() {
-            if kws.len() >= 12 {
-                break;
-            }
             if !kws.iter().any(|k| k == w) {
                 kws.push(w.to_string());
             }
         }
         if !kws.is_empty() {
             if let Ok(ids) = self.store.search_by_keywords(&kws, None).await {
-                for id in ids.into_iter().take(40) {
+                for id in ids.into_iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
                     seeds.push(SpanSeed::new(id, 0.5, "keyword"));
                 }
             }

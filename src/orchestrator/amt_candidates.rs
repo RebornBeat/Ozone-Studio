@@ -18,8 +18,8 @@
 
 use serde_json::json;
 
-/// Maximum log length — the same 500-entry convention the in-build
-/// recorder used, so the file cannot grow without bound.
+/// Compaction threshold (NOT a cap): above this many live entries, HANDLED history is moved to the archive file. Unhandled entries
+/// are never removed.
 const MAX_CANDIDATE_LOG_ENTRIES: usize = 500;
 
 pub fn candidates_path() -> String {
@@ -119,7 +119,7 @@ pub fn append_at(path: &str, container_id: u64, project_id: Option<u64>, route: 
         "container_id": container_id,
         "project_id": project_id,
         "route": route,
-        "unverified_content": detail.map(|d| d.chars().take(200).collect::<String>()),
+        "unverified_content": detail.map(|d| d.to_string()), // whole (no-cap doctrine, audit #27; was a 200-char cut)
         "source": detail.map(|d| d.to_string()),
         "detail_digest": digest,
         "recorded_at": now_secs(),
@@ -127,26 +127,34 @@ pub fn append_at(path: &str, container_id: u64, project_id: Option<u64>, route: 
     }));
 
     if candidates.len() > MAX_CANDIDATE_LOG_ENTRIES {
-        // Make room by discarding HANDLED history first (oldest first); only
-        // if that is not enough does an UNHANDLED candidate get evicted — and
-        // that is warned, never silent.
+        // COMPACT, never drop (no-cap doctrine, 2026-11-06): HANDLED history moves to an append-only archive file
+        // (`<log>.archive.jsonl`, oldest first) until the live log is back under the threshold; UNHANDLED candidates are NEVER
+        // removed — if they alone exceed the threshold the live log simply grows (the consumer is behind; that is warned).
         let mut need = candidates.len() - MAX_CANDIDATE_LOG_ENTRIES;
+        let mut archived: Vec<serde_json::Value> = Vec::new();
         let mut i = 0;
         while need > 0 && i < candidates.len() {
             if candidates[i].get("handled").and_then(|v| v.as_bool()) == Some(true) {
-                candidates.remove(i);
+                archived.push(candidates.remove(i));
                 need -= 1;
             } else {
                 i += 1;
             }
         }
+        if !archived.is_empty() {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(format!("{path}.archive.jsonl")) {
+                for row in &archived {
+                    let _ = writeln!(f, "{row}");
+                }
+            }
+        }
         if need > 0 {
             tracing::warn!(
-                evicted = need,
-                cap = MAX_CANDIDATE_LOG_ENTRIES,
-                "AMT candidate log full of UNHANDLED entries — evicting the oldest unhandled candidate(s); the consumer is not keeping up"
+                over_threshold = need,
+                threshold = MAX_CANDIDATE_LOG_ENTRIES,
+                "AMT candidate log holds more UNHANDLED entries than the compaction threshold — none were removed; the consumer is not keeping up"
             );
-            candidates.drain(0..need);
         }
     }
 
@@ -258,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn full_log_evicts_handled_history_before_unhandled() {
+    fn full_log_archives_handled_history_and_never_drops_unhandled() {
         let p = tmp_path("full");
         let mut seed: Vec<serde_json::Value> = Vec::new();
         for i in 0..MAX_CANDIDATE_LOG_ENTRIES {
@@ -268,9 +276,22 @@ mod tests {
         assert!(append_at(&p, 99_999, None, "SecurityFinding", Some("new")));
         let all = load_all_at(&p);
         assert_eq!(all.len(), MAX_CANDIDATE_LOG_ENTRIES);
-        // The oldest entry (index 0) was handled, so it is the one evicted;
-        // the first unhandled entry (index 1) survives.
+        // The oldest HANDLED entry (index 0) left the live log for the archive; every unhandled entry (index 1, 3, ...) survives.
         assert!(all.iter().any(|c| c["container_id"] == 1));
         assert!(!all.iter().any(|c| c["container_id"] == 0));
+        let archive = std::fs::read_to_string(format!("{p}.archive.jsonl")).unwrap_or_default();
+        assert!(archive.contains("\"container_id\":0"), "handled history must be archived, not deleted");
+    }
+
+    #[test]
+    fn all_unhandled_log_grows_past_the_threshold_without_losing_any() {
+        let p = tmp_path("allunhandled");
+        let mut seed: Vec<serde_json::Value> = Vec::new();
+        for i in 0..MAX_CANDIDATE_LOG_ENTRIES {
+            seed.push(json!({"container_id": i as u64, "route": "GraphRipple", "handled": false}));
+        }
+        save_all_at(&p, &seed);
+        assert!(append_at(&p, 99_999, None, "SecurityFinding", Some("new")));
+        assert_eq!(load_all_at(&p).len(), MAX_CANDIDATE_LOG_ENTRIES + 1);
     }
 }

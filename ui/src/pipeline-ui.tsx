@@ -18,6 +18,7 @@ import PipelinesPanel from './components/PipelinesPanel';
 import MonitoringPanel from './components/MonitoringPanel';
 import OrderPanel from './components/OrderPanel';
 import ToolsPanel from './components/ToolsPanel';
+import MarketplacePanel from './components/MarketplacePanel';
 import PairingPanel from './components/PairingPanel';
 import GraphView from './components/GraphView';
 import FabricPanel from './panels/FabricPanel';
@@ -274,6 +275,7 @@ export const CORE_TAB_DEFINITIONS = [
   { id: 'engines',        pipelineId: 1008, label: 'Engines',      icon: '🧩', order: 13 },
   { id: 'coordination',   pipelineId: 1009, label: 'Coordination', icon: '🤝', order: 14 },
   { id: 'living-network', pipelineId: 1010, label: 'Network',      icon: '🌐', order: 15 },
+  { id: 'marketplace',    pipelineId: 1012, label: 'Marketplace',  icon: '🛒', order: 16 },
 ] as const;
 
 export function getPipelineIcon(pipelineId: number): string {
@@ -317,6 +319,7 @@ export function createCoreTabs(): InjectedTab[] {
     'engines': EnginesPanel,
     'coordination': CoordinationPanel,
     'living-network': LivingNetworkPanel,
+    'marketplace': MarketplacePanel,
   };
 
   return CORE_TAB_DEFINITIONS.map(def => ({

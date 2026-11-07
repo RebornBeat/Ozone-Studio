@@ -317,6 +317,12 @@ impl OzoneRuntime {
         for (k, v) in config.models.to_pipeline_env() {
             std::env::set_var(&k, &v);
         }
+        // Model ledger: load the table + write the derived stats snapshot at boot (model_calls/model_stats.json).
+        crate::model_ledger::init();
+        // Optimized routes (config [optimization]) — standard sequential paths stay the default.
+        for (k, v) in config.optimization.to_pipeline_env() {
+            std::env::set_var(&k, &v);
+        }
         // Web search pipeline (#56) — disabled by default; only forwards
         // which env var NAME holds a real search API key, never a
         // fabricated key or fabricated results (see that pipeline's own
@@ -332,6 +338,9 @@ impl OzoneRuntime {
             let k = crate::k_registry::KAlgorithms::global();
             k.set_convergence_preset(&config.k_algorithms.convergence_preset);
             k.set_pairwise_preset(&config.k_algorithms.pairwise_preset);
+            // vote strength: ONE source for every yes/no validation (pipelines inherit the env; k_validation::configured_strength())
+            k.set_validation_preset(&config.k_algorithms.validation_preset);
+            std::env::set_var("OZONE_VALIDATION_STRENGTH", k.current_validation_strength().to_string());
         }
 
         // RELEVANCE POLICY BRIDGE — modality pipelines read
@@ -1200,6 +1209,51 @@ impl OzoneRuntime {
                 std::sync::Arc::new(crate::orchestrator::actors::ActorRegistry::new()),
             );
 
+            // META RIPPLE DISPATCHER (2026-11-04): one subscriber to the ripple; a meta event (a real
+            // finding, a task transition, a new experience, a methodology gap) wakes the I-Loop, the
+            // methodology meta-loop, the assistant and the AMT loop — they are event-driven, not timers.
+            crate::orchestrator::ripple_class::spawn_meta_ripple_dispatcher();
+
+            // POST-CALL HOOK (2026-11-04): the orchestrator's in-process MCP calls (provider steps, tool routing, actors) now leave the same trail as
+            // `/mcp/call`: the S13 `tool_calls.jsonl` capture row (success AND failure) and the persisted `graph` block with `called_from` provenance.
+            {
+                let zsei_h = runtime.read().await.zsei.clone();
+                let data_dir_h = runtime.read().await.config.general.data_dir.clone();
+                crate::mcp::install_post_call_hook(std::sync::Arc::new(
+                    move |tool: String, agent: String, ctx: Option<serde_json::Value>, success: bool, error: Option<String>, output: Option<serde_json::Value>| {
+                        let zsei = zsei_h.clone();
+                        let data_dir = data_dir_h.clone();
+                        Box::pin(async move {
+                            let mut from = crate::mcp_graph::CalledFrom::from_context(&tool, "orchestrator", ctx.as_ref());
+                            if from.provider.is_none() {
+                                from.provider = crate::orchestrator::tool_binding::provider_of_tool(&tool).await;
+                            }
+                            // S13 capture row (parity with /mcp/call)
+                            {
+                                let dir = std::path::PathBuf::from(&data_dir).join("model_calls");
+                                let _ = std::fs::create_dir_all(&dir);
+                                let row = serde_json::json!({
+                                    "ts": chrono::Utc::now().to_rfc3339(),
+                                    "tool": tool, "agent": agent, "success": success, "error": error.clone().unwrap_or_default(),
+                                    "transport": "call_global",
+                                    "called_from": { "provider": from.provider, "site": from.site, "task_id": from.task_id, "step_index": from.step_index, "rule_refs": from.rule_refs },
+                                });
+                                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("tool_calls.jsonl")) {
+                                    use std::io::Write;
+                                    let _ = writeln!(f, "{}", row);
+                                }
+                            }
+                            if let (true, Some(out)) = (success, output.as_ref()) {
+                                let ws = ctx.as_ref().and_then(|c| c.get("workspace_id")).and_then(|v| v.as_u64());
+                                let proj = ctx.as_ref().and_then(|c| c.get("project_id")).and_then(|v| v.as_u64());
+                                let z = zsei.read().await;
+                                let _ = crate::mcp_graph::persist_from_output_called(&z, &data_dir, &tool, &agent, out, ws, proj, &from).await;
+                            }
+                        }) as std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+                    },
+                ));
+            }
+
             // I-LOOP (docs/ACTING_LOOP_GUIDE.md §5/§6 step 6): the real
             // self-reflection cycle — registered as metadata since early
             // in this project (pipeline_id 44) but never implemented until
@@ -1411,11 +1465,20 @@ impl OzoneRuntime {
                             task = task_id,
                             "task executor: running queued prompt task through the full gated walk"
                         );
-                        let outcome = executor_runtime
-                            .read()
-                            .await
-                            .orchestrate(pipeline_input, user_id, device_id)
-                            .await;
+                        // Guard dropped before the walk (see prepare_orchestration).
+                        let prepared = {
+                            executor_runtime
+                                .read()
+                                .await
+                                .prepare_orchestration(pipeline_input, user_id, device_id)
+                                .await
+                        };
+                        let outcome = match prepared {
+                            Ok((orchestrator, request)) => Ok(OzoneRuntime::output_from_response(
+                                orchestrator.orchestrate(request).await,
+                            )),
+                            Err(e) => Err(e),
+                        };
                         // Link the queued record to the real outcome — the
                         // walk itself is Result-typed: an Err IS the failure
                         // outcome (recorded honestly, never unwrapped).
@@ -1570,12 +1633,17 @@ impl OzoneRuntime {
 
     /// Run the full 14-stage AMT orchestration flow.
     /// This is the ONLY entry point for prompt-driven task execution.
-    pub async fn orchestrate(
+    /// Everything `orchestrate` needs, built under the caller's runtime guard so the walk itself
+    /// can run WITHOUT that guard. A walk used to hold the runtime read lock for its whole duration
+    /// (minutes): any request needing the write lock queued behind it and — the lock being
+    /// write-preferring — every later reader (even /health) queued behind THAT writer, so the host
+    /// appeared hung (reproduced in the 2026-11-03 E2E; killing the queued writer freed it).
+    pub async fn prepare_orchestration(
         &self,
         input: crate::types::pipeline::PipelineInput,
         user_id: u64,
         device_id: u64,
-    ) -> OzoneResult<OrchestrationOutput> {
+    ) -> OzoneResult<(crate::orchestrator::PromptOrchestrator, crate::orchestrator::OrchestrationRequest)> {
         let prompt = input
             .data
             .get("prompt")
@@ -1713,9 +1781,12 @@ impl OzoneRuntime {
             self.config.general.data_dir.clone(),
         );
 
-        let response = orchestrator.orchestrate(request).await;
+        Ok((orchestrator, request))
+    }
 
-        Ok(OrchestrationOutput {
+    /// Map the orchestrator's response onto the wire output.
+    pub fn output_from_response(response: crate::orchestrator::OrchestrationResponse) -> OrchestrationOutput {
+        OrchestrationOutput {
             success: response.success,
             response_text: response.response,
             task_id: response.task_id,
@@ -1739,13 +1810,25 @@ impl OzoneRuntime {
                 .iter()
                 .map(|t| serde_json::to_value(t).unwrap_or_default())
                 .collect(),
-        })
+        }
+    }
+
+    /// Convenience wrapper (prepare + run + map). Callers that run inside a request handler MUST NOT
+    /// hold the runtime guard across this: use `prepare_orchestration`, drop the guard, then run.
+    pub async fn orchestrate(
+        &self,
+        input: crate::types::pipeline::PipelineInput,
+        user_id: u64,
+        device_id: u64,
+    ) -> OzoneResult<OrchestrationOutput> {
+        let (orchestrator, request) = self.prepare_orchestration(input, user_id, device_id).await?;
+        Ok(Self::output_from_response(orchestrator.orchestrate(request).await))
     }
 
     /// Resume a failure-paused task from the step it stopped at (see
     /// `orchestrator::run_checkpoint`). Same executor chain, store and gates as a normal
     /// walk; the saved request is replayed, completed steps are restored, not re-run.
-    pub async fn resume_run(&self, task_id: u64) -> OzoneResult<OrchestrationOutput> {
+    pub fn prepare_resume(&self) -> crate::orchestrator::PromptOrchestrator {
         let base_executor_adapter = Arc::new(crate::orchestrator::RegistryExecutorAdapter {
             registry: self.pipeline_registry.clone(),
         });
@@ -1771,32 +1854,13 @@ impl OzoneRuntime {
             self.config.jurisdiction.clone(),
             self.config.general.data_dir.clone(),
         );
-        let response = orchestrator.resume_run(task_id).await;
-        Ok(OrchestrationOutput {
-            success: response.success,
-            response_text: response.response,
-            task_id: response.task_id,
-            blueprint_id: response.blueprint_id,
-            stages_completed: response
-                .stages_completed
-                .iter()
-                .map(|s| serde_json::to_value(s).unwrap_or_default())
-                .collect(),
-            needs_clarification: response.needs_clarification,
-            clarification_points: response.clarification_points,
-            model_used: response.model_used,
-            total_tokens_used: response.total_tokens_used,
-            amt_summary: response
-                .amt_summary
-                .as_ref()
-                .and_then(|s| serde_json::to_value(s).ok()),
-            error: response.error,
-            thinking_log: response
-                .thinking_log
-                .iter()
-                .map(|t| serde_json::to_value(t).unwrap_or_default())
-                .collect(),
-        })
+        orchestrator
+    }
+
+    /// Resume wrapper (prepare + run + map); handlers use `prepare_resume`, drop the guard, then run.
+    pub async fn resume_run(&self, task_id: u64) -> OzoneResult<OrchestrationOutput> {
+        let orchestrator = self.prepare_resume();
+        Ok(Self::output_from_response(orchestrator.resume_run(task_id).await))
     }
 }
 
@@ -1812,6 +1876,7 @@ pub fn init_logging_with_level(level: &str) {
     let env_filter = std::env::var("RUST_LOG")
         .unwrap_or_else(|_| format!("ozone_studio={},hyper=warn,tonic=warn", level));
 
+    use std::io::IsTerminal;
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -1821,9 +1886,61 @@ pub fn init_logging_with_level(level: &str) {
             tracing_subscriber::fmt::layer()
                 .with_target(true)
                 .with_thread_ids(false)
-                .with_file(false),
+                .with_file(false)
+                // colours only for a real terminal: redirects and the persistent file stay plain text
+                .with_ansi(std::io::stdout().is_terminal())
+                .with_writer(|| PersistentLogWriter),
         )
         .init();
+}
+
+/// PERSISTENT HOST LOG (operator 2026-11-06: host logs must not depend on how the process was launched). Every log line goes to
+/// stdout AND is appended to `<OZONE_HOST_LOG | OZONE_ZSEI_DATA_DIR/logs/host.log | zsei_data/logs/host.log>`. Nothing is dropped:
+/// at start a file over 256 MiB is ROTATED (renamed with a timestamp suffix), never truncated. Best-effort — a file error never
+/// blocks logging to stdout. The meta layer can link this file (file beacon / ripple) to watch the host live.
+struct PersistentLogWriter;
+
+fn host_log_file() -> &'static std::sync::Mutex<Option<std::fs::File>> {
+    static FILE: std::sync::OnceLock<std::sync::Mutex<Option<std::fs::File>>> = std::sync::OnceLock::new();
+    FILE.get_or_init(|| {
+        let path = std::env::var("OZONE_HOST_LOG").unwrap_or_else(|_| {
+            let data = std::env::var("OZONE_ZSEI_DATA_DIR").unwrap_or_else(|_| "zsei_data".to_string());
+            format!("{data}/logs/host.log")
+        });
+        let p = std::path::Path::new(&path);
+        if let Some(dir) = p.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if std::fs::metadata(p).map(|m| m.len() > 256 * 1024 * 1024).unwrap_or(false) {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let _ = std::fs::rename(p, format!("{path}.{stamp}"));
+        }
+        std::sync::Mutex::new(std::fs::OpenOptions::new().create(true).append(true).open(p).ok())
+    })
+}
+
+impl std::io::Write for PersistentLogWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Ok(mut guard) = host_log_file().lock() {
+            if let Some(f) = guard.as_mut() {
+                let _ = f.write_all(buf);
+            }
+        }
+        std::io::stdout().write_all(buf)?;
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if let Ok(mut guard) = host_log_file().lock() {
+            if let Some(f) = guard.as_mut() {
+                let _ = f.flush();
+            }
+        }
+        std::io::stdout().flush()
+    }
 }
 
 /// MemAvailable from /proc/meminfo (kB → MB) — the kernel's own estimate of

@@ -11,7 +11,7 @@ pub const CERTAIN: &str = "certain";
 pub const DERIVED: &str = "derived";
 pub const HEURISTIC: &str = "heuristic";
 
-const NAME_LIMIT: usize = 300;
+const NAME_LIMIT: usize = usize::MAX; // accessible names kept whole (audit #22; was a silent 300-char cut)
 
 fn hidden_by_attr(dom: &Dom, i: usize) -> bool {
     let n = &dom.nodes[i];

@@ -34,7 +34,7 @@ the deepening contract is identical for all.
 ## The wake model
 
 Event-driven with interval fallback: the graph-ripple sync pokes a Notify
-after appending; the review loop selects on Notify OR interval (1800s).
+after appending; the review loop selects on Notify OR interval (1800s). (2026-11-04: the META RIPPLE dispatcher also pokes this Notify on any meta event — docs/RIPPLE_CATEGORIES_AND_META_RIPPLE_2026-11-04.md.)
 Context alignment latency: seconds after a graph write, not minutes.
 
 ## Continuation (v1 LIVE, 2026-09-16 — the main/fork island model)

@@ -288,3 +288,7 @@ Known context-flow gaps: modality-internal LLM calls are not joined to the run's
 
 ## 9. Chat containers (2026-11-02)
 The conversation itself is now graph context. Per scope (global / workspace / project) there is one `ChatSession`; each turn is a `ChatTurn` child holding the full prompt and full response (content file), linked `RelatedTo` to the run's prompt graphs and to a text graph of the response. Retrieval: `GET /chat/turns`. Design and scoping table: `CALL_ROUTE_REGISTRY.md` §2.1. Not yet fed back as walk context automatically (a later turn can reach earlier ones through the graph edges / keywords `chatsession:*`, but the orchestrator does not yet inject recent turns into the next prompt — recorded as an open item).
+
+
+## 10. Update 2026-11-07 (uncompiled)
+New per-walk context state: `OrchestrationState.keywords_extracted` / `floor_used` / `closure_attempted` / `replan` / `cross_modal_linked`; the Stage 3 methodology set is now relevance-first (a floor that loads everything is the last resort), so plan size no longer scales with the methodology store. Per-stage metrics are durable in `zsei_data/walk_metrics.jsonl` (trace_id keyed).

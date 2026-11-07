@@ -1202,10 +1202,27 @@ Return ONLY valid JSON:
     }
 
     async fn infer_semantic_relationships_validated(&self, nodes: &[HapticGraphNode]) -> (Vec<(u64, u64, HapticEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(&self, nodes: &[HapticGraphNode]) -> (Vec<(u64, u64, HapticEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let node_list: Vec<serde_json::Value> = nodes.iter().map(|n| serde_json::json!({
             "node_id": n.node_id, "type": format!("{:?}", n.node_type),
-            "content": n.content.chars().take(80).collect::<String>(),
+            "content": n.content.to_string(),
             "force_n": n.force_n, "roughness_ra_um": n.roughness_ra_um,
             "dominant_freq_hz": n.dominant_freq_hz,
         })).collect();
@@ -1541,7 +1558,7 @@ async fn persist_haptic_graph(graph: &mut HapticGraph) -> Result<(), String> {
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("haptic".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Haptic graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1724,7 +1741,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
     }
 
     // ── SHEAR VECTORS ──
-    for sv in analysis.shear_force_vectors.iter().take(50) {
+    for sv in analysis.shear_force_vectors.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let svid = node_id;
         nodes.push(HapticGraphNode {
             node_id: svid, node_type: HapticNodeType::ShearVectorNode,
@@ -1885,7 +1902,7 @@ async fn create_graph(executor: &PipelineExecutor, analysis: HapticAnalysisResul
     }
 
     // ── DEFORMATION MAPS ──
-    for dm in analysis.deformation_maps.iter().take(10) {
+    for dm in analysis.deformation_maps.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let dmid = node_id;
         nodes.push(HapticGraphNode {
             node_id: dmid, node_type: HapticNodeType::DeformationMapNode,
@@ -2025,6 +2042,10 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
             }
         }
         HapticModalityAction::Analyze { data, extract_contact_events, extract_texture, extract_force_profiles, extract_vibration, classify_material } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(HapticModalityOutput { success: false, error: Some("haptic analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a haptic analysis provider (MCP) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let (source_description, sensor_model) = match &data {
                 HapticDataSource::TactileArrayFile { file_path, sensor_model, array_rows, array_cols, sample_rate_hz, .. } =>
@@ -2314,6 +2335,9 @@ pub async fn execute(input: HapticModalityAction) -> Result<HapticModalityOutput
         }
 
         HapticModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(HapticModalityOutput { success: false, error: Some("haptic export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let export_path = format!("/tmp/haptic_export_{}_{:?}.dat", graph_id, format);
             Ok(HapticModalityOutput { success: true, export_path: Some(export_path), ..Default::default() })
         }
@@ -2368,7 +2392,7 @@ fn main() {
     let mut input_json = String::new();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; } else { i += 1; }
+        if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); i += 2; } else { i += 1; }
     }
     if input_json.is_empty() { eprintln!("Usage: haptic_sensing --input '<json>'"); std::process::exit(1); }
     // CONTRACT UNIFICATION (2026-10-14): the host serializes the
@@ -2407,5 +2431,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

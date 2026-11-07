@@ -1334,11 +1334,28 @@ Return ONLY valid JSON array:
     }
 
     async fn infer_semantic_relationships_validated(&self, nodes: &[ProteomicsGraphNode]) -> (Vec<(u64, u64, ProteomicsEdgeType, String)>, semantic_relations::Validated) {
+        // EVERY node is covered (doctrine audit #10, 2026-11-04): overlapping windows of 30 instead of "the first 30 nodes at 80 chars each";
+        // accepted/rejected sets are merged, duplicate (from,to) legacy pairs removed.
         if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
-        let node_list: Vec<serde_json::Value> = nodes.iter().take(25).map(|n| serde_json::json!({
+        let mut legacy_all = Vec::new();
+        let mut validated_all = semantic_relations::Validated::default();
+        for (a, b) in semantic_relations::windows_for(&nodes.iter().map(|n| n.content.len()).collect::<Vec<usize>>()) {
+            let (legacy, validated) = self.infer_semantic_relationships_window(&nodes[a..b]).await;
+            for e in legacy {
+                if !legacy_all.iter().any(|x: &_| { let x: &(u64, u64, _, String) = x; x.0 == e.0 && x.1 == e.1 }) { legacy_all.push(e); }
+            }
+            validated_all.accepted.extend(validated.accepted);
+            validated_all.rejected.extend(validated.rejected);
+        }
+        (legacy_all, validated_all)
+    }
+
+    async fn infer_semantic_relationships_window(&self, nodes: &[ProteomicsGraphNode]) -> (Vec<(u64, u64, ProteomicsEdgeType, String)>, semantic_relations::Validated) {
+        if nodes.len() < 2 { return (vec![], semantic_relations::Validated::default()); }
+        let node_list: Vec<serde_json::Value> = nodes.iter().map(|n| serde_json::json!({
             "node_id": n.node_id,
             "type": format!("{:?}", n.node_type),
-            "content": n.content.chars().take(80).collect::<String>(),
+            "content": n.content.to_string(),
             "accession": n.accession,
             "gene": n.gene_name,
             "ec": n.ec_number,
@@ -1522,7 +1539,7 @@ async fn persist_proteomics_graph(graph: &mut ProteomicsGraph) -> Result<(), Str
             .collect();
         k.sort(); k.dedup();
         if k.is_empty() { k.push("proteomics".to_string()); }
-        k.truncate(12);
+        // container keyword set kept WHOLE (no 12-keyword cut — doctrine audit #33, 2026-11-04)
         k
     };
     let name = format!("Proteomics graph ({} nodes, {} edges)", graph.nodes.len(), graph.edges.len());
@@ -1974,7 +1991,7 @@ async fn create_graph(
     }
 
     // ── EXPRESSION NODES ──
-    for expr in analysis.expression_data.iter().take(200) {
+    for expr in analysis.expression_data.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let eid = node_id;
         nodes.push(ProteomicsGraphNode {
             node_id: eid, node_type: ProteomicsNodeType::ExpressionNode,
@@ -2047,7 +2064,7 @@ async fn create_graph(
     }
 
     // ── MS IDENTIFICATION NODES ──
-    for ms_id in analysis.ms_identifications.iter().take(100) {
+    for ms_id in analysis.ms_identifications.iter() { // all items kept (no-cap doctrine, 2026-11-06 sweep; was a first-N cut)
         let mid = node_id;
         nodes.push(ProteomicsGraphNode {
             node_id: mid, node_type: ProteomicsNodeType::MSIdentificationNode,
@@ -2138,6 +2155,10 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
             }
         }
         ProteomicsModalityAction::Analyze { data, extract_structure, extract_interactions, extract_modifications, extract_expression, extract_function } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB / docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md X3): this arm used to return `success: true` with an empty,
+            // description-only analysis — a fake success that file_link then turned into a root-only graph. An analysis that did not run FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ProteomicsModalityOutput { success: false, error: Some("proteomics analysis is not implemented: NO analysis was performed on the data source (the previous output was a description-only placeholder presented as a successful analysis and has been removed); register a proteomics analysis provider (proteomics-mcp) to enable it".to_string()), ..Default::default() }); }
             let analysis_id = executor.generate_id();
             let source_description = match &data {
                 ProteomicsDataSource::FASTA { file_path, organism } => format!("FASTA: {} org={:?}", file_path, organism),
@@ -2262,6 +2283,9 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
         }
 
         ProteomicsModalityAction::AlignSequences { sequences, method } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB — docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): this arm used to return invented numbers/records for sequence alignment (a length-ratio stand-in). It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ProteomicsModalityOutput { success: false, error: Some("sequence alignment (a length-ratio stand-in) is not implemented: nothing was computed (the previous output was fabricated: literal metrics / unchanged data presented as a result)".to_string()), ..Default::default() }); }
             if sequences.len() < 2 {
                 return Ok(ProteomicsModalityOutput { success: false, error: Some("Need ≥2 sequences".into()), ..Default::default() });
             }
@@ -2289,6 +2313,9 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
         }
 
         ProteomicsModalityAction::StructuralAlignment { structure_a_id, structure_b_id, method } => {
+            // HONESTY (doctrine audit 2026-11-04, R-FAB — docs/FABRICATED_OUTPUT_AUDIT_2026-11-04.md): this arm used to return invented numbers/records for structural alignment (TM-score 0.85 / RMSD 1.4 / e-value literals). It FAILS instead.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ProteomicsModalityOutput { success: false, error: Some("structural alignment (TM-score 0.85 / RMSD 1.4 / e-value literals) is not implemented: nothing was computed (the previous output was fabricated: literal metrics / unchanged data presented as a result)".to_string()), ..Default::default() }); }
             // In production: run TM-align / DALI
             Ok(ProteomicsModalityOutput {
                 success: true,
@@ -2429,6 +2456,9 @@ pub async fn execute(input: ProteomicsModalityAction) -> Result<ProteomicsModali
         }
 
         ProteomicsModalityAction::ExportProduct { graph_id, format } => {
+            // HONESTY (audit X1): this arm used to return a `/tmp/..` path with `success: true` WITHOUT writing anything. Nothing is written, so it FAILS.
+            #[allow(unreachable_code, unused_variables)]
+            { return Ok(ProteomicsModalityOutput { success: false, error: Some("proteomics export is not implemented: nothing was written (no file exists at any path this arm used to report)".to_string()), ..Default::default() }); }
             let ext = match &format {
                 ProteomicsExportFormat::FASTA => "fasta",
                 ProteomicsExportFormat::PDB => "pdb",
@@ -2488,7 +2518,7 @@ fn main() {
     let mut input_json = String::new();
     let mut i = 1;
     while i < args.len() {
-        if args[i] == "--input" && i + 1 < args.len() { input_json = args[i + 1].clone(); i += 2; } else { i += 1; }
+        if args[i] == "--input" && i + 1 < args.len() { input_json = ozone_input_arg(&args[i + 1]); i += 2; } else { i += 1; }
     }
     if input_json.is_empty() { eprintln!("Usage: proteomics --input '<json>'"); std::process::exit(1); }
     // CONTRACT UNIFICATION (2026-10-14): the host serializes the
@@ -2529,5 +2559,18 @@ fn main() {
     match rt.block_on(execute(input)) {
         Ok(o) => println!("{}", serde_json::to_string(&o).unwrap_or_else(|_| r#"{"success":false,"error":"serialize"}"#.into())),
         Err(e) => { println!("{}", serde_json::json!({"success":false,"error":e})); std::process::exit(1); }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }

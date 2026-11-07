@@ -406,15 +406,16 @@ impl PromptOrchestrator {
     /// The most recent turns of THIS chat scope (same scope the request came
     /// from: global / workspace / project) rendered as walk context, oldest
     /// first, FULL text of each turn (the step-context compaction pass handles
-    /// any window overflow — nothing is pre-cut here). `OZONE_CHAT_CONTEXT_TURNS`
-    /// sets how many turns (default 6; 0 disables). Excludes the current request
-    /// (it is persisted only after delivery). `None` when there is no history.
+    /// any window overflow — nothing is pre-cut here). HOW MANY turns is sized
+    /// by the READING model (operator 2026-11-06: model-agnostic, no fixed
+    /// count): newest turns first until an eighth of the model's window
+    /// (`state.model_context_limit / 8`) is used — the newest turn is always
+    /// included whole. `OZONE_CHAT_CONTEXT_TURNS` is an optional explicit
+    /// override (a count; 0 disables). Excludes the current request (it is
+    /// persisted only after delivery). `None` when there is no history.
     pub(crate) fn recent_chat_context(&self, state: &OrchestrationState) -> Option<String> {
-        let n: usize = std::env::var("OZONE_CHAT_CONTEXT_TURNS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(6);
-        if n == 0 {
+        let explicit: Option<usize> = std::env::var("OZONE_CHAT_CONTEXT_TURNS").ok().and_then(|v| v.parse().ok());
+        if explicit == Some(0) {
             return None;
         }
         let scope = ChatScope {
@@ -439,9 +440,9 @@ impl PromptOrchestrator {
                 .unwrap_or("")
                 .cmp(b.get("ts").and_then(|t| t.as_str()).unwrap_or(""))
         });
-        let start = turns.len().saturating_sub(n);
-        let mut out = String::new();
-        for t in &turns[start..] {
+        // newest-first until the model-sized budget is used (or the explicit count is reached); the newest turn is always whole
+        let budget_tokens = (state.model_context_limit as usize / 8).max(256);
+        let render = |t: &serde_json::Value| -> Option<String> {
             let prompt = t.get("prompt").and_then(|p| p.as_str()).unwrap_or("");
             let reply = t
                 .get("response")
@@ -449,14 +450,28 @@ impl PromptOrchestrator {
                 .or_else(|| t.get("error").and_then(|e| e.as_str()))
                 .unwrap_or("");
             if prompt.is_empty() && reply.is_empty() {
-                continue;
+                return None;
             }
-            out.push_str("User: ");
-            out.push_str(prompt);
-            out.push_str("\nAssistant: ");
-            out.push_str(reply);
-            out.push_str("\n\n");
+            Some(format!("User: {prompt}\nAssistant: {reply}\n\n"))
+        };
+        let mut picked: Vec<String> = Vec::new();
+        let mut used = 0usize;
+        for t in turns.iter().rev() {
+            if let Some(max_turns) = explicit {
+                if picked.len() >= max_turns {
+                    break;
+                }
+            }
+            let Some(block) = render(t) else { continue };
+            let cost = block.len() / 4 + 1;
+            if !picked.is_empty() && explicit.is_none() && used + cost > budget_tokens {
+                break;
+            }
+            used += cost;
+            picked.push(block);
         }
+        picked.reverse(); // oldest first
+        let out: String = picked.concat();
         if out.is_empty() {
             None
         } else {

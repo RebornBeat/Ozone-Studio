@@ -134,28 +134,18 @@ fn get_p2p_config_path() -> String {
     std::env::var("OZONE_P2P_PATH").unwrap_or_else(|_| "./zsei_data/p2p".to_string())
 }
 
-/// Load or generate peer ID
-fn load_or_generate_peer_id(storage_path: &str) -> String {
+/// The host's REAL libp2p peer id (written by the host at `<data_dir>/p2p/peer_id` when its identity is created/loaded; also served by `GET /health`).
+/// HONESTY (doctrine audit H1, 2026-11-04): this used to GENERATE a second, fake "12D3KooW<clock nanoseconds>" peer id and present it as the node's
+/// identity. This pipeline never invents an identity: it reads the real one or fails.
+fn load_peer_id(storage_path: &str) -> Result<String, String> {
     let peer_id_file = Path::new(storage_path).join("peer_id");
-
-    if let Ok(peer_id) = std::fs::read_to_string(&peer_id_file) {
-        return peer_id.trim().to_string();
+    match std::fs::read_to_string(&peer_id_file) {
+        Ok(p) if !p.trim().is_empty() => Ok(p.trim().to_string()),
+        _ => Err(format!(
+            "peer identity unavailable: {} does not exist yet — the host writes its real peer id there at startup (also GET /health `peer_id`); this pipeline no longer invents one",
+            peer_id_file.display()
+        )),
     }
-
-    // Generate new peer ID (simplified - would use libp2p in production)
-    let peer_id = format!("12D3KooW{}", generate_random_id());
-    let _ = std::fs::create_dir_all(storage_path);
-    let _ = std::fs::write(&peer_id_file, &peer_id);
-    peer_id
-}
-
-fn generate_random_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    format!("{:016x}{:016x}", nanos, nanos.wrapping_mul(0x5DEECE66D))
 }
 
 fn load_sync_state() -> SyncState {
@@ -207,7 +197,7 @@ pub async fn execute(input: SyncInput) -> Result<SyncOutput, String> {
     match input {
         SyncInput::InitGenesis { port } => {
             // Initialize as genesis/bootstrap node
-            let peer_id = load_or_generate_peer_id(&storage_path);
+            let peer_id = load_peer_id(&storage_path)?;
             let listen_port = port.unwrap_or(9090);
             let listen_addr = format!("/ip4/0.0.0.0/tcp/{}", listen_port);
 
@@ -238,7 +228,7 @@ pub async fn execute(input: SyncInput) -> Result<SyncOutput, String> {
 
         SyncInput::ConnectBootstrap { bootstrap_address } => {
             // Connect to bootstrap node for peer discovery
-            let peer_id = load_or_generate_peer_id(&storage_path);
+            let peer_id = load_peer_id(&storage_path)?;
 
             let mut state = load_p2p_state(&storage_path);
             let mut bootstrap_nodes = state
@@ -274,7 +264,7 @@ pub async fn execute(input: SyncInput) -> Result<SyncOutput, String> {
         }
 
         SyncInput::GetOwnPeerInfo => {
-            let peer_id = load_or_generate_peer_id(&storage_path);
+            let peer_id = load_peer_id(&storage_path)?;
             let state = load_p2p_state(&storage_path);
 
             Ok(SyncOutput {
@@ -297,18 +287,22 @@ pub async fn execute(input: SyncInput) -> Result<SyncOutput, String> {
             // Get sync state from local storage
             let sync_state = load_sync_state();
 
+            let p2p = load_p2p_state(&storage_path);
             Ok(SyncOutput {
                 success: true,
-                sync_status: Some(SyncStatus {
-                    is_syncing: sync_state.is_syncing,
+                status: Some(SyncStatus {
+                    syncing: sync_state.is_syncing,
+                    connected_peers, // actual count
                     last_sync: sync_state.last_sync_timestamp,
-                    connected_peers, // Now using actual count
-                    pending_uploads: sync_state.pending_uploads.len() as u32,
-                    pending_downloads: sync_state.pending_downloads.len() as u32,
-                    sync_progress: sync_state.progress,
+                    pending_changes: (sync_state.pending_uploads.len() + sync_state.pending_downloads.len()) as u32,
+                    is_genesis: p2p.get("is_genesis").and_then(|v| v.as_bool()).unwrap_or(false),
+                    peer_id: p2p.get("peer_id").and_then(|v| v.as_str()).map(String::from),
+                    listening_address: p2p.get("listening_address").and_then(|v| v.as_str()).map(String::from),
+                    sync_mode: "incremental".to_string(),
                 }),
-                items: None,
-                conflict: None,
+                peers: None,
+                peer_id: None,
+                listening_address: None,
                 error: None,
             })
         }
@@ -399,7 +393,7 @@ fn main() {
     let mut input_json = String::new();
     for i in 1..args.len() {
         if args[i] == "--input" && i + 1 < args.len() {
-            input_json = args[i + 1].clone();
+            input_json = ozone_input_arg(&args[i + 1]);
         }
     }
     let input: SyncInput = serde_json::from_str(&input_json).unwrap_or_else(|e| {
@@ -413,5 +407,18 @@ fn main() {
             println!("{}", serde_json::json!({"success": false, "error": e}));
             std::process::exit(1);
         }
+    }
+}
+
+/// `--input @<path>`: the host stages oversize inputs (> 100 KB) in a file because a
+/// single argv string is capped at 128 KiB (E2BIG). Plain values pass through unchanged.
+#[allow(dead_code)]
+fn ozone_input_arg(raw: &str) -> String {
+    match raw.strip_prefix('@') {
+        Some(path) if std::path::Path::new(path).is_file() => std::fs::read_to_string(path).unwrap_or_else(|e| {
+            eprintln!("Failed to read staged input {}: {}", path, e);
+            std::process::exit(1);
+        }),
+        _ => raw.to_string(),
     }
 }
