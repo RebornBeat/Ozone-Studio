@@ -7326,3 +7326,19 @@ Gate 3 PASSED: host build OK (~6.5 min), 224 lib tests pass, prompt/context_aggr
 - L29 (2026-11-07, uncompiled; no build/test per operator): request_terms keyword hygiene + relevance-first floor; walk_metrics.jsonl + scorecard + walk-completion.mjs + ten markers; ONE vote primitive with configurable strength (validation_preset → OZONE_VALIDATION_STRENGTH, 12 literal-5 sites, duplicate loop removed); provider-step.mjs PS7 fix + review resolver (awaiting-only items unverified); docs: EDIT_CAPTURE_2026-11-07.md (full list, open defects H1–H6, next gate), EDIT_FILE_INDEX regenerated (241 paths), MASTER_TEST_GUIDE §27, ZERO_SHOT_CALL_REGISTRY §17, ZERO_SHOT_EXPANSION_GUIDE E13–E19, CALL_ROUTE R19–R20, STATIC_LOGIC/CONTEXT addenda. Nothing after gate 3 is compiled or verified.
 - L30 (2026-11-07, uncompiled; no build/test): IMPLEMENTED E13 methodology relevance filter (mod.rs Stage 3), E14 `gate_rule_applicability` (stages.rs), E15 post-simulation feasibility re-plan (stages.rs), E17 provider tool choice by the model (execute_provider_step), reduced-motion guard (ui/src/App.css), provider-step.mjs resolve-by-review_id + re-submit. Details docs/EDIT_CAPTURE_2026-11-07.md §J. Open: E16, E18, E19, unified live feed, operator decisions.
 - L31 (2026-11-07, uncompiled; no build/test): E16 keyword re-ask (mod.rs), E18 methodology quality audit (meta_loop.rs), E19 call-site key table (ZERO_SHOT_CALL_REGISTRY §18), unified live feed (liveness frame + last_call()/last_stage() + UI types/ThinkingRow; UI tsc clean). Only operator decisions/actions + the build/test gate remain. docs/EDIT_CAPTURE_2026-11-07.md §K.
+
+## 2026-11-07 (zc) — CATCH-UP after downtime: CC's Nov 1-7 arc reviewed, the WIP preserved (134ba97), the full state reconciled
+zcode was down during CC's Nov 1-7 run. Caught up via git + CHECKLIST + EDIT_CAPTURE_2026-11-07:
+- **CC's arc**: gates re-passed on EU TWICE more (host ~6.5 min builds, 224 lib tests, 16 modality
+  crates, text 25/25 ×3 runs); the edit waves L22-L31 (windowing/latency/UI, capability closure L28,
+  keyword hygiene + relevance-first floor L29a — the ROOT-CAUSE fix for the 61-branch bad plans, walk
+  metrics + scorecard L29b — walk completion honestly measured at 7% of 14 walks, ONE vote primitive
+  L29c, E13-E19: relevance filter, gate_rule_applicability, feasibility re-plan, keyword re-ask,
+  methodology quality audit, call-site key table, unified live feed); the Chat Store commit (586e3b9:
+  138 files, chat persistence + voice IO + consciousness toggles); docs: MODALITY_STATUS,
+  FABRICATED_OUTPUT_AUDIT, DOCTRINE_VIOLATIONS_AUDIT, the scaling test plan, EDIT_CAPTURE + EDIT_FILE_INDEX.
+- **zcode's WIP commit (134ba97)** preserved the 203-file tree (CC's L29-L31 uncompiled waves).
+- **Both hosts**: local healthy on CC's Nov 6 binary (the Chat Store build); EU active.
+- **The next EU pass** (operator go): a FRESH full sync (CC's Nov 2-7 work is local-only — the EU
+  build tree predates it), then Gate 0-style compile + the L29-L31 tests + the scorecard re-run (the
+  keyword hygiene should move the 7% walk-completion funnel), then deploy.
