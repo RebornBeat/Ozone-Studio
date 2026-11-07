@@ -13,15 +13,30 @@ use serde_json::Value;
 /// Default assurance strength: N consecutive affirmations required.
 pub const DEFAULT_STRENGTH: u32 = 5;
 
-/// THE vote strength every yes/no validation uses: the host exports the live registry preset ("strict-5" default / "lenient-3" /
-/// "paranoid-7", config `[k_algorithms] validation_preset`) as `OZONE_VALIDATION_STRENGTH`; pipelines inherit it. Falls back to
-/// `DEFAULT_STRENGTH` when unset (standalone runs, tests). Never 0.
+/// THE vote strength every yes/no validation uses: the host exports the live registry preset as
+/// `OZONE_VALIDATION_STRENGTH` (config `[k_algorithms] validation_preset` — the preset LADDER:
+/// "paranoid-7" / "strict-5" (default) / "lenient-3" / "light-2" / "flash-1"); pipelines inherit it.
+/// Falls back to `DEFAULT_STRENGTH` when unset (standalone runs, tests). Never 0.
 pub fn configured_strength() -> u32 {
     std::env::var("OZONE_VALIDATION_STRENGTH")
         .ok()
         .and_then(|v| v.parse::<u32>().ok())
         .filter(|n| *n >= 1)
         .unwrap_or(DEFAULT_STRENGTH)
+}
+
+/// Preset name → vote count. The registry and the config both speak these names.
+/// Returns None for an unknown name (callers keep their own default).
+pub fn preset_strength(name: &str) -> Option<u32> {
+    let n = name.trim().to_ascii_lowercase();
+    match n.as_str() {
+        "paranoid-7" | "paranoid" => Some(7),
+        "strict-5" | "strict" => Some(5),
+        "lenient-3" | "lenient" => Some(3),
+        "light-2" | "light" => Some(2),
+        "flash-1" | "flash" => Some(1),
+        _ => None,
+    }
 }
 
 /// Selector for validation strategy strength (registry seed).

@@ -3,7 +3,7 @@
 //!
 //! | Kind | Family | Shipped implementations |
 //! |---|---|---|
-//! | `validation` | assurance presets | `strict-5` (default), `lenient-3`, `paranoid-7` |
+//! | `validation` | assurance presets | `strict-5` (default), `lenient-3`, `light-2`, `flash-1`, `paranoid-7` |
 //! | `ordered_loop` | 1×1 loop discipline | `two-strikes` (default), `three-strikes` |
 //! | `pairwise` | pairwise passes | `default` (window 8 / 50 pairs), `wide` (16 / 100) |
 //! | `convergence` | refinement bounds | `fast` (2 passes, default), `deep` (5) |
@@ -66,6 +66,8 @@ impl KAlgorithms {
         let mut validation =
             NamedPresets::new(KAlgorithmKind::Validation, "strict-5", ValidationPolicy { strength: 5 });
         validation.register("lenient-3", ValidationPolicy { strength: 3 });
+        validation.register("light-2", ValidationPolicy { strength: 2 });
+        validation.register("flash-1", ValidationPolicy { strength: 1 });
         validation.register("paranoid-7", ValidationPolicy { strength: 7 });
 
         let mut ordered_loop = NamedPresets::new(
@@ -165,7 +167,7 @@ impl KAlgorithms {
         self.pairwise.write().map(|mut p| p.set_default(name)).unwrap_or(false)
     }
 
-    /// Switch the live default validation (vote strength) preset: "strict-5" | "lenient-3" | "paranoid-7". False (no-op) on an unknown name.
+    /// Switch the live default validation (vote strength) preset: "strict-5" | "lenient-3" | "light-2" | "flash-1" | "paranoid-7". False (no-op) on an unknown name.
     pub fn set_validation_preset(&self, name: &str) -> bool {
         self.validation.write().map(|mut p| p.set_default(name)).unwrap_or(false)
     }

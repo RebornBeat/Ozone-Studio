@@ -7349,3 +7349,16 @@ The uidocument binary rebuilt + redeployed on EU with the declared_charset recor
 visibility is live in production. 7 nodes for the test fragment. The D28 delivery chain is complete:
 BOM/charset-aware reads (host route + engine FilePath), bytes_b64+charset on the route, declared
 charset on the output.
+
+## 2026-11-01 (zc) — THE STRENGTH LADDER: light-2 and flash-1 ADDED (the operator's "we should have 2 and 1")
+**Where configured_strength lives** (the operator's question): `shared/contracts/k_validation.rs` —
+`configured_strength()` reads `OZONE_VALIDATION_STRENGTH` (exported at boot from
+`[k_algorithms] validation_preset` via `k.set_validation_preset` in lib.rs:342), and the presets are
+seeded in `src/k_registry.rs::new()`. The vote call sites: amt.rs:870, stages.rs:803+850 (+
+confirm_times_no). **Current default: strict-5** (config default + the registry seed).
+**Added per the operator**: `light-2` and `flash-1` to the ladder — the full set is now paranoid-7 /
+strict-5 (default) / lenient-3 / light-2 / flash-1 — registered in k_registry::new(), the doc table
+updated, `preset_strength(name)` added to the contract (name → vote count, None on unknown), and
+`configured_strength()` still reads the env with the never-0 floor. Select: `validation_preset =
+"light-2"` in config.toml, or OZONE_VALIDATION_STRENGTH=2 on a pipeline. All UNCOMPILED pending the
+EU build gate.
