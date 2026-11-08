@@ -1922,7 +1922,10 @@ steps this AMT's branch count above actually requires, not necessarily two):
         let related_names_raw = {
             let hits = self
                 .store
-                .search_by_keywords(
+                // RANKED, token-aware (2026-11-08): this was the substring scan over ALL keywords — the flood shape
+                // (hundreds of hits fetched name-by-name into the simulation prompt). Best-first now: the same
+                // names, the best matches first, the flood gone.
+                .search_ranked(
                     &state.keywords.iter().cloned().collect::<Vec<_>>(), // ALL keywords (audit #15)
                     None,
                 )

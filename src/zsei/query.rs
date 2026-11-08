@@ -728,7 +728,12 @@ impl QueryProcessor {
             );
         }
 
-        Ok(direct.into_iter().chain(hop_ids).collect())
+        let returned: Vec<ContainerID> = direct.into_iter().chain(hop_ids).collect();
+        // KEYWORD PROGRAM (2026-11-08): the typed methodology query is Stage 3's heart, but it routed around the search
+        // registry — so its events never reached the hit log and the trainer never saw them. Logged with its own honest
+        // strategy id ("typed-methodology"), terms as received.
+        crate::keyword_program::record_search(keywords, "typed-methodology", &returned);
+        Ok(returned)
     }
     
     /// Search blueprints by task signature with proper matching
