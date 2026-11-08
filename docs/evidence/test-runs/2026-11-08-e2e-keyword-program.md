@@ -1,12 +1,12 @@
 # e2e-keyword-program — 2026-11-08
 
-host: http://127.0.0.1:50051 · duration 4s · PASS 9 · FAIL 0 · SKIP 1
+host: http://127.0.0.1:50051 · duration 9s · PASS 9 · FAIL 0 · SKIP 1
 
 | result | id | test | evidence |
 |---|---|---|---|
-| PASS | K1 | token keeps every exact match and drops the substring flood ('file': far fewer than scan) | {"flood":{"file":{"scan":1098,"token":216,"exact":1},"code":{"scan":1354,"token":1133,"exact":77},"review":{"scan":612,"token":625,"exact":14},"graph":{"scan":162,"token":422,"exact":7}},"exactKept":{"file":true,"code":true,"review":true,"graph":true}} |
+| PASS | K1 | token keeps every exact match and drops the substring flood ('file': far fewer than scan) | {"flood":{"file":{"scan":1098,"token":216,"exact":1},"code":{"scan":1354,"token":1139,"exact":77},"review":{"scan":612,"token":625,"exact":14},"graph":{"scan":162,"token":426,"exact":7}},"exactKept":{"file":true,"code":true,"review":true,"graph":true}} |
 | PASS | K2 | the ranked token search returns the same ORDER twice (deterministic v0 key) | 113 ids |
-| PASS | K3 | a search appends a `search` hit event with its terms and returned ids | bytes 339480 -> 346386 |
+| PASS | K3 | a search appends a `search` hit event with its terms and returned ids | bytes 432725 -> 439667 |
 | PASS | K4 | ModelStatus lists the prepared pretrained-finetune and embedder slots | [["pretrained-finetune","prepared"],["embedder","prepared"]] |
 | PASS | K5 | TrainEmbedder / FineTunePretrained report success:false, available:false and what they require | {"emb":"TrainEmbedder is PREPARED, not runnable: it needs a labelled corpus large enough","ft":"FineTunePretrained is PREPARED, not runnable: it needs third-party pretrained we"} |
 | PASS | K6a | TrainModel on an empty dataset trains nothing and says why (models untouched) | nothing trained: the hit log has no usable labelled groups yet |
